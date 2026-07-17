@@ -39,6 +39,12 @@ export const translations: Record<string, Record<Lang, string>> = {
   "login.signingIn": { en: "Signing in…", ar: "جاري تسجيل الدخول…" },
   "login.showPassword": { en: "Show", ar: "إظهار" },
   "login.hidePassword": { en: "Hide", ar: "إخفاء" },
+  "login.forgotPassword": { en: "Forgot password?", ar: "نسيت كلمة المرور؟" },
+  "login.forgotPasswordPrompt": { en: "Enter your email and we'll send you a link to reset your password.", ar: "أدخل بريدك الإلكتروني وسنرسل لك رابطًا لإعادة تعيين كلمة المرور." },
+  "login.sendResetLink": { en: "Send reset link", ar: "إرسال رابط إعادة التعيين" },
+  "login.sending": { en: "Sending…", ar: "جارٍ الإرسال…" },
+  "login.backToSignIn": { en: "Back to sign in", ar: "العودة لتسجيل الدخول" },
+  "login.resetLinkSent": { en: "If an account exists for that email, a reset link has been sent. Check your inbox.", ar: "إذا كان هناك حساب بهذا البريد، فقد تم إرسال رابط إعادة التعيين. تحقق من بريدك." },
 
   // Dashboard — Client Portal
   "dashboard.client.eyebrow": { en: "Client Portal", ar: "بوابة العميل" },

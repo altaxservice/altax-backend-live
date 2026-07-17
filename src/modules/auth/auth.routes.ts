@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { authenticateUser, buildAuthSuccess, AuthError, AuthSuccess } from "./auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
 import { requireAuth, AuthedRequest } from "../../common/requireAuth";
@@ -7,8 +8,25 @@ import { verifyPassword, createPasswordHashFields } from "./password";
 import { pool } from "../../config/db";
 import { logAudit } from "../../common/audit";
 import { generateTotpSecret, verifyTotpCode, totpQrCodeDataUrl } from "./totp";
+import { wrapEmailHtml } from "../../common/emailTemplate";
 
 export const authRouter = Router();
+
+function newResetToken(): string {
+  return crypto.randomUUID().replace(/-/g, "") + String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function resetLink(portal: string, token: string, email: string): string {
+  const base = String(process.env.FRONTEND_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
+  const params = new URLSearchParams({ email, invite: token, portal });
+  return `${base}/accept-invite?${params.toString()}`;
+}
+
+// In-memory per-email cooldown — this is a public, unauthenticated route that sends
+// real email, so it needs *some* abuse throttle. A restart clearing this map is fine;
+// the real security boundary is the token's randomness + 1-hour expiry, not this.
+const forgotPasswordCooldown = new Map<string, number>();
+const FORGOT_PASSWORD_COOLDOWN_MS = 60_000;
 
 function isError(result: AuthSuccess | AuthError): result is AuthError {
   return (result as AuthError).error !== undefined;
@@ -199,6 +217,48 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
     await logAudit("Security", "SET_PASSWORD", row.user_id || email, "PasswordHash", "", "Set", "Portal password created.", email);
 
     return res.json({ ok: true, email });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * Self-service "forgot password" — reuses the exact same invite_token/invite_expires
+ * mechanism and /accept-invite page as admin-sent invites, just triggered by the user
+ * instead of an admin. Always returns the same generic response whether or not the
+ * email matches an account, so this can't be used to enumerate real user emails.
+ */
+authRouter.post("/forgot-password", asyncHandler(async (req: Request, res: Response) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const generic = { ok: true, message: "If an account exists for that email, a password reset link has been sent." };
+  if (!email || !email.includes("@")) return res.json(generic);
+
+  const last = forgotPasswordCooldown.get(email);
+  if (last && Date.now() - last < FORGOT_PASSWORD_COOLDOWN_MS) return res.json(generic);
+  forgotPasswordCooldown.set(email, Date.now());
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT * FROM altax.v3_users WHERE lower(email) = $1`, [email]);
+    const row = rows[0];
+    if (!row) return res.json(generic);
+
+    const token = newResetToken();
+    const expires = new Date(Date.now() + 60 * 60 * 1000);
+    await client.query(`UPDATE altax.v3_users SET invite_token = $1, invite_expires = $2 WHERE user_id = $3`, [token, expires, row.user_id]);
+
+    const link = resetLink(String(row.role || "").toLowerCase(), token, email);
+    const html = await wrapEmailHtml(`
+      <p>Hi ${row.name || ""},</p>
+      <p>We received a request to reset the password for your account. This link is valid for 1 hour.</p>
+      <p><a href="${link}">Reset your password</a></p>
+      <p>If you didn't request this, you can safely ignore this email — your password will not change.</p>
+    `);
+    const { sendEmail } = await import("../../common/notifications");
+    await sendEmail({ to: email, subject: "Reset your password", html }).catch(() => {});
+
+    await logAudit("Security", "FORGOT_PASSWORD_REQUEST", row.user_id || email, "", "", "", "Password reset link requested.", email);
+    return res.json(generic);
   } finally {
     client.release();
   }

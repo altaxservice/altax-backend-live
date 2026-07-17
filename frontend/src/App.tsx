@@ -39,6 +39,9 @@ function App() {
         <ToastProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/login/staff" element={<LoginPage lockedPortal="staff" />} />
+          <Route path="/login/client" element={<LoginPage lockedPortal="client" />} />
+          <Route path="/login/employee" element={<LoginPage lockedPortal="employee" />} />
           <Route path="/accept-invite" element={<AcceptInvitePage />} />
           <Route path="/public/invoice/:token" element={<PublicInvoicePage />} />
           <Route element={<ProtectedRoute />}>
