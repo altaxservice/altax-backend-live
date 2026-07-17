@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+secrets/
+.DS_Store
+*.log
+frontend/node_modules/
+frontend/dist/
+.claude/

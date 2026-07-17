@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AL TAX SERVICE — Backend Preview</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    margin: 0; padding: 32px; background: #f6f7f9; color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #15171a; color: #e8e8e8; }
+    .card, table, .empty { background: #1f2226 !important; border-color: #2e3238 !important; }
+    th { background: #262a2f !important; color: #aab0b8 !important; }
+    td { border-color: #2a2e33 !important; }
+    .badge { background: #2a2e33 !important; }
+    .tab { color: #9aa1a9 !important; }
+    .tab.active { color: #e8e8e8 !important; border-bottom-color: #6b8afd !important; }
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .subtitle { color: #6b7280; margin: 0 0 20px; font-size: 14px; }
+  .banner {
+    background: #fff8e6; border: 1px solid #f0d78c; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; margin-bottom: 24px; color: #6b5410;
+  }
+  .stats { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+  .card {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 16px 20px; min-width: 130px; flex: 1;
+  }
+  .card .num { font-size: 26px; font-weight: 700; }
+  .card .label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e7eb; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab {
+    padding: 10px 16px; font-size: 14px; font-weight: 500; color: #6b7280; cursor: pointer;
+    border-bottom: 2px solid transparent; user-select: none;
+  }
+  .tab.active { color: #1a1a1a; border-bottom-color: #4f6bed; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  h2 { font-size: 15px; margin: 20px 0 10px; }
+  h2:first-child { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-bottom: 6px; }
+  th, td { text-align: left; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid #eef0f2; }
+  th { background: #fafafa; color: #6b7280; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.02em; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; }
+  .muted { color: #9ca3af; font-size: 12px; margin: 0 0 20px; }
+  .error { color: #b91c1c; }
+  .empty { color: #9ca3af; font-size: 13px; padding: 16px; text-align: center; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; }
+</style>
+</head>
+<body>
+  <h1>AL TAX SERVICE — Backend Preview</h1>
+  <p class="subtitle">Internal, read-only view of what the backend can do. This is not the real client/staff app — it's a demo built to show the API working against your real data.</p>
+  <div class="banner">This page only reads data. It cannot create, edit, or delete anything. Only visible on this computer while the server is running.</div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-panel="clients">Clients</div>
+    <div class="tab" data-panel="tasks">Tasks</div>
+    <div class="tab" data-panel="documents">Documents</div>
+    <div class="tab" data-panel="billing">Billing</div>
+    <div class="tab" data-panel="communications">Communications</div>
+    <div class="tab" data-panel="accounting">Accounting</div>
+    <div class="tab" data-panel="rules">Rules &amp; Batches</div>
+    <div class="tab" data-panel="vault">Vault &amp; Payment Methods</div>
+  </div>
+
+  <div class="panel active" id="panel-clients">
+    <h2>Clients</h2>
+    <table id="clientsTable"><thead><tr><th>Name</th><th>Status</th><th>Entity Type</th><th>Assigned To</th><th>Portal</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="clientsMore"></p>
+  </div>
+
+  <div class="panel" id="panel-tasks">
+    <h2>Tasks</h2>
+    <table id="tasksTable"><thead><tr><th>Task</th><th>Client</th><th>Status</th><th>Assigned To</th><th>Due Date</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="tasksMore"></p>
+  </div>
+
+  <div class="panel" id="panel-documents">
+    <h2>Document Requests</h2>
+    <table id="docRequestsTable"><thead><tr><th>Requested Item</th><th>Client</th><th>Status</th><th>Priority</th><th>Due From Client</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="docRequestsMore"></p>
+    <h2>Uploads</h2>
+    <table id="docUploadsTable"><thead><tr><th>File</th><th>Client</th><th>Direction</th><th>Status</th><th>Uploaded</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="docUploadsMore"></p>
+  </div>
+
+  <div class="panel" id="panel-billing">
+    <h2>Invoices</h2>
+    <table id="invoicesTable"><thead><tr><th>Invoice</th><th>Client</th><th>Total</th><th>Balance Due</th><th>Status</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="invoicesMore"></p>
+  </div>
+
+  <div class="panel" id="panel-communications">
+    <h2>Recent Communications</h2>
+    <table id="commsTable"><thead><tr><th>Subject</th><th>Client</th><th>Channel</th><th>Direction</th><th>Sent</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="commsMore"></p>
+  </div>
+
+  <div class="panel" id="panel-accounting">
+    <h2>Chart of Accounts</h2>
+    <table id="coaTable"><thead><tr><th>Account</th><th>Type</th><th>Normal Balance</th><th>Active</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="coaMore"></p>
+    <h2>Tax Rates</h2>
+    <table id="taxRatesTable"><thead><tr><th>Rate Type</th><th>Scope</th><th>Rate</th><th>State</th><th>Active</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="taxRatesMore"></p>
+  </div>
+
+  <div class="panel" id="panel-rules">
+    <h2>Task Rules</h2>
+    <table id="rulesTable"><thead><tr><th>Task Type</th><th>Trigger</th><th>Frequency</th><th>Active</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="rulesMore"></p>
+    <h2>Recent Batches</h2>
+    <table id="batchesTable"><thead><tr><th>Task Type</th><th>Period</th><th>Created</th><th>Created By</th></tr></thead><tbody></tbody></table>
+    <p class="muted" id="batchesMore"></p>
+  </div>
+
+  <div class="panel" id="panel-vault">
+    <h2>Secure Vault &amp; Payment Methods</h2>
+    <div class="empty" style="text-align:left; padding: 16px 20px; line-height: 1.6;">
+      These two modules are intentionally not shown here. Both hold real client secrets
+      (portal logins, bank account/routing numbers) that are now encrypted server-side —
+      but this demo page is a broad, unauthenticated-feeling convenience tool, and even
+      metadata browsing across every client isn't the right thing to expose from it.
+      <br><br>
+      What exists and is fully working (verified directly against the real database,
+      not just this page): <b>Secure Vault</b> — create/list/reveal/delete a client's
+      encrypted secrets, admin-only, every access logged — at
+      <code>/vault/:clientId</code>. <b>Payment Methods</b> — encrypted account/routing
+      numbers, last-4 shown for display only — at <code>/payment-methods/:clientId</code>.
+    </div>
+  </div>
+
+<script src="preview.js"></script>
+</body>
+</html>

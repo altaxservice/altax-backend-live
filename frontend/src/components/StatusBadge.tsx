@@ -1,0 +1,17 @@
+/** Mirrors the legacy .status-pill color system (status-open/completed/overdue/etc). */
+function colorClassFor(status: string): string {
+  const s = status.toLowerCase().trim();
+  if (["open", "not started", "partial"].includes(s)) return "status-amber";
+  if (["completed", "closed", "paid", "active"].includes(s)) return "status-green";
+  if (["overdue", "unpaid", "void", "reversed"].includes(s)) return "status-red";
+  if (["in progress", "progress", "pending", "received", "file uploaded", "created", "queued", "printed"].includes(s)) return "status-blue";
+  if (["waiting on client", "waiting docs", "requested"].includes(s)) return "status-amber";
+  if (["ready for review", "under review"].includes(s)) return "status-teal";
+  if (["unknown", "inactive", "archived", "deleted"].includes(s)) return "status-gray";
+  return "status-gray";
+}
+
+export function StatusBadge({ status }: { status: string | null | undefined }) {
+  const label = status || "—";
+  return <span className={`status-pill ${colorClassFor(label)}`}>{label}</span>;
+}

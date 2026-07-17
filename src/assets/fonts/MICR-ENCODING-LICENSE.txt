@@ -1,0 +1,18 @@
+Font: MICR Encoding (E-13B)
+Foundry: Digital Graphic Labs, © 1998
+Source: https://www.1001fonts.com/micr-encoding-font.html
+Terms: Free for personal and commercial use per 1001fonts.com distribution
+terms (custom license bundled with the font download, not SIL OFL). Used
+here embedded/subsetted into generated PDF paychecks, not redistributed
+as a standalone font file.
+
+Character mapping (this font, verified via fontTools cmap + rendered
+specimen against Morovia's published MICR font convention docs):
+  0-9        -> E-13B numeral glyphs
+  A          -> Transit symbol (brackets the 9-digit routing number)
+  B          -> Amount symbol  (brackets the dollar-amount field; left for
+                the bank to encode, not printed by the check issuer)
+  C          -> On-Us symbol   (terminates the account-number field)
+  D          -> Dash symbol    (general-purpose separator)
+
+See src/modules/accounting/paycheckPdf.ts for how these are used.
