@@ -279,7 +279,10 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 }
 
 /* ---- Tables ---- */
-table { width: 100%; border-collapse: collapse; }
+table { width: 100%; min-width: 620px; border-collapse: collapse; }
+/* Wraps every raw <table> so it scrolls horizontally on narrow viewports instead of
+   squashing cell text unreadably — table's own min-width above is what triggers this. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 th, td { text-align: left; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
 th { background: var(--surface); color: var(--muted); font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; }
 th.sortable { cursor: pointer; user-select: none; }
@@ -373,6 +376,26 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .create-launch { width: 100%; justify-content: center; }
 
+/* ---- Mobile nav (hamburger + drawer backdrop) ---- */
+.hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 31, 43, 0.5);
+  z-index: 55;
+}
+
 /* ---- Top header bar ---- */
 .topbar {
   display: flex;
@@ -407,6 +430,7 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .topbar-user-name { font-size: 13px; font-weight: 800; }
 .topbar-user-role { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
+.topbar-more-btn { display: none; }
 
 /* ---- Modal (Create, Change Password) ---- */
 .modal-overlay {
@@ -528,4 +552,64 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Responsive baseline (Phase 1) ----
+   860px: nav/topbar collapse point, deliberately above the 768px tablet width so
+   tablets-in-portrait also get the drawer nav rather than a squeezed sidebar.
+   480px: tightens spacing further and turns modals into bottom sheets for phones. */
+@media (max-width: 860px) {
+  .hamburger-btn { display: inline-flex; }
+  .topbar-more-btn { display: inline-flex; }
+  .topbar-user { display: none; }
+  .topbar-collapsible { display: none !important; }
+  .topbar-collapsible.open {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 16px;
+    left: 16px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    padding: 10px;
+    z-index: 40;
+  }
+  .topbar-collapsible.open .topbar-search input { min-width: 0; width: 100%; }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: 12px 0 32px rgba(15, 23, 42, 0.25); }
+  .sidebar-backdrop.open { display: block; }
+
+  .topbar { padding: 14px 16px; }
+  main { padding: 16px !important; }
+  .client-panel { display: none; }
+
+  /* .command-grid's right column has a minmax(280px, …) floor that never shrinks —
+     on a phone its content overflows the collapsed left column's track and visually
+     overlaps it (grid doesn't clip overflowing children by default). Stack instead. */
+  .command-grid, .command-grid-even { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal-panel {
+    width: 100%;
+    max-width: 100% !important;
+    max-height: 90vh;
+    border-radius: 12px 12px 0 0;
+    padding: 16px;
+  }
+  .create-grid { grid-template-columns: 1fr; }
+  .login-role-grid { grid-template-columns: 1fr; }
 }

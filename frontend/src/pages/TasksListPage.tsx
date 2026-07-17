@@ -351,6 +351,7 @@ export function TasksListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{filtered.length} tasks</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead>
               <tr>
@@ -401,6 +402,7 @@ export function TasksListPage() {
               ))}
             </tbody>
           </table>
+          </div>
           </div>
           {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
         </div>

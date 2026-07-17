@@ -302,6 +302,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
     <div className="command-panel">
       <div className="command-panel-header"><h2 className="command-panel-title">{title}</h2><div className="command-panel-note">{users.length} users</div></div>
       <div style={{ overflowX: "auto" }}>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -355,6 +356,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

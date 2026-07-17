@@ -292,6 +292,7 @@ export function InvoicesListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{filteredInvoices.length} invoices</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead>
               <tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th>{canManage && <th>Action</th>}</tr>
@@ -330,6 +331,7 @@ export function InvoicesListPage() {
             </tbody>
           </table>
           </div>
+          </div>
           {filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices match.</p>}
         </div>
       )}
@@ -341,6 +343,7 @@ export function InvoicesListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{schedules.length} schedule(s)</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Client</th><th>Description</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Due Days</th><th>Auto</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
@@ -363,6 +366,7 @@ export function InvoicesListPage() {
             </tbody>
           </table>
           </div>
+          </div>
           {schedules.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No recurring billing schedules yet.</p>}
         </div>
       )}
@@ -374,6 +378,7 @@ export function InvoicesListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{firmPayments?.length ?? 0} payment rows</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Payment</th><th>Invoice</th><th>Client</th><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
             <tbody>
@@ -391,6 +396,7 @@ export function InvoicesListPage() {
             </tbody>
           </table>
           </div>
+          </div>
           {(firmPayments || []).length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No firm invoice payments for this period.</p>}
         </div>
       )}
@@ -402,6 +408,7 @@ export function InvoicesListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{taxRows?.length ?? 0} tax payment rows</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Payment / Due</th><th>Client</th><th>Related Task</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
             <tbody>
@@ -418,6 +425,7 @@ export function InvoicesListPage() {
               ))}
             </tbody>
           </table>
+          </div>
           </div>
           {(taxRows || []).length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No client tax payment rows for this period.</p>}
         </div>

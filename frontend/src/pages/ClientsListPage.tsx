@@ -443,6 +443,7 @@ export function ClientsListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{filtered.length} of {clients.length} clients</span>
           </div>
           <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead>
               <tr>
@@ -494,6 +495,7 @@ export function ClientsListPage() {
               })}
             </tbody>
           </table>
+          </div>
           </div>
           {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No clients match.</p>}
         </div>

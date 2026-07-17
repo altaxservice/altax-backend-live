@@ -63,6 +63,7 @@ export function TemplatesPage() {
         </p>
         {!templates && !error && <div className="spinner-wrap">Loading…</div>}
         {templates && (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Template</th><th>Category</th><th>Subject</th><th>Active</th><th>Source</th><th></th></tr></thead>
             <tbody>
@@ -78,6 +79,7 @@ export function TemplatesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

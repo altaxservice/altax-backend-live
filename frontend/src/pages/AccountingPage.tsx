@@ -314,6 +314,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           </form>
         )}
         <div className="scroll-list">
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>Gross</th><th>Categories</th><th>Tax Due</th><th>Payment</th><th>Notes</th><th></th></tr></thead>
             <tbody>
@@ -330,6 +331,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         {sales.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No sales recorded yet.</p>}
       </Panel>
@@ -551,6 +553,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           <div className="metric"><div className="metric-label">Checks</div><div className="metric-value">{paychecksInPeriod.length}</div></div>
         </div>
         <div className="scroll-list">
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Pay Date</th><th>Employee</th><th>Gross</th><th>Net Pay</th></tr></thead>
             <tbody>
@@ -564,6 +567,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         {paychecksInPeriod.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
       </Panel>
@@ -706,6 +710,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
           </div>
         }
       >
+        <div className="table-scroll">
         <table>
           <thead><tr><th>Name</th><th>Type</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -740,6 +745,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
             })}
           </tbody>
         </table>
+        </div>
         {employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees or contractors added yet.</p>}
       </Panel>
     </div>
@@ -943,6 +949,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
           </form>
         )}
         <div className="scroll-list">
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>Contractor</th><th>Amount</th><th>Method</th><th>Category</th><th>1099</th><th>Memo</th><th></th></tr></thead>
             <tbody>
@@ -963,6 +970,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         {payments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No contractor payments yet.</p>}
       </Panel>
@@ -1081,6 +1089,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
       </Panel>
       <Panel title="Recent Manual Entries" note={`${entries.length} entries`}>
         <div className="scroll-list">
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Lines</th><th>Total</th></tr></thead>
             <tbody>
@@ -1099,6 +1108,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         {entries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No manual entries posted yet.</p>}
       </Panel>
@@ -1147,6 +1157,7 @@ function GlTab({ clientId }: { clientId: string }) {
           <div className="metric-value" style={{ color: Math.abs(totalDebit - totalCredit) < 0.01 ? undefined : "var(--danger, #cf222e)" }}>{fmtMoney(Math.abs(totalDebit - totalCredit))}</div>
         </div>
       </div>
+      <div className="table-scroll">
       <table>
         <thead><tr><th>Date</th><th>Ref</th><th>Account</th><th>Description</th><th>Debit</th><th>Credit</th><th>Source</th></tr></thead>
         <tbody>
@@ -1163,6 +1174,7 @@ function GlTab({ clientId }: { clientId: string }) {
           ))}
         </tbody>
       </table>
+      </div>
       {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No GL activity in this period.</p>}
       {filtered.length > 60 && <p className="muted" style={{ padding: "0 16px 12px" }}>Showing most recent 60 of {filtered.length}.</p>}
     </Panel>
@@ -1269,6 +1281,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
         </form>
       )}
       <div className="scroll-list">
+        <div className="table-scroll">
         <table>
           <thead><tr><th>Pay Date</th><th>Period</th><th>Check #</th><th>Employee</th><th>Gross</th><th>Employee Taxes</th><th>Net Pay</th><th>Employer Taxes</th><th>Total Cost</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -1300,6 +1313,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       {paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks yet.</p>}
     </Panel>
@@ -1397,6 +1411,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
       {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
       {!items && !error && <div className="spinner-wrap">Loading…</div>}
       {items && (
+        <div className="table-scroll">
         <table>
           <thead><tr><th></th><th>Item</th><th>Category</th><th>Completed By</th><th>Completed At</th></tr></thead>
           <tbody>
@@ -1414,6 +1429,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </Panel>
   );
@@ -1635,6 +1651,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
               <h2 className="command-panel-title" style={{ fontSize: 15 }}>W-2 Review ({data.employees.length})</h2>
             </div>
             <div className="scroll-list" style={{ marginBottom: 20 }}>
+              <div className="table-scroll">
               <table>
                 <thead><tr><th>Employee</th><th>SSN</th><th>Wages</th><th>Fed Tax</th><th>MD Tax</th><th>Status</th><th>Review Issues</th><th></th></tr></thead>
                 <tbody>
@@ -1656,6 +1673,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             {data.employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees on file.</p>}
 
@@ -1663,6 +1681,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
               <h2 className="command-panel-title" style={{ fontSize: 15 }}>1099-NEC Review ({data.contractors.length})</h2>
             </div>
             <div className="scroll-list" style={{ marginBottom: 20 }}>
+              <div className="table-scroll">
               <table>
                 <thead><tr><th>Contractor</th><th>TIN</th><th>NEC (Box 1a)</th><th>Status</th><th>Review Issues</th><th></th></tr></thead>
                 <tbody>
@@ -1682,6 +1701,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             {data.contractors.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No contractors on file.</p>}
 
@@ -1794,6 +1814,7 @@ function TaxRatesTab() {
       {rates && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
+            <div className="table-scroll">
             <table>
               <thead><tr><th>Rate ID</th><th>Rate Type</th><th>Scope</th><th>Client</th><th>Rate</th><th>Side</th><th>Wage Cap</th><th>State</th><th>Notes</th><th>Active</th><th></th></tr></thead>
               <tbody>
@@ -1817,6 +1838,7 @@ function TaxRatesTab() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -1900,6 +1922,7 @@ function CoaTab() {
       {accounts && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
+            <div className="table-scroll">
             <table>
               <thead><tr><th>Account #</th><th>Account</th><th>Type</th><th>Detail Type</th><th>Normal Balance</th><th>Balance</th><th>Active</th><th></th></tr></thead>
               <tbody>
@@ -1920,6 +1943,7 @@ function CoaTab() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

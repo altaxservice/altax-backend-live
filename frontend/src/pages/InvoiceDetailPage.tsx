@@ -267,6 +267,7 @@ export function InvoiceDetailPage() {
       {lineItems.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
           <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Line Items</h2>
+          <div className="table-scroll">
           <table style={{ marginTop: 12 }}>
             <thead><tr><th>Service Date</th><th>Product/Service</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
             <tbody>
@@ -282,11 +283,13 @@ export function InvoiceDetailPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Payments</h2>
+        <div className="table-scroll">
         <table style={{ marginTop: 12 }}>
           <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -305,6 +308,7 @@ export function InvoiceDetailPage() {
             ))}
           </tbody>
         </table>
+        </div>
         {payments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No payments recorded.</p>}
       </div>
     </div>

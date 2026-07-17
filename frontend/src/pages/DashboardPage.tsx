@@ -582,6 +582,7 @@ function EmployeeCommand() {
         {!paychecks && !error && <p className="muted" style={{ padding: 16 }}>{t("common.loading")}</p>}
         {paychecks && paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("dashboard.employee.noPaystubs")}</p>}
         {paychecks && paychecks.length > 0 && (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>{t("dashboard.employee.payDate")}</th><th>{t("dashboard.employee.employer")}</th><th>{t("dashboard.employee.period")}</th><th>{t("dashboard.employee.gross")}</th><th>{t("dashboard.employee.taxes")}</th><th>{t("dashboard.employee.netPay")}</th><th>{t("dashboard.employee.status")}</th><th></th></tr></thead>
             <tbody>
@@ -606,6 +607,7 @@ function EmployeeCommand() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

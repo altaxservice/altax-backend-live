@@ -95,6 +95,7 @@ export function SecurityPage() {
       <div className="command-panel" style={{ marginBottom: 16 }}>
         <div className="command-panel-header"><h2 className="command-panel-title">Portal User Security</h2><div className="command-panel-note">{data.users.length} users</div></div>
         <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
           <table>
             <thead>
               <tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th><th>MFA</th><th>Storage</th><th>Failed</th><th>Locked Until</th><th>Last Login</th><th>Active</th></tr>
@@ -116,11 +117,13 @@ export function SecurityPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
       <div className="command-panel">
         <div className="command-panel-header"><h2 className="command-panel-title">Recent Login / Security Events</h2><div className="command-panel-note">{data.events.length} events</div></div>
+        <div className="table-scroll">
         <table>
           <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Record</th><th>Note</th></tr></thead>
           <tbody>
@@ -135,6 +138,7 @@ export function SecurityPage() {
             ))}
           </tbody>
         </table>
+        </div>
         {data.events.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No security events yet.</p>}
       </div>
     </div>

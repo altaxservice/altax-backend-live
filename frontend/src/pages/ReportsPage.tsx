@@ -302,6 +302,7 @@ export function ReportsPage() {
                   <h2 className="command-panel-title">Monthly Trend</h2>
                   <div className="command-panel-note">{firmSummary.activeClientCount} active clients · {firmSummary.unpaidInvoiceCount} unpaid invoices</div>
                 </div>
+                <div className="table-scroll">
                 <table>
                   <thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead>
                   <tbody>
@@ -315,6 +316,7 @@ export function ReportsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </>
           )}
@@ -394,6 +396,7 @@ export function ReportsPage() {
                   <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Net Income</div><div className="metric-value">{fmtMoney(netIncome)}</div></div>
                   <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">GL Entries</div><div className="metric-value">{filtered.length}</div></div>
                 </div>
+                <div className="table-scroll">
                 <table>
                   <thead><tr><th>Account</th><th>Debit</th><th>Credit</th></tr></thead>
                   <tbody>
@@ -402,6 +405,7 @@ export function ReportsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}
@@ -434,6 +438,7 @@ export function ReportsPage() {
               </div>
               <div className="command-panel" style={{ marginBottom: 16 }}>
                 <div className="command-panel-header"><h2 className="command-panel-title">Payroll Tax Summary</h2><div className="command-panel-note">{from} – {to}</div></div>
+                <div className="table-scroll">
                 <table>
                   <thead><tr><th>Tax</th><th>Employee</th><th>Employer</th><th>Total</th></tr></thead>
                   <tbody>
@@ -445,11 +450,13 @@ export function ReportsPage() {
                     </tr>
                   </tbody>
                 </table>
+                </div>
               </div>
               <div className="command-panel">
                 <div className="command-panel-header"><h2 className="command-panel-title">Checks</h2><div className="command-panel-note">{filteredPaychecks.length} in period</div></div>
                 {filteredPaychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
                 {filteredPaychecks.length > 0 && (
+                  <div className="table-scroll">
                   <table>
                     <thead><tr><th>Date</th><th>Employee</th><th>Gross</th><th>Net</th></tr></thead>
                     <tbody>
@@ -458,6 +465,7 @@ export function ReportsPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </div>
             </>

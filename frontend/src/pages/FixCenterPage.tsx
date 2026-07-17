@@ -173,6 +173,7 @@ export function FixCenterPage() {
       {tables && (
         <div className="command-panel">
           <div className="command-panel-header"><h2 className="command-panel-title">Table Row Counts</h2><div className="command-panel-note">{tables.length} tables — useful when comparing before/after a data change</div></div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Table</th><th>Row Count</th></tr></thead>
             <tbody>
@@ -184,6 +185,7 @@ export function FixCenterPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

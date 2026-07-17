@@ -91,6 +91,7 @@ export function Layout() {
   const { clientId } = useSelectedClient();
   const { t, dir } = useLanguage();
   const [showCreate, setShowCreate] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
@@ -109,9 +110,16 @@ export function Layout() {
     document.title = `${pageTitle} · ${portalLabel} – ${APP_NAME}`;
   }, [pageTitle, user]);
 
+  // Auto-close the mobile drawer on navigation — otherwise a route change happening
+  // "behind" the open drawer leaves it stuck open over the new page.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside className="sidebar" dir={sidebarDir}>
+      <div className={`sidebar-backdrop ${mobileNavOpen ? "open" : ""}`} onClick={() => setMobileNavOpen(false)} />
+      <aside className={`sidebar ${mobileNavOpen ? "open" : ""}`} dir={sidebarDir}>
         <div className="brand-lockup">
           <FirmLogo size={40} />
           <div>
@@ -138,7 +146,7 @@ export function Layout() {
         </div>
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <Header title={displayTitle} />
+        <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} />
         <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
           <main style={{ flex: 1, padding: "24px 32px", overflowX: "auto", minWidth: 0 }}>
             <Outlet />

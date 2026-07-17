@@ -256,6 +256,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
 
         <div className="form-section-title">Product or Service</div>
         <div style={{ overflowX: "auto", marginBottom: 8 }}>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Service Date</th><th>Product/Service</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Tax</th><th></th></tr></thead>
             <tbody>
@@ -285,6 +286,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button type="button" className="btn btn-sm" onClick={addRow}>Add product or service</button>

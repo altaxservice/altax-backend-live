@@ -6,54 +6,62 @@ import { useLanguage } from "../context/LanguageContext";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
-export function Header({ title }: { title: string }) {
+export function Header({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { lang, setLang, t, dir } = useLanguage();
   const [search, setSearch] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showTotpModal, setShowTotpModal] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
 
   function handleSearch(e: FormEvent) {
     e.preventDefault();
     const q = search.trim();
     if (!q) return;
+    setShowMore(false);
     navigate(`/search?q=${encodeURIComponent(q)}`);
   }
 
   return (
     <>
       <header className="topbar" dir={showLanguageToggle ? dir : "ltr"}>
-        <div>
-          <div className="topbar-eyebrow">{EYEBROW}</div>
-          <h1 className="topbar-title">{title}</h1>
-          <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} {t("header.workspace")}</div>
-        </div>
-        <div className="topbar-actions">
-          {showLanguageToggle && (
-            <div className="topbar-lang-toggle" role="group" aria-label={t("header.language")} style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
-              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "en" ? 800 : 500, background: lang === "en" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("en")}>EN</button>
-              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "ar" ? 800 : 500, background: lang === "ar" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("ar")}>عربي</button>
-            </div>
-          )}
-          <form onSubmit={handleSearch} className="topbar-search">
-            <div className="topbar-search-label">{t("header.search")}</div>
-            <input
-              placeholder={t("header.searchPlaceholder")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </form>
-          <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
-          <div className="topbar-user">
-            <div className="topbar-user-name">{user?.name || user?.email}</div>
-            <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <button type="button" className="hamburger-btn" aria-label={t("header.menu")} onClick={onMenuClick}>☰</button>
+          <div>
+            <div className="topbar-eyebrow">{EYEBROW}</div>
+            <h1 className="topbar-title">{title}</h1>
+            <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} {t("header.workspace")}</div>
           </div>
-          <button type="button" className="btn" onClick={() => setShowPasswordModal(true)}>{t("header.changePassword")}</button>
-          <button type="button" className="btn" onClick={() => setShowTotpModal(true)}>
-            {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
-          </button>
+        </div>
+        <div className="topbar-actions" style={{ position: "relative" }}>
+          <button type="button" className="topbar-more-btn btn" aria-label={t("header.more")} onClick={() => setShowMore((v) => !v)}>⋮</button>
+          <div className={`topbar-collapsible ${showMore ? "open" : ""}`}>
+            {showLanguageToggle && (
+              <div className="topbar-lang-toggle" role="group" aria-label={t("header.language")} style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+                <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "en" ? 800 : 500, background: lang === "en" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("en")}>EN</button>
+                <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "ar" ? 800 : 500, background: lang === "ar" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("ar")}>عربي</button>
+              </div>
+            )}
+            <form onSubmit={handleSearch} className="topbar-search">
+              <div className="topbar-search-label">{t("header.search")}</div>
+              <input
+                placeholder={t("header.searchPlaceholder")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </form>
+            <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
+            <div className="topbar-user">
+              <div className="topbar-user-name">{user?.name || user?.email}</div>
+              <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
+            </div>
+            <button type="button" className="btn" onClick={() => { setShowMore(false); setShowPasswordModal(true); }}>{t("header.changePassword")}</button>
+            <button type="button" className="btn" onClick={() => { setShowMore(false); setShowTotpModal(true); }}>
+              {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
+            </button>
+          </div>
           <button type="button" className="btn" onClick={logout}>{t("header.signOut")}</button>
         </div>
       </header>

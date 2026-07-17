@@ -26,6 +26,8 @@ export const translations: Record<string, Record<Lang, string>> = {
   "header.signOut": { en: "Sign Out", ar: "تسجيل الخروج" },
   "header.workspace": { en: "workspace", ar: "مساحة العمل" },
   "header.language": { en: "Language", ar: "اللغة" },
+  "header.menu": { en: "Menu", ar: "القائمة" },
+  "header.more": { en: "More", ar: "المزيد" },
 
   // Login
   "login.securePortal": { en: "Secure Portal", ar: "بوابة آمنة" },

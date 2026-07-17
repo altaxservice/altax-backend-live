@@ -174,6 +174,7 @@ export function RulesPage() {
             <h2 style={{ fontSize: 15, margin: 0 }}>Task Rules</h2>
             <span className="muted" style={{ fontSize: 12 }}>{filteredRules.length} rules</span>
           </div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Rule</th><th>Task Type</th><th>Trigger</th><th>Frequency</th><th>Portal</th><th>Warnings</th><th>Active</th><th>Actions</th></tr></thead>
             <tbody>
@@ -194,6 +195,7 @@ export function RulesPage() {
               ))}
             </tbody>
           </table>
+          </div>
           {filteredRules.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No rules match.</p>}
         </div>
       )}
@@ -201,6 +203,7 @@ export function RulesPage() {
       {batches && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 8px" }}>Recent Batches</h2>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Task Type</th><th>Period</th><th>Created</th><th>Created By</th><th>Count</th></tr></thead>
             <tbody>
@@ -215,6 +218,7 @@ export function RulesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

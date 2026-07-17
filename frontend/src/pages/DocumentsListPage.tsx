@@ -265,6 +265,7 @@ export function DocumentsListPage() {
 
       {ready && !canManage && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
             <tbody>
@@ -279,6 +280,7 @@ export function DocumentsListPage() {
               ))}
             </tbody>
           </table>
+          </div>
           {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
         </div>
       )}
@@ -291,6 +293,7 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{openRequests.length} waiting</span>
             </div>
             <div style={{ overflowX: "auto" }}>
+              <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
@@ -320,6 +323,7 @@ export function DocumentsListPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             {openRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No open requests.</p>}
           </div>
@@ -330,6 +334,7 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{receivedRequests.length} request(s) ready</span>
             </div>
             <div style={{ overflowX: "auto" }}>
+              <div className="table-scroll">
               <table>
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
                 <tbody>
@@ -347,6 +352,7 @@ export function DocumentsListPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             {receivedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No received client documents.</p>}
           </div>
@@ -357,6 +363,7 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{sentRequests.length} request(s) shared</span>
             </div>
             <div style={{ overflowX: "auto" }}>
+              <div className="table-scroll">
               <table>
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
                 <tbody>
@@ -374,6 +381,7 @@ export function DocumentsListPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
             {sentRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No documents shared to clients.</p>}
           </div>

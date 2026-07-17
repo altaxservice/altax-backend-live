@@ -48,6 +48,7 @@ export function SearchResultsPage() {
       {results && results.clients.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Clients</div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th></tr></thead>
             <tbody>
@@ -61,12 +62,14 @@ export function SearchResultsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {results && results.tasks.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Tasks</div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Task</th><th>Client</th><th>Status</th><th>Due Date</th></tr></thead>
             <tbody>
@@ -80,12 +83,14 @@ export function SearchResultsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {results && results.invoices.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Invoices</div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Invoice</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
             <tbody>
@@ -99,12 +104,14 @@ export function SearchResultsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {results && results.documents.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Document Requests</div>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Item</th><th>Client</th><th>Status</th></tr></thead>
             <tbody>
@@ -117,6 +124,7 @@ export function SearchResultsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

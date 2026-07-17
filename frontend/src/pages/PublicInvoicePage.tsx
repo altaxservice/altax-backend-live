@@ -93,6 +93,7 @@ export function PublicInvoicePage() {
 
       {lineItems.length > 0 ? (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+          <div className="table-scroll">
           <table style={{ marginTop: 0 }}>
             <thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
             <tbody>
@@ -106,6 +107,7 @@ export function PublicInvoicePage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div className="card" style={{ marginBottom: 20 }}>{invoice.description || "Service invoice"}</div>

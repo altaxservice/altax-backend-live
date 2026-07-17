@@ -269,6 +269,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         </label>
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Staff Message"}</button>
       </form>
+      <div className="table-scroll">
       <table>
         <thead><tr><th>Date/Time</th><th>Channel</th><th>Sent To</th><th>Subject</th><th>Status</th></tr></thead>
         <tbody>
@@ -283,6 +284,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
           ))}
         </tbody>
       </table>
+      </div>
       {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No firm-staff messages saved yet.</p>}
     </Panel>
   );
