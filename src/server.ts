@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter } from "./modules/clients/clients.routes";
 import { usersRouter } from "./modules/users/users.routes";
@@ -37,6 +38,24 @@ app.get("/health", (_req, res) => res.json({ ok: true, phase: "0-foundation" }))
 // app, just a way to see the API's data against real records without a frontend yet.
 app.use(express.static("public"));
 
+const frontendDist = path.join(__dirname, "..", "frontend", "dist");
+
+// Several frontend page paths intentionally match API route prefixes 1:1 (the "/clients"
+// page vs. "GET /clients" the list endpoint, "/firm-settings" the page vs. its own GET
+// route, etc.) — both are correct on their own, but with the frontend and API on one
+// origin, Express would otherwise route a real page load of e.g. "/clients" into the
+// clients API instead of the app. The fix: real browser navigation (address bar, refresh,
+// bookmark) always sends "Accept: text/html" first; this app's own fetch() calls never do
+// (Content-Type is set, Accept is not, so it defaults to "*/*") — so intercepting only
+// html-preferring GETs here, before any API router is mounted, serves the app for page
+// loads while leaving every actual API call untouched.
+app.get("*", (req, res, next) => {
+  if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
+  res.sendFile(path.join(frontendDist, "index.html"), (err) => {
+    if (err) next(err);
+  });
+});
+
 app.use("/auth", authRouter);
 app.use("/clients", clientsRouter);
 app.use("/users", usersRouter);
@@ -57,6 +76,10 @@ app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/reminders", remindersRouter);
 app.use("/firm-settings", firmSettingsRouter);
+
+// Static JS/CSS/asset files for the build above — these have real file extensions and
+// never collide with an API prefix, so plain static serving after the API routers is safe.
+app.use(express.static(frontendDist));
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found." });

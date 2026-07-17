@@ -4,7 +4,7 @@
   "description": "AL TAX SERVICE - Phase 0 backend foundation (auth, db, migration skeleton)",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/assets && cp -r src/assets/. dist/assets/",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/assets && cp -r src/assets/. dist/assets/ && npm install --prefix frontend && npm run build --prefix frontend",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "start": "node dist/server.js",
     "migrate:schema": "psql \"$DATABASE_URL\" -f sql/001_init_schema.sql",

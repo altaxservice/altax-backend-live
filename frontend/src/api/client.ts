@@ -1,6 +1,9 @@
-// Set VITE_API_BASE_URL at build time to point the deployed frontend at the deployed
-// backend (e.g. https://your-app.up.railway.app) — falls back to localhost for dev.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+// Set VITE_API_BASE_URL at build time only if the frontend and backend are ever split
+// across two separate hosts. The default single-service deployment (server.ts serves
+// this build itself) needs no override — production calls the API on its own origin
+// (empty string = relative paths), and only local `vite dev` (a separate :5173 port
+// from the :4000 API) falls back to localhost.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "http://localhost:4000" : "");
 
 /** Uploaded-file URLs from the backend are relative (e.g. /documents/uploads/:id/download) since they're served by the API, not the frontend's own origin — this resolves them to an absolute link everywhere a file is opened/downloaded. External links (Drive, etc.) pass through unchanged. */
 export function resolveFileUrl(url: string | null | undefined): string {
