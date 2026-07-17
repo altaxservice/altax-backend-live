@@ -292,7 +292,7 @@ export function InvoicesListPage() {
             <span className="muted" style={{ fontSize: 12 }}>{filteredInvoices.length} invoices</span>
           </div>
           <div style={{ overflowX: "auto" }}>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead>
               <tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th>{canManage && <th>Action</th>}</tr>
@@ -301,15 +301,15 @@ export function InvoicesListPage() {
               {filteredInvoices.map((inv) => (
                 <tr key={inv.invoice_id} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }}>
                   <td>{inv.invoice_id}</td>
-                  <td className="muted">{clientName(inv.client_id)}</td>
-                  <td className="muted">{fmtDate(inv.invoice_date)}</td>
-                  <td className="muted">{fmtDate(inv.due_date)}</td>
-                  <td className="muted">{inv.description}</td>
-                  <td>{fmtMoney(inv.total_amount)}</td>
-                  <td>{fmtMoney(inv.balance_due)}</td>
-                  <td><StatusBadge status={inv.status} /></td>
+                  <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>
+                  <td className="muted" data-label="Date">{fmtDate(inv.invoice_date)}</td>
+                  <td className="muted" data-label="Due">{fmtDate(inv.due_date)}</td>
+                  <td className="muted" data-label="Description">{inv.description}</td>
+                  <td data-label="Amount">{fmtMoney(inv.total_amount)}</td>
+                  <td data-label="Balance">{fmtMoney(inv.balance_due)}</td>
+                  <td data-label="Status"><StatusBadge status={inv.status} /></td>
                   {canManage && (
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td data-label="" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu
                         options={[
                           { value: "view", label: "View Invoice" },

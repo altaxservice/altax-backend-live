@@ -29,6 +29,12 @@ export const translations: Record<string, Record<Lang, string>> = {
   "header.menu": { en: "Menu", ar: "القائمة" },
   "header.more": { en: "More", ar: "المزيد" },
 
+  // Install prompt (PWA)
+  "install.androidPrompt": { en: "Install AL TAX Nexus on your phone for quick access.", ar: "ثبّت تطبيق AL TAX Nexus على هاتفك للوصول السريع." },
+  "install.installButton": { en: "Install", ar: "تثبيت" },
+  "install.iosPrompt": { en: "Install this app: tap Share, then \"Add to Home Screen.\"", ar: "لتثبيت التطبيق: اضغط على مشاركة، ثم \"إضافة إلى الشاشة الرئيسية\"." },
+  "install.dismiss": { en: "Dismiss", ar: "إغلاق" },
+
   // Login
   "login.securePortal": { en: "Secure Portal", ar: "بوابة آمنة" },
   "login.clientPortal": { en: "Client Portal", ar: "بوابة العميل" },

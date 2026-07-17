@@ -220,8 +220,8 @@ export function GuidePage() {
           <div className="command-panel-note">Built into the portal</div>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 16, padding: 16 }}>
-        <div style={{ display: "grid", gap: 6, alignContent: "start" }}>
+      <div className="guide-layout">
+        <div className="guide-toc">
           {visibleSections.map((s) => (
             <button
               key={s.key}

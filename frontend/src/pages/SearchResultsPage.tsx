@@ -48,16 +48,16 @@ export function SearchResultsPage() {
       {results && results.clients.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Clients</div>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th></tr></thead>
             <tbody>
               {results.clients.map((c) => (
                 <tr key={c.client_id} style={{ cursor: "pointer" }} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
                   <td>{c.client_name}</td>
-                  <td className="muted">{c.email || "—"}</td>
-                  <td className="muted">{c.phone || "—"}</td>
-                  <td className="muted">{c.status || "—"}</td>
+                  <td className="muted" data-label="Email">{c.email || "—"}</td>
+                  <td className="muted" data-label="Phone">{c.phone || "—"}</td>
+                  <td className="muted" data-label="Status">{c.status || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -69,16 +69,16 @@ export function SearchResultsPage() {
       {results && results.tasks.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Tasks</div>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Task</th><th>Client</th><th>Status</th><th>Due Date</th></tr></thead>
             <tbody>
               {results.tasks.map((t) => (
                 <tr key={t.task_id} style={{ cursor: "pointer" }} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }}>
                   <td>{t.task_name}</td>
-                  <td className="muted">{t.client_name}</td>
-                  <td className="muted">{t.status}</td>
-                  <td className="muted">{t.agency_due_date ? new Date(t.agency_due_date).toLocaleDateString() : "—"}</td>
+                  <td className="muted" data-label="Client">{t.client_name}</td>
+                  <td className="muted" data-label="Status">{t.status}</td>
+                  <td className="muted" data-label="Due Date">{t.agency_due_date ? new Date(t.agency_due_date).toLocaleDateString() : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -90,16 +90,16 @@ export function SearchResultsPage() {
       {results && results.invoices.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Invoices</div>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Invoice</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
             <tbody>
               {results.invoices.map((i) => (
                 <tr key={i.invoice_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/billing/${i.invoice_id}`)}>
                   <td>{i.invoice_id}</td>
-                  <td className="muted">{i.description || "—"}</td>
-                  <td>{fmtMoney(i.total_amount)}</td>
-                  <td className="muted">{i.status}</td>
+                  <td className="muted" data-label="Description">{i.description || "—"}</td>
+                  <td data-label="Amount">{fmtMoney(i.total_amount)}</td>
+                  <td className="muted" data-label="Status">{i.status}</td>
                 </tr>
               ))}
             </tbody>
@@ -111,15 +111,15 @@ export function SearchResultsPage() {
       {results && results.documents.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Document Requests</div>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Item</th><th>Client</th><th>Status</th></tr></thead>
             <tbody>
               {results.documents.map((d) => (
                 <tr key={d.request_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/documents/${d.request_id}`)}>
                   <td>{d.requested_item}</td>
-                  <td className="muted">{d.client_name}</td>
-                  <td className="muted">{d.status}</td>
+                  <td className="muted" data-label="Client">{d.client_name}</td>
+                  <td className="muted" data-label="Status">{d.status}</td>
                 </tr>
               ))}
             </tbody>

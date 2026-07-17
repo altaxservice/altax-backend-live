@@ -202,7 +202,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 /* ---- Portal banner + quick actions + metrics (mirrors legacy) ---- */
 .portal-banner {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(min-content, 1fr);
   gap: 16px;
   align-items: center;
   border: 1px solid var(--line);
@@ -313,6 +313,19 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .muted { color: var(--muted); font-size: 13px; }
 .spinner-wrap { display: flex; align-items: center; justify-content: center; padding: 60px; color: var(--muted); }
 
+.install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--teal-soft);
+  color: var(--ink);
+  border-bottom: 1px solid var(--teal);
+  padding: 10px 20px;
+  font-size: 13px;
+}
+
 /* ---- Sidebar (mirrors the legacy .sidebar / .nav-item system) ---- */
 .sidebar {
   position: sticky;
@@ -395,6 +408,9 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   background: rgba(20, 31, 43, 0.5);
   z-index: 55;
 }
+
+/* ---- Bottom tab bar (Phase 2: mobile-only client/employee primary nav) ---- */
+.bottom-tab-bar { display: none; }
 
 /* ---- Top header bar ---- */
 .topbar {
@@ -527,6 +543,10 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   line-height: 1.5;
 }
 
+/* ---- Guide page (Phase 2: mobile-first pass #1) ---- */
+.guide-layout { display: grid; grid-template-columns: 180px 1fr; gap: 16px; padding: 16px; }
+.guide-toc { display: grid; gap: 6px; align-content: start; }
+
 /* ---- Toast (mirrors legacy's toast()) ---- */
 .toast-stack {
   position: fixed;
@@ -599,6 +619,104 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
      on a phone its content overflows the collapsed left column's track and visually
      overlaps it (grid doesn't clip overflowing children by default). Stack instead. */
   .command-grid, .command-grid-even { grid-template-columns: 1fr; }
+
+  .bottom-tab-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--paper);
+    border-top: 1px solid var(--line);
+    z-index: 58;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  }
+  .bottom-tab-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 9px 2px;
+    font-size: 11.5px;
+    font-weight: 750;
+    color: var(--muted);
+    text-decoration: none;
+    text-align: center;
+    border-radius: 8px;
+  }
+  .bottom-tab-item.active { color: var(--teal); background: var(--teal-soft); }
+  main.has-bottom-tabs { padding-bottom: 76px !important; }
+
+  /* Client/employee get the bottom tab bar as their primary mobile nav instead of
+     the hamburger drawer — a redundant second way to reach the same 4-5 destinations
+     doesn't add anything. Admin/staff keep the hamburger (hidden via Header.tsx). */
+  .hamburger-btn.hidden-for-tabbar { display: none; }
+
+  /* Same overlap class as .command-grid above: the "auto" quick-actions column claims
+     its full unwrapped natural width regardless of available space, colliding with the
+     intro text beside it. Stack instead. */
+  .portal-banner { grid-template-columns: 1fr; align-items: start; }
+  .portal-banner .quick-actions { margin-top: 10px; }
+
+  /* Card-list primitive (Phase 2): any <table> wrapped in .table-scroll.card-table
+     becomes stacked cards instead of scrolling horizontally — each <td> needs a
+     data-label attribute (its column header text) so the ::before pseudo-element can
+     show it. No JSX/component rewrite needed per page, just markup + this one block. */
+  .table-scroll.card-table { overflow-x: visible; }
+  .table-scroll.card-table table { min-width: 0; }
+  .table-scroll.card-table thead { display: none; }
+  .table-scroll.card-table tbody { display: grid; gap: 10px; }
+  .table-scroll.card-table tr {
+    display: grid;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--paper);
+  }
+  .table-scroll.card-table tbody tr:hover { background: var(--paper); }
+  .table-scroll.card-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    border-bottom: none;
+    padding: 0;
+    font-size: 13.5px;
+    text-align: right;
+  }
+  .table-scroll.card-table td::before {
+    content: attr(data-label);
+    font-weight: 800;
+    color: var(--muted);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-align: left;
+    flex-shrink: 0;
+  }
+  /* The first cell in each card row reads as the title — bigger, no label prefix. */
+  .table-scroll.card-table td:first-child {
+    font-weight: 750;
+    font-size: 15px;
+    text-align: left;
+  }
+  .table-scroll.card-table td:first-child::before { content: none; }
+
+  /* Compose-form + history split views (Communications page) and paired form-field
+     grids (Period Start/End, Send To/Phone, etc.) — stack instead of squeezing two
+     columns onto a phone-width screen. */
+  .compose-split { grid-template-columns: 1fr !important; }
+  .form-grid { grid-template-columns: 1fr !important; }
+
+  .guide-layout { grid-template-columns: 1fr; padding: 12px; gap: 10px; }
+  .guide-toc {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
 }
 
 @media (max-width: 480px) {

@@ -265,17 +265,17 @@ export function DocumentsListPage() {
 
       {ready && !canManage && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
             <tbody>
               {scopedRequests.map((r) => (
                 <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
                   <td>{r.requested_item}</td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td className="muted">{r.priority || "—"}</td>
-                  <td className="muted">{r.due_from_client || "—"}</td>
-                  <td><FilesCell request={r} /></td>
+                  <td data-label="Status"><StatusBadge status={r.status} /></td>
+                  <td className="muted" data-label="Priority">{r.priority || "—"}</td>
+                  <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
+                  <td data-label="Files"><FilesCell request={r} /></td>
                 </tr>
               ))}
             </tbody>
@@ -293,7 +293,7 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{openRequests.length} waiting</span>
             </div>
             <div style={{ overflowX: "auto" }}>
-              <div className="table-scroll">
+              <div className="table-scroll card-table">
               <table>
                 <thead>
                   <tr>
@@ -306,19 +306,19 @@ export function DocumentsListPage() {
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       {canManage && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.request_id)} onChange={() => toggleSelected(r.request_id)} /></td>}
                       <td>{r.client_name}</td>
-                      <td>{r.requested_item}</td>
-                      <td className="muted">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
-                      <td className={isOverdue(r) ? "muted" : "muted"} style={isOverdue(r) ? { color: "var(--danger, #cf222e)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
-                      <td className="muted">{r.assigned_to || "—"}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td data-label="Request">{r.requested_item}</td>
+                      <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
+                      <td className={isOverdue(r) ? "muted" : "muted"} data-label="Due" style={isOverdue(r) ? { color: "var(--danger, #cf222e)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
+                      <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
+                      <td data-label="Status" onClick={(e) => e.stopPropagation()}>
                         {canManage ? (
                           <select className="inline-select" value={r.status || "Requested"} disabled={savingStatusId === r.request_id} onChange={(e) => handleStatusChange(r.request_id, e.target.value)}>
                             {(options?.documentStatuses || DOCUMENT_STATUSES).map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
                         ) : <StatusBadge status={r.status} />}
                       </td>
-                      <td><FilesCell request={r} /></td>
-                      <td onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -334,20 +334,20 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{receivedRequests.length} request(s) ready</span>
             </div>
             <div style={{ overflowX: "auto" }}>
-              <div className="table-scroll">
+              <div className="table-scroll card-table">
               <table>
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
                 <tbody>
                   {receivedRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td>{r.requested_item}</td>
-                      <td className="muted">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
-                      <td className="muted">{r.due_from_client || "—"}</td>
-                      <td className="muted">{r.assigned_to || "—"}</td>
-                      <td><StatusBadge status={r.status} /></td>
-                      <td><FilesCell request={r} /></td>
-                      <td onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
+                      <td data-label="Request">{r.requested_item}</td>
+                      <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
+                      <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
+                      <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
+                      <td data-label="Status"><StatusBadge status={r.status} /></td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -363,20 +363,20 @@ export function DocumentsListPage() {
               <span className="muted" style={{ fontSize: 12 }}>{sentRequests.length} request(s) shared</span>
             </div>
             <div style={{ overflowX: "auto" }}>
-              <div className="table-scroll">
+              <div className="table-scroll card-table">
               <table>
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
                 <tbody>
                   {sentRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td>{r.requested_item}</td>
-                      <td className="muted">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
-                      <td className="muted">{r.due_from_client || "—"}</td>
-                      <td className="muted">{r.assigned_to || "—"}</td>
-                      <td><StatusBadge status={r.status} /></td>
-                      <td><FilesCell request={r} /></td>
-                      <td onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
+                      <td data-label="Request">{r.requested_item}</td>
+                      <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
+                      <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
+                      <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
+                      <td data-label="Status"><StatusBadge status={r.status} /></td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
                 </tbody>

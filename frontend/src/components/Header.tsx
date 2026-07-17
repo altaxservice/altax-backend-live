@@ -28,7 +28,12 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
     <>
       <header className="topbar" dir={showLanguageToggle ? dir : "ltr"}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-          <button type="button" className="hamburger-btn" aria-label={t("header.menu")} onClick={onMenuClick}>☰</button>
+          <button
+            type="button"
+            className={`hamburger-btn ${showLanguageToggle ? "hidden-for-tabbar" : ""}`}
+            aria-label={t("header.menu")}
+            onClick={onMenuClick}
+          >☰</button>
           <div>
             <div className="topbar-eyebrow">{EYEBROW}</div>
             <h1 className="topbar-title">{title}</h1>

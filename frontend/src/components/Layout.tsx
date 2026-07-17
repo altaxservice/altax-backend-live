@@ -7,6 +7,8 @@ import { ClientContextPanel } from "./ClientContextPanel";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "./FirmLogo";
+import { BottomTabBar } from "./BottomTabBar";
+import { InstallPrompt } from "./InstallPrompt";
 import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 
 const CLIENT_PANEL_ROUTES = ["/tasks", "/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
@@ -147,14 +149,16 @@ export function Layout() {
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} />
+        <InstallPrompt />
         <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
-          <main style={{ flex: 1, padding: "24px 32px", overflowX: "auto", minWidth: 0 }}>
+          <main className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", overflowX: "auto", minWidth: 0 }}>
             <Outlet />
           </main>
           {showPanel && <ClientContextPanel />}
         </div>
       </div>
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} />}
+      <BottomTabBar />
     </div>
   );
 }

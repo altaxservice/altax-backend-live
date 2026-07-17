@@ -269,17 +269,17 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         </label>
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Staff Message"}</button>
       </form>
-      <div className="table-scroll">
+      <div className="table-scroll card-table">
       <table>
         <thead><tr><th>Date/Time</th><th>Channel</th><th>Sent To</th><th>Subject</th><th>Status</th></tr></thead>
         <tbody>
           {messages.slice(0, 10).map((m) => (
             <tr key={m.communication_id}>
               <td>{m.sent_at ? new Date(m.sent_at).toLocaleString() : "—"}</td>
-              <td className="muted">{m.channel}</td>
-              <td className="muted">{m.sent_to}</td>
-              <td>{m.subject}</td>
-              <td className="muted">{m.status}</td>
+              <td className="muted" data-label="Channel">{m.channel}</td>
+              <td className="muted" data-label="Sent To">{m.sent_to}</td>
+              <td data-label="Subject">{m.subject}</td>
+              <td className="muted" data-label="Status">{m.status}</td>
             </tr>
           ))}
         </tbody>
@@ -384,7 +384,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+    <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Send / Save Client Message" note={client.email || undefined}>
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
           {error && <div className="error-banner">{error}</div>}
@@ -396,7 +396,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
               {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="form-grid">
             <div className="field">
               <label>Period Start</label>
               <input type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
@@ -406,7 +406,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
               <input type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="form-grid">
             <div className="field"><label>Send To</label><input value={client.email || ""} readOnly /></div>
             <div className="field"><label>SMS / WhatsApp Phone</label><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
           </div>
@@ -474,7 +474,7 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+    <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Send Message to AL TAX">
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
           {error && <div className="error-banner">{error}</div>}

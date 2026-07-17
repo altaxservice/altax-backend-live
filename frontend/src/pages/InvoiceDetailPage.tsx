@@ -242,7 +242,7 @@ export function InvoiceDetailPage() {
         </form>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+      <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
         <div className="card">
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Details</h2>
           <Row label="Description" value={invoice.description} />
@@ -267,18 +267,18 @@ export function InvoiceDetailPage() {
       {lineItems.length > 0 && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
           <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Line Items</h2>
-          <div className="table-scroll">
+          <div className="table-scroll card-table">
           <table style={{ marginTop: 12 }}>
             <thead><tr><th>Service Date</th><th>Product/Service</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
             <tbody>
               {lineItems.map((li) => (
                 <tr key={li.line_item_id}>
                   <td className="muted">{li.service_date ? fmtDateOnly(li.service_date) : "—"}</td>
-                  <td>{li.product_name || "—"}</td>
-                  <td className="muted">{li.description || "—"}</td>
-                  <td>{li.quantity}</td>
-                  <td>{fmtMoney(li.rate)}</td>
-                  <td>{fmtMoney(li.amount)}</td>
+                  <td data-label="Product/Service">{li.product_name || "—"}</td>
+                  <td className="muted" data-label="Description">{li.description || "—"}</td>
+                  <td data-label="Qty">{li.quantity}</td>
+                  <td data-label="Rate">{fmtMoney(li.rate)}</td>
+                  <td data-label="Amount">{fmtMoney(li.amount)}</td>
                 </tr>
               ))}
             </tbody>
@@ -289,17 +289,17 @@ export function InvoiceDetailPage() {
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Payments</h2>
-        <div className="table-scroll">
+        <div className="table-scroll card-table">
         <table style={{ marginTop: 12 }}>
           <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {payments.map((p) => (
               <tr key={p.payment_id}>
                 <td>{fmtDateOnly(p.payment_date)}</td>
-                <td>{fmtMoney(p.actual_amount)}</td>
-                <td className="muted">{p.method}</td>
-                <td><StatusBadge status={p.status} /></td>
-                <td>
+                <td data-label="Amount">{fmtMoney(p.actual_amount)}</td>
+                <td className="muted" data-label="Method">{p.method}</td>
+                <td data-label="Status"><StatusBadge status={p.status} /></td>
+                <td data-label="">
                   {canManage && p.status === "Active" && (
                     <button className="btn btn-sm btn-danger" onClick={() => handleReverse(p.payment_id)}>Reverse</button>
                   )}
