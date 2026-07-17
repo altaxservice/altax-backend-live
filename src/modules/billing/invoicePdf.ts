@@ -12,7 +12,8 @@
  * connected here; Payment Instructions text remains the only payment guidance.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
-import { FIRM_NAME, FIRM_ADDRESS_LINES, FIRM_PHONE, FIRM_EMAIL } from "../../common/firmProfile";
+import { getFirmProfile } from "../../common/firmProfile";
+import { embedFirmLogo } from "../../common/pdfLogo";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -97,14 +98,24 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   const c = new Cursor(page, font, bold, PAGE_H);
   const L = 48, R = PAGE_W - 48, M = L + 175;
 
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+
   c.rect(0, 0, PAGE_W, 8);
 
   let y = 50;
-  c.text(L, y, FIRM_NAME.toUpperCase(), { size: 18, bold: true, color: TEAL });
+  let textL = L;
+  if (logo) {
+    const logoH = 32;
+    const logoW = (logo.width / logo.height) * logoH;
+    page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 8, width: logoW, height: logoH });
+    textL = L + logoW + 10;
+  }
+  c.text(textL, y, profile.firmName.toUpperCase(), { size: 18, bold: true, color: TEAL });
   c.text(R, y, "INVOICE", { size: 22, bold: true, align: "right" });
-  for (const line of FIRM_ADDRESS_LINES) { y += 13; c.text(L, y, line, { size: 9, color: MUTED }); }
-  y += 13; c.text(L, y, FIRM_PHONE, { size: 9, color: MUTED });
-  y += 13; c.text(L, y, FIRM_EMAIL, { size: 9, color: MUTED });
+  for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) { y += 13; c.text(textL, y, line, { size: 9, color: MUTED }); }
+  y += 13; c.text(textL, y, profile.phone, { size: 9, color: MUTED });
+  y += 13; c.text(textL, y, profile.email, { size: 9, color: MUTED });
   y += 24;
 
   c.line(L, y, R, y, LINE, 1);

@@ -984,6 +984,29 @@ CREATE TABLE IF NOT EXISTS v3_leave_requests (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ---- v3_Firm_Settings ----
+-- Single-row table: the firm's own editable identity (name/address/phone/email/logo),
+-- shown on generated PDFs, the reminder email header, and the app's own branding
+-- (sidebar, login screen). Previously hardcoded in src/common/firmProfile.ts with no
+-- UI to change it — this table is now the single source of truth; getFirmProfile()
+-- falls back to those original hardcoded values if this table has no row yet.
+CREATE TABLE IF NOT EXISTS v3_firm_settings (
+    id VARCHAR(16) PRIMARY KEY DEFAULT 'FIRM-1',
+    firm_name VARCHAR(255),
+    address_line1 VARCHAR(255),
+    address_line2 VARCHAR(255),
+    street_address VARCHAR(255),
+    city VARCHAR(100),
+    state VARCHAR(255),
+    zip_code VARCHAR(20),
+    phone VARCHAR(255),
+    email VARCHAR(255),
+    logo_data TEXT,
+    logo_content_type VARCHAR(100),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by VARCHAR(255)
+);
+
 -- ---- Indexes ----
 CREATE INDEX IF NOT EXISTS idx_tasks_client ON v3_tasks(client_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON v3_tasks(status);

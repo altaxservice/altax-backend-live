@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
+import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
@@ -22,6 +23,7 @@ import { RulesPage } from "./pages/RulesPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
+import { FirmSettingsPage } from "./pages/FirmSettingsPage";
 import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
@@ -32,6 +34,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <LanguageProvider>
         <SelectedClientProvider>
         <ToastProvider>
         <Routes>
@@ -50,6 +53,7 @@ function App() {
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/security" element={<SecurityPage />} />
                 <Route path="/fix-center" element={<FixCenterPage />} />
+                <Route path="/firm-settings" element={<FirmSettingsPage />} />
               </Route>
               {/* Employees have no billing relationship with the firm — only their employer
                   (the client) does. Employees are paid via payroll, not invoiced. */}
@@ -74,6 +78,7 @@ function App() {
         </Routes>
         </ToastProvider>
         </SelectedClientProvider>
+        </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>
   );

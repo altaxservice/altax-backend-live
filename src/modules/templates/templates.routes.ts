@@ -3,6 +3,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
+import { APP_NAME } from "../../common/branding";
 
 export const templatesRouter = Router();
 
@@ -54,8 +55,8 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     english: "Hello {{clientName}},\n\nHere is your sales tax summary{{periodLabel}}.\n\n{{periodSummary}}",
     arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabel}}.\n\n{{periodSummary}}" },
   { name: "Staff Task Reminder", category: "Communications", subject: "Staff task reminder: {{taskName}}",
-    english: "Task: {{taskName}}\nClient: {{clientName}}\nStatus: {{taskStatus}}\nDue: {{dueDate}}\n\nPlease review and update this task in AL TAX NEXT.",
-    arabic: "المهمة: {{taskName}}\nالعميل: {{clientName}}\nالحالة: {{taskStatus}}\nتاريخ الاستحقاق: {{dueDate}}\n\nيرجى مراجعة هذه المهمة وتحديثها في نظام AL TAX NEXT." },
+    english: `Task: {{taskName}}\nClient: {{clientName}}\nStatus: {{taskStatus}}\nDue: {{dueDate}}\n\nPlease review and update this task in ${APP_NAME}.`,
+    arabic: `المهمة: {{taskName}}\nالعميل: {{clientName}}\nالحالة: {{taskStatus}}\nتاريخ الاستحقاق: {{dueDate}}\n\nيرجى مراجعة هذه المهمة وتحديثها في نظام ${APP_NAME}.` },
 ];
 
 templatesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {

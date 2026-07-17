@@ -6,6 +6,7 @@ import { logAudit } from "../../common/audit";
 import { normalizeText } from "../../common/assignment";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { resolveTemplate } from "../templates/templates.routes";
+import { wrapEmailHtml } from "../../common/emailTemplate";
 
 /**
  * Automated reminders — the piece communications.routes.ts's module doc comment
@@ -86,7 +87,7 @@ async function sendAndLog(opts: {
   let sent = false;
   let sendError: string | undefined;
   try {
-    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: `<p>${opts.bodyEnglish.replace(/\n/g, "<br>")}</p>` });
+    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${opts.bodyEnglish.replace(/\n/g, "<br>")}</p>`) });
     sent = true;
   } catch (err: any) {
     sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
@@ -104,16 +105,19 @@ async function sendAndLog(opts: {
 }
 
 /**
- * Sends every due staff reminder + client document-request digest. daysAhead
- * (default 3) controls how far ahead of a task's due date to start reminding —
- * 0 means "today and overdue only."
+ * Sends every due staff reminder + client document-request digest + the firm-wide
+ * digest, and always the two client-facing categories. Extracted from the route
+ * handler so both POST /reminders/run (a staff member clicking the button) and the
+ * daily cron job (server.ts, 6:30AM America/New_York) call the exact same logic —
+ * one consolidated email per recipient per day, never one per task or per status
+ * change. daysAhead (default 3) controls how far ahead of a task's due date to
+ * start reminding — 0 means "today and overdue only."
  */
-remindersRouter.post("/run", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const daysAhead = Math.min(30, Math.max(0, Number(req.body?.daysAhead) || 3));
+export async function runReminders(actorEmail: string, daysAhead = 3) {
+  daysAhead = Math.min(30, Math.max(0, daysAhead));
   const horizon = new Date();
   horizon.setDate(horizon.getDate() + daysAhead);
   const today = todayKey();
-  const actorEmail = req.user!.email;
 
   let staffSent = 0, staffSkipped = 0, staffFailed = 0;
   let clientSent = 0, clientSkipped = 0, clientFailed = 0;
@@ -224,13 +228,69 @@ remindersRouter.post("/run", requireAuth, requireRole("admin", "staff"), asyncHa
     if (result.sent) paymentSent++; else paymentFailed++;
   }
 
-  await logAudit("Reminders", "RUN", "Batch", "", "", today,
-    `Reminders run by ${actorEmail}: ${staffSent} staff digests, ${clientSent} document digests, ${paymentSent} payment reminders sent.`, actorEmail);
+  // --- Firm: ONE daily digest per active admin, summarizing every open task's status
+  // firm-wide (counts by status + overdue list + due-soon list) — never one email per
+  // task or per status change, same "one report a day" rule as the staff digest.
+  let firmSent = 0, firmSkipped = 0, firmFailed = 0;
+  const openTasks = await query<any>(
+    `SELECT * FROM altax.v3_tasks WHERE lower(status) <> ALL($1::text[]) ORDER BY COALESCE(staff_due_date, agency_due_date) ASC NULLS LAST`,
+    [CLOSED_TASK_STATUSES]
+  );
+  const statusCounts = new Map<string, number>();
+  const overdueTasks: any[] = [];
+  const dueSoonTasks: any[] = [];
+  const nowTime = Date.now();
+  for (const t of openTasks) {
+    const statusLabel = t.status || "Not Started";
+    statusCounts.set(statusLabel, (statusCounts.get(statusLabel) || 0) + 1);
+    const due = t.staff_due_date || t.agency_due_date;
+    if (!due) continue;
+    const dueTime = new Date(due).getTime();
+    if (Number.isNaN(dueTime)) continue;
+    if (dueTime < nowTime) overdueTasks.push(t);
+    else if (dueTime <= horizon.getTime()) dueSoonTasks.push(t);
+  }
+  const fmtTaskLine = (t: any) => `- ${t.client_name || t.client_id || "Unassigned"}: ${t.task_name || "Task"} (${t.status || "Not Started"}, due ${fmtDate(t.staff_due_date || t.agency_due_date)})`;
+  const statusBreakdown = Array.from(statusCounts.entries()).map(([status, count]) => `${status}: ${count}`).join("\n");
 
-  res.json({
+  const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
+  for (const admin of admins) {
+    const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
+    if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
+
+    const subject = `Firm task status — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
+    const bodyEnglish = [
+      `Firm-wide task status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
+      `\nBy status:\n${statusBreakdown || "None"}`,
+      `\nOverdue (${overdueTasks.length}):\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None"}`,
+      `\nDue within ${daysAhead} day${daysAhead === 1 ? "" : "s"} (${dueSoonTasks.length}):\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None"}`,
+    ].join("\n");
+
+    const result = await sendAndLog({
+      clientId: null, clientName: null, relatedTaskId: null,
+      subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
+    });
+    if (result.sent) firmSent++; else firmFailed++;
+  }
+
+  await logAudit("Reminders", "RUN", "Batch", "", "", today,
+    `Reminders run by ${actorEmail}: ${staffSent} staff digests, ${firmSent} firm digests, ${clientSent} document digests, ${paymentSent} payment reminders sent.`, actorEmail);
+
+  return {
     ok: true,
     staff: { sent: staffSent, skipped: staffSkipped, failed: staffFailed },
+    firm: { sent: firmSent, skipped: firmSkipped, failed: firmFailed },
     clients: { sent: clientSent, skipped: clientSkipped, failed: clientFailed },
     payments: { sent: paymentSent, skipped: paymentSkipped, failed: paymentFailed },
-  });
+  };
+}
+
+/**
+ * Manual trigger — a staff member clicking "Run Reminders" in Communications. The
+ * daily 6:30AM cron (server.ts) calls runReminders() directly, bypassing this route.
+ */
+remindersRouter.post("/run", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const daysAhead = Number(req.body?.daysAhead) || 3;
+  const result = await runReminders(req.user!.email, daysAhead);
+  res.json(result);
 }));

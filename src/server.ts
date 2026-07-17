@@ -20,7 +20,9 @@ import { reportsRouter } from "./modules/reports/reports.routes";
 import { timeTrackingRouter } from "./modules/timeTracking/timeTracking.routes";
 import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
-import { remindersRouter } from "./modules/reminders/reminders.routes";
+import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
+import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
+import cron from "node-cron";
 
 dotenv.config();
 
@@ -54,6 +56,7 @@ app.use("/time-tracking", timeTrackingRouter);
 app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/reminders", remindersRouter);
+app.use("/firm-settings", firmSettingsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found." });
@@ -72,6 +75,22 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   }
   res.status(500).json({ error: "Internal server error." });
 });
+
+// Daily reminders — staff digest, firm digest, and client document/payment
+// reminders (see reminders.routes.ts's runReminders doc comment: one consolidated
+// email per recipient per day, never per-task). 6:30AM America/New_York, chosen to
+// land in the user's requested 6-7AM Eastern window. This is safe as an in-process
+// timer specifically because this app now runs as a persistent server (Railway),
+// unlike the serverless/ephemeral hosting the original "no scheduler yet" decision
+// was made under.
+cron.schedule("30 6 * * *", () => {
+  runReminders("System (Daily Reminder Job)").catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("Daily reminders run failed:", err);
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Daily reminders scheduled for 6:30AM America/New_York.");
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {

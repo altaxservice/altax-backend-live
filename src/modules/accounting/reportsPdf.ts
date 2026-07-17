@@ -24,7 +24,8 @@
  * affected. Flagged here rather than silently shipping broken Arabic.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
-import { FIRM_NAME, FIRM_ADDRESS_LINES } from "../../common/firmProfile";
+import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
+import { embedFirmLogo } from "../../common/pdfLogo";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -81,7 +82,7 @@ async function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): Promise<
 }
 
 /** Draws the shared client-letterhead header; returns the y position content can start at. */
-function drawHeader(c: Cursor, client: ReportClientInfo, reportTitle: string, periodLabel: string): number {
+function drawHeader(c: Cursor, client: ReportClientInfo, reportTitle: string, periodLabel: string, firmName: string): number {
   const L = 48, R = PAGE_W - 48;
   let y = 48;
   c.text(L, y, client.clientName.toUpperCase(), { size: 16, bold: true, color: TEAL });
@@ -97,27 +98,34 @@ function drawHeader(c: Cursor, client: ReportClientInfo, reportTitle: string, pe
     }
   }
   y += 6;
-  c.text(L, y, "Prepared by AL Tax Service", { size: 8, color: MUTED });
+  c.text(L, y, `Prepared by ${firmName}`, { size: 8, color: MUTED });
   y += 14;
   c.line(L, y, R, y, INK, 1.25);
   return y + 22;
 }
 
-function drawFooter(c: Cursor, note = "For the client's records. Not a substitute for filed tax returns.") {
+function drawFooter(c: Cursor, firmName: string, note = "For the client's records. Not a substitute for filed tax returns.") {
   const L = 48, R = PAGE_W - 48;
-  c.text(L, PAGE_H - 28, `Generated ${fmtDate(new Date())} — AL Tax Service`, { size: 8, color: MUTED });
+  c.text(L, PAGE_H - 28, `Generated ${fmtDate(new Date())} — ${firmName}`, { size: 8, color: MUTED });
   c.text(R, PAGE_H - 28, note, { size: 8, color: MUTED, align: "right" });
 }
 
-/** Firm's own letterhead (not a client's) — for the firm-wide overview report, which is AL Tax Service's own internal analytics, not a client deliverable. */
-function drawFirmHeader(c: Cursor, reportTitle: string, periodLabel: string): number {
+/** Firm's own letterhead (not a client's) — for the firm-wide overview report, which is the firm's own internal analytics, not a client deliverable. */
+function drawFirmHeader(page: PDFPage, c: Cursor, reportTitle: string, periodLabel: string, profile: FirmProfile, logo: Awaited<ReturnType<typeof embedFirmLogo>>): number {
   const L = 48, R = PAGE_W - 48;
   let y = 48;
-  c.text(L, y, FIRM_NAME.toUpperCase(), { size: 16, bold: true, color: TEAL });
+  let textL = L;
+  if (logo) {
+    const logoH = 28;
+    const logoW = (logo.width / logo.height) * logoH;
+    page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 6, width: logoW, height: logoH });
+    textL = L + logoW + 10;
+  }
+  c.text(textL, y, profile.firmName.toUpperCase(), { size: 16, bold: true, color: TEAL });
   c.text(R, y, reportTitle, { size: 16, bold: true, align: "right" });
   y += 16;
-  for (const line of FIRM_ADDRESS_LINES) {
-    c.text(L, y, line, { size: 9, color: MUTED });
+  for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) {
+    c.text(textL, y, line, { size: 9, color: MUTED });
     y += 11;
   }
   c.text(R, y - 11, periodLabel, { size: 10, color: MUTED, align: "right" });
@@ -157,7 +165,8 @@ export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { c } = await newPage(doc, font, bold);
-  let y = drawHeader(c, data.client, "PROFIT AND LOSS", `${fmtDate(data.from)} – ${fmtDate(data.to)}`);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "PROFIT AND LOSS", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
 
   y = sectionLabel(c, y, "Income");
   if (!data.income.length) y = emptyNote(c, y);
@@ -184,7 +193,7 @@ export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   y += 16;
   y = row(c, y, "Net Income", money(data.netIncome), { bold: true, accent: true });
 
-  drawFooter(c);
+  drawFooter(c, profile.firmName);
   return doc.save();
 }
 
@@ -200,7 +209,8 @@ export async function generateBalanceSheetPdf(data: BalanceSheetReportData): Pro
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { c } = await newPage(doc, font, bold);
-  let y = drawHeader(c, data.client, "BALANCE SHEET", `As of ${fmtDate(data.to)}`);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "BALANCE SHEET", `As of ${fmtDate(data.to)}`, profile.firmName);
 
   y = sectionLabel(c, y, "Assets");
   if (!data.assets.length) y = emptyNote(c, y);
@@ -223,7 +233,7 @@ export async function generateBalanceSheetPdf(data: BalanceSheetReportData): Pro
   c.rect(48, y - 12, PAGE_W - 96, 22, TEAL_TINT);
   y = row(c, y, "Total Liabilities + Equity", money(data.totalLiabilities + data.totalEquity), { bold: true, accent: true });
 
-  drawFooter(c);
+  drawFooter(c, profile.firmName);
   return doc.save();
 }
 
@@ -243,7 +253,8 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
-  let y = drawHeader(c, data.client, "PAYROLL DASHBOARD", `${fmtDate(data.from)} – ${fmtDate(data.to)}`);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "PAYROLL DASHBOARD", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
 
   const tiles: [string, string][] = [
     ["Gross Wages", money(data.grossWages)], ["Checks", String(data.checkCount)],
@@ -302,7 +313,7 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
     y += 14;
     for (const check of data.checks) {
       if (y > PAGE_H - 60) {
-        drawFooter(c);
+        drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
       }
@@ -314,7 +325,7 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
     }
   }
 
-  drawFooter(c);
+  drawFooter(c, profile.firmName);
   return doc.save();
 }
 
@@ -330,7 +341,8 @@ export async function generateClientMessagePdf(data: ClientMessageReportData): P
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
-  let y = drawHeader(c, data.client, "CLIENT MESSAGE", `${fmtDate(data.from)} – ${fmtDate(data.to)}`);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "CLIENT MESSAGE", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
 
   c.text(48, y, data.subject, { size: 13, bold: true });
   y += 24;
@@ -339,14 +351,14 @@ export async function generateClientMessagePdf(data: ClientMessageReportData): P
   const lines = data.bodyEnglish.split("\n");
   for (const rawLine of lines) {
     if (y > PAGE_H - 60) {
-      drawFooter(c);
+      drawFooter(c, profile.firmName);
       ({ page, c } = await newPage(doc, font, bold));
       y = 60;
     }
     if (!rawLine.trim()) { y += 10; continue; }
     for (const wrapped of wrapText(rawLine, font, 10, maxWidth)) {
       if (y > PAGE_H - 60) {
-        drawFooter(c);
+        drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
       }
@@ -356,7 +368,7 @@ export async function generateClientMessagePdf(data: ClientMessageReportData): P
     }
   }
 
-  drawFooter(c);
+  drawFooter(c, profile.firmName);
   return doc.save();
 }
 
@@ -373,8 +385,10 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const { c } = await newPage(doc, font, bold);
-  let y = drawFirmHeader(c, "FIRM OVERVIEW", `Last ${data.monthsBack} months`);
+  const { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  let y = drawFirmHeader(page, c, "FIRM OVERVIEW", `Last ${data.monthsBack} months`, profile, logo);
 
   const tiles: [string, string][] = [
     ["Revenue", money(data.totals.revenue)], ["Expenses", money(data.totals.expenses)],
@@ -408,7 +422,7 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
     y += 15;
   }
 
-  drawFooter(c, "Internal firm analytics — not a client-facing document.");
+  drawFooter(c, profile.firmName, "Internal firm analytics — not a client-facing document.");
   return doc.save();
 }
 

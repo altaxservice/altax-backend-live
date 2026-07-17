@@ -2,15 +2,18 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../api/client";
+import { useLanguage } from "../context/LanguageContext";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
 export function Header({ title }: { title: string }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { lang, setLang, t, dir } = useLanguage();
   const [search, setSearch] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showTotpModal, setShowTotpModal] = useState(false);
+  const showLanguageToggle = user?.role === "client" || user?.role === "employee";
 
   function handleSearch(e: FormEvent) {
     e.preventDefault();
@@ -21,31 +24,37 @@ export function Header({ title }: { title: string }) {
 
   return (
     <>
-      <header className="topbar">
+      <header className="topbar" dir={showLanguageToggle ? dir : "ltr"}>
         <div>
           <div className="topbar-eyebrow">{EYEBROW}</div>
           <h1 className="topbar-title">{title}</h1>
-          <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} workspace</div>
+          <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} {t("header.workspace")}</div>
         </div>
         <div className="topbar-actions">
+          {showLanguageToggle && (
+            <div className="topbar-lang-toggle" role="group" aria-label={t("header.language")} style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "en" ? 800 : 500, background: lang === "en" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("en")}>EN</button>
+              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "ar" ? 800 : 500, background: lang === "ar" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("ar")}>عربي</button>
+            </div>
+          )}
           <form onSubmit={handleSearch} className="topbar-search">
-            <div className="topbar-search-label">SEARCH</div>
+            <div className="topbar-search-label">{t("header.search")}</div>
             <input
-              placeholder="Client, task, invoice"
+              placeholder={t("header.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </form>
-          <button type="button" className="btn" onClick={handleSearch}>Search All</button>
+          <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
           <div className="topbar-user">
             <div className="topbar-user-name">{user?.name || user?.email}</div>
             <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
           </div>
-          <button type="button" className="btn" onClick={() => setShowPasswordModal(true)}>Change Password</button>
+          <button type="button" className="btn" onClick={() => setShowPasswordModal(true)}>{t("header.changePassword")}</button>
           <button type="button" className="btn" onClick={() => setShowTotpModal(true)}>
-            {user?.totpEnabled ? "2FA: On" : "Enable 2FA"}
+            {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
           </button>
-          <button type="button" className="btn" onClick={logout}>Sign Out</button>
+          <button type="button" className="btn" onClick={logout}>{t("header.signOut")}</button>
         </div>
       </header>
       {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}

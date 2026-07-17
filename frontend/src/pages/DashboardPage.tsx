@@ -10,13 +10,14 @@ import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
+import { useLanguage, Num } from "../context/LanguageContext";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
 
-function CommandPanel({ title, note, action, children }: { title: string; note: string; action?: React.ReactNode; children: React.ReactNode }) {
+function CommandPanel({ title, note, action, children }: { title: React.ReactNode; note: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="command-panel">
       <div className="command-panel-header">
@@ -443,30 +444,31 @@ function StaffCommand({ tasks, onChanged }: { tasks: Task[]; onChanged: () => vo
 
 function ClientCommand({ docs, invoices }: { docs: DocumentRequest[]; invoices: Invoice[] }) {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
   const clientNames = new Map(user?.clientId ? [[user.clientId, user.clientName || "My Account"]] as [string, string][] : []);
 
   return (
-    <div>
+    <div dir={dir}>
       <div className="portal-banner">
         <div>
-          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>Client Portal</div>
-          <h2>{user?.clientName || "My Account"}</h2>
-          <p>Requested documents, invoices, reports, and messages are grouped here for quick review.</p>
+          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{t("dashboard.client.eyebrow")}</div>
+          <h2>{user?.clientName || t("dashboard.client.myAccount")}</h2>
+          <p>{t("dashboard.client.intro")}</p>
         </div>
         <div className="quick-actions">
-          <Link to="/documents" className="action-button">Documents</Link>
-          <Link to="/billing" className="ghost-button">Billing</Link>
-          <Link to="/communications" className="ghost-button">Messages</Link>
+          <Link to="/documents" className="action-button">{t("dashboard.documents")}</Link>
+          <Link to="/billing" className="ghost-button">{t("dashboard.billing")}</Link>
+          <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
         </div>
       </div>
       <div className="command-grid-even" style={{ display: "grid", gap: 14 }}>
-        <CommandPanel title="Document Requests" note={`${openDocs.length} visible`}>
-          <DocumentRows docs={openDocs.slice(0, 10)} empty="No open document requests." />
+        <CommandPanel title={t("dashboard.client.documentRequests")} note={<><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>}>
+          <DocumentRows docs={openDocs.slice(0, 10)} empty={t("dashboard.client.noDocs")} />
         </CommandPanel>
-        <CommandPanel title="Open Invoices" note={`${openInvoices.length} visible`}>
-          <InvoiceRows invoices={openInvoices.slice(0, 6)} empty="No open invoices." clientNames={clientNames} />
+        <CommandPanel title={t("dashboard.client.openInvoices")} note={<><Num>{openInvoices.length}</Num> {t("dashboard.visible")}</>}>
+          <InvoiceRows invoices={openInvoices.slice(0, 6)} empty={t("dashboard.client.noInvoices")} clientNames={clientNames} />
         </CommandPanel>
       </div>
     </div>
@@ -491,6 +493,7 @@ interface MyPaycheck {
 /** Mirrors legacy's Employee Latest Paystub card + paystub history — previously a "coming soon" placeholder with no data source at all. */
 function EmployeeCommand() {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const [paychecks, setPaychecks] = useState<MyPaycheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -526,28 +529,28 @@ function EmployeeCommand() {
   }
 
   return (
-    <div>
+    <div dir={dir}>
       <div className="portal-banner">
         <div>
-          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>Employee Portal</div>
-          <h2>{user?.employeeName || user?.name || "My Pay"}</h2>
-          <p>View paystubs shared by payroll. Contact the firm through messages if something needs review.</p>
+          <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{t("dashboard.employee.eyebrow")}</div>
+          <h2>{user?.employeeName || user?.name || t("dashboard.employee.myPay")}</h2>
+          <p>{t("dashboard.employee.intro")}</p>
         </div>
         <div className="quick-actions">
-          <Link to="/communications" className="ghost-button">Messages</Link>
+          <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
         </div>
       </div>
 
       <div className="command-panel" style={{ marginBottom: 14 }}>
         <div className="command-panel-header">
           <div>
-            <h2 className="command-panel-title">Profile</h2>
+            <h2 className="command-panel-title">{t("dashboard.employee.profile")}</h2>
           </div>
         </div>
         <MiniKpis items={[
-          ["Email", user?.email || "—"],
-          ["Employer", user?.clientName || "—"],
-          ["Employee ID", user?.employeeId || "—"],
+          [t("dashboard.employee.email"), user?.email || "—"],
+          [t("dashboard.employee.employer"), user?.clientName || "—"],
+          [t("dashboard.employee.employeeId"), user?.employeeId || "—"],
         ]} />
       </div>
 
@@ -555,15 +558,15 @@ function EmployeeCommand() {
         <div className="command-panel" style={{ marginBottom: 14 }}>
           <div className="command-panel-header">
             <div>
-              <h2 className="command-panel-title">Latest Paystub</h2>
-              <div className="command-panel-note">{fmtDate(latest.pay_date) || "No date"}{latest.check_number ? ` · Check #${latest.check_number}` : ""}</div>
+              <h2 className="command-panel-title">{t("dashboard.employee.latestPaystub")}</h2>
+              <div className="command-panel-note"><Num>{fmtDate(latest.pay_date) || "No date"}{latest.check_number ? ` · ${t("dashboard.employee.checkNum")}${latest.check_number}` : ""}</Num></div>
             </div>
           </div>
           <MiniKpis items={[
-            ["Gross", fmtMoney(latest.gross_wages)],
-            ["Employee Taxes", fmtMoney(latest.employee_taxes)],
-            ["Net Pay", fmtMoney(latest.net_pay)],
-            ["Employer Cost", fmtMoney(latest.total_cost)],
+            [t("dashboard.employee.gross"), fmtMoney(latest.gross_wages)],
+            [t("dashboard.employee.employeeTaxes"), fmtMoney(latest.employee_taxes)],
+            [t("dashboard.employee.netPay"), fmtMoney(latest.net_pay)],
+            [t("dashboard.employee.employerCost"), fmtMoney(latest.total_cost)],
           ]} />
         </div>
       )}
@@ -571,32 +574,32 @@ function EmployeeCommand() {
       <div className="command-panel">
         <div className="command-panel-header">
           <div>
-            <h2 className="command-panel-title">Paystubs</h2>
-            <div className="command-panel-note">{paychecks?.length ?? 0} on file</div>
+            <h2 className="command-panel-title">{t("dashboard.employee.paystubs")}</h2>
+            <div className="command-panel-note"><Num>{paychecks?.length ?? 0}</Num> {t("dashboard.employee.onFile")}</div>
           </div>
         </div>
         {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
-        {!paychecks && !error && <p className="muted" style={{ padding: 16 }}>Loading…</p>}
-        {paychecks && paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paystubs on file yet.</p>}
+        {!paychecks && !error && <p className="muted" style={{ padding: 16 }}>{t("common.loading")}</p>}
+        {paychecks && paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("dashboard.employee.noPaystubs")}</p>}
         {paychecks && paychecks.length > 0 && (
           <table>
-            <thead><tr><th>Pay Date</th><th>Employer</th><th>Period</th><th>Gross</th><th>Taxes</th><th>Net Pay</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>{t("dashboard.employee.payDate")}</th><th>{t("dashboard.employee.employer")}</th><th>{t("dashboard.employee.period")}</th><th>{t("dashboard.employee.gross")}</th><th>{t("dashboard.employee.taxes")}</th><th>{t("dashboard.employee.netPay")}</th><th>{t("dashboard.employee.status")}</th><th></th></tr></thead>
             <tbody>
               {paychecks.map((p) => (
                 <tr key={p.paycheck_id}>
-                  <td>{fmtDate(p.pay_date)}</td>
+                  <td><Num>{fmtDate(p.pay_date)}</Num></td>
                   <td className="muted">{p.client_name || "—"}</td>
-                  <td className="muted">{p.pay_period_start && p.pay_period_end ? `${fmtDate(p.pay_period_start)} – ${fmtDate(p.pay_period_end)}` : "—"}</td>
-                  <td>{fmtMoney(p.gross_wages)}</td>
-                  <td className="muted">{fmtMoney(p.employee_taxes)}</td>
-                  <td>{fmtMoney(p.net_pay)}</td>
+                  <td className="muted"><Num>{p.pay_period_start && p.pay_period_end ? `${fmtDate(p.pay_period_start)} – ${fmtDate(p.pay_period_end)}` : "—"}</Num></td>
+                  <td><Num>{fmtMoney(p.gross_wages)}</Num></td>
+                  <td className="muted"><Num>{fmtMoney(p.employee_taxes)}</Num></td>
+                  <td><Num>{fmtMoney(p.net_pay)}</Num></td>
                   <td><StatusBadge status={p.status} /></td>
                   <td style={{ display: "flex", gap: 6 }}>
                     <button type="button" className="btn btn-sm" disabled={busy === `view:${p.paycheck_id}`} onClick={() => handleView(p)}>
-                      {busy === `view:${p.paycheck_id}` ? "Opening…" : "View"}
+                      {busy === `view:${p.paycheck_id}` ? t("dashboard.employee.opening") : t("dashboard.employee.view")}
                     </button>
                     <button type="button" className="btn btn-sm" disabled={busy === `download:${p.paycheck_id}`} onClick={() => handleDownload(p)}>
-                      {busy === `download:${p.paycheck_id}` ? "Downloading…" : "Download"}
+                      {busy === `download:${p.paycheck_id}` ? t("dashboard.employee.downloading") : t("dashboard.employee.download")}
                     </button>
                   </td>
                 </tr>

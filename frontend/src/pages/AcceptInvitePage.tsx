@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
+import { APP_NAME } from "../utils/branding";
+import { FirmLogo } from "../components/FirmLogo";
 
 export function AcceptInvitePage() {
   const [searchParams] = useSearchParams();
@@ -34,10 +36,10 @@ export function AcceptInvitePage() {
     <div className="login-screen">
       <div className="login-panel">
         <div className="login-brand">
-          <div className="brand-mark">AL</div>
+          <FirmLogo size={40} />
           <div>
             <div style={{ fontWeight: 800, fontSize: 15 }}>Set Up Your Account</div>
-            <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>AL TAX NEXT</div>
+            <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
           </div>
         </div>
 

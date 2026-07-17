@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/client";
+import { APP_NAME } from "../utils/branding";
+import { useLanguage } from "../context/LanguageContext";
+import { FirmLogo } from "../components/FirmLogo";
 
 const PORTALS = [
   { value: "admin", label: "Admin Portal", description: "Firm owner and admin tools" },
@@ -20,6 +23,7 @@ const PORTAL_COPY: Record<string, string> = {
 export function LoginPage() {
   const { login, completeTotpLogin } = useAuth();
   const navigate = useNavigate();
+  const { lang, setLang, t, dir } = useLanguage();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -30,9 +34,11 @@ export function LoginPage() {
   const [code, setCode] = useState("");
 
   const portalLabel = PORTALS.find((p) => p.value === portal)?.label || "Portal";
+  const showLanguageToggle = portal === "client" || portal === "employee";
+  const formDir = showLanguageToggle ? dir : "ltr";
 
   useEffect(() => {
-    document.title = `Sign In · ${portalLabel} – AL TAX NEXT`;
+    document.title = `Sign In · ${portalLabel} – ${APP_NAME}`;
   }, [portalLabel]);
 
   async function handleSubmit(e: FormEvent) {
@@ -73,10 +79,10 @@ export function LoginPage() {
       <div className="login-screen">
         <form onSubmit={handleVerifyCode} className="login-panel">
           <div className="login-brand">
-            <div className="brand-mark">AL</div>
+            <FirmLogo size={40} />
             <div>
               <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
-              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>AL TAX NEXT</div>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
             </div>
           </div>
 
@@ -121,17 +127,25 @@ export function LoginPage() {
 
   return (
     <div className="login-screen">
-      <form onSubmit={handleSubmit} className="login-panel">
-        <div className="login-brand">
-          <div className="brand-mark">AL</div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
-            <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>AL TAX NEXT</div>
+      <form onSubmit={handleSubmit} className="login-panel" dir={formDir}>
+        <div className="login-brand" style={{ justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <FirmLogo size={40} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
+            </div>
           </div>
+          {showLanguageToggle && (
+            <div role="group" aria-label={t("header.language")} style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "en" ? 800 : 500 }} onClick={() => setLang("en")}>EN</button>
+              <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "ar" ? 800 : 500 }} onClick={() => setLang("ar")}>عربي</button>
+            </div>
+          )}
         </div>
 
-        <h1>{portalLabel} Sign In</h1>
-        <p className="login-copy">{PORTAL_COPY[portal]}</p>
+        <h1>{portal === "client" ? t("login.clientPortal") : portal === "employee" ? t("login.employeePortal") : portalLabel} {showLanguageToggle ? "" : "Sign In"}</h1>
+        <p className="login-copy">{portal === "client" ? t("login.clientCopy") : portal === "employee" ? t("login.employeeCopy") : PORTAL_COPY[portal]}</p>
 
         {error && <div className="error-banner">{error}</div>}
 
@@ -150,12 +164,12 @@ export function LoginPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="email">Email</label>
-          <input id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
+          <label htmlFor="email">{showLanguageToggle ? t("login.email") : "Email"}</label>
+          <input id="email" type="email" placeholder="name@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} autoFocus dir="ltr" />
         </div>
 
         <div className="field">
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">{showLanguageToggle ? t("login.password") : "Password"}</label>
           <div style={{ display: "flex", gap: 8 }}>
             <input
               id="password"
@@ -165,15 +179,18 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={{ flex: 1 }}
+              dir="ltr"
             />
             <button type="button" className="btn btn-sm" onClick={() => setShowPassword((v) => !v)}>
-              {showPassword ? "Hide" : "Show"}
+              {showLanguageToggle ? (showPassword ? t("login.hidePassword") : t("login.showPassword")) : (showPassword ? "Hide" : "Show")}
             </button>
           </div>
         </div>
 
         <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 4 }} disabled={submitting}>
-          {submitting ? "Signing in…" : `Sign In to ${portalLabel}`}
+          {showLanguageToggle
+            ? (submitting ? t("login.signingIn") : t("login.signIn"))
+            : (submitting ? "Signing in…" : `Sign In to ${portalLabel}`)}
         </button>
 
         <div className="login-help-box">

@@ -57,7 +57,7 @@ button { cursor: pointer; }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 
 /* ---- Forms ---- */
-.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; min-width: 0; }
 .field label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
 .field input, .field select, .field textarea {
   padding: 9px 10px;
