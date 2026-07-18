@@ -7,7 +7,7 @@ export function ProtectedRoute({ roles }: { roles?: string[] }) {
 
   if (loading) return <div className="spinner-wrap">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
 
   return <Outlet />;
 }

@@ -38,7 +38,65 @@ app.get("/health", (_req, res) => res.json({ ok: true, phase: "0-foundation" }))
 // app, just a way to see the API's data against real records without a frontend yet.
 app.use(express.static("public"));
 
+// Public marketing site (marketing-site/) — plain static HTML/CSS/JS, no build step.
+// Only its asset subdirectories are statically served, NOT the directory root. The
+// page routes themselves are registered further down (MARKETING_PAGES), ahead of the
+// SPA catch-all, so they win over the React app for those paths.
+//
+// This used to be `app.use(express.static(marketingSiteDir))` (serving the whole
+// directory, including its index.html by literal filename). That collided with
+// frontend/dist/index.html — both are named "index.html", this mount was registered
+// first, so a literal request for /index.html silently served the MARKETING site's
+// homepage instead of the React app shell. That's normally harmless (nobody links to
+// "/index.html" directly — the marketing home is "/"), except the PWA's own service
+// worker uses `navigateFallback: '/index.html'` (see frontend/vite.config.ts) as its
+// offline/unmatched-route fallback — so it precached the wrong page, and ANY app route
+// not explicitly denylisted (e.g. /login/client) silently rendered the marketing
+// homepage instead of the login screen. Confirmed live: curl '/index.html' returned
+// the marketing site's <title>, and the service worker's active precache matched.
+// Scoping this mount to only css/js/images removes the collision at the source: no
+// marketing .html file is ever reachable except through the explicit route map below.
+const marketingSiteDir = path.join(__dirname, "..", "marketing-site");
+app.use("/css", express.static(path.join(marketingSiteDir, "css")));
+app.use("/js", express.static(path.join(marketingSiteDir, "js")));
+app.use("/images", express.static(path.join(marketingSiteDir, "images")));
+
 const frontendDist = path.join(__dirname, "..", "frontend", "dist");
+
+// Public marketing pages take the bare root and its top-level paths. Must be registered
+// before the SPA catch-all below — Express matches in registration order, and both would
+// otherwise match "/". The React app's own home lives at "/dashboard" specifically so it
+// never collides with this (see App.tsx — this was a deliberate migration off "/").
+const MARKETING_PAGES: Record<string, string> = {
+  "/": "index.html",
+  "/about": "about.html",
+  "/services": "services.html",
+  "/resources": "resources.html",
+  "/news": "news.html",
+  "/contact": "contact.html",
+  "/privacy": "privacy.html",
+  "/sms-terms": "sms-terms.html",
+  "/accessibility": "accessibility.html",
+};
+app.get(Object.keys(MARKETING_PAGES), (req, res) => {
+  res.sendFile(path.join(marketingSiteDir, MARKETING_PAGES[req.path]));
+});
+
+// Tax News articles (marketing-site/news/*.html) — an explicit slug allowlist rather
+// than reading req.params.slug straight into a file path, since that path never touches
+// disk lookups or directory listing and can't be walked outside marketing-site/news/.
+const NEWS_ARTICLE_SLUGS = new Set([
+  "2026-estimated-tax-payments",
+  "payroll-mistakes-irs-penalties",
+  "maryland-sales-tax-registration",
+  "llc-vs-s-corp",
+  "life-changes-tax-return",
+  "recordkeeping-habits",
+]);
+app.get("/news/:slug", (req, res, next) => {
+  if (!NEWS_ARTICLE_SLUGS.has(req.params.slug)) return next();
+  res.sendFile(path.join(marketingSiteDir, "news", `${req.params.slug}.html`));
+});
 
 // Several frontend page paths intentionally match API route prefixes 1:1 (the "/clients"
 // page vs. "GET /clients" the list endpoint, "/firm-settings" the page vs. its own GET

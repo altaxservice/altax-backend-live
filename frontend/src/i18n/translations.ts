@@ -52,6 +52,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "login.sendResetLink": { en: "Send reset link", ar: "إرسال رابط إعادة التعيين" },
   "login.sending": { en: "Sending…", ar: "جارٍ الإرسال…" },
   "login.backToSignIn": { en: "Back to sign in", ar: "العودة لتسجيل الدخول" },
+  "login.backToWebsite": { en: "Back to website", ar: "العودة إلى الموقع" },
   "login.resetLinkSent": { en: "If an account exists for that email, a reset link has been sent. Check your inbox.", ar: "إذا كان هناك حساب بهذا البريد، فقد تم إرسال رابط إعادة التعيين. تحقق من بريدك." },
 
   // Dashboard — Client Portal

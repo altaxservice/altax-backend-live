@@ -46,7 +46,7 @@ function App() {
           <Route path="/public/invoice/:token" element={<PublicInvoicePage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
-              <Route path="/" element={<DashboardPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/documents" element={<DocumentsListPage />} />
               <Route path="/documents/:requestId" element={<DocumentDetailPage />} />
               <Route path="/communications" element={<CommunicationsPage />} />
@@ -77,7 +77,7 @@ function App() {
               </Route>
             </Route>
           </Route>
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
         </ToastProvider>
         </SelectedClientProvider>

@@ -73,7 +73,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
       if (outcome.totpRequired) {
         setChallenge(outcome.challenge);
       } else {
-        navigate("/", { replace: true });
+        navigate("/dashboard", { replace: true });
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server.");
@@ -89,7 +89,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     setSubmitting(true);
     try {
       await completeTotpLogin(challenge, code);
-      navigate("/", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server.");
     } finally {
@@ -101,6 +101,9 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     return (
       <div className="login-screen">
         <form onSubmit={handleVerifyCode} className="login-panel">
+          <a href="/" className="btn btn-sm" style={{ alignSelf: "flex-start", padding: 0, border: "none", background: "none", color: "var(--teal)", textDecoration: "underline", marginBottom: 4 }}>
+            &larr; Back to website
+          </a>
           <div className="login-brand">
             <FirmLogo size={40} />
             <div>
@@ -152,6 +155,9 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     return (
       <div className="login-screen">
         <form onSubmit={handleForgotPassword} className="login-panel" dir={formDir}>
+          <a href="/" className="btn btn-sm" style={{ alignSelf: "flex-start", padding: 0, border: "none", background: "none", color: "var(--teal)", textDecoration: "underline", marginBottom: 4 }}>
+            &larr; {showLanguageToggle ? t("login.backToWebsite") : "Back to website"}
+          </a>
           <div className="login-brand">
             <FirmLogo size={40} />
             <div>
@@ -192,6 +198,9 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
   return (
     <div className="login-screen">
       <form onSubmit={handleSubmit} className="login-panel" dir={formDir}>
+        <a href="/" className="btn btn-sm" style={{ alignSelf: "flex-start", padding: 0, border: "none", background: "none", color: "var(--teal)", textDecoration: "underline", marginBottom: 4 }}>
+          &larr; {showLanguageToggle ? t("login.backToWebsite") : "Back to website"}
+        </a>
         <div className="login-brand" style={{ justifyContent: "space-between" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <FirmLogo size={40} />

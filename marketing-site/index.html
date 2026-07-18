@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AL TAX SERVICE — Taxes Made Easy</title>
+<script>try{if(localStorage.getItem('altax_lang')==='ar'){document.documentElement.lang='ar';document.documentElement.dir='rtl';}}catch(e){}</script>
+<link rel="icon" href="/images/logo.png" type="image/png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="utility-bar">
+  <div class="container">
+    <span class="deadline" data-next-deadline></span>
+    <div class="links">
+      <a href="/resources#tax-calendar" data-i18n="utility.fullCalendar">Full Tax Calendar</a>
+      <a href="https://www.irs.gov" target="_blank" rel="noopener" data-i18n="utility.irs">IRS.gov</a>
+      <a href="https://www.marylandtaxes.gov" target="_blank" rel="noopener" data-i18n="utility.mdComptroller">MD Comptroller</a>
+    </div>
+  </div>
+</div>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo">
+      <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
+    </a>
+    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    <ul class="nav-links">
+      <li class="lang-toggle">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">عربي</button>
+      </li>
+      <li><a href="/" aria-current="page" data-i18n="nav.home">Home</a></li>
+      <li><a href="/about" data-i18n="nav.about">About Us</a></li>
+      <li><a href="/services" data-i18n="nav.services">Our Services</a></li>
+      <li><a href="/resources" data-i18n="nav.resources">Resources</a></li>
+      <li><a href="/news" data-i18n="nav.news">Tax News</a></li>
+      <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
+      <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
+      <li><a href="https://calendar.app.google/mH8cfL1A8oEVWEGc9" target="_blank" rel="noopener" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
+    </ul>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div>
+      <span class="hero-badge"><span class="dot"></span> <span data-i18n="home.heroBadge">Tax &amp; Accounting Firm &middot; Baltimore, MD</span></span>
+      <h1 data-i18n="home.heroHeadline">Your trusted <em>small business</em> back office</h1>
+      <p class="lead" data-i18n="home.heroLead">At AL TAX SERVICE, we deliver exceptional tax accounting and corporate services designed to help you navigate the complexities of financial regulations — so you can focus on running your business.</p>
+      <div class="hero-ctas">
+        <a href="https://calendar.app.google/mH8cfL1A8oEVWEGc9" target="_blank" rel="noopener" class="btn btn-primary"><span data-i18n="cta.bookConsultation">Book a Consultation</span> <span class="arrow">&rarr;</span></a>
+        <a href="/services" class="btn btn-outline" data-i18n="home.viewServices">View Services</a>
+      </div>
+      <div class="hero-trust">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.trust1">Personalized Service</span></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.trust2">Maryland Tax Experts</span></span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.trust3">Fast Turnaround</span></span>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="accent-ring"></div>
+      <div class="frame">
+        <img src="/images/hero-photo.png" alt="Small business owner working at a laptop">
+      </div>
+      <div class="hero-float-card">
+        <div class="icon-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </div>
+        <div>
+          <div class="label" data-i18n="home.callToday">Call us today</div>
+          <a href="tel:+14438354492" class="value"><bdi dir="ltr">+1 (443) 835-4492</bdi></a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-white">
+  <div class="container">
+    <div class="section-heading reveal">
+      <span class="eyebrow" data-i18n="home.whyEyebrow">Why Businesses Choose Us</span>
+      <h2 data-i18n="home.whyHeading">Financial expertise, personal attention</h2>
+      <p data-i18n="home.whyLead">We combine deep tax knowledge with technology and a genuinely personal approach — so every client gets solutions built around their business, not a template.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card reveal">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <h3 data-i18n="home.feature1Title">Personalized Approach</h3>
+        <p data-i18n="home.feature1Desc">Every engagement is tailored to your business — not a one-size-fits-all package.</p>
+      </div>
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01"/></svg></div>
+        <h3 data-i18n="home.feature2Title">Maryland Tax Experts</h3>
+        <p data-i18n="home.feature2Desc">Deep familiarity with Maryland and federal regulations, so you stay compliant year-round.</p>
+      </div>
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <h3 data-i18n="home.feature3Title">Transparent Pricing</h3>
+        <p data-i18n="home.feature3Desc">Clear, upfront pricing with no hidden fees — you always know what to expect.</p>
+      </div>
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></div>
+        <h3 data-i18n="home.feature4Title">Year-Round Support</h3>
+        <p data-i18n="home.feature4Desc">We're here well beyond tax season, whenever questions or opportunities come up.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-cream">
+  <div class="container split">
+    <div class="media reveal">
+      <img src="/images/workspace-desk.png" alt="Modern office workspace">
+      <div class="stat-chip">
+        <span class="value" data-i18n="home.statValue">Est. 2020</span>
+        <span class="label" data-i18n="home.statLabel">Serving Maryland small businesses</span>
+      </div>
+    </div>
+    <div class="reveal reveal-delay-1">
+      <span class="eyebrow" data-i18n="home.aboutEyebrow">Our Journey</span>
+      <h2 data-i18n="home.aboutHeading">About AL TAX SERVICE</h2>
+      <p data-i18n="home.aboutLead">AL TAX SERVICE is a dedicated tax accounting and corporate services firm specializing in tax preparation and corporate compliance for small businesses. We employ practices that fit your needs, and technology to provide transparent financial solutions that help our clients achieve their fiscal goals.</p>
+      <ul class="check-list">
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.checklist1">Full-service tax, accounting &amp; corporate compliance</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.checklist2">Reliable, personalized financial solutions</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg> <span data-i18n="home.checklist3">Built for Maryland small business owners</span></li>
+      </ul>
+      <a href="/about" class="btn btn-dark"><span data-i18n="home.discoverMore">Discover More</span> <span class="arrow">&rarr;</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="section section-forest">
+  <div class="container">
+    <div class="section-heading reveal">
+      <span class="eyebrow" data-i18n="home.servicesEyebrow">What We Provide</span>
+      <h2 data-i18n="home.servicesHeading">Our Services</h2>
+      <p data-i18n="home.servicesLead">From personal returns to payroll and sales tax, we cover the full range of tax and accounting needs for Maryland individuals and small businesses.</p>
+    </div>
+    <div class="services-grid">
+      <div class="service-card reveal">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+        <h3 data-i18n="svc.personalTitle">Personal Tax Preparation</h3>
+        <span class="service-sub" data-i18n="svc.personalSub">Maximize Your Returns</span>
+        <p data-i18n="svc.personalDesc">Individual tax returns prepared accurately and reviewed for every deduction and credit you qualify for.</p>
+      </div>
+      <div class="service-card reveal reveal-delay-1">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="3" width="10" height="18" rx="1"/><path d="M8 7h4M8 11h4"/><circle cx="17" cy="16" r="4"/><path d="M17 14v4M15.5 16h3"/></svg></div>
+        <h3 data-i18n="svc.businessTitle">Business Tax Preparation</h3>
+        <span class="service-sub" data-i18n="svc.businessSub">Every Entity Type</span>
+        <p data-i18n="svc.businessDesc">Returns and strategic planning for sole proprietors, LLCs, S-Corps, partnerships, and corporations.</p>
+      </div>
+      <div class="service-card reveal reveal-delay-2">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
+        <h3 data-i18n="svc.payrollTitle">Payroll Services</h3>
+        <span class="service-sub" data-i18n="svc.payrollSub">On Time, Every Time</span>
+        <p data-i18n="svc.payrollDesc">Full-service payroll processing, tax deposits, and quarterly filings — so your team always gets paid correctly.</p>
+      </div>
+      <div class="service-card reveal reveal-delay-3">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h16v4l-2 12H6L4 8z"/><path d="M9 10l2 2 4-4"/></svg></div>
+        <h3 data-i18n="svc.salesTitle">Sales &amp; Use Tax</h3>
+        <span class="service-sub" data-i18n="svc.salesSub">Stay Registered &amp; Compliant</span>
+        <p data-i18n="svc.salesDesc">Sales tax registration, nexus review, and on-time filing with the Comptroller of Maryland.</p>
+      </div>
+      <div class="service-card reveal">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
+        <h3 data-i18n="svc.advisoryTitle">Financial Advisory</h3>
+        <span class="service-sub" data-i18n="svc.advisorySub">Strategic Insights</span>
+        <p data-i18n="svc.advisoryDesc">Guidance through complex financial landscapes, with strategies built for sustainable growth.</p>
+      </div>
+      <div class="service-card reveal reveal-delay-1">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 10l9-6 9 6"/><path d="M5 10v9h14v-9"/><path d="M9 19v-6h6v6"/></svg></div>
+        <h3 data-i18n="svc.complianceTitle">Compliance &amp; Formation</h3>
+        <span class="service-sub" data-i18n="svc.complianceSub">Stay Compliant</span>
+        <p data-i18n="svc.complianceDesc">Business formation, registered agent support, and compliance filings that reduce the risk of penalties.</p>
+      </div>
+    </div>
+    <div style="text-align:center; margin-top: 3.5rem;" class="reveal">
+      <a href="/services" class="btn btn-outline"><span data-i18n="home.viewAllServices">View All Services</span> <span class="arrow">&rarr;</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="section section-white">
+  <div class="container">
+    <div class="section-heading reveal">
+      <span class="eyebrow" data-i18n="home.processEyebrow">How We Work</span>
+      <h2 data-i18n="home.processHeading">Simple, transparent, and built around you</h2>
+    </div>
+    <div class="process-grid">
+      <div class="process-step reveal">
+        <div class="step-num">1</div>
+        <h3 data-i18n="process.step1Title">Schedule a Consultation</h3>
+        <p data-i18n="process.step1Desc">Tell us about your business and what you need — we'll map out the right plan.</p>
+        <a href="https://calendar.app.google/mH8cfL1A8oEVWEGc9" target="_blank" rel="noopener" class="step-link"><span data-i18n="process.step1BookLink">Book a time</span> <span class="arrow">&rarr;</span></a>
+      </div>
+      <div class="process-step reveal reveal-delay-1">
+        <div class="step-num">2</div>
+        <h3 data-i18n="process.step2Title">We Prepare &amp; Review</h3>
+        <p data-i18n="process.step2Desc">Our team handles the details, keeping you informed and involved at every step.</p>
+      </div>
+      <div class="process-step reveal reveal-delay-2">
+        <div class="step-num">3</div>
+        <h3 data-i18n="process.step3Title">File With Confidence</h3>
+        <p data-i18n="process.step3Desc">Accurate, compliant, and on time — with support long after filing is done.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-white">
+  <div class="container">
+    <div class="section-heading reveal">
+      <span class="eyebrow" data-i18n="home.deskEyebrow">From Our Tax Desk</span>
+      <h2 data-i18n="home.deskHeading">Deadlines, tips, and official resources</h2>
+      <p data-i18n="home.deskLead">A running 2026 tax calendar, plain-English tips, and direct links to the IRS and Comptroller of Maryland — all in one place.</p>
+    </div>
+    <div class="tip-grid">
+      <div class="tip-card reveal">
+        <div class="tip-top"><span class="tag tag-estimated" data-i18n="tip.estimatedTag">Estimated Tax</span></div>
+        <div class="tip-body">
+          <h3 data-i18n="tip.estimatedTitle">2026 Estimated Tax Payments: What Business Owners Need to Know</h3>
+          <p data-i18n="tip.estimatedDesc">Who needs to pay quarterly, how to calculate your payment, and how to avoid an underpayment penalty.</p>
+          <a href="/news/2026-estimated-tax-payments" class="tip-link"><span data-i18n="tip.readArticle">Read article</span> <span class="arrow">&rarr;</span></a>
+        </div>
+      </div>
+      <div class="tip-card reveal reveal-delay-1">
+        <div class="tip-top"><span class="tag tag-payroll" data-i18n="tip.payrollTag">Payroll</span></div>
+        <div class="tip-body">
+          <h3 data-i18n="tip.payrollTitle">5 Payroll Mistakes That Trigger IRS Penalties</h3>
+          <p data-i18n="tip.payrollDesc">Common missteps in deposit timing, worker classification, and quarterly filings — and how to avoid them.</p>
+          <a href="/news/payroll-mistakes-irs-penalties" class="tip-link"><span data-i18n="tip.readArticle">Read article</span> <span class="arrow">&rarr;</span></a>
+        </div>
+      </div>
+      <div class="tip-card reveal reveal-delay-2">
+        <div class="tip-top"><span class="tag tag-sales" data-i18n="tip.salesTag">Sales Tax</span></div>
+        <div class="tip-body">
+          <h3 data-i18n="tip.salesTitle">Do You Need to Register for Maryland Sales Tax?</h3>
+          <p data-i18n="tip.salesDesc">A quick guide to nexus, taxable goods and services, and setting up your filing schedule correctly.</p>
+          <a href="/news/maryland-sales-tax-registration" class="tip-link"><span data-i18n="tip.readArticle">Read article</span> <span class="arrow">&rarr;</span></a>
+        </div>
+      </div>
+    </div>
+    <div style="text-align:center; margin-top: 3.5rem;" class="reveal">
+      <a href="/resources" class="btn btn-dark"><span data-i18n="home.viewCalendarResources">View Tax Calendar &amp; Resources</span> <span class="arrow">&rarr;</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="section section-cream">
+  <div class="container">
+    <div class="section-heading reveal">
+      <span class="eyebrow" data-i18n="home.testimonialsEyebrow">What Our Clients Say</span>
+      <h2 data-i18n="home.testimonialsHeading">Testimonials</h2>
+      <p data-i18n="home.testimonialsLead">Our clients appreciate our thoroughness, professionalism, and commitment to providing outstanding tax accounting services.</p>
+    </div>
+    <div class="testimonial-grid">
+      <div class="testimonial-card reveal">
+        <span class="quote-mark">&ldquo;</span>
+        <p data-i18n="test1.quote">I have been going to AL for my taxes since 2023, and I couldn't be more satisfied with the service. They are professional, knowledgeable, and always take the time to thoroughly explain everything I need to know.</p>
+        <span class="t-name">Henrietta F. Bernard</span>
+      </div>
+      <div class="testimonial-card reveal reveal-delay-1">
+        <span class="quote-mark">&ldquo;</span>
+        <p data-i18n="test2.quote">Professional, knowledgeable, courteous, and reasonably priced — better by far than most places in the Baltimore area. Since transferring my accounts here, I've had no more issues with filings or paperwork.</p>
+        <span class="t-name">Aldaylam Ahmed</span>
+      </div>
+      <div class="testimonial-card reveal reveal-delay-2">
+        <span class="quote-mark">&ldquo;</span>
+        <p data-i18n="test3.quote">Best accountant I've ever worked with — great service, fast response to calls and emails, and always respectful and professional. I recommend them to all my family and friends.</p>
+        <span class="t-name">Google Reviewer</span>
+      </div>
+    </div>
+    <div class="review-cta reveal">
+      <h3 data-i18n="review.heading">Happy with our service?</h3>
+      <p data-i18n="review.lead">If we've made your tax season easier, we'd be grateful for a review on Google — it helps other small business owners in Maryland find us.</p>
+      <a href="https://www.google.com/maps/search/?api=1&query=AL+TAX+SERVICE%2C+1714+Saint+Paul+St+STE+1A%2C+Baltimore%2C+MD+21202" target="_blank" rel="noopener" class="btn btn-dark"><span data-i18n="review.cta">Leave us a Google review</span> <span class="arrow">&rarr;</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="cta-banner reveal">
+  <h2 data-i18n="home.ctaHeading">Ready to simplify your taxes?</h2>
+  <p data-i18n="home.ctaLead">Reach out today and let's talk about your business's financial success.</p>
+  <div class="ctas">
+    <a href="https://calendar.app.google/mH8cfL1A8oEVWEGc9" target="_blank" rel="noopener" class="btn btn-primary"><span data-i18n="cta.bookConsultation">Book a Consultation</span> <span class="arrow">&rarr;</span></a>
+    <a href="/contact" class="btn btn-outline"><span data-i18n="home.ctaGetInTouch">Get in Touch</span></a>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
+        <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
+        <div class="footer-social">
+          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
+          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
+          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <ul>
+          <li><a href="/" data-i18n="nav.home">Home</a></li>
+          <li><a href="/about" data-i18n="nav.about">About Us</a></li>
+          <li><a href="/services" data-i18n="nav.services">Our Services</a></li>
+          <li><a href="/resources" data-i18n="nav.resources">Resources</a></li>
+          <li><a href="/news" data-i18n="nav.news">Tax News</a></li>
+          <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
+          <li><a href="/login/client" data-i18n="footer.clientPortalLogin">Client Portal Login</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="footer.services">Services</h4>
+        <ul>
+          <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
+          <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
+          <li><a href="/services" data-i18n="footer.servicePayroll">Payroll Services</a></li>
+          <li><a href="/services" data-i18n="footer.serviceSalesTax">Sales &amp; Use Tax</a></li>
+        </ul>
+      </div>
+      <div class="footer-col footer-newsletter">
+        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
+        <form class="newsletter-form">
+          <label for="newsletter-email" class="visually-hidden">Email address</label>
+          <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
+          <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
+        </form>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span data-i18n="footer.copyright">&copy; 2026 AL TAX SERVICE. All rights reserved.</span>
+      <div class="footer-legal">
+        <a href="/privacy" data-i18n="footer.privacyPolicy">Privacy Policy</a>
+        <a href="/sms-terms" data-i18n="footer.smsTerms">SMS &amp; WhatsApp Terms</a>
+        <a href="/accessibility" data-i18n="footer.accessibilityStatement">Accessibility Statement</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="js/translations.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

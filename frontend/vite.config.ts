@@ -13,7 +13,7 @@ export default defineConfig({
         name: 'AL TAX Nexus',
         short_name: 'AL TAX Nexus',
         description: 'AL Tax Service client and staff portal',
-        start_url: '/',
+        start_url: '/dashboard',
         display: 'standalone',
         background_color: '#ffffff',
         theme_color: '#202833',
@@ -26,6 +26,17 @@ export default defineConfig({
       workbox: {
         // Full-page navigations (not API fetches) fall back to the cached shell when offline.
         navigateFallback: '/index.html',
+        // The public marketing site (marketing-site/, served separately by src/server.ts)
+        // owns these exact paths — never let the app's offline shell hijack them.
+        navigateFallbackDenylist: [/^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/],
+        // Workbox's precache route matching defaults to treating "/" as an alias for
+        // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct
+        // precache-route match, so it runs BEFORE navigateFallback/navigateFallbackDenylist
+        // even get consulted, silently overriding the denylist above for "/" specifically.
+        // Confirmed live: after a correct precache of index.html, "/" still served the app
+        // shell instead of the marketing homepage, with no cache entry for "/" itself —
+        // exactly this aliasing. Disabling it is required for the denylist to mean anything.
+        directoryIndex: null,
         runtimeCaching: [
           {
             // GET-only, read-mostly API prefixes safe to serve stale-while-offline.
