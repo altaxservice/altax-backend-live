@@ -182,6 +182,64 @@ export function InvoicesListPage() {
     }
   }
 
+  async function handleUseScheduleNow(id: string) {
+    if (!confirm("Create an invoice from this schedule right now?")) return;
+    try {
+      const res = await api.post<{ invoiceId: string }>(`/billing/recurring/${id}/run-now`, {});
+      toast(`Invoice ${res.invoiceId} created.`);
+      loadAll();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not run this schedule.");
+    }
+  }
+
+  function handleDuplicateSchedule(s: RecurringBilling) {
+    setRecurringModal({ editing: { ...s, recurring_billing_id: undefined, status: "Active" } });
+  }
+
+  async function handlePauseSchedule(id: string) {
+    try {
+      await api.post(`/billing/recurring/${id}/pause`, {});
+      toast("Schedule paused.");
+      loadSchedules();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not pause this schedule.");
+    }
+  }
+
+  async function handleResumeSchedule(id: string) {
+    try {
+      await api.post(`/billing/recurring/${id}/resume`, {});
+      toast("Schedule resumed.");
+      loadSchedules();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not resume this schedule.");
+    }
+  }
+
+  async function handleSkipNextDate(id: string) {
+    if (!confirm("Skip this schedule's next occurrence? No invoice will be created for that date.")) return;
+    try {
+      await api.post(`/billing/recurring/${id}/skip`, {});
+      toast("Next occurrence skipped.");
+      loadSchedules();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not skip this schedule's next date.");
+    }
+  }
+
+  async function handleDeleteSchedule(id: string) {
+    const confirmValue = prompt("Permanently delete this recurring billing schedule? This cannot be undone. Type DELETE SCHEDULE to confirm.");
+    if (confirmValue === null) return;
+    try {
+      await api.post(`/billing/recurring/${id}/delete`, { confirm: confirmValue });
+      toast("Schedule deleted.");
+      loadSchedules();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this schedule.");
+    }
+  }
+
   const clientName = (id: string) => clients.find((c) => c.client_id === id)?.client_name || id;
 
   const filteredInvoices = useMemo(() => {
@@ -372,9 +430,32 @@ export function InvoicesListPage() {
                   <td className="muted">{String(s.due_days ?? "0")}</td>
                   <td className="muted">{s.auto_create_invoice ? "Invoice" : ""}{s.auto_create_invoice && s.auto_send_invoice ? " + " : ""}{s.auto_send_invoice ? "Email" : ""}{!s.auto_create_invoice && !s.auto_send_invoice ? "—" : ""}</td>
                   <td><StatusBadge status={s.status} /></td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    {s.status !== "Archived" && <button className="btn btn-sm" onClick={() => setRecurringModal({ editing: s })}>Edit</button>}
-                    {s.status !== "Archived" && <button className="btn btn-sm btn-danger" onClick={() => handleArchiveSchedule(s.recurring_billing_id)}>Archive</button>}
+                  <td data-label="" onClick={(e) => e.stopPropagation()}>
+                    <ActionMenu
+                      options={[
+                        ...(s.status !== "Archived" ? [
+                          { value: "edit", label: "Edit" },
+                          { value: "use", label: "Use Now" },
+                        ] : []),
+                        { value: "duplicate", label: "Duplicate" },
+                        ...(s.status !== "Archived" ? [
+                          s.status === "Paused" ? { value: "resume", label: "Resume" } : { value: "pause", label: "Pause" },
+                          { value: "skip", label: "Skip Next Date" },
+                          { value: "archive", label: "Archive" },
+                        ] : []),
+                        ...(isAdmin ? [{ value: "delete", label: "Delete" }] : []),
+                      ]}
+                      onSelect={(action) => {
+                        if (action === "edit") setRecurringModal({ editing: s });
+                        if (action === "use") handleUseScheduleNow(s.recurring_billing_id);
+                        if (action === "duplicate") handleDuplicateSchedule(s);
+                        if (action === "pause") handlePauseSchedule(s.recurring_billing_id);
+                        if (action === "resume") handleResumeSchedule(s.recurring_billing_id);
+                        if (action === "skip") handleSkipNextDate(s.recurring_billing_id);
+                        if (action === "archive") handleArchiveSchedule(s.recurring_billing_id);
+                        if (action === "delete") handleDeleteSchedule(s.recurring_billing_id);
+                      }}
+                    />
                   </td>
                 </tr>
               ))}

@@ -942,6 +942,121 @@ billingRouter.post("/recurring/:recurringBillingId/archive", requireAuth, requir
   res.json({ ok: true, recurringBillingId });
 }));
 
+/** Pause a recurring billing schedule — like Archive but resumable; /recurring/run already skips "paused" same as "archived". */
+billingRouter.post("/recurring/:recurringBillingId/pause", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { recurringBillingId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  if (!old) return res.status(404).json({ error: "Recurring billing schedule not found." });
+  if (!(await canAccessClient(req.user!, old.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
+  await query(`UPDATE altax.v3_recurring_billing SET status = 'Paused', updated_at = now() WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  await logAudit("Billing", "PAUSE_RECURRING_BILLING", recurringBillingId, "Status", old.status || "", "Paused",
+    `Recurring billing paused by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, recurringBillingId });
+}));
+
+/** Resume a paused recurring billing schedule back to Active. */
+billingRouter.post("/recurring/:recurringBillingId/resume", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { recurringBillingId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  if (!old) return res.status(404).json({ error: "Recurring billing schedule not found." });
+  if (!(await canAccessClient(req.user!, old.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
+  await query(`UPDATE altax.v3_recurring_billing SET status = 'Active', updated_at = now() WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  await logAudit("Billing", "RESUME_RECURRING_BILLING", recurringBillingId, "Status", old.status || "", "Active",
+    `Recurring billing resumed by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, recurringBillingId });
+}));
+
+/** Advance a schedule to its next occurrence without creating an invoice for the current one — e.g. a client on hold for one period. */
+billingRouter.post("/recurring/:recurringBillingId/skip", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { recurringBillingId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  if (!old) return res.status(404).json({ error: "Recurring billing schedule not found." });
+  if (!(await canAccessClient(req.user!, old.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
+  const current = dateOnly(old.next_run_date || old.start_date || new Date());
+  const next = nextRecurringDate(current, old.frequency, old.interval_count, old.repeat_on_day);
+  await query(`UPDATE altax.v3_recurring_billing SET next_run_date = $2, updated_at = now() WHERE recurring_billing_id = $1`, [recurringBillingId, dateString(next)]);
+  await logAudit("Billing", "SKIP_RECURRING_BILLING", recurringBillingId, "NextRunDate", dateString(current), dateString(next),
+    `Next occurrence skipped by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, recurringBillingId, nextRunDate: dateString(next) });
+}));
+
+/**
+ * Manually run ONE recurring billing schedule right now — creates its invoice
+ * immediately regardless of whether next_run_date has arrived yet. Shares the bulk
+ * /recurring/run route's idempotency guard (SourceSystem/SourceRecordID), so it
+ * reports back the existing invoice instead of double-billing if that period was
+ * already run (e.g. by the scheduled bulk run).
+ */
+billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { recurringBillingId } = req.params;
+  const schedule = await queryOne<any>(`SELECT * FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  if (!schedule) return res.status(404).json({ error: "Recurring billing schedule not found." });
+  if (!(await canAccessClient(req.user!, schedule.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const amount = money(schedule.amount);
+  if (amount <= 0) return res.status(400).json({ error: "This schedule has no amount set." });
+
+  const runDate = dateOnly(new Date());
+  const runDateString = dateString(runDate);
+  const nextRun = dateOnly(schedule.next_run_date || schedule.start_date || runDate);
+  const sourceRecordId = `${schedule.recurring_billing_id}:${dateString(nextRun)}`;
+
+  const existingInvoice = await queryOne<any>(
+    `SELECT invoice_id FROM altax.v3_invoices WHERE source_system = 'Recurring Billing' AND source_record_id = $1 AND lower(status) <> 'void'`,
+    [sourceRecordId]
+  );
+  if (existingInvoice) {
+    return res.status(400).json({ error: `An invoice for this period already exists (${existingInvoice.invoice_id}).` });
+  }
+
+  const invoiceId = `INV-${idSuffix()}`;
+  const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
+  await query(
+    `INSERT INTO altax.v3_invoices
+       (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
+        status, source_system, source_record_id)
+     VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
+    [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
+  );
+  await query(
+    `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
+    [recurringBillingId, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
+  );
+  await logAudit("Billing", "RUN_RECURRING_BILLING", recurringBillingId, "InvoiceID", "", invoiceId,
+    `Recurring invoice manually created (Use Now) by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, invoiceId, recurringBillingId });
+}));
+
+/** Permanently delete a recurring billing schedule — admin-only, typed confirmation required, matching DELETE INVOICE / DELETE PAYCHECK / DELETE DOCUMENT. No other table references recurring_billing_id, so this is a clean hard delete; invoices this schedule already created are untouched. */
+billingRouter.post("/recurring/:recurringBillingId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { recurringBillingId } = req.params;
+  if (String((req.body || {}).confirm || "").trim() !== "DELETE SCHEDULE") {
+    return res.status(400).json({ error: 'Type "DELETE SCHEDULE" to confirm this permanent action.' });
+  }
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  if (!old) return res.status(404).json({ error: "Recurring billing schedule not found." });
+
+  await query(`DELETE FROM altax.v3_recurring_billing WHERE recurring_billing_id = $1`, [recurringBillingId]);
+  await logAudit("Billing", "DELETE_RECURRING_BILLING", recurringBillingId, "Status", old.status || "", "",
+    `Recurring billing schedule permanently deleted by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, recurringBillingId });
+}));
+
 /**
  * Run recurring billing — ported from alTaxPortalRunRecurringBilling. Manually
  * triggered (see module doc comment); idempotent per period via a
