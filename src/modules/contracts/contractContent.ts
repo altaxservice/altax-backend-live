@@ -42,6 +42,11 @@ export const SERVICE_LABEL: Record<string, string> = Object.fromEntries(FIRM_SER
  */
 export const GENERAL_TERMS_KEY = "general_terms";
 export const GENERAL_TERMS_TITLE = "General Terms & Conditions";
+// Bilingual for the same reason as the immigration template: this block is
+// appended to every contract, and most of the firm's clients read Arabic more
+// comfortably than English — a liability/fees/e-sign-consent section they
+// can't actually read isn't real informed consent for any service, not just
+// immigration. Same section-by-section translation, same divider convention.
 export const GENERAL_TERMS_BODY = `GENERAL TERMS & CONDITIONS
 
 1. RELIANCE ON CLIENT INFORMATION. {{firmName}} will rely on the accuracy and completeness of the information, documents, and instructions Client provides. {{firmName}} does not independently verify or audit information supplied by Client and is not responsible for errors, penalties, or losses resulting from incomplete, inaccurate, or untimely information provided by Client.
@@ -64,7 +69,33 @@ export const GENERAL_TERMS_BODY = `GENERAL TERMS & CONDITIONS
 
 10. GOVERNING LAW. This agreement is governed by the laws of the State of Maryland, without regard to conflict-of-law principles, and any dispute arising from it will be resolved in a court of competent jurisdiction in Maryland.
 
-11. ENTIRE AGREEMENT. This agreement, together with the service description above, is the entire agreement between Client and {{firmName}} regarding the services described, and supersedes any prior discussions. It may only be amended in writing signed (including electronically) by both parties.`;
+11. ENTIRE AGREEMENT. This agreement, together with the service description above, is the entire agreement between Client and {{firmName}} regarding the services described, and supersedes any prior discussions. It may only be amended in writing signed (including electronically) by both parties.
+
+النسخة العربية — Arabic Translation
+
+الشروط والأحكام العامة
+
+1. الاعتماد على معلومات العميل. تعتمد {{firmName}} على دقة واكتمال المعلومات والمستندات والتعليمات التي يقدّمها العميل. لا تقوم {{firmName}} بالتحقق أو التدقيق المستقل في المعلومات المقدَّمة من العميل، وهي غير مسؤولة عن أي أخطاء أو غرامات أو خسائر ناتجة عن معلومات ناقصة أو غير دقيقة أو متأخرة يقدّمها العميل.
+
+2. لا يوجد ضمان للنتيجة. ستؤدي {{firmName}} الخدمات الموضحة أعلاه وفق معايير العناية المهنية المعقولة. لا تضمن {{firmName}} أي نتيجة محددة، أو مبلغ استرداد ضريبي، أو نتيجة تقديم، أو موافقة، أو مدة معالجة حكومية، وهي غير مسؤولة عن أي تأخير أو قرار تتخذه مصلحة الضرائب (IRS) أو أي جهة حكومية أخرى خارجة عن سيطرة {{firmName}}.
+
+3. مسؤوليات العميل. يوافق العميل على تقديم المستندات والمعلومات المطلوبة في الوقت المناسب، وعلى مراجعة جميع المستندات والطلبات المُعدّة نيابةً عنه قبل تقديمها أو الاعتماد عليها، وعلى إخطار {{firmName}} فوراً بأي تغييرات قد تؤثر على الخدمات الموضحة أعلاه.
+
+4. الرسوم والدفع. تبلغ رسوم هذا التعاقد {{feeAmount}}. تُستحق الرسوم عند إصدار الفاتورة؛ ويجوز لـ{{firmName}} تعليق الخدمات عن الحسابات التي عليها رصيد مستحق. الرسوم المدفوعة غير قابلة للاسترداد بمجرد إنجاز العمل المقابل لها.
+
+5. تحديد المسؤولية. إلى أقصى حد يسمح به القانون، تقتصر المسؤولية الإجمالية لـ{{firmName}} الناشئة عن هذا التعاقد أو المتعلقة به، سواء بموجب العقد أو الضرر أو غير ذلك، على الرسوم التي دفعها العميل فعلياً مقابل الخدمة المحددة موضوع المطالبة. لا تتحمل {{firmName}} بأي حال من الأحوال مسؤولية الأضرار غير المباشرة أو العرضية أو التبعية أو الخاصة أو التأديبية، بما في ذلك خسارة الأرباح، حتى لو تم إخطارها باحتمال وقوع مثل هذه الأضرار.
+
+6. السرية وأمن البيانات. ستحافظ {{firmName}} على سرية معلومات العميل بما يتوافق مع القانون المعمول به وسياسة أمن المعلومات الخاصة بـ{{firmName}} المكتوبة، ولن تفصح عنها لأطراف ثالثة إلا بالقدر اللازم لأداء الخدمات الموضحة أعلاه، أو وفقاً لما يقتضيه القانون، أو بموافقة العميل.
+
+7. مدة التعاقد وإنهاؤه. يستمر هذا التعاقد حتى إتمام الخدمات الموضحة أو حتى يقوم أي من الطرفين بإنهائه كتابياً. لا يؤثر الإنهاء على الرسوم المستحقة عن العمل الذي تم إنجازه بالفعل، ويظل العميل مسؤولاً عن الوفاء بأي مواعيد نهائية جارية وقت الإنهاء.
+
+8. لا استشارة قانونية أو استثمارية. ما لم تنص الخدمة المحددة الموضحة أعلاه صراحةً على خلاف ذلك، فإن {{firmName}} ليست مكتباً قانونياً ولا تقدّم استشارات قانونية، كما أنها لا تقدّم استشارات استثمارية أو تخطيط مالي شخصية. يجب على العميل استشارة محامٍ مرخّص أو مستشار مالي مرخّص في الأمور التي تتطلب هذه الخبرة.
+
+9. الموافقة على التوقيع الإلكتروني. يوافق العميل على إتمام هذا التعامل إلكترونياً، ويوافق على التوقيع على هذا الاتفاق باستخدام توقيع إلكتروني، ويقرّ بأن لهذا التوقيع نفس الأثر القانوني للتوقيع الخطي. يجوز للعميل طلب نسخة ورقية من هذا الاتفاق في أي وقت.
+
+10. القانون المُطبَّق. يخضع هذا الاتفاق لقوانين ولاية ماريلاند، بصرف النظر عن مبادئ تنازع القوانين، ويتم حل أي نزاع ينشأ عنه أمام محكمة مختصة في ولاية ماريلاند.
+
+11. الاتفاق الكامل. يمثّل هذا الاتفاق، إلى جانب وصف الخدمة أعلاه، الاتفاق الكامل بين العميل و{{firmName}} بشأن الخدمات الموضحة، ويحل محل أي مناقشات سابقة. لا يجوز تعديله إلا كتابياً وموقعاً (بما في ذلك إلكترونياً) من الطرفين.`;
 
 export const BUILT_IN_CONTRACT_TEMPLATES: { serviceKey: string; title: string; body: string }[] = [
   {
@@ -148,11 +179,9 @@ REGISTERED AGENT — CLIENT RESPONSIBILITY TO RESPOND. If Firm serves as Client'
     // below is a full, independent translation of the scope + disclosure +
     // acknowledgment (not machine-translated placeholder text), appended after the
     // English original rather than interleaved, matching how the referral-email
-    // template handles English/Arabic. Only this service-specific section is
-    // translated — the shared GENERAL_TERMS block (fees, liability, e-sign consent)
-    // that gets appended to every contract type is still English-only; translating
-    // that too is a reasonable follow-up if wanted, scoped separately since it
-    // touches all 7 templates, not just this one.
+    // template handles English/Arabic. The shared GENERAL_TERMS block below is
+    // translated the same way for the same reason, so the fees/liability/e-sign
+    // section every contract carries is equally readable, not just this one.
     body: `IMMIGRATION DOCUMENT PREPARATION AGREEMENT
 
 This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for immigration document preparation services, effective {{effectiveDate}}.
