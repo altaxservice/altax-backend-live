@@ -61,6 +61,7 @@ export function InvoicesListPage() {
   const [viewingStatement, setViewingStatement] = useState(false);
 
   const canManage = user?.role === "admin" || user?.role === "staff";
+  const isAdmin = user?.role === "admin";
 
   function loadInvoices(): Promise<void> {
     return api.get<{ invoices: Invoice[] }>("/billing/invoices").then((r) => setInvoices(r.invoices)).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load invoices."));
@@ -155,6 +156,18 @@ export function InvoicesListPage() {
       loadAll();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not void this invoice.");
+    }
+  }
+
+  async function handleDelete(invoiceId: string) {
+    const confirmValue = prompt(`Permanently delete invoice ${invoiceId}? This cannot be undone. Type DELETE INVOICE to confirm.`);
+    if (confirmValue === null) return;
+    try {
+      await api.post(`/billing/invoices/${invoiceId}/delete`, { confirm: confirmValue });
+      toast("Invoice deleted.");
+      loadAll();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this invoice.");
     }
   }
 
@@ -316,12 +329,14 @@ export function InvoicesListPage() {
                           { value: "view-pdf", label: "View PDF" },
                           { value: "print", label: "Download PDF" },
                           ...(inv.status !== "Void" ? [{ value: "void", label: "Void Invoice" }] : []),
+                          ...(isAdmin ? [{ value: "delete", label: "Delete Invoice" }] : []),
                         ]}
                         onSelect={(action) => {
                           if (action === "view") navigate(`/billing/${inv.invoice_id}`);
                           if (action === "view-pdf") viewFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not open this invoice."));
                           if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, `Invoice_${inv.invoice_id}.pdf`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not print this invoice."));
                           if (action === "void") handleVoid(inv.invoice_id);
+                          if (action === "delete") handleDelete(inv.invoice_id);
                         }}
                       />
                     </td>

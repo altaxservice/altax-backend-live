@@ -616,6 +616,36 @@ billingRouter.post("/invoices/:invoiceId/void", requireAuth, requireRole("admin"
 }));
 
 /**
+ * Permanently delete an invoice — the module doc comment above deliberately skipped
+ * this (hard row delete, void was meant as the sole substitute), ported now at the
+ * user's explicit request to clear test/junk invoices off the Billing page. Admin-only,
+ * typed confirmation required, matching DELETE PAYCHECK / DELETE DOCUMENT / DELETE USER.
+ * Blocked when a real payment references this invoice (v3_payments.invoice_id) — that
+ * financial history needs the paper trail a void preserves, not a delete that would
+ * orphan the payment row (ON DELETE SET NULL) with no invoice to point back to.
+ * v3_invoice_line_items cascade-deletes; v3_recurring_billing.last_invoice_id nulls out.
+ */
+billingRouter.post("/invoices/:invoiceId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { invoiceId } = req.params;
+  if (String((req.body || {}).confirm || "").trim() !== "DELETE INVOICE") {
+    return res.status(400).json({ error: 'Type "DELETE INVOICE" to confirm this permanent action.' });
+  }
+  const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [invoiceId]);
+  if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+
+  const paymentCount = await queryOne<{ count: string }>(`SELECT count(*) FROM altax.v3_payments WHERE invoice_id = $1`, [invoiceId]);
+  if (Number(paymentCount?.count || 0) > 0) {
+    return res.status(400).json({ error: "This invoice has payment history and cannot be deleted. Void it instead." });
+  }
+
+  await query(`DELETE FROM altax.v3_invoices WHERE invoice_id = $1`, [invoiceId]);
+  await logAudit("Billing", "DELETE_INVOICE", invoiceId, "Status", invoice.status || "", "",
+    `Invoice permanently deleted by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, invoiceId });
+}));
+
+/**
  * Record a payment against an invoice — ported from alTaxPortalRecordPayment, plus the
  * over-payment cap from v3RecordInvoicePayment (see module doc comment). Client role
  * blocked ("Client portal cannot record payments.").
