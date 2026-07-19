@@ -141,11 +141,25 @@ REGISTERED AGENT — CLIENT RESPONSIBILITY TO RESPOND. If Firm serves as Client'
   {
     serviceKey: "immigration",
     title: "Immigration Document Preparation Agreement",
+    // Bilingual by design: most of the firm's immigration clients read Arabic more
+    // comfortably than English, and a disclosure the client can't actually read is
+    // not real informed consent — the highest-risk sentence in this whole template
+    // is "we are not attorneys," and that sentence has to land. The Arabic block
+    // below is a full, independent translation of the scope + disclosure +
+    // acknowledgment (not machine-translated placeholder text), appended after the
+    // English original rather than interleaved, matching how the referral-email
+    // template handles English/Arabic. Only this service-specific section is
+    // translated — the shared GENERAL_TERMS block (fees, liability, e-sign consent)
+    // that gets appended to every contract type is still English-only; translating
+    // that too is a reasonable follow-up if wanted, scoped separately since it
+    // touches all 7 templates, not just this one.
     body: `IMMIGRATION DOCUMENT PREPARATION AGREEMENT
 
 This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for immigration document preparation services, effective {{effectiveDate}}.
 
-IMPORTANT NOTICE — {{firmName}} IS NOT A LAW FIRM. {{firmName}} and its staff are NOT attorneys and are not authorized to practice law. {{firmName}} does NOT provide legal advice, does NOT tell Client which immigration form, benefit, or status to apply for, does NOT evaluate the legal merits or likelihood of success of Client's case, and does NOT represent Client before USCIS, any immigration court, or any other government body. {{firmName}} assists ONLY with the mechanical preparation of forms — typing, organizing, and submitting paperwork — strictly according to Client's own instructions and choices.
+WHAT WE DO. {{firmName}} helps Client fill out immigration application forms — typing the information Client provides, organizing supporting documents, and submitting the completed application exactly as Client directs. That is the entire scope of this service.
+
+IMPORTANT NOTICE — {{firmName}} IS NOT A LAW FIRM. {{firmName}} and its staff are NOT attorneys and are not authorized to practice law. {{firmName}} does NOT provide legal advice, does NOT tell Client which immigration form, benefit, or status to apply for, does NOT evaluate the legal merits or likelihood of success of Client's case, and does NOT represent Client before USCIS, any immigration court, or any other government body. {{firmName}}'s help is limited to the mechanical preparation of forms — typing, organizing, and submitting paperwork — strictly according to Client's own instructions and choices.
 
 CLIENT DIRECTS THE FORM AND CONTENT. Client is solely responsible for deciding which application or petition to file and for the accuracy of every fact stated in it. Firm may point out that required fields are blank or that supporting documents appear to be missing, but does not decide what Client should submit.
 
@@ -153,7 +167,25 @@ RECOMMENDATION TO CONSULT AN ATTORNEY. If Client's matter involves any legal com
 
 NO GUARANTEE OF APPROVAL. Firm does not guarantee that any application or petition will be approved, and is not responsible for USCIS or other government processing times, decisions, or delays, all of which are outside Firm's control.
 
-ACKNOWLEDGMENT. By signing below, Client acknowledges having read and understood this notice, confirms that Firm has not provided legal advice, and confirms that all information provided to Firm for inclusion on any form is true and complete to Client's own knowledge.`,
+ACKNOWLEDGMENT. By signing below, Client acknowledges having read and understood this notice, confirms that Firm has not provided legal advice, and confirms that all information provided to Firm for inclusion on any form is true and complete to Client's own knowledge.
+
+النسخة العربية — Arabic Translation
+
+اتفاقية تحضير مستندات الهجرة
+
+تؤكد هذه الاتفاقية شروط التعاقد بين {{clientName}} ("العميل") و{{firmName}} ("الشركة") لتقديم خدمات تحضير مستندات الهجرة، اعتباراً من {{effectiveDate}}.
+
+ماذا نقدّم من خدمات. تساعد {{firmName}} العميل في تعبئة استمارات طلبات الهجرة فقط — من خلال كتابة المعلومات التي يقدّمها العميل، وتنظيم المستندات الداعمة، وتقديم الطلب المكتمل تماماً وفق تعليمات العميل. هذا هو النطاق الكامل لهذه الخدمة، ولا شيء غيره.
+
+تنبيه هام — {{firmName}} ليست مكتباً قانونياً. إنّ {{firmName}} وموظفيها ليسوا محامين وغير مخوّلين بممارسة المحاماة. لا تقدّم {{firmName}} أي استشارة قانونية، ولا تُخبر العميل بأي استمارة أو مصلحة هجرة يجب التقدّم إليها، ولا تُقيّم الأسس القانونية لقضية العميل أو احتمالية نجاحها، ولا تُمثّل العميل أمام دائرة خدمات المواطنة والهجرة الأمريكية (USCIS) أو أي محكمة هجرة أو أي جهة حكومية أخرى. تقتصر مساعدة {{firmName}} على التحضير الشكلي للاستمارات — الكتابة والتنظيم والتقديم — وفقاً حصراً لتعليمات واختيارات العميل.
+
+العميل هو من يحدّد نوع الطلب ومحتواه. العميل هو المسؤول الوحيد عن اختيار نوع الطلب أو الالتماس الذي سيتم تقديمه، وعن دقة كل معلومة واردة فيه. يجوز لـ{{firmName}} الإشارة إلى الحقول الفارغة أو المستندات الداعمة التي يبدو أنها ناقصة، لكنها لا تقرر نيابة عن العميل ما يجب تقديمه.
+
+التوصية باستشارة محامٍ. إذا كانت قضية العميل تنطوي على أي تعقيد قانوني، أو مخالفات هجرة سابقة، أو سجل جنائي، أو رفض سابق، أو أي أمر لا يعرف العميل كيفية الإجابة عنه، توصي {{firmName}} بشدة باستشارة محامي هجرة مرخّص قبل المتابعة. يمكن لـ{{firmName}} تقديم إحالة عند الطلب، لكنها لا تعمل كممثل قانوني للعميل.
+
+لا يوجد ضمان للموافقة. لا تضمن {{firmName}} الموافقة على أي طلب أو التماس، وهي غير مسؤولة عن مدة معالجة دائرة USCIS أو أي جهة حكومية أخرى أو عن قراراتها أو تأخيراتها، فجميعها أمور خارجة عن سيطرة {{firmName}}.
+
+الإقرار. بالتوقيع أدناه، يُقرّ العميل بأنه قرأ هذا الإشعار وفهمه، ويؤكد أن {{firmName}} لم تقدّم له أي استشارة قانونية، ويؤكد أن جميع المعلومات المقدَّمة إلى {{firmName}} لإدراجها في أي استمارة صحيحة وكاملة على حد علمه.`,
   },
   {
     serviceKey: "consulting",

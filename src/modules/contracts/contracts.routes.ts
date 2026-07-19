@@ -116,30 +116,44 @@ contractsRouter.get("/client/:clientId", requireAuth, asyncHandler(async (req: A
   res.json({ contracts });
 }));
 
-/**
- * Generate a new contract for a client from a service's effective template —
- * this is the "system suggests the appropriate contract" step: the caller passes
- * the serviceKey the client was just enrolled in, and this renders + snapshots
- * the merged text into rendered_body (which never changes again even if the
- * template is edited later) as a Draft the staff can review before sending.
- */
-contractsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const { clientId } = req.params;
-  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+export interface GenerateContractParams {
+  clientId: string; serviceKey: string; createdBy: string;
+  feeAmount?: number | null; feeDescription?: string | null; effectiveDate?: Date;
+}
+export interface GenerateContractResult { contractId: string; skipped: boolean; reason?: string }
 
-  const body = req.body || {};
-  const serviceKey = String(body.serviceKey || "").trim();
-  if (!serviceKey || !FIRM_SERVICES.some((s) => s.key === serviceKey)) return res.status(400).json({ error: "Unknown or missing service." });
+/**
+ * Generates a Draft contract for one client + service from that service's
+ * effective template, snapshotting the fully-merged text into rendered_body
+ * (which never changes again even if the template is edited later). Shared by
+ * the manual "Generate Contract" route below AND clients.routes.ts, which calls
+ * this automatically the moment a service is newly checked on a client (create
+ * or edit) — that's the actual "system suggests the appropriate contract"
+ * behavior; the manual route remains as a fallback (e.g. re-generating after a
+ * Void, or setting a fee up front) and as the one this function was extracted
+ * from. Silently no-ops (skipped: true) if an active (non-Void) contract for
+ * this client+service already exists, so calling it opportunistically from a
+ * client save is always safe — it can never create duplicates.
+ */
+export async function generateContractForService(params: GenerateContractParams): Promise<GenerateContractResult> {
+  const { clientId, serviceKey, createdBy } = params;
+  if (!FIRM_SERVICES.some((s) => s.key === serviceKey)) return { contractId: "", skipped: true, reason: "Unknown service." };
+
+  const existing = await queryOne<any>(
+    `SELECT contract_id FROM altax.v3_client_contracts WHERE client_id = $1 AND service_key = $2 AND status <> 'Void' LIMIT 1`,
+    [clientId, serviceKey]
+  );
+  if (existing) return { contractId: existing.contract_id, skipped: true, reason: "A contract for this service already exists." };
 
   const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!client) return res.status(404).json({ error: "Client not found." });
+  if (!client) return { contractId: "", skipped: true, reason: "Client not found." };
 
   const [scope, general] = await Promise.all([resolveContractTemplate(serviceKey), resolveContractTemplate(GENERAL_TERMS_KEY)]);
-  if (!scope) return res.status(404).json({ error: "No contract template for this service." });
+  if (!scope) return { contractId: "", skipped: true, reason: "No contract template for this service." };
 
-  const feeAmount = body.feeAmount !== undefined && body.feeAmount !== "" ? Number(body.feeAmount) : null;
-  const feeDescription = String(body.feeDescription || "").trim() || null;
-  const effectiveDate = body.effectiveDate ? new Date(body.effectiveDate) : new Date();
+  const feeAmount = params.feeAmount ?? null;
+  const feeDescription = params.feeDescription ?? null;
+  const effectiveDate = params.effectiveDate || new Date();
   const profile = await getFirmProfile();
 
   const extra = {
@@ -152,7 +166,7 @@ contractsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "sta
   const renderedBody = [scopeText, generalText].filter(Boolean).join("\n\n\n");
 
   // template_id isn't stored: built-in templates have no DB row, and rendered_body
-  // below is the immutable, fully-merged legal text this contract will always show —
+  // above is the immutable, fully-merged legal text this contract will always show —
   // service_key + title already give full traceability back to which template
   // family was used, without implying a live link to something that may later change.
   const contractId = `CT-${idSuffix()}`;
@@ -161,12 +175,31 @@ contractsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "sta
        (contract_id, client_id, service_key, title, rendered_body, fee_amount, fee_description, effective_date, status, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Draft',$9)`,
     [contractId, clientId, serviceKey, scope.title, renderedBody,
-     feeAmount, feeDescription, effectiveDate, req.user!.email]
+     feeAmount, feeDescription, effectiveDate, createdBy]
   );
   await logAudit("Contracts", "GENERATE", contractId, "service_key", "", serviceKey,
-    `${SERVICE_LABEL[serviceKey]} contract generated for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
+    `${SERVICE_LABEL[serviceKey]} contract generated for ${client.client_name} by ${createdBy}.`, createdBy);
 
-  res.status(201).json({ ok: true, contractId });
+  return { contractId, skipped: false };
+}
+
+contractsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const body = req.body || {};
+  const serviceKey = String(body.serviceKey || "").trim();
+  if (!serviceKey || !FIRM_SERVICES.some((s) => s.key === serviceKey)) return res.status(400).json({ error: "Unknown or missing service." });
+
+  const result = await generateContractForService({
+    clientId, serviceKey, createdBy: req.user!.email,
+    feeAmount: body.feeAmount !== undefined && body.feeAmount !== "" ? Number(body.feeAmount) : null,
+    feeDescription: String(body.feeDescription || "").trim() || null,
+    effectiveDate: body.effectiveDate ? new Date(body.effectiveDate) : new Date(),
+  });
+  if (result.skipped) return res.status(409).json({ error: result.reason || "Could not generate this contract." });
+
+  res.status(201).json({ ok: true, contractId: result.contractId });
 }));
 
 async function loadContractForUser(req: AuthedRequest, contractId: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Client, Task } from "../api/types";
@@ -12,6 +12,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import type { ClientContract } from "../api/types";
+import { ContractBodyText } from "../components/ContractBodyText";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[] }
@@ -545,6 +546,8 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [genForm, setGenForm] = useState({ feeAmount: "", feeDescription: "", effectiveDate: new Date().toISOString().slice(0, 10) });
   const [busy, setBusy] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<Record<string, string>>({});
 
   function load() {
     api.get<{ contracts: ClientContract[] }>(`/contracts/client/${clientId}`)
@@ -623,6 +626,25 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
     }
   }
 
+  /**
+   * Shows the actual contract text inline rather than just the PDF — the PDF
+   * can't render Arabic (standard PDF fonts can't encode it; see contractPdf.ts),
+   * so for the immigration template specifically this is the only way staff can
+   * read the Arabic section before sending it to a client.
+   */
+  async function handlePreview(contractId: string) {
+    if (previewId === contractId) { setPreviewId(null); return; }
+    setPreviewId(contractId);
+    if (previewText[contractId]) return;
+    try {
+      const res = await api.get<{ contract: { rendered_body: string } }>(`/contracts/${contractId}`);
+      setPreviewText((prev) => ({ ...prev, [contractId]: res.contract.rendered_body }));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not load this contract's text.");
+      setPreviewId(null);
+    }
+  }
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
@@ -675,29 +697,45 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
           <thead><tr><th>Contract</th><th>Status</th><th>Effective</th><th>Signed</th><th>Action</th></tr></thead>
           <tbody>
             {(contracts || []).map((c) => (
-              <tr key={c.contract_id}>
-                <td>{c.title}</td>
-                <td><span style={{ color: CONTRACT_STATUS_COLOR[c.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{c.status}</span></td>
-                <td className="muted">{c.effective_date ? new Date(c.effective_date).toLocaleDateString() : "—"}</td>
-                <td className="muted">{c.signer_name ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}` : "—"}</td>
-                <td>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View</button>
-                    <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
-                    {c.status === "Draft" && (
-                      <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
-                        {busy === `send-${c.contract_id}` ? "Sending…" : "Send to Client"}
-                      </button>
-                    )}
-                    {(c.status === "Sent" || c.status === "Signed") && c.share_token && (
-                      <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
-                    )}
-                    {c.status !== "Void" && c.status !== "Signed" && (
-                      <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${c.contract_id}`} onClick={() => handleVoid(c)}>Void</button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+              <Fragment key={c.contract_id}>
+                <tr>
+                  <td>{c.title}</td>
+                  <td><span style={{ color: CONTRACT_STATUS_COLOR[c.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{c.status}</span></td>
+                  <td className="muted">{c.effective_date ? new Date(c.effective_date).toLocaleDateString() : "—"}</td>
+                  <td className="muted">{c.signer_name ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}` : "—"}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="btn btn-sm" onClick={() => handlePreview(c.contract_id)}>{previewId === c.contract_id ? "Hide Text" : "Preview"}</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View PDF</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
+                      {c.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
+                          {busy === `send-${c.contract_id}` ? "Sending…" : "Send to Client"}
+                        </button>
+                      )}
+                      {(c.status === "Sent" || c.status === "Signed") && c.share_token && (
+                        <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
+                      )}
+                      {c.status !== "Void" && c.status !== "Signed" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${c.contract_id}`} onClick={() => handleVoid(c)}>Void</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {previewId === c.contract_id && (
+                  <tr>
+                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                      {previewText[c.contract_id] ? (
+                        <div style={{ padding: "12px 4px", maxHeight: 420, overflowY: "auto" }}>
+                          <ContractBodyText text={previewText[c.contract_id]} style={{ fontSize: 12.5, lineHeight: 1.7 }} />
+                        </div>
+                      ) : (
+                        <div className="spinner-wrap" style={{ padding: 16 }}>Loading…</div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

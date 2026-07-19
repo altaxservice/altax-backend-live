@@ -5,6 +5,25 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { composeAddress } from "../../common/address";
+import { generateContractForService } from "../contracts/contracts.routes";
+
+/**
+ * Best-effort: called after a client is created/updated with a newly-checked
+ * service, so "check a service, save" alone is enough to get a suggested
+ * contract without a separate trip to the Contracts section. Never throws —
+ * generateContractForService already no-ops safely if a contract for this
+ * client+service exists, and any other failure here (e.g. a bad template)
+ * shouldn't block the client save that triggered it.
+ */
+async function autoGenerateContracts(clientId: string, serviceKeys: string[], createdBy: string): Promise<void> {
+  for (const serviceKey of serviceKeys) {
+    try {
+      await generateContractForService({ clientId, serviceKey, createdBy });
+    } catch {
+      // best-effort — client save already succeeded, don't surface this as an error
+    }
+  }
+}
 
 export const clientsRouter = Router();
 
@@ -237,6 +256,10 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   await logAudit("Clients", "CLIENT_CREATED", clientId, "ClientName", "", body.clientName,
     "Client created via web app.", req.user!.email);
 
+  if (Array.isArray(body.services) && body.services.length > 0) {
+    await autoGenerateContracts(clientId, body.services, req.user!.email);
+  }
+
   res.status(201).json({ ok: true, clientId });
 }));
 
@@ -298,6 +321,15 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
         "Clients", "EDIT", clientId, col, String(oldValue ?? ""), String(newValue ?? ""),
         "Client updated from web app.", req.user!.email
       );
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(fields, "services")) {
+    const oldServices: string[] = Array.isArray(old.services) ? old.services : [];
+    const newServices: string[] = Array.isArray(fields.services) ? fields.services : [];
+    const addedServices = newServices.filter((k) => !oldServices.includes(k));
+    if (addedServices.length > 0) {
+      await autoGenerateContracts(clientId, addedServices, req.user!.email);
     }
   }
 

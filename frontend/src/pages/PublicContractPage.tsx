@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { ContractBodyText } from "../components/ContractBodyText";
 
 interface PublicContract {
   contract_id: string; title: string; rendered_body: string; effective_date: string | null;
@@ -101,8 +102,8 @@ export function PublicContractPage() {
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: 20, whiteSpace: "pre-wrap", fontSize: 13.5, lineHeight: 1.7, maxHeight: 520, overflowY: "auto" }}>
-        {contract.rendered_body}
+      <div className="card" style={{ marginBottom: 20, maxHeight: 520, overflowY: "auto" }}>
+        <ContractBodyText text={contract.rendered_body} style={{ fontSize: 13.5, lineHeight: 1.7 }} />
       </div>
 
       {!isSigned && (

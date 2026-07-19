@@ -19,6 +19,7 @@ const MUTED = rgb(0.42, 0.42, 0.42);
 const LINE = rgb(0.82, 0.82, 0.82);
 const TEAL = rgb(0.043, 0.42, 0.42);
 const TEAL_TINT = rgb(0.93, 0.97, 0.97);
+const ARABIC_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 
 function fmtDate(v: unknown): string {
   if (!v) return "";
@@ -134,8 +135,31 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   let pageNum = 1;
   const maxWidth = R - L;
 
+  // Standard PDF fonts (Helvetica) can only encode WinAnsi characters — drawing
+  // Arabic text with one throws ("WinAnsi cannot encode..."), confirmed directly
+  // against pdf-lib before writing this. Rather than embedding a font (which
+  // still wouldn't get real RTL/contextual letter shaping without more work — see
+  // the same tradeoff already documented in reportsPdf.ts's Client Message PDF),
+  // Arabic paragraphs are skipped here with a one-line English note; the full
+  // Arabic text is untouched everywhere else (the public sign page, admin
+  // preview) since those render plain Unicode HTML, not a drawn PDF glyph.
+  let arabicNoteShown = false;
   const paragraphs = data.renderedBody.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   for (const para of paragraphs) {
+    if (ARABIC_RE.test(para)) {
+      if (!arabicNoteShown) {
+        if (y > PAGE_H - 60) {
+          pageNum += 1;
+          ({ page, c } = newPage(doc, font, bold));
+          y = 56;
+          drawFooter(c, profile.firmName, data.contractId, `Page ${pageNum}`);
+        }
+        c.text(L, y, "[This agreement includes an Arabic-language translation — view it online or ask staff for a copy.]", { size: 8.5, color: MUTED });
+        y += 18;
+        arabicNoteShown = true;
+      }
+      continue;
+    }
     const rawLines = para.split("\n");
     for (const rawLine of rawLines) {
       for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
