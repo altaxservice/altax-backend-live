@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS v3_clients (
     -- does, e.g. a grocery+tobacco store) sell across multiple categories regardless
     -- of this label; the real multi-category truth lives in v3_sales_input_lines.
     industry_category VARCHAR(255),
+    -- Firm-wide service lines this client is engaged for (tax_prep, bookkeeping,
+    -- payroll, sales_tax, formation, immigration, consulting) — drives which
+    -- contract templates get suggested on the client's profile. Independent of
+    -- service_type above (kept as-is for backward compatibility).
+    services TEXT[],
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -864,6 +869,56 @@ CREATE TABLE IF NOT EXISTS v3_templates (
     source_record_id VARCHAR(64),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---- v3_Contract_Templates ----
+-- Admin-editable contract template overrides, keyed by service_key — mirrors the
+-- v3_templates "built-in default + optional override" pattern above. Built-in
+-- legal language lives in code (contractContent.ts); saving here overrides it
+-- without a deploy.
+CREATE TABLE IF NOT EXISTS v3_contract_templates (
+    template_id VARCHAR(64) PRIMARY KEY,
+    service_key VARCHAR(64) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    updated_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---- v3_Client_Contracts ----
+-- A generated, client-specific contract instance. rendered_body is the fully
+-- merged, immutable text snapshot at generation time — even if the source
+-- template is edited later, a previously generated/signed contract keeps the
+-- exact text the client saw and agreed to.
+CREATE TABLE IF NOT EXISTS v3_client_contracts (
+    contract_id VARCHAR(64) PRIMARY KEY,
+    client_id VARCHAR(64) NOT NULL,
+    template_id VARCHAR(64),
+    service_key VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    rendered_body TEXT NOT NULL,
+    fee_amount NUMERIC(14,2),
+    fee_description VARCHAR(255),
+    effective_date TIMESTAMPTZ,
+    status VARCHAR(32) NOT NULL DEFAULT 'Draft',
+    share_token VARCHAR(64) UNIQUE,
+    signer_name VARCHAR(255),
+    signer_title VARCHAR(255),
+    agreed BOOLEAN DEFAULT FALSE,
+    signed_at TIMESTAMPTZ,
+    signer_ip VARCHAR(64),
+    signer_user_agent TEXT,
+    voided_at TIMESTAMPTZ,
+    voided_reason TEXT,
+    created_by VARCHAR(255),
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_v3_client_contracts_client_id FOREIGN KEY (client_id) REFERENCES v3_clients(client_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_v3_client_contracts_client_id ON v3_client_contracts(client_id);
 
 -- ---- v3_Check_Settings ----
 CREATE TABLE IF NOT EXISTS v3_check_settings (

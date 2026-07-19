@@ -6,11 +6,12 @@ import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
+import type { ClientContract } from "../api/types";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[] }
@@ -26,6 +27,13 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
       { key: "service_type", apiKey: "serviceType", label: "Service Type", kind: "select", options: SERVICE_TYPES },
     ],
+  },
+  {
+    // No FieldConfig entries — rendered as a special-cased checklist below
+    // (multi-select doesn't fit the FieldKind union), same pattern AddressFields
+    // uses for the "Contact & Assignment" section.
+    title: "Services Provided",
+    fields: [],
   },
   {
     title: "Services & Compliance",
@@ -121,6 +129,7 @@ export function ClientDetailPage() {
         setClient(res.client);
         const initial: Record<string, any> = {};
         for (const f of ALL_FIELDS) initial[f.apiKey] = f.kind === "checkbox" ? Boolean(res.client[f.key]) : String(res.client[f.key] ?? "");
+        initial.services = Array.isArray(res.client.services) ? res.client.services : [];
         initial.streetAddress = String(res.client.street_address ?? "");
         initial.city = String(res.client.city ?? "");
         initial.zipCode = String(res.client.zip_code ?? "");
@@ -295,6 +304,30 @@ export function ClientDetailPage() {
           {EDIT_SECTIONS.map((section) => (
             <div key={section.title}>
               <div className="form-section-title">{section.title}</div>
+              {section.title === "Services Provided" && (
+                <>
+                  <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+                    Select every service this client is engaged for — the Contracts section below will suggest the matching contract for each one.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
+                    {FIRM_SERVICES.map((s) => (
+                      <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={(form.services as string[] || []).includes(s.key)}
+                          onChange={(e) => setForm((prev) => ({
+                            ...prev,
+                            services: e.target.checked
+                              ? [...(prev.services as string[] || []), s.key]
+                              : (prev.services as string[] || []).filter((k) => k !== s.key),
+                          }))}
+                        />
+                        {s.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className="form-grid">
                 {section.fields.map((f) => (
                   f.kind === "checkbox" ? (
@@ -360,6 +393,13 @@ export function ClientDetailPage() {
               <DetailRow label="Entity Type" value={client.entity_type} />
               <DetailRow label="State" value={client.state} />
               <DetailRow label="Service Type" value={client.service_type} />
+              <DetailRow
+                label="Services Provided"
+                value={(client.services && client.services.length > 0)
+                  ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
+                  : null}
+                multiline
+              />
               <DetailRow label="Email" value={client.email} />
               <DetailRow label="Phone" value={client.phone} />
               <DetailRow label="Address" value={client.address as string | null} multiline />
@@ -453,6 +493,12 @@ export function ClientDetailPage() {
             </div>
           )}
 
+          {(user?.role === "admin" || user?.role === "staff") && (
+            <div style={{ marginTop: 20 }}>
+              <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+            </div>
+          )}
+
           {String(client.notes || "").trim() && (
             <div className="card" style={{ marginTop: 20 }}>
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Notes</h2>
@@ -473,6 +519,193 @@ export function ClientDetailPage() {
         <div style={{ marginTop: 20 }}>
           <EmployerTaxFormsSection clientId={client.client_id} />
         </div>
+      )}
+    </div>
+  );
+}
+
+const CONTRACT_STATUS_COLOR: Record<string, string> = {
+  Draft: "var(--muted, #6b7280)", Sent: "#b4772a", Signed: "#3d7a54", Void: "#a3433f",
+};
+
+/**
+ * Service-contract suggestions + generated contract list for this client. Every
+ * service checked in "Services Provided" above that has no active (non-Void)
+ * contract yet gets a "Generate Contract" prompt — this is the literal feature
+ * request: "whenever we add a client the system should suggest the appropriate
+ * contract based on the service we will provide." Generated contracts start as
+ * Draft, move to Sent (emails the client a signing link) or Signed (client
+ * e-signed via that link), and can be Voided but never hard-deleted, since these
+ * are legal records.
+ */
+function ContractsSection({ clientId, clientServices }: { clientId: string; clientServices: string[] }) {
+  const toast = useToast();
+  const [contracts, setContracts] = useState<ClientContract[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [genForm, setGenForm] = useState({ feeAmount: "", feeDescription: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ contracts: ClientContract[] }>(`/contracts/client/${clientId}`)
+      .then((res) => setContracts(res.contracts))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load contracts."));
+  }
+  useEffect(load, [clientId]);
+
+  const activeServiceKeys = new Set((contracts || []).filter((c) => c.status !== "Void").map((c) => c.service_key));
+  const suggested = clientServices.filter((k) => !activeServiceKeys.has(k));
+
+  async function handleGenerate(serviceKey: string) {
+    setBusy(`gen-${serviceKey}`);
+    try {
+      await api.post(`/contracts/client/${clientId}`, {
+        serviceKey,
+        feeAmount: genForm.feeAmount || undefined,
+        feeDescription: genForm.feeDescription || undefined,
+        effectiveDate: genForm.effectiveDate || undefined,
+      });
+      toast("Contract drafted.");
+      setGeneratingFor(null);
+      setGenForm({ feeAmount: "", feeDescription: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate this contract.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleSend(c: ClientContract) {
+    setBusy(`send-${c.contract_id}`);
+    try {
+      const res = await api.post<{ shareToken: string; emailed: boolean; emailError?: string }>(`/contracts/${c.contract_id}/send`, {});
+      toast(res.emailed ? "Contract sent — emailed to the client." : `Contract marked sent.${res.emailError ? " (Email not sent — copy the link instead.)" : ""}`);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not send this contract.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function handleCopyLink(c: ClientContract) {
+    if (!c.share_token) return;
+    const link = `${window.location.origin}/public/contract/${c.share_token}`;
+    navigator.clipboard.writeText(link);
+    toast("Signing link copied.");
+  }
+
+  async function handleVoid(c: ClientContract) {
+    const reason = prompt(`Reason for voiding "${c.title}"?`);
+    if (reason === null) return;
+    setBusy(`void-${c.contract_id}`);
+    try {
+      await api.post(`/contracts/${c.contract_id}/void`, { reason });
+      toast("Contract voided.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not void this contract.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handlePdf(contractId: string, mode: "view" | "download", title: string) {
+    setBusy(`pdf-${contractId}`);
+    try {
+      if (mode === "view") await viewFile(`/contracts/${contractId}/pdf`);
+      else await downloadFile(`/contracts/${contractId}/pdf`, `${title.replace(/[^\w-]+/g, "_")}_${contractId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Contracts</strong>
+        <span className="muted" style={{ fontSize: 12 }}>{contracts ? `${contracts.length} contract(s)` : "Loading…"}</span>
+      </div>
+
+      {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+
+      {suggested.length > 0 && (
+        <div style={{ padding: 16, borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Suggested — no contract on file yet</div>
+          {suggested.map((key) => {
+            const label = FIRM_SERVICES.find((s) => s.key === key)?.label || key;
+            return (
+              <div key={key} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 13 }}>{label}</span>
+                  <button type="button" className="btn btn-sm" onClick={() => setGeneratingFor(generatingFor === key ? null : key)}>
+                    {generatingFor === key ? "Cancel" : "Generate Contract"}
+                  </button>
+                </div>
+                {generatingFor === key && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "flex-end" }}>
+                    <div className="field" style={{ maxWidth: 130 }}>
+                      <label>Fee</label>
+                      <input placeholder="e.g. 400" value={genForm.feeAmount} onChange={(e) => setGenForm((f) => ({ ...f, feeAmount: e.target.value }))} />
+                    </div>
+                    <div className="field" style={{ maxWidth: 160 }}>
+                      <label>Fee Note</label>
+                      <input placeholder="e.g. per month" value={genForm.feeDescription} onChange={(e) => setGenForm((f) => ({ ...f, feeDescription: e.target.value }))} />
+                    </div>
+                    <div className="field" style={{ maxWidth: 150 }}>
+                      <label>Effective Date</label>
+                      <input type="date" value={genForm.effectiveDate} onChange={(e) => setGenForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
+                    </div>
+                    <button type="button" className="btn btn-primary btn-sm" disabled={busy === `gen-${key}`} onClick={() => handleGenerate(key)}>
+                      {busy === `gen-${key}` ? "Creating…" : "Create Draft"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Contract</th><th>Status</th><th>Effective</th><th>Signed</th><th>Action</th></tr></thead>
+          <tbody>
+            {(contracts || []).map((c) => (
+              <tr key={c.contract_id}>
+                <td>{c.title}</td>
+                <td><span style={{ color: CONTRACT_STATUS_COLOR[c.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{c.status}</span></td>
+                <td className="muted">{c.effective_date ? new Date(c.effective_date).toLocaleDateString() : "—"}</td>
+                <td className="muted">{c.signer_name ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}` : "—"}</td>
+                <td>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View</button>
+                    <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
+                    {c.status === "Draft" && (
+                      <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
+                        {busy === `send-${c.contract_id}` ? "Sending…" : "Send to Client"}
+                      </button>
+                    )}
+                    {(c.status === "Sent" || c.status === "Signed") && c.share_token && (
+                      <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
+                    )}
+                    {c.status !== "Void" && c.status !== "Signed" && (
+                      <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${c.contract_id}`} onClick={() => handleVoid(c)}>Void</button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {contracts && contracts.length === 0 && suggested.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+          No services selected yet — edit this client and check off Services Provided to see suggested contracts.
+        </p>
       )}
     </div>
   );

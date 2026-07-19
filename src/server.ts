@@ -23,11 +23,17 @@ import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
+import { contractsRouter } from "./modules/contracts/contracts.routes";
+import { publicContractRouter } from "./modules/contracts/publicContract.routes";
 import cron from "node-cron";
 
 dotenv.config();
 
 const app = express();
+// Needed for req.ip to resolve the real client address (not Railway's proxy
+// address) behind the platform's reverse proxy — used as part of the contract
+// e-signature audit trail (see publicContract.routes.ts POST /:token/sign).
+app.set("trust proxy", true);
 app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // covers base64-encoded file uploads (see documents.routes.ts POST /uploads) up to ~8MB raw
@@ -134,6 +140,8 @@ app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/reminders", remindersRouter);
 app.use("/firm-settings", firmSettingsRouter);
+app.use("/contracts", contractsRouter);
+app.use("/public/contracts", publicContractRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and
 // never collide with an API prefix, so plain static serving after the API routers is safe.

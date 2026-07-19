@@ -16,7 +16,7 @@ export const clientsRouter = Router();
  */
 clientsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const baseSelect = `SELECT client_id, client_name, entity_type, status, state, email, phone, assigned_to,
-                              portal_enabled, client_type, service_type, sales_tax_frequency, payroll_frequency,
+                              portal_enabled, client_type, service_type, services, sales_tax_frequency, payroll_frequency,
                               payroll_enabled, company_contact_name, company_contact_ssn, individual_ssn, ein,
                               payroll_system, eftps_enabled, md_withholding_frequency, mdui_enabled,
                               md_annual_report_enabled, business_return_type, sms_allowed, email_allowed,
@@ -169,6 +169,12 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean }> = 
   companyContactSsn: { column: "company_contact_ssn" },
   clientType: { column: "client_type" },
   serviceType: { column: "service_type" },
+  // Granular, multi-select firm service lines (tax_prep, bookkeeping, payroll,
+  // sales_tax, formation, immigration, consulting) — drives contract suggestions
+  // on the client profile (see contracts.routes.ts). Independent of the legacy
+  // single-select serviceType above. A plain JS array is passed straight through
+  // to the TEXT[] column; the pg driver serializes it automatically.
+  services: { column: "services" },
   w21099Enabled: { column: "w21099_enabled", boolean: true },
   preferredLanguage: { column: "preferred_language" },
   // Advisory only, not enforced — see v3_clients.industry_category's schema comment.

@@ -32,6 +32,7 @@ export interface Client {
   portal_enabled: boolean;
   client_type: string | null;
   service_type: string | null;
+  services: string[] | null;
   sales_tax_frequency: string | null;
   payroll_enabled: boolean;
   payroll_frequency: string | null;
@@ -46,6 +47,22 @@ export interface Client {
   w21099_enabled: boolean;
   preferred_language: string | null;
   [key: string]: unknown;
+}
+
+export interface ClientContract {
+  contract_id: string;
+  client_id: string;
+  service_key: string;
+  title: string;
+  fee_amount: number | string | null;
+  fee_description: string | null;
+  effective_date: string | null;
+  status: "Draft" | "Sent" | "Signed" | "Void" | string;
+  share_token: string | null;
+  signer_name: string | null;
+  signed_at: string | null;
+  sent_at: string | null;
+  created_at: string;
 }
 
 export interface Task {

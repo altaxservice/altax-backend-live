@@ -9,11 +9,11 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 
 const EMPTY_CLIENT_FORM = {
-  clientName: "", status: "Active", clientType: "Business", entityType: "", state: "", serviceType: "",
+  clientName: "", status: "Active", clientType: "Business", entityType: "", state: "", serviceType: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
   mdWithholdingFrequency: "", mduiEnabled: false, mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
@@ -329,6 +329,26 @@ export function ClientsListPage() {
                 {SERVICE_TYPES.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="form-section-title">Services Provided</div>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+            Select every service this client is engaged for — the client's profile will suggest the matching contract for each one.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
+            {FIRM_SERVICES.map((s) => (
+              <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={form.services.includes(s.key)}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    services: e.target.checked ? [...f.services, s.key] : f.services.filter((k) => k !== s.key),
+                  }))}
+                />
+                {s.label}
+              </label>
+            ))}
           </div>
 
           <div className="form-section-title">Services &amp; Compliance</div>
