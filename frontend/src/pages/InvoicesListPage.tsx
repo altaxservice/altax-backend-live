@@ -51,7 +51,7 @@ export function InvoicesListPage() {
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const [showSalesReceipt, setShowSalesReceipt] = useState(false);
   const [showRecordPayment, setShowRecordPayment] = useState(false);
-  const [recurringModal, setRecurringModal] = useState<{ editing?: RecurringBilling } | null>(null);
+  const [recurringModal, setRecurringModal] = useState<{ editing?: Partial<RecurringBilling> } | null>(null);
   const [running, setRunning] = useState(false);
 
   const [statementClientId, setStatementClientId] = useState("");
