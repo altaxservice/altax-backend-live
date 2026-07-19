@@ -25,8 +25,15 @@ function bucketAccount(account: string): "revenue" | "expense" | "other" {
   return "other";
 }
 
-/** Shared by GET /firm-summary (JSON, dashboard) and the PDF/CSV export routes below, so both read identical numbers. */
-async function computeFirmSummary(monthsBack: number) {
+/**
+ * Shared by GET /firm-summary (JSON, dashboard) and the PDF/CSV export routes below, so
+ * both read identical numbers. Optionally scoped to one client (clientId) — same shape,
+ * just every query gets an extra client_id filter — so the "Firm Overview" tab can show
+ * one client's revenue/expense/profit trend instead of the whole firm's, matching the
+ * client-scoped pattern the other report tabs (P&L, Balance Sheet, Payroll) already use.
+ * activeClientCount is meaningless for a single client, so it's null in that case.
+ */
+async function computeFirmSummary(monthsBack: number, clientId?: string) {
   const since = new Date();
   since.setMonth(since.getMonth() - (monthsBack - 1));
   since.setDate(1);
@@ -34,8 +41,8 @@ async function computeFirmSummary(monthsBack: number) {
   const glRows = await query<any>(
     `SELECT to_char(entry_date, 'YYYY-MM') AS month, account, debit, credit
        FROM altax.v3_gl_entries
-      WHERE entry_date >= $1`,
-    [since.toISOString()]
+      WHERE entry_date >= $1 ${clientId ? "AND client_id = $2" : ""}`,
+    clientId ? [since.toISOString(), clientId] : [since.toISOString()]
   );
 
   const byMonth = new Map<string, { revenue: number; expenses: number }>();
@@ -62,11 +69,12 @@ async function computeFirmSummary(monthsBack: number) {
 
   const unpaidRow = await queryOne<any>(
     `SELECT COALESCE(SUM(balance_due), 0) AS unpaid, COUNT(*)::int AS count
-       FROM altax.v3_invoices WHERE status NOT IN ('Paid', 'Void')`
+       FROM altax.v3_invoices WHERE status NOT IN ('Paid', 'Void') ${clientId ? "AND client_id = $1" : ""}`,
+    clientId ? [clientId] : []
   );
-  const activeClientsRow = await queryOne<any>(
-    `SELECT COUNT(*)::int AS count FROM altax.v3_clients WHERE lower(status) NOT IN ('archived', 'inactive')`
-  );
+  const activeClientsRow = clientId
+    ? null
+    : await queryOne<any>(`SELECT COUNT(*)::int AS count FROM altax.v3_clients WHERE lower(status) NOT IN ('archived', 'inactive')`);
 
   // Legacy's dashboard read this from a manually-typed spreadsheet cell (dashSheet!I4),
   // not a formula — there was nothing to port 1:1. Computed here instead as the real
@@ -75,7 +83,8 @@ async function computeFirmSummary(monthsBack: number) {
   const taxLiabilitiesRow = await queryOne<any>(
     `SELECT COALESCE(SUM(credit - debit), 0) AS balance
        FROM altax.v3_gl_entries
-      WHERE account IN ('Sales Tax Payable', 'Payroll Tax Payable', 'Payroll Deduction Payable')`
+      WHERE account IN ('Sales Tax Payable', 'Payroll Tax Payable', 'Payroll Deduction Payable') ${clientId ? "AND client_id = $1" : ""}`,
+    clientId ? [clientId] : []
   );
 
   return {
@@ -83,40 +92,48 @@ async function computeFirmSummary(monthsBack: number) {
     totals: { revenue: Math.round(totals.revenue * 100) / 100, expenses: Math.round(totals.expenses * 100) / 100, profit: Math.round(totals.profit * 100) / 100 },
     unpaidBalance: Number(unpaidRow?.unpaid || 0),
     unpaidInvoiceCount: Number(unpaidRow?.count || 0),
-    activeClientCount: Number(activeClientsRow?.count || 0),
+    activeClientCount: activeClientsRow ? Number(activeClientsRow.count || 0) : null,
     taxLiabilities: Math.round(Number(taxLiabilitiesRow?.balance || 0) * 100) / 100,
   };
 }
 
 reportsRouter.get("/firm-summary", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
-  res.json(await computeFirmSummary(monthsBack));
+  const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
+  res.json(await computeFirmSummary(monthsBack, clientId));
 }));
 
 reportsRouter.get("/pdf/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
-  const summary = await computeFirmSummary(monthsBack);
+  const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
+  const summary = await computeFirmSummary(monthsBack, clientId);
+  let clientName: string | undefined;
+  if (clientId) {
+    const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    clientName = client?.client_name || clientId;
+  }
 
   const { generateFirmOverviewPdf } = await import("../accounting/reportsPdf");
-  const pdfBytes = await generateFirmOverviewPdf({ monthsBack, ...summary });
+  const pdfBytes = await generateFirmOverviewPdf({ monthsBack, ...summary, clientName });
 
-  await logAudit("Reports", "GENERATE_FIRM_OVERVIEW_PDF", "Firm", "Months", "", String(monthsBack), `Firm Overview PDF generated by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Reports", "GENERATE_FIRM_OVERVIEW_PDF", clientId || "Firm", "Months", "", String(monthsBack), `${clientName ? `${clientName} overview` : "Firm Overview"} PDF generated by ${req.user!.email}.`, req.user!.email);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="FirmOverview_${monthsBack}mo.pdf"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${clientName ? `Overview_${clientId}` : "FirmOverview"}_${monthsBack}mo.pdf"`);
   res.send(Buffer.from(pdfBytes));
 }));
 
 reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
-  const summary = await computeFirmSummary(monthsBack);
+  const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
+  const summary = await computeFirmSummary(monthsBack, clientId);
   const csv = toCsv(
     ["Month", "Revenue", "Expenses", "Profit"],
     summary.months.map((m) => [m.month, m.revenue.toFixed(2), m.expenses.toFixed(2), m.profit.toFixed(2)])
   );
 
-  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", "Firm", "Months", "", String(monthsBack), `Firm Overview CSV exported by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", clientId || "Firm", "Months", "", String(monthsBack), `${clientId ? "Client" : "Firm"} Overview CSV exported by ${req.user!.email}.`, req.user!.email);
   res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="FirmOverview_${monthsBack}mo.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${clientId ? `Overview_${clientId}` : "FirmOverview"}_${monthsBack}mo.csv"`);
   res.send(csv);
 }));
 

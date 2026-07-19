@@ -28,7 +28,7 @@ interface FirmSummary {
   totals: { revenue: number; expenses: number; profit: number };
   unpaidBalance: number;
   unpaidInvoiceCount: number;
-  activeClientCount: number;
+  activeClientCount: number | null;
 }
 
 function fmtMoney(v: unknown): string {
@@ -69,9 +69,13 @@ export function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== "admin" || tab !== "Firm Overview") return;
-    api.get<FirmSummary>("/reports/firm-summary?months=6").then(setFirmSummary).catch(() => setFirmError("Could not load firm overview."));
-  }, [user, tab]);
+    if (user?.role !== "admin" || tab !== "Firm Overview" || !clientId) return;
+    setFirmSummary(null);
+    setFirmError(null);
+    api.get<FirmSummary>(`/reports/firm-summary?months=6&clientId=${encodeURIComponent(clientId)}`)
+      .then(setFirmSummary)
+      .catch(() => setFirmError("Could not load this client's overview."));
+  }, [user, tab, clientId]);
 
   useEffect(() => {
     if (!clientId || tab !== "Payroll") return;
@@ -214,12 +218,13 @@ export function ReportsPage() {
   }
 
   async function handleFirmOverviewPrint(mode: "view" | "download") {
+    if (!clientId) return;
     const key = `firm-${mode}`;
     setReportBusy(key);
     try {
-      const path = "/reports/pdf/firm-overview?months=6";
+      const path = `/reports/pdf/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, "FirmOverview_6mo.pdf");
+      else await downloadFile(path, `Overview_${clientId}_6mo.pdf`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
@@ -228,9 +233,10 @@ export function ReportsPage() {
   }
 
   async function handleFirmOverviewCsv() {
+    if (!clientId) return;
     setReportBusy("firm-csv");
     try {
-      await downloadFile("/reports/csv/firm-overview?months=6", "FirmOverview_6mo.csv");
+      await downloadFile(`/reports/csv/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`, `Overview_${clientId}_6mo.csv`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -274,57 +280,7 @@ export function ReportsPage() {
         ))}
       </div>
 
-      {tab === "Firm Overview" && user?.role === "admin" && (
-        <>
-          {firmError && <div className="error-banner">{firmError}</div>}
-          {!firmSummary && !firmError && <div className="spinner-wrap">Loading…</div>}
-          {firmSummary && (
-            <>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
-                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("view")}>
-                  {reportBusy === "firm-view" ? "Opening…" : "Print Report"}
-                </button>
-                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("download")}>
-                  {reportBusy === "firm-download" ? "Generating…" : "Download PDF"}
-                </button>
-                <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
-                  {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
-                </button>
-              </div>
-              <div className="metric-grid" style={{ marginBottom: 20 }}>
-                <div className="metric"><div className="metric-label">Revenue (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
-                <div className="metric"><div className="metric-label">Expenses (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
-                <div className="metric"><div className="metric-label">Net Profit (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
-                <div className="metric"><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
-              </div>
-              <div className="command-panel">
-                <div className="command-panel-header">
-                  <h2 className="command-panel-title">Monthly Trend</h2>
-                  <div className="command-panel-note">{firmSummary.activeClientCount} active clients · {firmSummary.unpaidInvoiceCount} unpaid invoices</div>
-                </div>
-                <div className="table-scroll">
-                <table>
-                  <thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead>
-                  <tbody>
-                    {firmSummary.months.map((m) => (
-                      <tr key={m.month}>
-                        <td>{m.month}</td>
-                        <td>{fmtMoney(m.revenue)}</td>
-                        <td className="muted">{fmtMoney(m.expenses)}</td>
-                        <td style={{ fontWeight: 700, color: m.profit >= 0 ? "var(--teal)" : "var(--red)" }}>{fmtMoney(m.profit)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              </div>
-            </>
-          )}
-        </>
-      )}
-
-      {tab !== "Firm Overview" && (
-        <>
+      <>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
             <div className="field" style={{ maxWidth: 320, margin: 0 }}>
               <label htmlFor="rep-client">Client</label>
@@ -347,9 +303,23 @@ export function ReportsPage() {
                 <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                   <div>
                     <h2 className="command-panel-title">{client.client_name}</h2>
-                    <div className="command-panel-note">Financial statements are generated from general-ledger activity for the selected period.</div>
+                    <div className="command-panel-note">
+                      {tab === "Firm Overview" ? "Revenue/expense trend from general-ledger activity, last 6 months." : "Financial statements are generated from general-ledger activity for the selected period."}
+                    </div>
                   </div>
-                  {REPORT_PDF_SEGMENT[tab] && (
+                  {tab === "Firm Overview" ? (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("view")}>
+                        {reportBusy === "firm-view" ? "Opening…" : "Print Report"}
+                      </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("download")}>
+                        {reportBusy === "firm-download" ? "Generating…" : "Download PDF"}
+                      </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
+                        {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
+                      </button>
+                    </div>
+                  ) : REPORT_PDF_SEGMENT[tab] && (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("view")}>
                         {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Print Report"}
@@ -366,6 +336,44 @@ export function ReportsPage() {
                   )}
                 </div>
               </div>
+
+              {tab === "Firm Overview" && (
+                <>
+                  {firmError && <div className="error-banner">{firmError}</div>}
+                  {!firmSummary && !firmError && <div className="spinner-wrap">Loading…</div>}
+                  {firmSummary && (
+                    <>
+                      <div className="metric-grid" style={{ marginBottom: 20 }}>
+                        <div className="metric"><div className="metric-label">Revenue (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
+                        <div className="metric"><div className="metric-label">Expenses (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
+                        <div className="metric"><div className="metric-label">Net Profit (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
+                        <div className="metric"><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
+                      </div>
+                      <div className="command-panel">
+                        <div className="command-panel-header">
+                          <h2 className="command-panel-title">Monthly Trend</h2>
+                          <div className="command-panel-note">{firmSummary.unpaidInvoiceCount} unpaid invoice{firmSummary.unpaidInvoiceCount === 1 ? "" : "s"}</div>
+                        </div>
+                        <div className="table-scroll">
+                        <table>
+                          <thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead>
+                          <tbody>
+                            {firmSummary.months.map((m) => (
+                              <tr key={m.month}>
+                                <td>{m.month}</td>
+                                <td>{fmtMoney(m.revenue)}</td>
+                                <td className="muted">{fmtMoney(m.expenses)}</td>
+                                <td style={{ fontWeight: 700, color: m.profit >= 0 ? "var(--teal)" : "var(--red)" }}>{fmtMoney(m.profit)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
 
               {loading && <div className="spinner-wrap">Loading…</div>}
 
@@ -515,7 +523,6 @@ export function ReportsPage() {
             </>
           )}
         </>
-      )}
     </div>
   );
 }

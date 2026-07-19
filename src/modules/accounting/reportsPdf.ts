@@ -377,10 +377,11 @@ export interface FirmOverviewReportData {
   monthsBack: number;
   months: FirmOverviewMonth[];
   totals: { revenue: number; expenses: number; profit: number };
-  unpaidBalance: number; unpaidInvoiceCount: number; activeClientCount: number;
+  unpaidBalance: number; unpaidInvoiceCount: number; activeClientCount: number | null;
+  clientName?: string;
 }
 
-/** Firm-wide analytics PDF — AL Tax Service's own numbers across every client, not a client deliverable, hence drawFirmHeader (firm letterhead) instead of drawHeader (client letterhead). Mirrors ReportsPage.tsx's Firm Overview tab exactly. */
+/** Firm-wide analytics PDF — AL Tax Service's own numbers across every client, not a client deliverable, hence drawFirmHeader (firm letterhead) instead of drawHeader (client letterhead). Mirrors ReportsPage.tsx's Firm Overview tab exactly. Also doubles as a single client's overview when clientName/activeClientCount=null are passed (same layout, scoped numbers, no "active clients" stat since that's meaningless for one client). */
 export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -388,7 +389,8 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
   const { page, c } = await newPage(doc, font, bold);
   const profile = await getFirmProfile();
   const logo = await embedFirmLogo(doc, profile);
-  let y = drawFirmHeader(page, c, "FIRM OVERVIEW", `Last ${data.monthsBack} months`, profile, logo);
+  const title = data.clientName ? `${data.clientName.toUpperCase()} — OVERVIEW` : "FIRM OVERVIEW";
+  let y = drawFirmHeader(page, c, title, `Last ${data.monthsBack} months`, profile, logo);
 
   const tiles: [string, string][] = [
     ["Revenue", money(data.totals.revenue)], ["Expenses", money(data.totals.expenses)],
@@ -402,7 +404,10 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
     c.text(x + 10, y + 34, value, { size: 12, bold: true });
   });
   y += 60;
-  c.text(48, y, `${data.activeClientCount} active clients  ·  ${data.unpaidInvoiceCount} unpaid invoices`, { size: 9, color: MUTED });
+  const statLine = data.activeClientCount == null
+    ? `${data.unpaidInvoiceCount} unpaid invoices`
+    : `${data.activeClientCount} active clients  ·  ${data.unpaidInvoiceCount} unpaid invoices`;
+  c.text(48, y, statLine, { size: 9, color: MUTED });
   y += 24;
 
   y = sectionLabel(c, y, "Monthly Trend");
