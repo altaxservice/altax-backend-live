@@ -106,7 +106,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   let y = 50;
   let textL = L;
   if (logo) {
-    const logoH = 32;
+    const logoH = 60;
     const logoW = (logo.width / logo.height) * logoH;
     page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 8, width: logoW, height: logoH });
     textL = L + logoW + 10;
