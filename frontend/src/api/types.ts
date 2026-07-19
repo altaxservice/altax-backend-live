@@ -35,6 +35,16 @@ export interface Client {
   sales_tax_frequency: string | null;
   payroll_enabled: boolean;
   payroll_frequency: string | null;
+  payroll_system: string | null;
+  eftps_enabled: boolean;
+  md_withholding_frequency: string | null;
+  mdui_enabled: boolean;
+  md_annual_report_enabled: boolean;
+  business_return_type: string | null;
+  sms_allowed: boolean;
+  email_allowed: boolean;
+  w21099_enabled: boolean;
+  preferred_language: string | null;
   [key: string]: unknown;
 }
 

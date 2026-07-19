@@ -17,7 +17,10 @@ export const clientsRouter = Router();
 clientsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const baseSelect = `SELECT client_id, client_name, entity_type, status, state, email, phone, assigned_to,
                               portal_enabled, client_type, service_type, sales_tax_frequency, payroll_frequency,
-                              payroll_enabled, company_contact_name, company_contact_ssn, individual_ssn, ein
+                              payroll_enabled, company_contact_name, company_contact_ssn, individual_ssn, ein,
+                              payroll_system, eftps_enabled, md_withholding_frequency, mdui_enabled,
+                              md_annual_report_enabled, business_return_type, sms_allowed, email_allowed,
+                              w21099_enabled, preferred_language
                          FROM altax.v3_clients`;
 
   let rows: any[];

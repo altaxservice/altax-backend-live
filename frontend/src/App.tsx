@@ -4,6 +4,7 @@ import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
+import { IdleLogout } from "./components/IdleLogout";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
@@ -37,6 +38,7 @@ function App() {
         <LanguageProvider>
         <SelectedClientProvider>
         <ToastProvider>
+        <IdleLogout />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/login/staff" element={<LoginPage lockedPortal="staff" />} />

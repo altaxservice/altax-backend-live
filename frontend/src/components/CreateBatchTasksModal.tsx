@@ -11,6 +11,17 @@ interface PreviewResult {
   results: { clientId: string; clientName: string; action: "create" | "skip" }[];
 }
 
+/** True when a rule has real match criteria (as opposed to "Custom"/"Other" rules, which have no trigger_column and are always built manually, client by client). */
+function ruleHasAutoMatch(rule: TaskRule | null): boolean {
+  return Boolean(rule && String(rule.trigger_column || "").trim());
+}
+
+/** TR-005 sorts before TR-005A, TR-014 before TR-014Q, etc. — plain string sort puts TR-011 before TR-002, which makes a 19-row dropdown hard to scan. */
+function ruleSortKey(ruleId: string): [number, string] {
+  const m = ruleId.match(/^TR-(\d+)([A-Z]*)$/);
+  return m ? [Number(m[1]), m[2]] : [Number.MAX_SAFE_INTEGER, ruleId];
+}
+
 /** Mirrors legacy's "Create Batch Tasks" modal — reachable from both the Tasks toolbar and each Rules row's "Run Batch" button. */
 export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
@@ -22,6 +33,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
   const [statusFilter, setStatusFilter] = useState("Active");
   const [salesTaxFilter, setSalesTaxFilter] = useState("all");
   const [payrollFilter, setPayrollFilter] = useState("all");
+  const [showAllClients, setShowAllClients] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [periodLabel, setPeriodLabel] = useState("");
   const [periodStart, setPeriodStart] = useState("");
@@ -41,7 +53,30 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
       .catch(() => {});
   }, []);
 
+  const sortedRules = useMemo(() => [...rules].sort((a, b) => {
+    const [an, as] = ruleSortKey(a.rule_id);
+    const [bn, bs] = ruleSortKey(b.rule_id);
+    return an !== bn ? an - bn : as.localeCompare(bs);
+  }), [rules]);
+
   const rule = rules.find((r) => r.rule_id === ruleId) || null;
+  const autoMatch = ruleHasAutoMatch(rule);
+  const matchCount = useMemo(() => (rule ? clients.filter((c) => clientMatchesRule(c, rule)).length : 0), [clients, rule]);
+
+  // Picking a rule re-selects clients from scratch: every client the rule's criteria matches, checked
+  // and ready to go. Rules with no match criteria (Custom/Other) can't be auto-selected, so those fall
+  // back to an empty selection with the full client list showing, same as before this rework.
+  useEffect(() => {
+    if (autoMatch) {
+      setSelected(new Set(clients.filter((c) => clientMatchesRule(c, rule)).map((c) => c.client_id)));
+      setShowAllClients(false);
+    } else {
+      setSelected(new Set());
+      setShowAllClients(true);
+    }
+    setPreview(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ruleId, clients]);
 
   const salesTaxOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.sales_tax_frequency).filter(Boolean))) as string[], [clients]);
   const payrollOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.payroll_frequency).filter(Boolean))) as string[], [clients]);
@@ -49,13 +84,14 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
   const visibleClients = useMemo(() => {
     const q = search.trim().toLowerCase();
     return clients.filter((c) => {
+      if (!showAllClients && !clientMatchesRule(c, rule)) return false;
       if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
       if (salesTaxFilter !== "all" && String(c.sales_tax_frequency || "") !== salesTaxFilter) return false;
       if (payrollFilter !== "all" && String(c.payroll_frequency || "") !== payrollFilter) return false;
       if (q && ![c.client_name, c.client_id].some((v) => String(v || "").toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter]);
+  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, showAllClients, rule]);
 
   function toggle(clientId: string) {
     setSelected((prev) => {
@@ -70,14 +106,8 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
     setSelected((prev) => new Set([...prev, ...visibleClients.map((c) => c.client_id)]));
     setPreview(null);
   }
-  function selectMatchingRule() {
-    const matched = visibleClients.filter((c) => clientMatchesRule(c, rule)).map((c) => c.client_id);
-    setSelected((prev) => new Set([...prev, ...matched]));
-    setPreview(null);
-  }
-  function selectAllActive() {
-    const active = clients.filter((c) => String(c.status || "").toLowerCase() === "active").map((c) => c.client_id);
-    setSelected(new Set(active));
+  function resetToRuleMatches() {
+    setSelected(new Set(clients.filter((c) => clientMatchesRule(c, rule)).map((c) => c.client_id)));
     setPreview(null);
   }
   function clearSelection() {
@@ -138,22 +168,34 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
         <div className="field">
           <label>Rule</label>
-          <select value={ruleId} onChange={(e) => { setRuleId(e.target.value); setPreview(null); }}>
-            {rules.map((r) => (
+          <select value={ruleId} onChange={(e) => setRuleId(e.target.value)}>
+            {sortedRules.map((r) => (
               <option key={r.rule_id} value={r.rule_id}>
                 {r.rule_id} - {r.task_type}{r.trigger_column ? ` (${r.trigger_column} ${r.trigger_value})` : ""}
               </option>
             ))}
           </select>
+          {rule && (
+            <p className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+              {autoMatch
+                ? <><strong style={{ color: "var(--teal)" }}>{matchCount} client{matchCount === 1 ? "" : "s"}</strong> match this rule and {matchCount === 1 ? "is" : "are"} already selected below.</>
+                : "This rule (Custom/Other) has no auto-match criteria — pick clients manually below."}
+            </p>
+          )}
         </div>
 
         <div className="form-section-title">Clients</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-          <select value={addClientId} onChange={(e) => setAddClientId(e.target.value)} style={{ flex: 1, minWidth: 180 }}>
-            <option value="">Add a client…</option>
-            {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-          </select>
-          <button type="button" className="btn btn-sm" onClick={addClient}>Add Selected Client</button>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {autoMatch && (
+            <div className="btn-group" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+              <button type="button" className="btn btn-sm" style={!showAllClients ? { background: "var(--teal)", color: "#fff", border: "none", borderRadius: 0 } : { border: "none", borderRadius: 0 }} onClick={() => setShowAllClients(false)}>
+                Rule Matches ({matchCount})
+              </button>
+              <button type="button" className="btn btn-sm" style={showAllClients ? { background: "var(--teal)", color: "#fff", border: "none", borderRadius: 0 } : { border: "none", borderRadius: 0 }} onClick={() => setShowAllClients(true)}>
+                All Clients ({clients.length})
+              </button>
+            </div>
+          )}
           <input placeholder="Search name, ID…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 140, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)" }} />
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All Status</option>
@@ -168,12 +210,16 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
             {payrollOptions.map((o) => <option key={o}>{o}</option>)}
           </select>
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <button type="button" className="btn btn-sm" onClick={selectVisible}>Select Visible</button>
-          <button type="button" className="btn btn-sm" onClick={selectMatchingRule}>Select Matching Rule</button>
-          <button type="button" className="btn btn-sm" onClick={selectAllActive}>Select All Active</button>
-          <button type="button" className="btn btn-sm" onClick={clearSelection}>Clear</button>
-          <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected | {visibleClients.length} visible</span>
+        <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={addClientId} onChange={(e) => setAddClientId(e.target.value)} style={{ minWidth: 180 }}>
+            <option value="">Add one more client…</option>
+            {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
+          </select>
+          <button type="button" className="btn btn-sm" onClick={addClient}>Add</button>
+          <button type="button" className="btn btn-sm" onClick={selectVisible}>Select All Shown</button>
+          {autoMatch && <button type="button" className="btn btn-sm" onClick={resetToRuleMatches}>Reset to Rule Matches</button>}
+          <button type="button" className="btn btn-sm" onClick={clearSelection}>Clear Selection</button>
+          <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected | {visibleClients.length} shown</span>
         </div>
         <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 16 }}>
           {visibleClients.map((c) => {
@@ -188,7 +234,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
                     <span>{c.status || "—"}</span>
                     <span>SALES {c.sales_tax_frequency || "N/A"}</span>
                     <span>PAYROLL {c.payroll_frequency || "N/A"}</span>
-                    <span style={matches ? { color: "var(--teal)", fontWeight: 800 } : undefined}>{matches ? "RULE MATCH" : "MANUAL"}</span>
+                    {autoMatch && <span style={matches ? { color: "var(--teal)", fontWeight: 800 } : undefined}>{matches ? "RULE MATCH" : "MANUAL"}</span>}
                   </div>
                 </div>
               </label>
@@ -219,6 +265,11 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
             : "Review the batch first. Tasks are not posted until you click Post Batch Tasks, so Cancel stays available if something looks wrong."}
           {" "}Assigned to: {assignedTo || "each client's assigned staff"}.
         </p>
+        {!canPreview && !preview && (
+          <p className="muted" style={{ fontSize: 12, color: "var(--danger, #b91c1c)" }}>
+            Fill in {!periodLabel && "Period Label"}{!periodLabel && !dueDate && " and "}{!dueDate && "Agency Due Date"} to review this batch.
+          </p>
+        )}
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
