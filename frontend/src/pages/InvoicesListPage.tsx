@@ -433,16 +433,12 @@ export function InvoicesListPage() {
                   <td data-label="" onClick={(e) => e.stopPropagation()}>
                     <ActionMenu
                       options={[
-                        ...(s.status !== "Archived" ? [
-                          { value: "edit", label: "Edit" },
-                          { value: "use", label: "Use Now" },
-                        ] : []),
+                        { value: "edit", label: "Edit" },
+                        { value: "use", label: "Use Now" },
                         { value: "duplicate", label: "Duplicate" },
-                        ...(s.status !== "Archived" ? [
-                          s.status === "Paused" ? { value: "resume", label: "Resume" } : { value: "pause", label: "Pause" },
-                          { value: "skip", label: "Skip Next Date" },
-                          { value: "archive", label: "Archive" },
-                        ] : []),
+                        s.status === "Paused" ? { value: "resume", label: "Resume" } : { value: "pause", label: "Pause" },
+                        { value: "skip", label: "Skip Next Date" },
+                        ...(s.status !== "Archived" ? [{ value: "archive", label: "Archive" }] : []),
                         ...(isAdmin ? [{ value: "delete", label: "Delete" }] : []),
                       ]}
                       onSelect={(action) => {
