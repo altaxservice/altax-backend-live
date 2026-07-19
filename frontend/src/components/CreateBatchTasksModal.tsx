@@ -83,7 +83,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
   const visibleClients = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return clients.filter((c) => {
+    const filtered = clients.filter((c) => {
       if (!showAllClients && !clientMatchesRule(c, rule)) return false;
       if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
       if (salesTaxFilter !== "all" && String(c.sales_tax_frequency || "") !== salesTaxFilter) return false;
@@ -91,7 +91,12 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
       if (q && ![c.client_name, c.client_id].some((v) => String(v || "").toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, showAllClients, rule]);
+    // Selected clients bubble to the top so the batch is easy to review at a glance —
+    // most useful in "All Clients" view, where selections would otherwise be scattered
+    // alphabetically through the full list. Array.sort is stable, so alphabetical order
+    // is preserved within the selected and unselected groups.
+    return [...filtered].sort((a, b) => Number(selected.has(b.client_id)) - Number(selected.has(a.client_id)));
+  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, showAllClients, rule, selected]);
 
   function toggle(clientId: string) {
     setSelected((prev) => {
