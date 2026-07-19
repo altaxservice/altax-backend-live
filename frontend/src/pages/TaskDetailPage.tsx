@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import type { Task } from "../api/types";
-import type { Communication } from "../api/types2";
+import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { fmtDateOnly } from "../utils/date";
@@ -15,7 +15,7 @@ const EDITABLE_FIELDS: { key: string; label: string; apiKey: string; type?: stri
   { key: "service_line", label: "Service Line", apiKey: "serviceLine" },
   { key: "period", label: "Period", apiKey: "period" },
   { key: "frequency", label: "Frequency", apiKey: "frequency" },
-  { key: "assigned_to", label: "Assigned To", apiKey: "assignedTo" },
+  { key: "assigned_to", label: "Assigned To", apiKey: "assignedTo", type: "select" },
   { key: "agency_due_date", label: "Agency Due Date", apiKey: "agencyDueDate", type: "date" },
   { key: "staff_due_date", label: "Staff Due Date", apiKey: "staffDueDate", type: "date" },
   { key: "payment_required", label: "Payment Required", apiKey: "paymentRequired", type: "checkbox" },
@@ -52,10 +52,19 @@ export function TaskDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const attachmentsRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
+
+  useEffect(() => {
+    if (!canEdit) return;
+    api.get<{ users: PortalUser[] }>("/users")
+      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit]);
 
   useEffect(() => {
     if (!task) return;
@@ -175,6 +184,12 @@ export function TaskDetailPage() {
                   <label htmlFor={f.apiKey}>{f.label}</label>
                   {f.apiKey === "notes" ? (
                     <textarea id={f.apiKey} rows={3} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                  ) : f.type === "select" ? (
+                    <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
+                      <option value="">Unassigned</option>
+                      {form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && <option value={form[f.apiKey]}>{form[f.apiKey]}</option>}
+                      {staffOptions.map((o) => <option key={o}>{o}</option>)}
+                    </select>
                   ) : (
                     <input
                       id={f.apiKey}

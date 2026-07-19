@@ -49,7 +49,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
     api.get<{ users: PortalUser[] }>("/users")
-      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(u.role) && u.active).map((u) => u.name))).sort()))
+      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
       .catch(() => {});
   }, []);
 

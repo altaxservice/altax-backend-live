@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Client } from "../api/types";
-import type { VaultSecret, PaymentMethod } from "../api/types2";
+import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -42,7 +42,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     title: "Contact & Assignment",
     fields: [
-      { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "text" },
+      { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "select" },
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
       { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
@@ -95,10 +95,19 @@ export function ClientDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const canArchive = user?.role === "admin";
   const isAdmin = user?.role === "admin";
+
+  useEffect(() => {
+    if (!canEdit) return;
+    api.get<{ users: PortalUser[] }>("/users")
+      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit]);
 
   function load() {
     if (!clientId) return;
@@ -242,8 +251,11 @@ export function ClientDetailPage() {
                     <div className="field" key={f.apiKey}>
                       <label htmlFor={f.apiKey}>{f.label}</label>
                       <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
-                        <option value="">Select…</option>
-                        {(f.options || []).map((o) => <option key={o}>{o}</option>)}
+                        <option value="">{f.apiKey === "assignedTo" ? "Unassigned" : "Select…"}</option>
+                        {f.apiKey === "assignedTo" && form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && (
+                          <option value={form[f.apiKey]}>{form[f.apiKey]}</option>
+                        )}
+                        {(f.apiKey === "assignedTo" ? staffOptions : f.options || []).map((o) => <option key={o}>{o}</option>)}
                       </select>
                     </div>
                   ) : f.kind === "textarea" ? (

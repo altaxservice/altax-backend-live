@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
+import type { PortalUser } from "../api/types2";
 import { StatusBadge } from "../components/StatusBadge";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useAuth } from "../auth/AuthContext";
@@ -72,6 +73,7 @@ export function ClientsListPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
 
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
@@ -81,6 +83,14 @@ export function ClientsListPage() {
       .then((res) => setClients(res.clients))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load clients."));
   }
+
+  useEffect(() => {
+    if (!canCreate) return;
+    api.get<{ users: PortalUser[] }>("/users")
+      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canCreate]);
 
   useEffect(() => { load(); }, []);
 
@@ -376,7 +386,13 @@ export function ClientsListPage() {
 
           <div className="form-section-title">Contact &amp; Assignment</div>
           <div className="form-grid">
-            <div className="field"><label htmlFor="nc-assigned">Assigned To</label><input id="nc-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))} /></div>
+            <div className="field">
+              <label htmlFor="nc-assigned">Assigned To</label>
+              <select id="nc-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
+                <option value="">Unassigned</option>
+                {staffOptions.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
             <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
             <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
             <div className="field">
