@@ -14,6 +14,7 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showTotpModal, setShowTotpModal] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
 
   function handleSearch(e: FormEvent) {
@@ -58,16 +59,25 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
               />
             </form>
             <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
-            <div className="topbar-user">
-              <div className="topbar-user-name">{user?.name || user?.email}</div>
-              <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
-            </div>
-            <button type="button" className="btn" onClick={() => { setShowMore(false); setShowPasswordModal(true); }}>{t("header.changePassword")}</button>
-            <button type="button" className="btn" onClick={() => { setShowMore(false); setShowTotpModal(true); }}>
-              {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
-            </button>
           </div>
-          <button type="button" className="btn" onClick={logout}>{t("header.signOut")}</button>
+          <div style={{ position: "relative" }}>
+            <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
+              <div>
+                <div className="topbar-user-name">{user?.name || user?.email}</div>
+                <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
+              </div>
+              <span className="topbar-user-caret" aria-hidden="true">{showUserMenu ? "▴" : "▾"}</span>
+            </button>
+            {showUserMenu && (
+              <div className="topbar-user-dropdown">
+                <button type="button" onClick={() => { setShowUserMenu(false); setShowPasswordModal(true); }}>{t("header.changePassword")}</button>
+                <button type="button" onClick={() => { setShowUserMenu(false); setShowTotpModal(true); }}>
+                  {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
+                </button>
+                <button type="button" className="topbar-user-dropdown-signout" onClick={logout}>{t("header.signOut")}</button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}

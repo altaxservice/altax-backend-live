@@ -48,12 +48,14 @@ export function ClientContextPanel() {
 
       {client && (
         <>
-          <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>{client.client_name}</h2>
+          <h2 style={{ fontSize: 17, margin: "0 0 12px" }}>
+            <button type="button" onClick={() => navigate(`/clients/${client.client_id}`)} className="client-panel-name-link">{client.client_name}</button>
+          </h2>
 
           <div className="client-panel-section">
             <div className="small-label">Contact</div>
-            <ClientRow label="Email" value={client.email} />
-            <ClientRow label="Phone" value={client.phone} />
+            <ClientRow label="Email" value={client.email} href={client.email ? `mailto:${client.email}` : undefined} />
+            <ClientRow label="Phone" value={client.phone} href={client.phone ? `tel:${String(client.phone).replace(/[^\d+]/g, "")}` : undefined} />
           </div>
 
           <div className="client-panel-section">
@@ -69,16 +71,15 @@ export function ClientContextPanel() {
           {summary && (
             <div className="client-panel-section">
               <div className="small-label">Account</div>
-              <ClientRow label="Open Tasks" value={String(summary.openTasks)} />
-              <ClientRow label="Requests" value={String(summary.openRequests)} />
-              <ClientRow label="Invoices" value={String(summary.openInvoices)} />
-              <ClientRow label="Balance" value={fmtMoney(summary.balanceDue)} />
+              <ClientRow label="Open Tasks" value={String(summary.openTasks)} onClick={() => navigate("/tasks")} />
+              <ClientRow label="Requests" value={String(summary.openRequests)} onClick={() => navigate("/documents")} />
+              <ClientRow label="Invoices" value={String(summary.openInvoices)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
+              <ClientRow label="Balance" value={fmtMoney(summary.balanceDue)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
             </div>
           )}
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/clients/${client.client_id}`)}>Open Client Profile</button>
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/billing?clientId=${client.client_id}`)}>View Billing</button>
+          <div style={{ marginTop: 14 }}>
+            <button type="button" className="btn btn-sm" style={{ width: "100%" }} onClick={() => navigate(`/billing?clientId=${client.client_id}`)}>View Billing</button>
           </div>
         </>
       )}
@@ -86,11 +87,19 @@ export function ClientContextPanel() {
   );
 }
 
-function ClientRow({ label, value }: { label: string; value: string | null | undefined }) {
+function ClientRow({ label, value, onClick, href }: { label: string; value: string | null | undefined; onClick?: () => void; href?: string }) {
+  const display = value || "—";
+  const clickable = Boolean((onClick || href) && value);
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
       <span className="muted">{label}</span>
-      <span>{value || "—"}</span>
+      {clickable && href ? (
+        <a href={href} className="client-panel-value-link">{display}</a>
+      ) : clickable && onClick ? (
+        <button type="button" onClick={onClick} className="client-panel-value-link">{display}</button>
+      ) : (
+        <span>{display}</span>
+      )}
     </div>
   );
 }

@@ -448,6 +448,47 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .topbar-user-role { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
 .topbar-more-btn { display: none; }
 
+/* Consolidates the user chip + Change Password + Enable 2FA + Sign Out into one
+   click-to-reveal menu, instead of four separate always-visible controls crowding
+   the top-right corner. */
+.topbar-user-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.topbar-user-btn:hover { border-color: var(--teal); }
+.topbar-user-btn .topbar-user-name, .topbar-user-btn .topbar-user-role { text-align: right; }
+.topbar-user-caret { color: var(--muted); font-size: 10px; }
+.topbar-user-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+  padding: 8px;
+  z-index: 40;
+}
+.topbar-user-dropdown button {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.topbar-user-dropdown button:hover { background: var(--teal-soft); }
+.topbar-user-dropdown .topbar-user-dropdown-signout { color: #b91c1c; font-weight: 700; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; }
+
 /* ---- Modal (Create, Change Password) ---- */
 .modal-overlay {
   position: fixed;
@@ -499,6 +540,16 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   overflow-y: auto;
 }
 .client-panel-section { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.client-panel-name-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; text-align: left;
+  color: var(--ink); cursor: pointer;
+}
+.client-panel-name-link:hover { color: var(--teal); text-decoration: underline; }
+.client-panel-value-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; font-size: 12.5px;
+  color: var(--teal); cursor: pointer; text-decoration: none;
+}
+.client-panel-value-link:hover { text-decoration: underline; }
 
 /* ---- Login screen (mirrors the legacy .login-screen) ---- */
 .login-screen {
@@ -581,7 +632,6 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 @media (max-width: 860px) {
   .hamburger-btn { display: inline-flex; }
   .topbar-more-btn { display: inline-flex; }
-  .topbar-user { display: none; }
   .topbar-collapsible { display: none !important; }
   .topbar-collapsible.open {
     display: flex !important;

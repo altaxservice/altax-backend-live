@@ -1,13 +1,16 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
-import type { Client } from "../api/types";
+import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
+import { ActionMenu } from "../components/ActionMenu";
+import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
+import { fmtDateOnly } from "../utils/date";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[] }
@@ -96,6 +99,8 @@ export function ClientDetailPage() {
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const canArchive = user?.role === "admin";
@@ -126,6 +131,60 @@ export function ClientDetailPage() {
   }
 
   useEffect(load, [clientId]);
+
+  function loadTasks() {
+    if (!clientId || !(user?.role === "admin" || user?.role === "staff")) return;
+    api.get<{ tasks: Task[] }>("/tasks")
+      .then((res) => setTasks(res.tasks.filter((t) => t.client_id === clientId)))
+      .catch(() => setTasks([]));
+  }
+
+  useEffect(loadTasks, [clientId, user?.role]);
+
+  async function handleTaskStatusChange(taskId: string, status: string) {
+    setSavingStatusId(taskId);
+    try {
+      await api.patch(`/tasks/${taskId}`, { status });
+      toast("Status updated.");
+      loadTasks();
+      api.get<ClientSummary>(`/clients/${clientId}/summary`).then(setSummary).catch(() => {});
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not update status.");
+    } finally {
+      setSavingStatusId(null);
+    }
+  }
+
+  async function handleTaskAction(task: Task, action: string) {
+    if (action === "review-task" || action === "task-history") return navigate(`/tasks/${task.task_id}`);
+    if (action === "task-message") return navigate(`/tasks/${task.task_id}?open=message`);
+    if (action === "task-note") return navigate(`/tasks/${task.task_id}?open=note`);
+    if (action === "edit-task") return navigate(`/tasks/${task.task_id}?open=edit`);
+    if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
+    if (action === "request-doc") return navigate(`/documents?new=1&clientId=${task.client_id}&taskId=${task.task_id}`);
+    if (action === "void-task") {
+      const reason = prompt("Reason for voiding this task?");
+      if (reason === null) return;
+      try {
+        await api.post(`/tasks/${task.task_id}/void`, { reason });
+        toast("Task voided.");
+        loadTasks();
+      } catch (err) {
+        alert(err instanceof ApiError ? err.message : "Could not void this task.");
+      }
+    }
+    if (action === "delete-task") {
+      const confirmValue = prompt(`Permanently delete "${task.task_name}"? This cannot be undone. Type DELETE TASK to confirm.`);
+      if (confirmValue === null) return;
+      try {
+        await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
+        toast("Task deleted.");
+        loadTasks();
+      } catch (err) {
+        alert(err instanceof ApiError ? err.message : "Could not delete this task.");
+      }
+    }
+  }
 
   useEffect(() => {
     if (location.hash !== "#vault" || !client) return;
@@ -358,6 +417,41 @@ export function ClientDetailPage() {
               <DetailRow label="Employees" value={summary ? String(summary.employeesCount) : "—"} />
             </div>
           </div>
+
+          {(user?.role === "admin" || user?.role === "staff") && (
+            <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+                <strong style={{ fontSize: 14 }}>Tasks</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="muted" style={{ fontSize: 12 }}>{tasks ? `${tasks.length} task(s)` : "Loading…"}</span>
+                  <button type="button" className="btn btn-sm" onClick={() => navigate(`/tasks?new=1&clientId=${client.client_id}`)}>+ New Task</button>
+                </div>
+              </div>
+              <div className="table-scroll">
+              <table>
+                <thead><tr><th>Task</th><th>Service</th><th>Due</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {(tasks || []).map((t) => (
+                    <tr key={t.task_id}>
+                      <td><Link to={`/tasks/${t.task_id}`}>{t.task_name}</Link></td>
+                      <td className="muted">{t.service_line || "—"}</td>
+                      <td className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>{fmtDateOnly(t.agency_due_date)} <DueLabel task={t} /></td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <select className="inline-select" value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
+                          {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              {tasks && tasks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks for this client yet.</p>}
+            </div>
+          )}
 
           {String(client.notes || "").trim() && (
             <div className="card" style={{ marginTop: 20 }}>
