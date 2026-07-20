@@ -302,7 +302,7 @@ export function ClientsListPage() {
           <strong>Portal invite created for {inviteInfo.clientName}.</strong> No email was sent (this backend has no
           email service yet) — copy this and send it to them yourself:
           <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
-            {inviteInfo.inviteLink || "Invite already existed; open Portal Access to resend it."}
+            {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
           </div>
           <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
         </div>

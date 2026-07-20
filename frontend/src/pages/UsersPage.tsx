@@ -168,12 +168,12 @@ export function UsersPage() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Portal Access</h1>
+        <h1 style={{ fontSize: 22, margin: 0 }}>Users &amp; Access</h1>
         <button className="btn btn-primary" onClick={startCreate}>Add User</button>
       </div>
 
       <div className="portal-banner" style={{ marginBottom: 16 }}>
-        <div className="topbar-eyebrow">Portal Access Center</div>
+        <div className="topbar-eyebrow">Users &amp; Access Center</div>
         <h2>Users & Access Control</h2>
         <p>Create portal users, send setup invites, reset tokens, issue temporary passwords, and review account access from one place.</p>
       </div>

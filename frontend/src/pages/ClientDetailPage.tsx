@@ -346,7 +346,7 @@ export function ClientDetailPage() {
           )}
           {!inviteInfo.inviteEmailed && (
             <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
-              {inviteInfo.inviteLink || "Invite already existed; open Portal Access to resend it."}
+              {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
             </div>
           )}
           <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>

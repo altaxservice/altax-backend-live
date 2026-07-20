@@ -27,7 +27,6 @@ function showsClientPanel(pathname: string): boolean {
 const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string }[] = [
   { to: "/", label: "Command Center", navKey: "nav.commandCenter" },
   { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients" },
-  { to: "/users", label: "Portal Access", roles: ["admin"], group: "Clients" },
   { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work" },
   { to: "/rules", label: "Rules", roles: ["admin", "staff"], group: "Work" },
   { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money" },
@@ -36,6 +35,11 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication" },
   { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication" },
   { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication" },
+  // Moved out of the Clients group and renamed from "Portal Access" — this page manages
+  // Firm/Staff/Admin accounts too, not just client portal logins, so filing it under
+  // "Clients" (and calling it something that sounds client-only) undersold and
+  // misfiled it. It belongs with the other firm-administration pages.
+  { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm" },
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm" },
   { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm" },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm" },
@@ -48,7 +52,7 @@ const TITLES: Record<string, string> = {
   "/tasks": "Tasks",
   "/billing": "Billing",
   "/documents": "Documents",
-  "/users": "Portal Access",
+  "/users": "Users & Access",
   "/security": "Security",
   "/rules": "Rules",
   "/accounting": "Accounting",
