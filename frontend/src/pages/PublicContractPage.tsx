@@ -70,6 +70,16 @@ export function PublicContractPage() {
     }
   }
 
+  // This page has no app chrome (sidebar/nav) — it's usually opened as its own
+  // tab from an emailed link, so there's otherwise no way for the client to
+  // signal "I'm done" other than closing the tab themselves. window.close()
+  // only succeeds for a tab with no browsing history of its own (exactly the
+  // case for a link opened fresh from an email client) — if the browser blocks
+  // it, nothing bad happens, the client just closes the tab manually.
+  function handleClose() {
+    window.close();
+  }
+
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
   if (error) return <div style={pageStyle}><div className="error-banner">{error}</div></div>;
@@ -84,9 +94,10 @@ export function PublicContractPage() {
           <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted-fg, #6b7280)" }}>{contract.client_name}</div>
           <h1 style={{ fontSize: 22, margin: "4px 0 0" }}>{contract.title}</h1>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn" disabled={busy !== null} onClick={() => handlePdf("view")}>{busy === "view" ? "Opening…" : "View PDF"}</button>
           <button className="btn btn-primary" disabled={busy !== null} onClick={() => handlePdf("download")}>{busy === "download" ? "Generating…" : "Download PDF"}</button>
+          <button className="btn" onClick={handleClose}>Close Window</button>
         </div>
       </div>
       <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
@@ -116,7 +127,8 @@ export function PublicContractPage() {
         justSigned ? (
           <div className="card" style={{ borderColor: "var(--teal)" }}>
             <strong>Thank you — your signature has been recorded.</strong>
-            <p className="muted" style={{ marginTop: 6 }}>A copy of this signed agreement is available above via View PDF or Download PDF.</p>
+            <p className="muted" style={{ marginTop: 6 }}>A copy of this signed agreement is available above via View PDF or Download PDF. You're all done — you can close this window now.</p>
+            <button className="btn" style={{ marginTop: 10 }} onClick={handleClose}>Close Window</button>
           </div>
         ) : (
           <form onSubmit={handleSign} className="card">
