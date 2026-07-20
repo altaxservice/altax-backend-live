@@ -24,15 +24,26 @@ const hasContact = (form: Record<string, any>) => Boolean(String(form.email || "
 const filled = (v: unknown) => Boolean(v) && v !== "N/A";
 // "Services Provided" is a brand-new field — almost every existing client has
 // services=[] until someone opens and re-saves them, even if they've had real
-// payroll/sales-tax/tax-prep settings configured for years. Gating these
-// sections on the service checkbox ALONE would make that existing data
-// disappear from the edit form entirely (confirmed: this is exactly what
-// happened before this fix). Each section here shows if either the matching
-// service is checked (new-client path) OR the client already has real data
-// in that area (existing-client path) — never if neither is true.
-const showPayrollDetails = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled);
+// payroll/sales-tax/tax-prep settings configured for years. Gating a whole
+// section on the service checkbox ALONE (or on a single bundled proxy like
+// payrollEnabled) would hide real data: confirmed against production — 1-6
+// real clients each have EFTPS/MD UI/W-2-1099/MD Withholding set to a real
+// value while payroll_enabled is false, and 2 clients have an Entity Type set
+// despite not being flagged Business. So every field below checks its OWN
+// existing value individually, not a section-level bundle — a field only
+// disappears if it has neither a matching service checked NOR any value on
+// file, never if it's carrying real data that just hasn't been reflected in
+// the new Services Provided list yet.
+const showPayrollFrequency = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || filled(f.payrollFrequency);
+const showPayrollSystem = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || filled(f.payrollSystem);
+const showMdWithholding = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || filled(f.mdWithholdingFrequency);
+const showEftps = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.eftpsEnabled);
+const showMdui = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.mduiEnabled);
+const showW21099 = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.w21099Enabled);
 const showSalesTaxDetails = (f: Record<string, any>) => hasService(f, "sales_tax") || filled(f.salesTaxFrequency);
 const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "tax_prep") || filled(f.businessReturnType);
+const showMdAnnualReport = (f: Record<string, any>) => isBusiness(f) || Boolean(f.mdAnnualReportEnabled);
+const showEntityType = (f: Record<string, any>) => isBusiness(f) || filled(f.entityType);
 
 const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
@@ -41,7 +52,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "client_name", apiKey: "clientName", label: "Client Name", kind: "text" },
       { key: "client_type", apiKey: "clientType", label: "Client Type", kind: "select", options: ["Business", "Individual"] },
       { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
-      { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !isBusiness(f) },
+      { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !showEntityType(f) },
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
       { key: "service_type", apiKey: "serviceType", label: "Service Type", kind: "select", options: SERVICE_TYPES },
     ],
@@ -56,12 +67,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     title: "Payroll Details",
     fields: [
-      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollDetails(f) },
-      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !showPayrollDetails(f) },
-      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showPayrollDetails(f) },
-      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
-      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
-      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
+      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollFrequency(f) },
+      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !showPayrollSystem(f) },
+      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
+      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
+      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
+      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showW21099(f) },
     ],
   },
   {
@@ -79,7 +90,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     title: "Business Compliance",
     fields: [
-      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox", hidden: (f) => !isBusiness(f) },
+      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox", hidden: (f) => !showMdAnnualReport(f) },
     ],
   },
   {
