@@ -9,7 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 
 const EMPTY_CLIENT_FORM = {
@@ -394,7 +394,13 @@ export function ClientsListPage() {
                     {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
                   </select>
                 </div>
-                <div className="field"><label htmlFor="nc-psys">Payroll System</label><input id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))} placeholder="e.g. Gusto, ADP, Manual" /></div>
+                <div className="field">
+                  <label htmlFor="nc-psys">Payroll Provider</label>
+                  <select id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
                 <div className="field">
                   <label htmlFor="nc-mdw">MD Withholding Frequency</label>
                   <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>

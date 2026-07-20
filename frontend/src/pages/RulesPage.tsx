@@ -3,9 +3,10 @@ import { api, ApiError } from "../api/client";
 import type { TaskRule, TaskBatch, WebOptions } from "../api/types2";
 import { useToast } from "../components/Toast";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
+import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 
 const TRIGGER_COLUMNS = [
-  "SalesTaxFrequency", "PayrollFrequency", "PayrollEnabled", "EFTPSEnabled", "MDWithholdingFrequency",
+  "SalesTaxFrequency", "PayrollFrequency", "PayrollSystem", "PayrollEnabled", "EFTPSEnabled", "MDWithholdingFrequency",
   "MDUIEnabled", "MDAnnualReportEnabled", "BusinessReturnType", "ClientType", "ServiceType", "Status",
 ];
 const FREQUENCIES = ["One-Time", "Weekly", "Monthly", "Quarterly", "Semiannual", "Annual"];
@@ -142,7 +143,17 @@ export function RulesPage() {
                 {TRIGGER_COLUMNS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-            <div className="field"><label>Trigger Value</label><input value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} /></div>
+            <div className="field">
+              <label>Trigger Value</label>
+              {form.triggerColumn === "PayrollSystem" ? (
+                <select value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}>
+                  <option value="">Choose…</option>
+                  {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
+              )}
+            </div>
             <div className="field"><label>Due Day</label><input value={form.dueDay} onChange={(e) => setForm((f) => ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
             <div className="field"><label>Warning Days</label><input value={form.warningDays} onChange={(e) => setForm((f) => ({ ...f, warningDays: e.target.value }))} placeholder="14,7,3" /></div>
             <div className="field"><label>Portal Name</label><input value={form.portalName} onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} /></div>

@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { TaskRule, PortalUser } from "../api/types2";
 import { clientMatchesRule } from "../utils/ruleMatch";
+import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { useToast } from "./Toast";
 
 interface PreviewResult {
@@ -33,6 +34,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
   const [statusFilter, setStatusFilter] = useState("Active");
   const [salesTaxFilter, setSalesTaxFilter] = useState("all");
   const [payrollFilter, setPayrollFilter] = useState("all");
+  const [payrollProviderFilter, setPayrollProviderFilter] = useState("all");
   const [showAllClients, setShowAllClients] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [periodLabel, setPeriodLabel] = useState("");
@@ -88,6 +90,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
       if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
       if (salesTaxFilter !== "all" && String(c.sales_tax_frequency || "") !== salesTaxFilter) return false;
       if (payrollFilter !== "all" && String(c.payroll_frequency || "") !== payrollFilter) return false;
+      if (payrollProviderFilter !== "all" && String(c.payroll_system || "") !== payrollProviderFilter) return false;
       if (q && ![c.client_name, c.client_id].some((v) => String(v || "").toLowerCase().includes(q))) return false;
       return true;
     });
@@ -96,7 +99,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
     // alphabetically through the full list. Array.sort is stable, so alphabetical order
     // is preserved within the selected and unselected groups.
     return [...filtered].sort((a, b) => Number(selected.has(b.client_id)) - Number(selected.has(a.client_id)));
-  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, showAllClients, rule, selected]);
+  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, payrollProviderFilter, showAllClients, rule, selected]);
 
   function toggle(clientId: string) {
     setSelected((prev) => {
@@ -213,6 +216,10 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
           <select value={payrollFilter} onChange={(e) => setPayrollFilter(e.target.value)}>
             <option value="all">All Payroll</option>
             {payrollOptions.map((o) => <option key={o}>{o}</option>)}
+          </select>
+          <select value={payrollProviderFilter} onChange={(e) => setPayrollProviderFilter(e.target.value)}>
+            <option value="all">All Payroll Providers</option>
+            {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
           </select>
         </div>
         <div style={{ display: "flex", gap: 12, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>

@@ -6,7 +6,7 @@ import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
@@ -68,7 +68,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     title: "Payroll Details",
     fields: [
       { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollFrequency(f) },
-      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !showPayrollSystem(f) },
+      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll Provider", kind: "select", options: PAYROLL_PROVIDERS, hidden: (f) => !showPayrollSystem(f) },
       { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
       { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
       { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
@@ -516,7 +516,7 @@ export function ClientDetailPage() {
               <DetailRow label="Sales Tax Frequency" value={client.sales_tax_frequency as string | null} />
               <DetailRow label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
               {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
-              {Boolean(client.payroll_enabled) && <DetailRow label="Payroll System" value={client.payroll_system as string | null} />}
+              {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Provider" value={client.payroll_system as string | null} />}
               <DetailRow label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
               <DetailRow label="MD Withholding Frequency" value={client.md_withholding_frequency as string | null} />
               <DetailRow label="MD UI Enabled" value={client.mdui_enabled ? "Yes" : "No"} />
