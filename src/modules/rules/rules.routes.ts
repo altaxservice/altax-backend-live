@@ -39,7 +39,7 @@ function idSuffix(): string {
   return `${ts}-${rand}`;
 }
 
-function isActiveFlag(value: unknown): boolean {
+export function isActiveFlag(value: unknown): boolean {
   return !["no", "false", "inactive", "archived"].includes(normalizeText(value ?? "Yes"));
 }
 
@@ -83,7 +83,7 @@ const CLIENT_TRIGGER_COLUMNS: Record<string, string> = {
  * non-empty label matches nobody automatically and must be handled via the explicit
  * `clientIds` selection path instead of guessed at.
  */
-function clientMatchesRule(client: any, rule: any): boolean {
+export function clientMatchesRule(client: any, rule: any): boolean {
   const triggerColumnRaw = String(rule.trigger_column || "").trim();
   const triggerValue = normalizeText(rule.trigger_value);
   if (!triggerColumnRaw || !triggerValue || triggerValue === "=") return true;

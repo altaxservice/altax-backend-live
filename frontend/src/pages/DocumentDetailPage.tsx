@@ -9,6 +9,14 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
+const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
+
+function toDateInput(value: unknown): string {
+  if (!value) return "";
+  const d = new Date(value as string);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
 
 export function DocumentDetailPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -31,6 +39,10 @@ export function DocumentDetailPage() {
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ requestedItem: "", dueFromClient: "", priority: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const canManage = user?.role === "admin" || user?.role === "staff";
 
@@ -111,6 +123,34 @@ export function DocumentDetailPage() {
     }
   }
 
+  function openEdit() {
+    if (!request) return;
+    setEditForm({
+      requestedItem: request.requested_item || "",
+      dueFromClient: toDateInput(request.due_from_client),
+      priority: request.priority || "",
+    });
+    setEditError(null);
+    setEditing(true);
+  }
+
+  async function handleEditSave(e: FormEvent) {
+    e.preventDefault();
+    if (!requestId) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await api.patch(`/documents/requests/${requestId}`, editForm);
+      setEditing(false);
+      toast("Request updated.");
+      load();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "Could not save these changes.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   async function handleRemoveFile(uploadId: string) {
     if (!confirm("Remove this file? It stays in the audit trail but will no longer be visible or listed here.")) return;
     setRemovingId(uploadId);
@@ -150,6 +190,7 @@ export function DocumentDetailPage() {
             <option value="">Change status…</option>
             {(options?.documentStatuses || STATUS_OPTIONS_FALLBACK).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          {canManage && !editing && <button className="btn" onClick={openEdit}>Edit</button>}
           <button className="btn btn-primary" onClick={() => setShowUploadForm((v) => !v)}>{showUploadForm ? "Cancel" : "Upload File"}</button>
           {user?.role === "admin" && <button className="btn btn-danger" disabled={deleting} onClick={handleDelete}>{deleting ? "Deleting…" : "Delete Document Row"}</button>}
         </div>
@@ -188,13 +229,45 @@ export function DocumentDetailPage() {
         </form>
       )}
 
-      <div className="card" style={{ maxWidth: 560, marginBottom: 16 }}>
-        <Row label="Priority" value={request.priority} />
-        <Row label="Request Type" value={request.request_type} />
-        <Row label="Direction" value={request.direction} />
-        <Row label="Assigned To" value={request.assigned_to as string | null} />
-        <Row label="Due From Client" value={request.due_from_client} />
-      </div>
+      {editing ? (
+        <form onSubmit={handleEditSave} className="card" style={{ maxWidth: 560, marginBottom: 16 }}>
+          {editError && <div className="error-banner">{editError}</div>}
+          <div className="field">
+            <label htmlFor="e-item">Requested Item</label>
+            <input
+              id="e-item" list="e-item-options" required
+              value={editForm.requestedItem}
+              onChange={(ev) => setEditForm((f) => ({ ...f, requestedItem: ev.target.value }))}
+            />
+            <datalist id="e-item-options">
+              {(options?.requestedItems || []).map((o) => <option key={o} value={o} />)}
+            </datalist>
+          </div>
+          <div className="field">
+            <label htmlFor="e-due">Due From Client</label>
+            <input id="e-due" type="date" value={editForm.dueFromClient} onChange={(ev) => setEditForm((f) => ({ ...f, dueFromClient: ev.target.value }))} />
+          </div>
+          <div className="field">
+            <label htmlFor="e-priority">Priority</label>
+            <select id="e-priority" value={editForm.priority} onChange={(ev) => setEditForm((f) => ({ ...f, priority: ev.target.value }))}>
+              <option value="">Select…</option>
+              {(options?.priorities || PRIORITY_OPTIONS_FALLBACK).map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save changes"}</button>
+            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <div className="card" style={{ maxWidth: 560, marginBottom: 16 }}>
+          <Row label="Priority" value={request.priority} />
+          <Row label="Request Type" value={request.request_type} />
+          <Row label="Direction" value={request.direction} />
+          <Row label="Assigned To" value={request.assigned_to as string | null} />
+          <Row label="Due From Client" value={request.due_from_client} />
+        </div>
+      )}
 
       <div className="card" style={{ maxWidth: 560 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>

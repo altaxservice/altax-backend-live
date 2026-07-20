@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { APP_NAME } from "../../common/branding";
+import { clientMatchesRule, isActiveFlag } from "../rules/rules.routes";
 
 export const templatesRouter = Router();
 
@@ -118,6 +119,73 @@ function fmtDate(v: unknown): string {
 }
 
 /**
+ * Projects the filing/payment due date a Task Rule implies for a given reporting
+ * period, from its `due_month`/`due_day` config columns — the same two columns
+ * `POST /rules/:ruleId/batch` leaves for staff to fill in by hand every time. Real
+ * production values (checked directly against v3_task_rules) are one of: "Next
+ * Month" (monthly rules — due the following calendar month), "Current Month" (TR-005
+ * only), "Quarter End" / "Quarter End + 1" (quarterly rules), a bare numeric month
+ * string like "4" (annual rules — fixed calendar month, due the year AFTER the tax
+ * year closes, e.g. a 2025 return due April 15 2026), or null (Custom/Once rules,
+ * which have no projectable due date and are skipped by the caller). Quarterly rules
+ * with no `due_month` set (only TR-014Q today) fall back to "Quarter End + 1" since
+ * that's what every other quarterly rule in production actually uses.
+ */
+function projectRuleDueDate(rule: any, periodEnd: Date): Date | null {
+  const dueDay = Number(String(rule.due_day || "").trim());
+  if (!Number.isFinite(dueDay) || dueDay < 1 || dueDay > 31) return null;
+  const dueMonth = String(rule.due_month || "").trim();
+  const y = periodEnd.getUTCFullYear();
+  const m = periodEnd.getUTCMonth();
+  const quarterEndMonth = Math.floor(m / 3) * 3 + 2; // 0-indexed: Mar=2, Jun=5, Sep=8, Dec=11
+
+  if (dueMonth === "Next Month") return new Date(Date.UTC(y, m + 1, dueDay));
+  if (dueMonth === "Current Month") return new Date(Date.UTC(y, m, dueDay));
+  if (dueMonth === "Quarter End") return new Date(Date.UTC(y, quarterEndMonth, dueDay));
+  if (dueMonth === "Quarter End + 1") return new Date(Date.UTC(y, quarterEndMonth + 1, dueDay));
+  if (!dueMonth && rule.frequency === "Quarterly") return new Date(Date.UTC(y, quarterEndMonth + 1, dueDay));
+
+  const fixedMonth = Number(dueMonth);
+  if (Number.isFinite(fixedMonth) && fixedMonth >= 1 && fixedMonth <= 12) {
+    return new Date(Date.UTC(y + 1, fixedMonth - 1, dueDay));
+  }
+  return null;
+}
+
+/**
+ * Real, computed "Important Dates" — which active Task Rules this specific client
+ * matches (same trigger logic `POST /rules/:ruleId/batch` uses to pick clients for a
+ * batch run) and what due date each implies for the period just reported on. Requires
+ * the FULL client row (every trigger column `clientMatchesRule` might check), not the
+ * client_id/name/email/phone slice `resolveTemplate` normally fetches.
+ */
+async function computeImportantDates(client: any, periodEnd: Date): Promise<{ label: string; date: Date }[]> {
+  const rules = await query<any>(`SELECT * FROM altax.v3_task_rules WHERE frequency <> 'Once'`);
+  // Two rules can legitimately share a task_type — e.g. TR-005 ("Payroll Processing",
+  // triggers on a specific Payroll Frequency) and TR-005A (same task_type, triggers on
+  // Payroll?=Yes as TR-013's prerequisite step) — and both match any client with
+  // payroll_enabled=true AND payroll_frequency=Monthly (65 real clients). When that
+  // happens they usually project the identical due date too, so dedupe on label+date
+  // rather than showing the same line twice; two rules with the same label but a
+  // genuinely different projected date both stay, since that's real information.
+  const seen = new Set<string>();
+  const dates: { label: string; date: Date }[] = [];
+  for (const rule of rules) {
+    if (!isActiveFlag(rule.active)) continue;
+    if (!clientMatchesRule(client, rule)) continue;
+    const due = projectRuleDueDate(rule, periodEnd);
+    if (!due) continue;
+    const label = String(rule.task_type || rule.rule_id);
+    const key = `${label}|${due.toISOString().slice(0, 10)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dates.push({ label, date: due });
+  }
+  dates.sort((a, b) => a.date.getTime() - b.date.getTime());
+  return dates;
+}
+
+/**
  * Builds a real, computed period summary (sales tax + payroll figures) from this
  * client's actual v3_sales_input/v3_paychecks rows for the given date range — not a
  * static blurb. Powers the {{periodSummary}} token on the three "report" built-in
@@ -202,6 +270,16 @@ async function computeClientPeriodSummary(clientId: string, periodStart: string,
     lines.push(`Medicare - employer: ${fmtMoney(sum(paychecks, "medicare_er"))}`);
     lines.push(`State withholding: ${fmtMoney(sum(paychecks, "state_tax"))}`);
     lines.push(`State unemployment (SUTA): ${fmtMoney(sum(paychecks, "suta"))}`);
+  }
+
+  const periodEndDate = new Date(periodEnd);
+  if (!Number.isNaN(periodEndDate.getTime())) {
+    const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    const importantDates = client ? await computeImportantDates(client, periodEndDate) : [];
+    if (importantDates.length) {
+      lines.push("", "IMPORTANT DATES");
+      for (const { label, date } of importantDates) lines.push(`${label} due date: ${fmtDate(date)}`);
+    }
   }
 
   return lines.join("\n");
