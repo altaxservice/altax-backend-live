@@ -55,21 +55,31 @@ export const GENERAL_TERMS_BODY = `GENERAL TERMS & CONDITIONS
 
 3. CLIENT RESPONSIBILITIES. Client agrees to provide requested documents and information in a timely manner, to review all documents and filings prepared on Client's behalf before they are submitted or relied upon, and to promptly notify {{firmName}} of any changes that may affect the services described above.
 
-4. FEES & PAYMENT. Fees for this engagement are {{feeAmount}}. Fees are due as invoiced; {{firmName}} may suspend services for accounts with an outstanding balance. Fees already paid are non-refundable once the corresponding work has been performed.
+4. FEES & PAYMENT. Fees for this engagement are {{feeAmount}}. Fees are due as invoiced; {{firmName}} may suspend services for accounts with an outstanding balance. Invoices unpaid more than 30 days after the invoice date accrue interest at 1.5% per month (or the maximum rate allowed by law, if lower) on the unpaid balance, and Client agrees to reimburse {{firmName}}'s reasonable costs of collection, including attorney's fees, for any invoice referred for collection. Fees already paid are non-refundable once the corresponding work has been performed.
 
-5. LIMITATION OF LIABILITY. To the fullest extent permitted by law, {{firmName}}'s total liability arising out of or relating to this engagement, whether in contract, tort, or otherwise, is limited to the fees actually paid by Client for the specific service giving rise to the claim. In no event will {{firmName}} be liable for indirect, incidental, consequential, special, or punitive damages, including lost profits, even if advised of the possibility of such damages.
+5. RIGHT TO WITHHOLD WORK PRODUCT. {{firmName}} may withhold delivery of completed returns, filings, financial statements, or other work product until Client's account is paid in full, except where withholding would cause Client to miss a legally mandated filing deadline for work that has already been substantially prepared — in that limited case, {{firmName}} will release the work product and Client remains responsible for the outstanding balance.
 
-6. CONFIDENTIALITY & DATA SECURITY. {{firmName}} will maintain the confidentiality of Client's information consistent with applicable law and {{firmName}}'s written information security policy, and will not disclose it to third parties except as required to perform the services described above, as required by law, or with Client's consent.
+6. LIMITATION OF LIABILITY. To the fullest extent permitted by law, {{firmName}}'s total liability arising out of or relating to this engagement, whether in contract, tort, or otherwise, is limited to the fees actually paid by Client for the specific service giving rise to the claim. In no event will {{firmName}} be liable for indirect, incidental, consequential, special, or punitive damages, including lost profits, even if advised of the possibility of such damages.
 
-7. TERM & TERMINATION. This engagement continues until the described services are completed or either party terminates it in writing. Termination does not affect fees owed for work already performed, and Client remains responsible for meeting any deadlines already in progress at the time of termination.
+7. INDEMNIFICATION. Client agrees to indemnify and hold {{firmName}} harmless from any claim, loss, penalty, or expense (including reasonable attorney's fees) arising out of inaccurate, incomplete, or untimely information Client provides, or Client's breach of this agreement, except to the extent caused by {{firmName}}'s own negligence or willful misconduct.
 
-8. NO LEGAL OR INVESTMENT ADVICE. Unless the specific service described above expressly states otherwise, {{firmName}} is not a law firm and does not provide legal advice, and does not provide personalized investment or financial-planning advice. Client should consult a licensed attorney or financial advisor for matters requiring that expertise.
+8. CONFIDENTIALITY & DATA SECURITY. {{firmName}} will maintain the confidentiality of Client's information consistent with applicable law and {{firmName}}'s written information security policy, and will not disclose it to third parties except as required to perform the services described above, as required by law, or with Client's consent.
 
-9. ELECTRONIC SIGNATURE CONSENT. Client agrees to conduct this transaction electronically and consents to sign this agreement using an electronic signature, which Client agrees has the same legal effect as a handwritten signature. Client may request a paper copy of this agreement at any time.
+9. TERM & TERMINATION. This engagement continues until the described services are completed or either party terminates it in writing. Termination does not affect fees owed for work already performed, and Client remains responsible for meeting any deadlines already in progress at the time of termination.
 
-10. GOVERNING LAW. This agreement is governed by the laws of the State of Maryland, without regard to conflict-of-law principles, and any dispute arising from it will be resolved in a court of competent jurisdiction in Maryland.
+10. NO LEGAL OR INVESTMENT ADVICE. Unless the specific service described above expressly states otherwise, {{firmName}} is not a law firm and does not provide legal advice, and does not provide personalized investment or financial-planning advice. Client should consult a licensed attorney or financial advisor for matters requiring that expertise.
 
-11. ENTIRE AGREEMENT. This agreement, together with the service description above, is the entire agreement between Client and {{firmName}} regarding the services described, and supersedes any prior discussions. It may only be amended in writing signed (including electronically) by both parties.
+11. FORCE MAJEURE. Neither party is responsible for a delay or failure to perform caused by events beyond that party's reasonable control, including government shutdowns, natural disasters, war, pandemic, or failure of third-party systems (such as IRS or state e-file systems) that neither Client nor {{firmName}} controls.
+
+12. ELECTRONIC SIGNATURE CONSENT. Client agrees to conduct this transaction electronically and consents to sign this agreement using an electronic signature, which Client agrees has the same legal effect as a handwritten signature. Client may request a paper copy of this agreement at any time.
+
+13. GOVERNING LAW; VENUE. This agreement is governed by the laws of the State of Maryland, without regard to conflict-of-law principles. Any dispute arising from this agreement will be brought exclusively in the state or federal courts located in Maryland, and each party waives any right to a trial by jury in any such dispute.
+
+14. CLAIMS LIMITATION PERIOD. Any claim Client may have against {{firmName}} arising out of or relating to this engagement must be brought within one (1) year after the claim first accrues, regardless of any longer period that might otherwise apply by law, except where applicable law does not permit shortening that period.
+
+15. NO THIRD-PARTY BENEFICIARIES. This agreement is solely between Client and {{firmName}}. It does not create any right or benefit for any other person or entity, including any owner, partner, investor, lender, or affiliate of Client who is not a signing party.
+
+16. ENTIRE AGREEMENT. This agreement, together with the service description above, is the entire agreement between Client and {{firmName}} regarding the services described, and supersedes any prior discussions. It may only be amended in writing signed (including electronically) by both parties.
 
 النسخة العربية — Arabic Translation
 
@@ -81,21 +91,31 @@ export const GENERAL_TERMS_BODY = `GENERAL TERMS & CONDITIONS
 
 3. مسؤوليات العميل. يوافق العميل على تقديم المستندات والمعلومات المطلوبة في الوقت المناسب، وعلى مراجعة جميع المستندات والطلبات المُعدّة نيابةً عنه قبل تقديمها أو الاعتماد عليها، وعلى إخطار {{firmName}} فوراً بأي تغييرات قد تؤثر على الخدمات الموضحة أعلاه.
 
-4. الرسوم والدفع. تبلغ رسوم هذا التعاقد {{feeAmount}}. تُستحق الرسوم عند إصدار الفاتورة؛ ويجوز لـ{{firmName}} تعليق الخدمات عن الحسابات التي عليها رصيد مستحق. الرسوم المدفوعة غير قابلة للاسترداد بمجرد إنجاز العمل المقابل لها.
+4. الرسوم والدفع. تبلغ رسوم هذا التعاقد {{feeAmount}}. تُستحق الرسوم عند إصدار الفاتورة؛ ويجوز لـ{{firmName}} تعليق الخدمات عن الحسابات التي عليها رصيد مستحق. تُحمَّل الفواتير غير المسددة بعد مرور أكثر من 30 يوماً على تاريخ إصدارها فائدة بمعدل 1.5% شهرياً (أو الحد الأقصى الذي يسمح به القانون، إن كان أقل) على الرصيد غير المسدد، ويوافق العميل على سداد تكاليف التحصيل المعقولة لـ{{firmName}}، بما في ذلك أتعاب المحاماة، عن أي فاتورة تتم إحالتها للتحصيل. الرسوم المدفوعة غير قابلة للاسترداد بمجرد إنجاز العمل المقابل لها.
 
-5. تحديد المسؤولية. إلى أقصى حد يسمح به القانون، تقتصر المسؤولية الإجمالية لـ{{firmName}} الناشئة عن هذا التعاقد أو المتعلقة به، سواء بموجب العقد أو الضرر أو غير ذلك، على الرسوم التي دفعها العميل فعلياً مقابل الخدمة المحددة موضوع المطالبة. لا تتحمل {{firmName}} بأي حال من الأحوال مسؤولية الأضرار غير المباشرة أو العرضية أو التبعية أو الخاصة أو التأديبية، بما في ذلك خسارة الأرباح، حتى لو تم إخطارها باحتمال وقوع مثل هذه الأضرار.
+5. الحق في حجب نواتج العمل. يجوز لـ{{firmName}} حجب تسليم الإقرارات أو الطلبات المكتملة أو القوائم المالية أو أي نواتج عمل أخرى إلى حين سداد حساب العميل بالكامل، باستثناء الحالات التي يؤدي فيها الحجب إلى تفويت العميل موعداً نهائياً إلزامياً قانوناً تم إعداد العمل الخاص به بشكل جوهري بالفعل — ففي هذه الحالة المحدودة، ستقوم {{firmName}} بتسليم نواتج العمل ويبقى العميل مسؤولاً عن الرصيد المستحق.
 
-6. السرية وأمن البيانات. ستحافظ {{firmName}} على سرية معلومات العميل بما يتوافق مع القانون المعمول به وسياسة أمن المعلومات الخاصة بـ{{firmName}} المكتوبة، ولن تفصح عنها لأطراف ثالثة إلا بالقدر اللازم لأداء الخدمات الموضحة أعلاه، أو وفقاً لما يقتضيه القانون، أو بموافقة العميل.
+6. تحديد المسؤولية. إلى أقصى حد يسمح به القانون، تقتصر المسؤولية الإجمالية لـ{{firmName}} الناشئة عن هذا التعاقد أو المتعلقة به، سواء بموجب العقد أو الضرر أو غير ذلك، على الرسوم التي دفعها العميل فعلياً مقابل الخدمة المحددة موضوع المطالبة. لا تتحمل {{firmName}} بأي حال من الأحوال مسؤولية الأضرار غير المباشرة أو العرضية أو التبعية أو الخاصة أو التأديبية، بما في ذلك خسارة الأرباح، حتى لو تم إخطارها باحتمال وقوع مثل هذه الأضرار.
 
-7. مدة التعاقد وإنهاؤه. يستمر هذا التعاقد حتى إتمام الخدمات الموضحة أو حتى يقوم أي من الطرفين بإنهائه كتابياً. لا يؤثر الإنهاء على الرسوم المستحقة عن العمل الذي تم إنجازه بالفعل، ويظل العميل مسؤولاً عن الوفاء بأي مواعيد نهائية جارية وقت الإنهاء.
+7. التعويض. يوافق العميل على تعويض {{firmName}} وإبرائها من أي مطالبة أو خسارة أو غرامة أو نفقة (بما في ذلك أتعاب المحاماة المعقولة) تنشأ عن معلومات غير دقيقة أو ناقصة أو متأخرة يقدّمها العميل، أو عن إخلال العميل بهذا الاتفاق، إلا بالقدر الذي يكون سببه إهمال {{firmName}} أو سوء تصرف متعمد منها.
 
-8. لا استشارة قانونية أو استثمارية. ما لم تنص الخدمة المحددة الموضحة أعلاه صراحةً على خلاف ذلك، فإن {{firmName}} ليست مكتباً قانونياً ولا تقدّم استشارات قانونية، كما أنها لا تقدّم استشارات استثمارية أو تخطيط مالي شخصية. يجب على العميل استشارة محامٍ مرخّص أو مستشار مالي مرخّص في الأمور التي تتطلب هذه الخبرة.
+8. السرية وأمن البيانات. ستحافظ {{firmName}} على سرية معلومات العميل بما يتوافق مع القانون المعمول به وسياسة أمن المعلومات الخاصة بـ{{firmName}} المكتوبة، ولن تفصح عنها لأطراف ثالثة إلا بالقدر اللازم لأداء الخدمات الموضحة أعلاه، أو وفقاً لما يقتضيه القانون، أو بموافقة العميل.
 
-9. الموافقة على التوقيع الإلكتروني. يوافق العميل على إتمام هذا التعامل إلكترونياً، ويوافق على التوقيع على هذا الاتفاق باستخدام توقيع إلكتروني، ويقرّ بأن لهذا التوقيع نفس الأثر القانوني للتوقيع الخطي. يجوز للعميل طلب نسخة ورقية من هذا الاتفاق في أي وقت.
+9. مدة التعاقد وإنهاؤه. يستمر هذا التعاقد حتى إتمام الخدمات الموضحة أو حتى يقوم أي من الطرفين بإنهائه كتابياً. لا يؤثر الإنهاء على الرسوم المستحقة عن العمل الذي تم إنجازه بالفعل، ويظل العميل مسؤولاً عن الوفاء بأي مواعيد نهائية جارية وقت الإنهاء.
 
-10. القانون المُطبَّق. يخضع هذا الاتفاق لقوانين ولاية ماريلاند، بصرف النظر عن مبادئ تنازع القوانين، ويتم حل أي نزاع ينشأ عنه أمام محكمة مختصة في ولاية ماريلاند.
+10. لا استشارة قانونية أو استثمارية. ما لم تنص الخدمة المحددة الموضحة أعلاه صراحةً على خلاف ذلك، فإن {{firmName}} ليست مكتباً قانونياً ولا تقدّم استشارات قانونية، كما أنها لا تقدّم استشارات استثمارية أو تخطيط مالي شخصية. يجب على العميل استشارة محامٍ مرخّص أو مستشار مالي مرخّص في الأمور التي تتطلب هذه الخبرة.
 
-11. الاتفاق الكامل. يمثّل هذا الاتفاق، إلى جانب وصف الخدمة أعلاه، الاتفاق الكامل بين العميل و{{firmName}} بشأن الخدمات الموضحة، ويحل محل أي مناقشات سابقة. لا يجوز تعديله إلا كتابياً وموقعاً (بما في ذلك إلكترونياً) من الطرفين.`;
+11. القوة القاهرة. لا يتحمل أي من الطرفين مسؤولية التأخير أو عدم الأداء الناتج عن أحداث خارجة عن السيطرة المعقولة لذلك الطرف، بما في ذلك إغلاق الحكومة، أو الكوارث الطبيعية، أو الحرب، أو الأوبئة، أو تعطّل أنظمة أطراف ثالثة (مثل أنظمة التقديم الإلكتروني الخاصة بمصلحة الضرائب أو الولاية) لا يسيطر عليها العميل ولا {{firmName}}.
+
+12. الموافقة على التوقيع الإلكتروني. يوافق العميل على إتمام هذا التعامل إلكترونياً، ويوافق على التوقيع على هذا الاتفاق باستخدام توقيع إلكتروني، ويقرّ بأن لهذا التوقيع نفس الأثر القانوني للتوقيع الخطي. يجوز للعميل طلب نسخة ورقية من هذا الاتفاق في أي وقت.
+
+13. القانون المُطبَّق والاختصاص القضائي. يخضع هذا الاتفاق لقوانين ولاية ماريلاند، بصرف النظر عن مبادئ تنازع القوانين. يُرفع أي نزاع ينشأ عن هذا الاتفاق حصراً أمام المحاكم الحكومية أو الفيدرالية الواقعة في ولاية ماريلاند، ويتنازل كل طرف عن أي حق في المحاكمة أمام هيئة محلفين في أي نزاع من هذا النوع.
+
+14. مدة تقديم المطالبات. يجب تقديم أي مطالبة قد تكون للعميل ضد {{firmName}} ناشئة عن هذا التعاقد أو متعلقة به خلال سنة واحدة (1) من تاريخ نشوء المطالبة لأول مرة، بصرف النظر عن أي مدة أطول قد ينص عليها القانون خلاف ذلك، إلا في الحالات التي لا يسمح فيها القانون المعمول به بتقصير تلك المدة.
+
+15. عدم وجود مستفيدين من الغير. هذا الاتفاق مقتصر على العميل و{{firmName}} فقط. ولا يُنشئ أي حق أو منفعة لأي شخص أو جهة أخرى، بما في ذلك أي مالك أو شريك أو مستثمر أو جهة إقراض أو جهة تابعة للعميل ليست طرفاً موقّعاً عليه.
+
+16. الاتفاق الكامل. يمثّل هذا الاتفاق، إلى جانب وصف الخدمة أعلاه، الاتفاق الكامل بين العميل و{{firmName}} بشأن الخدمات الموضحة، ويحل محل أي مناقشات سابقة. لا يجوز تعديله إلا كتابياً وموقعاً (بما في ذلك إلكترونياً) من الطرفين.`;
 
 export const BUILT_IN_CONTRACT_TEMPLATES: { serviceKey: string; title: string; body: string }[] = [
   {
