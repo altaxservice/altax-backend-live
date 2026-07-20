@@ -204,7 +204,7 @@ export function TaskDetailPage() {
                     ) : f.type === "select" ? (
                       <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
                         <option value="">Unassigned</option>
-                        {form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && <option value={form[f.apiKey]}>{form[f.apiKey]}</option>}
+                        {form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && <option value={form[f.apiKey]}>{form[f.apiKey]} (Inactive)</option>}
                         {staffOptions.map((o) => <option key={o}>{o}</option>)}
                       </select>
                     ) : (

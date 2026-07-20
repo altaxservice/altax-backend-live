@@ -408,7 +408,7 @@ export function ClientDetailPage() {
                       <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
                         <option value="">{f.apiKey === "assignedTo" ? "Unassigned" : "Select…"}</option>
                         {f.apiKey === "assignedTo" && form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && (
-                          <option value={form[f.apiKey]}>{form[f.apiKey]}</option>
+                          <option value={form[f.apiKey]}>{form[f.apiKey]} (Inactive)</option>
                         )}
                         {(f.apiKey === "assignedTo" ? staffOptions : f.options || []).map((o) => <option key={o}>{o}</option>)}
                       </select>
