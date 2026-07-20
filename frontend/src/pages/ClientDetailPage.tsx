@@ -6,7 +6,7 @@ import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
@@ -15,16 +15,21 @@ import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
-interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[] }
+/** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
+interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean }
+
+const hasService = (form: Record<string, any>, key: string) => Array.isArray(form.services) && form.services.includes(key);
+const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
+const hasContact = (form: Record<string, any>) => Boolean(String(form.email || "").trim() || String(form.phone || "").trim());
 
 const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     title: "Client Identity",
     fields: [
-      { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
       { key: "client_name", apiKey: "clientName", label: "Client Name", kind: "text" },
       { key: "client_type", apiKey: "clientType", label: "Client Type", kind: "select", options: ["Business", "Individual"] },
-      { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES },
+      { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
+      { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !isBusiness(f) },
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
       { key: "service_type", apiKey: "serviceType", label: "Service Type", kind: "select", options: SERVICE_TYPES },
     ],
@@ -37,18 +42,32 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     fields: [],
   },
   {
-    title: "Services & Compliance",
+    title: "Payroll Details",
     fields: [
-      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS },
-      { key: "payroll_enabled", apiKey: "payrollEnabled", label: "Payroll Enabled", kind: "checkbox" },
-      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS },
-      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text" },
-      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox" },
-      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS },
-      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox" },
-      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox" },
-      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES },
-      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox" },
+      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !hasService(f, "payroll") },
+      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !hasService(f, "payroll") },
+      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !hasService(f, "payroll") },
+      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
+      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
+      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
+    ],
+  },
+  {
+    title: "Sales Tax Details",
+    fields: [
+      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !hasService(f, "sales_tax") },
+    ],
+  },
+  {
+    title: "Tax Preparation Details",
+    fields: [
+      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES, hidden: (f) => !hasService(f, "tax_prep") },
+    ],
+  },
+  {
+    title: "Business Compliance",
+    fields: [
+      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox", hidden: (f) => !isBusiness(f) },
     ],
   },
   {
@@ -57,22 +76,22 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "select" },
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
-      { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
-      { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "select", options: CONTACT_PREFS },
-      { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox" },
-      { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox" },
+      { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "select", options: CONTACT_PREFS, hidden: (f) => !hasContact(f) },
+      { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES, hidden: (f) => !hasContact(f) },
+      { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
+      { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
     ],
   },
   {
     title: "Tax IDs & Responsible Party",
     fields: [
-      { key: "ein", apiKey: "ein", label: "EIN", kind: "text" },
-      { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text" },
       { key: "state_tax_id", apiKey: "stateTaxId", label: "State Tax ID", kind: "text" },
-      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID", kind: "text" },
-      { key: "company_contact_name", apiKey: "companyContactName", label: "Responsible Party / Company Contact", kind: "text" },
-      { key: "company_contact_title", apiKey: "companyContactTitle", label: "Contact Title", kind: "text" },
-      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Contact SS No.", kind: "text" },
+      { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f) },
+      { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_name", apiKey: "companyContactName", label: "Responsible Party / Company Contact", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_title", apiKey: "companyContactTitle", label: "Contact Title", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Contact SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "notes", apiKey: "notes", label: "Notes", kind: "textarea" },
     ],
   },
@@ -131,6 +150,9 @@ export function ClientDetailPage() {
         const initial: Record<string, any> = {};
         for (const f of ALL_FIELDS) initial[f.apiKey] = f.kind === "checkbox" ? Boolean(res.client[f.key]) : String(res.client[f.key] ?? "");
         initial.services = Array.isArray(res.client.services) ? res.client.services : [];
+        // Not in EDIT_SECTIONS (no visible checkbox — kept in sync with the
+        // "Payroll Services" entry in Services Provided instead, see below).
+        initial.payrollEnabled = Boolean(res.client.payroll_enabled);
         initial.streetAddress = String(res.client.street_address ?? "");
         initial.city = String(res.client.city ?? "");
         initial.zipCode = String(res.client.zip_code ?? "");
@@ -262,7 +284,7 @@ export function ClientDetailPage() {
   if (error) return <div className="error-banner">{error}</div>;
   if (!client) return <div className="spinner-wrap">Loading…</div>;
 
-  const isBusiness = String(client.client_type || client.entity_type || "").toLowerCase() !== "individual";
+  const isBusinessClient = String(client.client_type || client.entity_type || "").toLowerCase() !== "individual";
 
   return (
     <div>
@@ -300,28 +322,36 @@ export function ClientDetailPage() {
       )}
 
       {editing ? (
-        <form onSubmit={handleSave} className="card" style={{ maxWidth: 640 }}>
+        <form onSubmit={handleSave} className="card" style={{ maxWidth: 960 }}>
           {saveError && <div className="error-banner">{saveError}</div>}
-          {EDIT_SECTIONS.map((section) => (
+          {EDIT_SECTIONS.map((section) => {
+            const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
+            // A conditional section (Payroll/Sales Tax/Tax Prep/Business Compliance
+            // Details) with nothing currently visible shouldn't show an empty
+            // header — only "Services Provided" is allowed to have zero
+            // FieldConfig entries (it renders its own checklist below instead).
+            if (visibleFields.length === 0 && section.title !== "Services Provided") return null;
+            return (
             <div key={section.title}>
               <div className="form-section-title">{section.title}</div>
               {section.title === "Services Provided" && (
                 <>
                   <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
                     Select every service this client is engaged for — the Contracts section below will suggest the matching contract for each one.
+                    {!isBusiness(form) && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
                   </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
-                    {FIRM_SERVICES.map((s) => (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
+                    {servicesForClientType(form.clientType).map((s) => (
                       <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                         <input
                           type="checkbox"
                           checked={(form.services as string[] || []).includes(s.key)}
-                          onChange={(e) => setForm((prev) => ({
-                            ...prev,
-                            services: e.target.checked
+                          onChange={(e) => setForm((prev) => {
+                            const services = e.target.checked
                               ? [...(prev.services as string[] || []), s.key]
-                              : (prev.services as string[] || []).filter((k) => k !== s.key),
-                          }))}
+                              : (prev.services as string[] || []).filter((k) => k !== s.key);
+                            return { ...prev, services, payrollEnabled: services.includes("payroll") };
+                          })}
                         />
                         {s.label}
                       </label>
@@ -329,10 +359,10 @@ export function ClientDetailPage() {
                   </div>
                 </>
               )}
-              <div className="form-grid">
-                {section.fields.map((f) => (
+              <div className="form-grid-3">
+                {visibleFields.map((f) => (
                   f.kind === "checkbox" ? (
-                    <label key={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+                    <label key={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input
                         type="checkbox"
                         checked={Boolean(form[f.apiKey])}
@@ -379,7 +409,8 @@ export function ClientDetailPage() {
                 />
               )}
             </div>
-          ))}
+            );
+          })}
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
             <button type="button" className="btn" onClick={() => { setEditing(false); setSearchParams({}); }}>Cancel</button>
@@ -416,13 +447,13 @@ export function ClientDetailPage() {
               <p className="muted" style={{ marginBottom: 12 }}>
                 {user?.role === "admin" ? "Shown in full — you are signed in as Admin." : "Sensitive fields are masked for your role."}
               </p>
-              {isBusiness ? (
+              {isBusinessClient ? (
                 <DetailRow label="EIN" value={client.ein as string | null} />
               ) : (
                 <DetailRow label="Individual SSN" value={client.individual_ssn as string | null} />
               )}
-              {isBusiness && <DetailRow label="State Tax ID" value={client.state_tax_id as string | null} />}
-              {isBusiness && <DetailRow label="Secretary of State ID" value={client.secretary_of_state_id as string | null} />}
+              {isBusinessClient && <DetailRow label="State Tax ID" value={client.state_tax_id as string | null} />}
+              {isBusinessClient && <DetailRow label="Secretary of State ID" value={client.secretary_of_state_id as string | null} />}
               <DetailRow label="Sales Tax Frequency" value={client.sales_tax_frequency as string | null} />
               <DetailRow label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
               {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
@@ -439,7 +470,7 @@ export function ClientDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
             <div className="card">
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Responsible Party</h2>
-              {isBusiness ? (
+              {isBusinessClient ? (
                 <>
                   <DetailRow label="Company Contact" value={client.company_contact_name as string | null} />
                   <DetailRow label="Title" value={client.company_contact_title as string | null} />

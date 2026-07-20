@@ -24,3 +24,13 @@ export const FIRM_SERVICES: { key: string; label: string }[] = [
   { key: "immigration", label: "Immigration Document Preparation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
+
+// Bookkeeping/payroll/sales-tax/formation are business-only concepts (no
+// individual has payroll or a registered agent) — an Individual client only
+// ever needs personal tax prep, immigration help, or general consulting.
+// Used to filter the Services Provided checklist by Client Type so the form
+// only shows options that could actually apply.
+export const INDIVIDUAL_SERVICE_KEYS = ["tax_prep", "immigration", "consulting"];
+export function servicesForClientType(clientType: string): { key: string; label: string }[] {
+  return clientType === "Individual" ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key)) : FIRM_SERVICES;
+}

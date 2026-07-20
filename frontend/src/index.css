@@ -299,6 +299,9 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .form-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; align-items: start; }
+/* Wider variant for forms given a wide card (Add/Edit Client) — uses the extra
+   horizontal room instead of stacking into a long vertical scroll. */
+.form-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 16px; align-items: start; }
 
 /* ---- Misc ---- */
 .error-banner {
@@ -758,6 +761,7 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
      columns onto a phone-width screen. */
   .compose-split { grid-template-columns: 1fr !important; }
   .form-grid { grid-template-columns: 1fr !important; }
+  .form-grid-3 { grid-template-columns: 1fr !important; }
 
   .guide-layout { grid-template-columns: 1fr; padding: 12px; gap: 10px; }
   .guide-toc {

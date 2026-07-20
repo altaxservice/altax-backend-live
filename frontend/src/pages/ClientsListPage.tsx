@@ -9,7 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 
 const EMPTY_CLIENT_FORM = {
@@ -286,17 +286,11 @@ export function ClientsListPage() {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="card" style={{ maxWidth: 640, marginBottom: 24 }}>
+        <form onSubmit={handleCreate} className="card" style={{ maxWidth: 960, marginBottom: 24 }}>
           {saveError && <div className="error-banner">{saveError}</div>}
 
           <div className="form-section-title">Client Identity</div>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="nc-status">Active?</label>
-              <select id="nc-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option><option>Archived</option>
-              </select>
-            </div>
+          <div className="form-grid-3">
             <div className="field">
               <label htmlFor="nc-name">Client Name</label>
               <input id="nc-name" required value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))} />
@@ -304,17 +298,32 @@ export function ClientsListPage() {
             </div>
             <div className="field">
               <label htmlFor="nc-ctype">Client Type</label>
-              <select id="nc-ctype" value={form.clientType} onChange={(e) => setForm((f) => ({ ...f, clientType: e.target.value }))}>
+              <select
+                id="nc-ctype" value={form.clientType}
+                onChange={(e) => {
+                  const clientType = e.target.value;
+                  const allowed = new Set(servicesForClientType(clientType).map((s) => s.key));
+                  setForm((f) => ({ ...f, clientType, services: f.services.filter((k) => allowed.has(k)) }));
+                }}
+              >
                 <option>Business</option><option>Individual</option>
               </select>
             </div>
             <div className="field">
-              <label htmlFor="nc-etype">Entity Type</label>
-              <select id="nc-etype" value={form.entityType} onChange={(e) => setForm((f) => ({ ...f, entityType: e.target.value }))}>
-                <option value="">Select…</option>
-                {ENTITY_TYPES.map((o) => <option key={o}>{o}</option>)}
+              <label htmlFor="nc-status">Active?</label>
+              <select id="nc-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                <option>Active</option><option>Inactive</option><option>Archived</option>
               </select>
             </div>
+            {form.clientType === "Business" && (
+              <div className="field">
+                <label htmlFor="nc-etype">Entity Type</label>
+                <select id="nc-etype" value={form.entityType} onChange={(e) => setForm((f) => ({ ...f, entityType: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {ENTITY_TYPES.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="nc-state">State</label>
               <select id="nc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
@@ -334,78 +343,106 @@ export function ClientsListPage() {
           <div className="form-section-title">Services Provided</div>
           <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
             Select every service this client is engaged for — the client's profile will suggest the matching contract for each one.
+            {form.clientType === "Individual" && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", marginBottom: 16 }}>
-            {FIRM_SERVICES.map((s) => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
+            {servicesForClientType(form.clientType).map((s) => (
               <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                 <input
                   type="checkbox"
                   checked={form.services.includes(s.key)}
-                  onChange={(e) => setForm((f) => ({
-                    ...f,
-                    services: e.target.checked ? [...f.services, s.key] : f.services.filter((k) => k !== s.key),
-                  }))}
+                  onChange={(e) => setForm((f) => {
+                    const services = e.target.checked ? [...f.services, s.key] : f.services.filter((k) => k !== s.key);
+                    // "Payroll Services" checked here is the same fact as the
+                    // payrollEnabled flag below — keep them in sync so checking
+                    // the service is sufficient, without a second manual step.
+                    return { ...f, services, payrollEnabled: services.includes("payroll") };
+                  })}
                 />
                 {s.label}
               </label>
             ))}
           </div>
 
-          <div className="form-section-title">Services &amp; Compliance</div>
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="nc-stf">Sales Tax Frequency</label>
-              <select id="nc-stf" value={form.salesTaxFrequency} onChange={(e) => setForm((f) => ({ ...f, salesTaxFrequency: e.target.value }))}>
-                <option value="">Select…</option>
-                {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.payrollEnabled} onChange={(e) => setForm((f) => ({ ...f, payrollEnabled: e.target.checked }))} />
-              Payroll enabled
-            </label>
-            <div className="field">
-              <label htmlFor="nc-pf">Payroll Frequency</label>
-              <select id="nc-pf" value={form.payrollFrequency} onChange={(e) => setForm((f) => ({ ...f, payrollFrequency: e.target.value }))}>
-                <option value="">Select…</option>
-                {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <div className="field"><label htmlFor="nc-psys">Payroll System</label><input id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))} placeholder="e.g. Gusto, ADP, Manual" /></div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
-              EFTPS enabled
-            </label>
-            <div className="field">
-              <label htmlFor="nc-mdw">MD Withholding Frequency</label>
-              <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>
-                <option value="">Select…</option>
-                {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
-              MD UI enabled
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.mdAnnualReportEnabled} onChange={(e) => setForm((f) => ({ ...f, mdAnnualReportEnabled: e.target.checked }))} />
-              MD Annual Report enabled
-            </label>
-            <div className="field">
-              <label htmlFor="nc-brt">Business Return Type</label>
-              <select id="nc-brt" value={form.businessReturnType} onChange={(e) => setForm((f) => ({ ...f, businessReturnType: e.target.value }))}>
-                <option value="">Select…</option>
-                {RETURN_TYPES.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
-              W-2 / 1099 enabled
-            </label>
-          </div>
+          {form.services.includes("payroll") && (
+            <>
+              <div className="form-section-title">Payroll Details</div>
+              <div className="form-grid-3">
+                <div className="field">
+                  <label htmlFor="nc-pf">Payroll Frequency</label>
+                  <select id="nc-pf" value={form.payrollFrequency} onChange={(e) => setForm((f) => ({ ...f, payrollFrequency: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="field"><label htmlFor="nc-psys">Payroll System</label><input id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))} placeholder="e.g. Gusto, ADP, Manual" /></div>
+                <div className="field">
+                  <label htmlFor="nc-mdw">MD Withholding Frequency</label>
+                  <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                  <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
+                  EFTPS enabled
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                  <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
+                  MD UI enabled
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                  <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
+                  W-2 / 1099 enabled
+                </label>
+              </div>
+            </>
+          )}
+
+          {form.services.includes("sales_tax") && (
+            <>
+              <div className="form-section-title">Sales Tax Details</div>
+              <div className="form-grid-3">
+                <div className="field">
+                  <label htmlFor="nc-stf">Sales Tax Frequency</label>
+                  <select id="nc-stf" value={form.salesTaxFrequency} onChange={(e) => setForm((f) => ({ ...f, salesTaxFrequency: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
+
+          {form.services.includes("tax_prep") && (
+            <>
+              <div className="form-section-title">Tax Preparation Details</div>
+              <div className="form-grid-3">
+                <div className="field">
+                  <label htmlFor="nc-brt">Business Return Type</label>
+                  <select id="nc-brt" value={form.businessReturnType} onChange={(e) => setForm((f) => ({ ...f, businessReturnType: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {RETURN_TYPES.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
+
+          {form.clientType === "Business" && (
+            <>
+              <div className="form-section-title">Business Compliance</div>
+              <div className="form-grid-3">
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                  <input type="checkbox" checked={form.mdAnnualReportEnabled} onChange={(e) => setForm((f) => ({ ...f, mdAnnualReportEnabled: e.target.checked }))} />
+                  MD Annual Report enabled
+                </label>
+              </div>
+            </>
+          )}
 
           <div className="form-section-title">Contact &amp; Assignment</div>
-          <div className="form-grid">
+          <div className="form-grid-3">
             <div className="field">
               <label htmlFor="nc-assigned">Assigned To</label>
               <select id="nc-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
@@ -415,27 +452,33 @@ export function ClientsListPage() {
             </div>
             <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
             <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
-            <div className="field">
-              <label htmlFor="nc-lang">Preferred Language</label>
-              <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
-                {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="nc-pref">Preferred Contact</label>
-              <select id="nc-pref" value={form.preferredContact} onChange={(e) => setForm((f) => ({ ...f, preferredContact: e.target.value }))}>
-                {CONTACT_PREFS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.smsAllowed} onChange={(e) => setForm((f) => ({ ...f, smsAllowed: e.target.checked }))} />
-              SMS enabled
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
-              <input type="checkbox" checked={form.emailAllowed} onChange={(e) => setForm((f) => ({ ...f, emailAllowed: e.target.checked }))} />
-              Email enabled
-            </label>
           </div>
+          {(form.email.trim() || form.phone.trim()) && (
+            <div className="form-grid-3" style={{ marginTop: 4 }}>
+              <div className="field">
+                <label htmlFor="nc-pref">Preferred Contact</label>
+                <select id="nc-pref" value={form.preferredContact} onChange={(e) => setForm((f) => ({ ...f, preferredContact: e.target.value }))}>
+                  {CONTACT_PREFS.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="nc-lang">Preferred Language</label>
+                <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
+                  {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 22 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={form.smsAllowed} onChange={(e) => setForm((f) => ({ ...f, smsAllowed: e.target.checked }))} />
+                  SMS enabled
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={form.emailAllowed} onChange={(e) => setForm((f) => ({ ...f, emailAllowed: e.target.checked }))} />
+                  Email enabled
+                </label>
+              </div>
+            </div>
+          )}
           <AddressFields
             idPrefix="nc"
             showStateField={false}
@@ -450,14 +493,19 @@ export function ClientsListPage() {
           />
 
           <div className="form-section-title">Tax IDs &amp; Responsible Party</div>
-          <div className="form-grid">
-            <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-ssn">Individual SS No.</label><input id="nc-ssn" value={form.individualSsn} onChange={(e) => setForm((f) => ({ ...f, individualSsn: e.target.value }))} /></div>
+          <div className="form-grid-3">
             <div className="field"><label htmlFor="nc-sti">State Tax ID</label><input id="nc-sti" value={form.stateTaxId} onChange={(e) => setForm((f) => ({ ...f, stateTaxId: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-sos">Secretary of State ID</label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-cc">Responsible Party / Company Contact</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-cct">Contact Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-ccs">Contact SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
+            {form.clientType === "Individual" ? (
+              <div className="field"><label htmlFor="nc-ssn">Individual SS No.</label><input id="nc-ssn" value={form.individualSsn} onChange={(e) => setForm((f) => ({ ...f, individualSsn: e.target.value }))} /></div>
+            ) : (
+              <>
+                <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-sos">Secretary of State ID</label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-cc">Responsible Party / Company Contact</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-cct">Contact Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-ccs">Contact SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
+              </>
+            )}
           </div>
           <div className="field"><label htmlFor="nc-notes">Notes</label><textarea id="nc-notes" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
 
