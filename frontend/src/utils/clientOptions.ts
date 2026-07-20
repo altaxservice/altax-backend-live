@@ -12,7 +12,13 @@ export const FREQ_OPTIONS = ["Monthly", "Quarterly", "Annually", "N/A"];
 export const PAYROLL_FREQS = ["Weekly", "Bi-Weekly", "Semi-Monthly", "Monthly", "N/A"];
 export const PAYROLL_PROVIDERS = ["QBO", "Drake", "Gusto", "ADP", "Paychex", "Other"];
 export const RETURN_TYPES = ["1120", "1120S", "1065", "Schedule C", "990", "N/A"];
-export const LANGUAGES = ["English", "Spanish", "Other"];
+// Matches normalizeLanguagePreference() in src/modules/communications/communications.routes.ts
+// exactly — that's the only thing that actually reads this value (which language(s) a
+// client's emails/SMS/WhatsApp get sent in). This app is bilingual English/Arabic only
+// (see contracts, reminders, the portal's EN/Arabic toggle) — there's no Spanish support
+// anywhere in the codebase, so offering it here was always a dead option that silently
+// fell back to "Both" server-side.
+export const LANGUAGES = ["English", "Arabic", "Both"];
 export const CONTACT_PREFS = ["Email", "Phone", "SMS", "Portal"];
 
 // Firm-wide service lines a client can be engaged for — keys must match
