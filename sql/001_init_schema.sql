@@ -910,6 +910,13 @@ CREATE TABLE IF NOT EXISTS v3_client_contracts (
     signed_at TIMESTAMPTZ,
     signer_ip VARCHAR(64),
     signer_user_agent TEXT,
+    -- 'Electronic' (default): client typed their name via the emailed public link,
+    -- ESIGN/UETA e-sign consent in the contract text applies. 'In-Person': staff
+    -- recorded that the client signed a physical/paper copy in the office —
+    -- recorded_by holds which staff member logged it, since there's no client-side
+    -- IP/user-agent trail for a paper signature the way there is for the e-sign flow.
+    signature_method VARCHAR(32) NOT NULL DEFAULT 'Electronic',
+    recorded_by VARCHAR(255),
     voided_at TIMESTAMPTZ,
     voided_reason TEXT,
     created_by VARCHAR(255),

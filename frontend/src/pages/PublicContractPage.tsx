@@ -102,7 +102,13 @@ export function PublicContractPage() {
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: 20, maxHeight: 520, overflowY: "auto" }}>
+      {/* No inner scroll cap here on purpose: this document includes a full Arabic
+          translation appended after the English text (see contractContent.ts) — a
+          capped, separately-scrolling box made that section easy to miss entirely,
+          which defeats the point of translating it. The whole thing scrolls with the
+          page instead, like any other document a client has to actually read before
+          signing. */}
+      <div className="card" style={{ marginBottom: 20 }}>
         <ContractBodyText text={contract.rendered_body} style={{ fontSize: 13.5, lineHeight: 1.7 }} />
       </div>
 

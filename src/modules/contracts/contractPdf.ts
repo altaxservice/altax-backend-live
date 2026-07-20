@@ -46,6 +46,8 @@ export interface ContractPdfData {
   signerTitle: string | null;
   signedAt: string | null;
   signerIp: string | null;
+  signatureMethod: string;
+  recordedBy: string | null;
 }
 
 class Cursor {
@@ -188,17 +190,30 @@ export async function generateContractPdf(data: ContractPdfData): Promise<Uint8A
   y += 20;
 
   if (data.status === "Signed" && data.signerName) {
-    c.text(L, y, "ELECTRONICALLY SIGNED", { size: 10, bold: true, color: TEAL });
+    const isInPerson = data.signatureMethod === "In-Person";
+    c.text(L, y, isInPerson ? "SIGNED IN PERSON" : "ELECTRONICALLY SIGNED", { size: 10, bold: true, color: TEAL });
     y += 18;
     c.text(L, y, `Signed by: ${data.signerName}${data.signerTitle ? ` (${data.signerTitle})` : ""}`, { size: 10 });
     y += 15;
     c.text(L, y, `Date/Time: ${fmtDateTime(data.signedAt)}`, { size: 9, color: MUTED });
     y += 13;
-    if (data.signerIp) {
-      c.text(L, y, `IP Address on file: ${data.signerIp}`, { size: 8, color: MUTED });
-      y += 13;
+    if (isInPerson) {
+      // A wet-ink/paper signature witnessed in the office has no client IP/device
+      // trail, and Section 9's electronic-signature consent language doesn't apply
+      // to it — mislabeling this as "electronically signed" would misstate how the
+      // agreement was actually executed.
+      if (data.recordedBy) {
+        c.text(L, y, `Recorded by: ${data.recordedBy}`, { size: 8, color: MUTED });
+        y += 13;
+      }
+      c.text(L, y, "This signature was collected in person on a physical copy of this agreement, not electronically.", { size: 7.5, color: MUTED });
+    } else {
+      if (data.signerIp) {
+        c.text(L, y, `IP Address on file: ${data.signerIp}`, { size: 8, color: MUTED });
+        y += 13;
+      }
+      c.text(L, y, "This document was signed electronically. Client consented to conduct this transaction electronically per Section 9 (General Terms).", { size: 7.5, color: MUTED });
     }
-    c.text(L, y, "This document was signed electronically. Client consented to conduct this transaction electronically per Section 9 (General Terms).", { size: 7.5, color: MUTED });
   } else {
     c.text(L, y, "Client Signature: __________________________________", { size: 10 });
     c.text(R, y, "Date: ______________", { size: 10, align: "right" });

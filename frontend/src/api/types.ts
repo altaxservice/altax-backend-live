@@ -62,6 +62,7 @@ export interface ClientContract {
   signer_name: string | null;
   signed_at: string | null;
   sent_at: string | null;
+  signature_method: "Electronic" | "In-Person" | string;
   created_at: string;
 }
 

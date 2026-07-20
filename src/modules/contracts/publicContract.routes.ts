@@ -71,6 +71,7 @@ publicContractRouter.get("/:token/pdf", asyncHandler(async (req: Request, res: R
     contractId: contract.contract_id, title: contract.title, clientName: client?.client_name || "", clientId: contract.client_id,
     renderedBody: contract.rendered_body, effectiveDate: contract.effective_date, status: contract.status,
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
+    signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${contract.contract_id}.pdf"`);

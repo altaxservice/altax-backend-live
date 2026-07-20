@@ -109,7 +109,7 @@ contractsRouter.get("/client/:clientId", requireAuth, asyncHandler(async (req: A
 
   const contracts = await query<any>(
     `SELECT contract_id, client_id, service_key, title, fee_amount, fee_description, effective_date, status,
-            share_token, signer_name, signed_at, sent_at, created_at
+            share_token, signer_name, signed_at, sent_at, signature_method, created_at
        FROM altax.v3_client_contracts WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
@@ -227,6 +227,7 @@ contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: Au
     contractId: contract.contract_id, title: contract.title, clientName: client?.client_name || "", clientId: contract.client_id,
     renderedBody: contract.rendered_body, effectiveDate: contract.effective_date, status: contract.status,
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
+    signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${contract.contract_id}.pdf"`);
@@ -274,6 +275,40 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
     `Contract sent by ${req.user!.email}.${emailed ? " Emailed to client." : ""}`, req.user!.email);
 
   res.json({ ok: true, shareToken, emailed, emailError });
+}));
+
+/**
+ * Records that a client signed a physical/paper copy in the office rather than
+ * through the emailed public link — for the case where a client is present in
+ * person and prefers a wet-ink signature over typing their name on a screen.
+ * Marks the contract Signed exactly like the electronic flow (so it behaves the
+ * same everywhere else: Contracts tab, PDF footer, void rules), but stamps
+ * signature_method='In-Person' and records which staff member logged it instead
+ * of a client IP/user-agent (there isn't one for a paper signature).
+ */
+contractsRouter.post("/:contractId/sign-in-person", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const contract = await queryOne<any>(`SELECT * FROM altax.v3_client_contracts WHERE contract_id = $1`, [req.params.contractId]);
+  if (!contract) return res.status(404).json({ error: "Contract not found." });
+  if (!(await canAccessClient(req.user!, contract.client_id))) return res.status(403).json({ error: "You do not have access to this contract." });
+  if (contract.status === "Signed") return res.status(400).json({ error: "This contract is already signed." });
+  if (contract.status === "Void") return res.status(400).json({ error: "This contract has been voided." });
+
+  const body = req.body || {};
+  const signerName = String(body.signerName || "").trim();
+  const signerTitle = String(body.signerTitle || "").trim() || null;
+  if (!signerName) return res.status(400).json({ error: "The signer's full legal name is required." });
+
+  await query(
+    `UPDATE altax.v3_client_contracts
+        SET status='Signed', signer_name=$2, signer_title=$3, agreed=true, signed_at=now(),
+            signature_method='In-Person', recorded_by=$4, updated_at=now()
+      WHERE contract_id=$1`,
+    [contract.contract_id, signerName, signerTitle, req.user!.email]
+  );
+  await logAudit("Contracts", "SIGN_IN_PERSON", contract.contract_id, "status", contract.status, "Signed",
+    `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
 }));
 
 contractsRouter.post("/:contractId/void", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

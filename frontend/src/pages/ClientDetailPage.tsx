@@ -630,6 +630,8 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   const [busy, setBusy] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<Record<string, string>>({});
+  const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
+  const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
 
   function load() {
     api.get<{ contracts: ClientContract[] }>(`/contracts/client/${clientId}`)
@@ -669,6 +671,25 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not send this contract.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSignInPerson(c: ClientContract) {
+    setSignInPersonForm({ signerName: "", signerTitle: "" });
+    setSignInPersonFor(signInPersonFor === c.contract_id ? null : c.contract_id);
+  }
+
+  async function handleSignInPerson(c: ClientContract) {
+    setBusy(`signip-${c.contract_id}`);
+    try {
+      await api.post(`/contracts/${c.contract_id}/sign-in-person`, signInPersonForm);
+      toast("Recorded as signed in person.");
+      setSignInPersonFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
     } finally {
       setBusy(null);
     }
@@ -784,7 +805,11 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                   <td>{c.title}</td>
                   <td><span style={{ color: CONTRACT_STATUS_COLOR[c.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{c.status}</span></td>
                   <td className="muted">{c.effective_date ? new Date(c.effective_date).toLocaleDateString() : "—"}</td>
-                  <td className="muted">{c.signer_name ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}` : "—"}</td>
+                  <td className="muted">
+                    {c.signer_name
+                      ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}${c.signature_method === "In-Person" ? " · In Person" : ""}`
+                      : "—"}
+                  </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" onClick={() => handlePreview(c.contract_id)}>{previewId === c.contract_id ? "Hide Text" : "Preview"}</button>
@@ -795,8 +820,18 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                           {busy === `send-${c.contract_id}` ? "Sending…" : "Send to Client"}
                         </button>
                       )}
+                      {c.status === "Sent" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
+                          {busy === `send-${c.contract_id}` ? "Sending…" : "Resend Email"}
+                        </button>
+                      )}
                       {(c.status === "Sent" || c.status === "Signed") && c.share_token && (
                         <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
+                      )}
+                      {(c.status === "Draft" || c.status === "Sent") && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `signip-${c.contract_id}`} onClick={() => openSignInPerson(c)}>
+                          Sign Now (In Person)
+                        </button>
                       )}
                       {c.status !== "Void" && c.status !== "Signed" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${c.contract_id}`} onClick={() => handleVoid(c)}>Void</button>
@@ -808,12 +843,42 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                   <tr>
                     <td colSpan={5} style={{ background: "var(--surface)" }}>
                       {previewText[c.contract_id] ? (
-                        <div style={{ padding: "12px 4px", maxHeight: 420, overflowY: "auto" }}>
+                        // No inner scroll cap — same reasoning as PublicContractPage.tsx:
+                        // the Arabic translation sits at the end of a long document and a
+                        // capped box made it easy for staff to miss during a pre-send review.
+                        <div style={{ padding: "12px 4px" }}>
                           <ContractBodyText text={previewText[c.contract_id]} style={{ fontSize: 12.5, lineHeight: 1.7 }} />
                         </div>
                       ) : (
                         <div className="spinner-wrap" style={{ padding: 16 }}>Loading…</div>
                       )}
+                    </td>
+                  </tr>
+                )}
+                {signInPersonFor === c.contract_id && (
+                  <tr>
+                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 220 }}>
+                          <label>Signer's Full Legal Name</label>
+                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerName: e.target.value }))} />
+                        </div>
+                        <div className="field" style={{ maxWidth: 160 }}>
+                          <label>Title (optional)</label>
+                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerTitle: e.target.value }))} />
+                        </div>
+                        <button
+                          type="button" className="btn btn-primary btn-sm"
+                          disabled={busy === `signip-${c.contract_id}` || !signInPersonForm.signerName.trim()}
+                          onClick={() => handleSignInPerson(c)}
+                        >
+                          {busy === `signip-${c.contract_id}` ? "Recording…" : "Confirm Signed In Person"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSignInPersonFor(null)}>Cancel</button>
+                      </div>
+                      <p className="muted" style={{ fontSize: 11.5, padding: "0 12px 12px" }}>
+                        Use this only when the client physically signed a printed copy in the office. It records the signature the same as the electronic flow, but marks it "In Person" and logs which staff member entered it — there's no client IP/device trail for a paper signature.
+                      </p>
                     </td>
                   </tr>
                 )}
