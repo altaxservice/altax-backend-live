@@ -79,7 +79,11 @@ export function ClientsListPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState(searchParams.get("search") || "");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Inactive/Archived clients are noise on the page every staff member opens dozens of
+  // times a day — default to Active only. Still fully reachable: the Status dropdown
+  // includes every real status value, so switching back to "all"/"Inactive"/"Archived"
+  // is one click away, nothing is hidden permanently.
+  const [statusFilter, setStatusFilter] = useState("Active");
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
