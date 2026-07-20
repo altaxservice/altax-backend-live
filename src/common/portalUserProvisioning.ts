@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import type { Request } from "express";
 import { query, queryOne } from "../config/db";
 
 function newInviteToken(): string {
@@ -6,8 +7,8 @@ function newInviteToken(): string {
 }
 
 /** Mirrors inviteLink() in users.routes.ts — kept in sync manually since both build the same /accept-invite URL shape. */
-function inviteLink(role: string, token: string, email?: string): string {
-  const base = String(process.env.FRONTEND_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
+function inviteLink(req: Request, role: string, token: string, email?: string): string {
+  const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
   const params = new URLSearchParams();
   if (email) params.set("email", email);
   if (token) params.set("invite", token);
@@ -26,7 +27,7 @@ function inviteLink(role: string, token: string, email?: string): string {
  * "create staff user" flow (users.routes.ts) so both paths behave identically
  * from the invited employee's perspective.
  */
-export async function provisionEmployeePortalUser(params: {
+export async function provisionEmployeePortalUser(req: Request, params: {
   employeeId: string;
   employeeName: string;
   email: string;
@@ -71,7 +72,7 @@ export async function provisionEmployeePortalUser(params: {
     );
   }
 
-  const issuedLink = issuedInviteToken ? inviteLink("employee", issuedInviteToken, email) : undefined;
+  const issuedLink = issuedInviteToken ? inviteLink(req, "employee", issuedInviteToken, email) : undefined;
   let inviteEmailed = false;
   if (issuedLink) {
     try {

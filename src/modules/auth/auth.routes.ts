@@ -16,8 +16,14 @@ function newResetToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + String(Math.floor(100000 + Math.random() * 900000));
 }
 
-function resetLink(portal: string, token: string, email: string): string {
-  const base = String(process.env.FRONTEND_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
+// Derives from the request's own protocol+host rather than FRONTEND_BASE_URL —
+// same reasoning as contracts.routes.ts's link-building: a misconfigured or
+// locally-scoped env var previously produced a password-reset link that only
+// ever opened on the machine that sent it. server.ts always serves the
+// frontend from the same origin as this API, so the request's own host is
+// always right and needs no separate config to get wrong.
+function resetLink(req: Request, portal: string, token: string, email: string): string {
+  const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
   const params = new URLSearchParams({ email, invite: token, portal });
   return `${base}/accept-invite?${params.toString()}`;
 }
@@ -247,7 +253,7 @@ authRouter.post("/forgot-password", asyncHandler(async (req: Request, res: Respo
     const expires = new Date(Date.now() + 60 * 60 * 1000);
     await client.query(`UPDATE altax.v3_users SET invite_token = $1, invite_expires = $2 WHERE user_id = $3`, [token, expires, row.user_id]);
 
-    const link = resetLink(String(row.role || "").toLowerCase(), token, email);
+    const link = resetLink(req, String(row.role || "").toLowerCase(), token, email);
     const html = await wrapEmailHtml(`
       <p>Hi ${row.name || ""},</p>
       <p>We received a request to reset the password for your account. This link is valid for 1 hour.</p>

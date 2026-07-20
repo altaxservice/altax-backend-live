@@ -29,8 +29,12 @@ function nextUserId(): string {
  * immediately actionable — email + token pre-filled, matching what
  * POST /auth/accept-invite expects.
  */
-function inviteLink(role: string, token: string, email?: string): string {
-  const base = String(process.env.FRONTEND_BASE_URL || "http://localhost:5173").trim().replace(/\/+$/, "");
+// Derives from the request's own protocol+host — see contracts.routes.ts's
+// link-building for why: a misconfigured/locally-scoped FRONTEND_BASE_URL
+// silently produced invite links unreachable from anywhere but the sender's
+// own machine, with no error to surface it.
+function inviteLink(req: AuthedRequest, role: string, token: string, email?: string): string {
+  const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
   const params = new URLSearchParams();
   if (email) params.set("email", email);
   if (token) params.set("invite", token);
@@ -224,7 +228,7 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
 
   let inviteEmailed = false;
   let inviteEmailError: string | undefined;
-  const issuedLink = issuedInviteToken ? inviteLink(roleKey, issuedInviteToken, email) : undefined;
+  const issuedLink = issuedInviteToken ? inviteLink(req, roleKey, issuedInviteToken, email) : undefined;
   if (issuedLink) {
     const result = await sendInviteEmail(email, name, issuedLink);
     inviteEmailed = result.sent;
@@ -312,7 +316,7 @@ usersRouter.post("/:userId/resend-invite", requireAuth, requireRole("admin"), as
   await logAudit("Security", "RESEND_INVITE", user.user_id || user.email, "InviteToken", "", needsNewToken ? "Created" : "Sent",
     `Invite resent by ${req.user!.email}.`, req.user!.email);
 
-  const link = inviteLink(user.role || "Portal", token, user.email);
+  const link = inviteLink(req, user.role || "Portal", token, user.email);
   const result = await sendInviteEmail(user.email, user.name || "", link);
 
   res.json({
@@ -345,7 +349,7 @@ usersRouter.post("/:userId/reset-invite", requireAuth, requireRole("admin"), asy
   await logAudit("Security", "RESET_INVITE", user.user_id || user.email, "InviteToken", "", "Created",
     `Invite reset by ${req.user!.email}.`, req.user!.email);
 
-  const link = inviteLink(user.role || "Portal", token, user.email);
+  const link = inviteLink(req, user.role || "Portal", token, user.email);
   const result = await sendInviteEmail(user.email, user.name || "", link);
 
   res.json({

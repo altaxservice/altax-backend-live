@@ -251,19 +251,26 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
   const client = await queryOne<any>(`SELECT client_name, email FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
   let emailed = false, emailError: string | null = null;
   if (client?.email) {
-    // FRONTEND_BASE_URL/PORTAL_BASE_URL are easy to leave unset (or pointed at a local
-    // dev URL) in a deployed environment's config — when that happens this used to build
-    // a broken link (bare "/public/contract/..." with no host, or a localhost URL only
-    // reachable on the sender's own machine), which the client's email client can't open.
-    // server.ts serves the frontend from the same origin as this API, so falling back to
-    // the request's own protocol+host is always correct there and needs no separate config.
-    const base = (process.env.FRONTEND_BASE_URL || process.env.PORTAL_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/+$/, "");
+    // Always derive from the request's own protocol+host rather than
+    // FRONTEND_BASE_URL/PORTAL_BASE_URL — confirmed live that a real email went
+    // out with a bare "http://localhost:5173" link (from a local dev server's
+    // .env still pointing at itself), completely unreachable from any other
+    // device, including the client's phone. server.ts serves the frontend from
+    // the same origin as this API in every real deployment, so whichever host
+    // actually received this request is always the right one — no environment
+    // variable to misconfigure, nothing that can silently drift from reality.
+    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
     const link = `${base}/public/contract/${shareToken}`;
+    // Bulletproof HTML-email button pattern (padding+background+border-radius
+    // on the <a> itself) — a plain blue underlined link is easy to miss or
+    // mistake for something already visited on a phone; a real-looking button
+    // is unambiguous.
+    const buttonHtml = `<p style="text-align:center; margin:24px 0;"><a href="${link}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700; font-size:15px; padding:12px 28px; border-radius:8px;">Review &amp; Sign Agreement</a></p><p style="font-size:12px; color:#6b7280;">Or copy this link into your browser: <a href="${link}">${link}</a></p>`;
     try {
       await sendEmail({
         to: client.email,
         subject: `${contract.title} — please review and sign`,
-        html: await wrapEmailHtml(`<p>Hello ${client.client_name},</p><p>Please review and sign your <strong>${contract.title}</strong>:</p><p><a href="${link}">${link}</a></p><p>Thank you.</p>`),
+        html: await wrapEmailHtml(`<p>Hello ${client.client_name},</p><p>Please review and sign your <strong>${contract.title}</strong>:</p>${buttonHtml}<p>Thank you.</p>`),
       });
       emailed = true;
     } catch (err) {

@@ -1281,7 +1281,7 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
 
   let portalUser: { userId: string; inviteToken?: string; inviteLink?: string } | null = null;
   if (Boolean(body.grantPortalAccess)) {
-    portalUser = await provisionEmployeePortalUser({ employeeId, employeeName, email: fields.email || "", clientId: client.client_id });
+    portalUser = await provisionEmployeePortalUser(req, { employeeId, employeeName, email: fields.email || "", clientId: client.client_id });
     if (portalUser) {
       await logAudit("Employees", "PORTAL_PROVISION", employeeId, "PortalUserID", "", portalUser.userId,
         `Employee portal access granted by ${req.user!.email}.`, req.user!.email);
