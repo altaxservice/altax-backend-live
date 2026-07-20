@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, resolveFileUrl } from "../api/client";
 
 interface PublicLineItem {
   line_item_id: string; service_date: string | null; product_name: string | null; description: string | null;
@@ -34,7 +34,6 @@ export function PublicInvoicePage() {
   const { token } = useParams<{ token: string }>();
   const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"view" | "download" | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -43,25 +42,16 @@ export function PublicInvoicePage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this invoice."));
   }, [token]);
 
-  async function handlePdf(mode: "view" | "download") {
-    if (!token) return;
-    setBusy(mode);
-    try {
-      if (mode === "view") await viewFile(`/public/invoices/${token}/print`);
-      else await downloadFile(`/public/invoices/${token}/print`, `Invoice_${invoice?.invoice_id || token}.pdf`);
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this invoice PDF.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
   if (error) return <div style={pageStyle}><div className="error-banner">{error}</div></div>;
   if (!invoice) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
 
   const lineItems = invoice.lineItems || [];
+  // Plain links, not the app's usual authed blob-fetch pattern (viewFile/downloadFile) —
+  // this route needs no auth, and iOS Safari/Gmail's in-app browser have shown blank
+  // pages when navigating a new window to a blob: URL created in a different one.
+  const pdfUrl = resolveFileUrl(`/public/invoices/${token}/print`);
 
   return (
     <div style={pageStyle}>
@@ -71,8 +61,8 @@ export function PublicInvoicePage() {
           <h1 style={{ fontSize: 24, margin: "4px 0 0" }}>Invoice {invoice.invoice_id}</h1>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" disabled={busy !== null} onClick={() => handlePdf("view")}>{busy === "view" ? "Opening…" : "View PDF"}</button>
-          <button className="btn btn-primary" disabled={busy !== null} onClick={() => handlePdf("download")}>{busy === "download" ? "Generating…" : "Download PDF"}</button>
+          <a className="btn" href={pdfUrl} target="_blank" rel="noopener noreferrer">View PDF</a>
+          <a className="btn btn-primary" href={pdfUrl} download={`Invoice_${invoice.invoice_id}.pdf`}>Download PDF</a>
         </div>
       </div>
 

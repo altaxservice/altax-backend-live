@@ -1,4 +1,4 @@
-import { Router, Response } from "express";
+import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -83,11 +83,11 @@ async function resolveAssigneeEmail(assignedTo: string): Promise<string | null> 
 async function sendAndLog(opts: {
   clientId: string | null; clientName: string | null; relatedTaskId: string | null;
   subject: string; bodyEnglish: string; bodyArabic: string; sentTo: string; sourceRecordId: string; actorEmail: string;
-}): Promise<{ sent: boolean; sendError?: string }> {
+}, req?: Request): Promise<{ sent: boolean; sendError?: string }> {
   let sent = false;
   let sendError: string | undefined;
   try {
-    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${opts.bodyEnglish.replace(/\n/g, "<br>")}</p>`) });
+    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${opts.bodyEnglish.replace(/\n/g, "<br>")}</p>`, req) });
     sent = true;
   } catch (err: any) {
     sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
@@ -113,7 +113,7 @@ async function sendAndLog(opts: {
  * change. daysAhead (default 3) controls how far ahead of a task's due date to
  * start reminding — 0 means "today and overdue only."
  */
-export async function runReminders(actorEmail: string, daysAhead = 3) {
+export async function runReminders(actorEmail: string, daysAhead = 3, req?: Request) {
   daysAhead = Math.min(30, Math.max(0, daysAhead));
   const horizon = new Date();
   horizon.setDate(horizon.getDate() + daysAhead);
@@ -166,7 +166,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3) {
     const result = await sendAndLog({
       clientId: null, clientName: null, relatedTaskId: null,
       subject, bodyEnglish, bodyArabic, sentTo: email, sourceRecordId, actorEmail,
-    });
+    }, req);
     if (result.sent) staffSent++; else staffFailed++;
   }
 
@@ -196,7 +196,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3) {
       clientId, clientName: client.client_name || null, relatedTaskId: null,
       subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
       sentTo: client.email, sourceRecordId, actorEmail,
-    });
+    }, req);
     if (result.sent) clientSent++; else clientFailed++;
   }
 
@@ -224,7 +224,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3) {
       clientId: client.client_id, clientName: client.client_name || null, relatedTaskId: null,
       subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
       sentTo: client.email, sourceRecordId, actorEmail,
-    });
+    }, req);
     if (result.sent) paymentSent++; else paymentFailed++;
   }
 
@@ -269,7 +269,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3) {
     const result = await sendAndLog({
       clientId: null, clientName: null, relatedTaskId: null,
       subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
-    });
+    }, req);
     if (result.sent) firmSent++; else firmFailed++;
   }
 
@@ -291,6 +291,6 @@ export async function runReminders(actorEmail: string, daysAhead = 3) {
  */
 remindersRouter.post("/run", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const daysAhead = Number(req.body?.daysAhead) || 3;
-  const result = await runReminders(req.user!.email, daysAhead);
+  const result = await runReminders(req.user!.email, daysAhead, req);
   res.json(result);
 }));

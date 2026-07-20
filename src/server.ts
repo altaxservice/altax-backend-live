@@ -113,7 +113,18 @@ app.get("/news/:slug", (req, res, next) => {
 // (Content-Type is set, Accept is not, so it defaults to "*/*") — so intercepting only
 // html-preferring GETs here, before any API router is mounted, serves the app for page
 // loads while leaving every actual API call untouched.
+//
+// /public/contracts/*/pdf and /public/invoices/*/print are the one deliberate exception:
+// they're real binary downloads a client opens via a plain <a href> (View/Download PDF on
+// the public contract/invoice pages, and any raw link pasted into a browser), which is
+// itself a real navigation sending "Accept: text/html" first — so without this exclusion
+// they'd get swallowed by this catch-all and silently served the SPA shell (confirmed
+// live: navigating straight to /public/contracts/:token/pdf rendered the login page, not
+// the PDF, even though the route works fine when fetched via JS). The frontend's own page
+// routes for these are the singular /public/contract/:token and /public/invoice/:token —
+// deliberately different from these plural API paths — so this carve-out can't shadow them.
 app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/public/contracts/") || req.path.startsWith("/public/invoices/")) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);

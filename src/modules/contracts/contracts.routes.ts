@@ -270,7 +270,7 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
       await sendEmail({
         to: client.email,
         subject: `${contract.title} — please review and sign`,
-        html: await wrapEmailHtml(`<p>Hello ${client.client_name},</p><p>Please review and sign your <strong>${contract.title}</strong>:</p>${buttonHtml}<p>Thank you.</p>`),
+        html: await wrapEmailHtml(`<p>Hello ${client.client_name},</p><p>Please review and sign your <strong>${contract.title}</strong>:</p>${buttonHtml}<p>Thank you.</p>`, req),
       });
       emailed = true;
     } catch (err) {

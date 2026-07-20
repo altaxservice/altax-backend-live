@@ -28,7 +28,15 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // The public marketing site (marketing-site/, served separately by src/server.ts)
         // owns these exact paths — never let the app's offline shell hijack them.
-        navigateFallbackDenylist: [/^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/],
+        // /public/contracts/*/pdf and /public/invoices/*/print are real binary downloads,
+        // not app routes — a client tapping "View PDF"/"Download PDF" (a plain <a href>,
+        // same request.mode:'navigate' as any other link) on a device that has this PWA
+        // installed would otherwise get the cached login-page shell instead of their PDF.
+        // Mirrors the identical carve-out in src/server.ts's own SPA-vs-API catch-all.
+        navigateFallbackDenylist: [
+          /^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/,
+          /^\/public\/contracts\//, /^\/public\/invoices\//,
+        ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
         // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct
         // precache-route match, so it runs BEFORE navigateFallback/navigateFallbackDenylist

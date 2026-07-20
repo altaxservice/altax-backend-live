@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ContractBodyText } from "../components/ContractBodyText";
 
 interface PublicContract {
@@ -26,7 +26,7 @@ export function PublicContractPage() {
   const { token } = useParams<{ token: string }>();
   const [contract, setContract] = useState<PublicContract | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"view" | "download" | "sign" | null>(null);
+  const [busy, setBusy] = useState<"sign" | null>(null);
   const [signerName, setSignerName] = useState("");
   const [signerTitle, setSignerTitle] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -40,19 +40,6 @@ export function PublicContractPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this contract."));
   }
   useEffect(load, [token]);
-
-  async function handlePdf(mode: "view" | "download") {
-    if (!token) return;
-    setBusy(mode);
-    try {
-      if (mode === "view") await viewFile(`/public/contracts/${token}/pdf`);
-      else await downloadFile(`/public/contracts/${token}/pdf`, `${contract?.contract_id || token}.pdf`);
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function handleSign(e: FormEvent) {
     e.preventDefault();
@@ -86,6 +73,11 @@ export function PublicContractPage() {
   if (!contract) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
 
   const isSigned = contract.status === "Signed";
+  // Plain links, not the app's usual authed blob-fetch pattern (viewFile/downloadFile) —
+  // this route needs no auth, and iOS Safari/Gmail's in-app browser have shown blank
+  // pages when navigating a new window to a blob: URL created in a different one.
+  // A real network URL avoids that entirely and works everywhere.
+  const pdfUrl = resolveFileUrl(`/public/contracts/${token}/pdf`);
 
   return (
     <div style={pageStyle}>
@@ -95,8 +87,8 @@ export function PublicContractPage() {
           <h1 style={{ fontSize: 22, margin: "4px 0 0" }}>{contract.title}</h1>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn" disabled={busy !== null} onClick={() => handlePdf("view")}>{busy === "view" ? "Opening…" : "View PDF"}</button>
-          <button className="btn btn-primary" disabled={busy !== null} onClick={() => handlePdf("download")}>{busy === "download" ? "Generating…" : "Download PDF"}</button>
+          <a className="btn" href={pdfUrl} target="_blank" rel="noopener noreferrer">View PDF</a>
+          <a className="btn btn-primary" href={pdfUrl} download={`${contract.contract_id}.pdf`}>Download PDF</a>
           <button className="btn" onClick={handleClose}>Close Window</button>
         </div>
       </div>

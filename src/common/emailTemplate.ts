@@ -1,5 +1,7 @@
+import type { Request } from "express";
 import { APP_NAME, COPYRIGHT } from "./branding";
 import { getFirmProfile } from "./firmProfile";
+import { publicBaseUrl } from "./publicUrl";
 
 /**
  * Branded wrapper for outbound emails — header with the app name (+ logo, if the
@@ -8,12 +10,22 @@ import { getFirmProfile } from "./firmProfile";
  * is trusted HTML from the caller (already escaped/converted upstream, e.g.
  * reminders.routes.ts's plain-text-to-<br> conversion) — this only adds the
  * shell around it, it doesn't sanitize.
+ *
+ * The logo is linked via the public /firm-settings/logo endpoint rather than
+ * embedded as a base64 data URI — a real uploaded logo easily runs 200-300KB,
+ * which inflates ~33% larger as base64 and pushes the whole email past Gmail's
+ * ~102KB clip threshold. A clipped email with no visible content behind "View
+ * entire message" reads as a phishing attempt to a client opening it on their
+ * phone. Referencing the logo by URL keeps every email a few KB regardless of
+ * logo size. `req` lets the URL resolve to whichever host actually received
+ * the request; omit it only where no request exists (the cron digest).
  */
-export async function wrapEmailHtml(bodyHtml: string): Promise<string> {
+export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<string> {
   const profile = await getFirmProfile();
   const addressLine = [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim()).join(", ");
-  const logoImg = profile.logoDataUrl
-    ? `<img src="${profile.logoDataUrl}" alt="${profile.firmName}" style="height:28px; display:block; margin-bottom:4px;">`
+  const base = publicBaseUrl(req);
+  const logoImg = profile.logoDataUrl && base
+    ? `<img src="${base}/firm-settings/logo" alt="${profile.firmName}" style="height:28px; display:block; margin-bottom:4px;">`
     : "";
 
   return `<!DOCTYPE html>
