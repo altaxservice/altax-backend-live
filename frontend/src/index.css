@@ -378,6 +378,14 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   text-decoration: none;
 }
 .nav-item:hover, .nav-item.active { background: var(--nav-soft); color: #ffffff; }
+/* Section labels breaking the flat nav list into logical groups (Clients, Work,
+   Money, etc.) — only rendered when the visible list is long enough that
+   grouping actually helps (admin/staff); client/employee's short list stays flat. */
+.nav-group-label {
+  color: #7c8ba0; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.04em; margin: 10px 0 -2px; padding: 0 12px;
+}
+.nav-group-label:first-child { margin-top: 0; }
 .sidebar-footer { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(255, 255, 255, 0.12); }
 .sidebar-footer .small-label { color: #96a3b4; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .data-layer-badge {

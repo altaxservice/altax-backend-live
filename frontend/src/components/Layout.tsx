@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { CreateModal } from "./CreateModal";
@@ -21,21 +21,24 @@ function showsClientPanel(pathname: string): boolean {
 // navKey is only translated for the items client/employee can actually reach
 // (Command Center, Billing, Documents, Communications, Guide) — admin/staff-only
 // items keep their plain English label since those roles never see the toggle.
-const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[] }[] = [
+// group: rendered as a section label above the first item in each group — see
+// showGroupLabels below for why it only kicks in once the list is long enough
+// to actually need it (admin/staff), not for client/employee's short list.
+const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string }[] = [
   { to: "/", label: "Command Center", navKey: "nav.commandCenter" },
-  { to: "/clients", label: "Clients", roles: ["admin", "staff"] },
-  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"] },
-  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"] },
-  { to: "/documents", label: "Documents", navKey: "nav.documents" },
-  { to: "/users", label: "Portal Access", roles: ["admin"] },
-  { to: "/security", label: "Security", roles: ["admin"] },
-  { to: "/rules", label: "Rules", roles: ["admin", "staff"] },
-  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"] },
-  { to: "/reports", label: "Reports", roles: ["admin", "staff"] },
-  { to: "/communications", label: "Communications", navKey: "nav.communications" },
-  { to: "/templates", label: "Templates", roles: ["admin", "staff"] },
-  { to: "/fix-center", label: "Fix Center", roles: ["admin"] },
-  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"] },
+  { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients" },
+  { to: "/users", label: "Portal Access", roles: ["admin"], group: "Clients" },
+  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work" },
+  { to: "/rules", label: "Rules", roles: ["admin", "staff"], group: "Work" },
+  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money" },
+  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money" },
+  { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money" },
+  { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication" },
+  { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication" },
+  { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication" },
+  { to: "/security", label: "Security", roles: ["admin"], group: "Firm" },
+  { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm" },
+  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm" },
   { to: "/guide", label: "Guide", navKey: "nav.guide" },
 ];
 
@@ -95,6 +98,11 @@ export function Layout() {
   const [showCreate, setShowCreate] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  // Client/employee only ever see ~4-5 items — group headers would add more
+  // clutter than they remove there. Admin (15) and staff (11) are exactly the
+  // case grouping helps, so the threshold gates on role instead of a magic count.
+  const showGroupLabels = user?.role === "admin" || user?.role === "staff";
+  let lastGroup: string | undefined;
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
   const sidebarDir = showLanguageToggle ? dir : "ltr";
@@ -135,11 +143,18 @@ export function Layout() {
           </button>
         )}
         <nav className="nav-list" aria-label="Primary">
-          {visibleNav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-              {item.navKey ? t(item.navKey) : item.label}
-            </NavLink>
-          ))}
+          {visibleNav.map((item) => {
+            const showLabel = showGroupLabels && item.group && item.group !== lastGroup;
+            lastGroup = item.group;
+            return (
+              <Fragment key={item.to}>
+                {showLabel && <div className="nav-group-label">{item.group}</div>}
+                <NavLink to={item.to} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                  {item.navKey ? t(item.navKey) : item.label}
+                </NavLink>
+              </Fragment>
+            );
+          })}
         </nav>
         <div className="sidebar-footer">
           <div className="small-label">Data Layer</div>
