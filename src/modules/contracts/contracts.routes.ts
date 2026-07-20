@@ -250,7 +250,13 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
   const client = await queryOne<any>(`SELECT client_name, email FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
   let emailed = false, emailError: string | null = null;
   if (client?.email) {
-    const base = process.env.FRONTEND_BASE_URL || process.env.PORTAL_BASE_URL || "";
+    // FRONTEND_BASE_URL/PORTAL_BASE_URL are easy to leave unset (or pointed at a local
+    // dev URL) in a deployed environment's config — when that happens this used to build
+    // a broken link (bare "/public/contract/..." with no host, or a localhost URL only
+    // reachable on the sender's own machine), which the client's email client can't open.
+    // server.ts serves the frontend from the same origin as this API, so falling back to
+    // the request's own protocol+host is always correct there and needs no separate config.
+    const base = (process.env.FRONTEND_BASE_URL || process.env.PORTAL_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/+$/, "");
     const link = `${base}/public/contract/${shareToken}`;
     try {
       await sendEmail({
