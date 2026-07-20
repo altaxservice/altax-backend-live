@@ -121,6 +121,13 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
+const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
+type DetailTab = (typeof DETAIL_TABS)[number];
+// Every client/employee can see their own basic profile & compliance info;
+// the remaining tabs are internal staff tooling (task pipeline, contract
+// drafting, vault secrets, payment method management, employer tax forms).
+const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Contracts", "Vault & Payment Methods", "Tax Forms"];
+
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
 /** Turns bare URLs in freeform notes into clickable links, matching legacy's linkified notes field. */
@@ -152,10 +159,13 @@ export function ClientDetailPage() {
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
+  const [tab, setTab] = useState<DetailTab>("Profile");
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const canArchive = user?.role === "admin";
   const isAdmin = user?.role === "admin";
+  const canSeeStaffTabs = user?.role === "admin" || user?.role === "staff";
+  const visibleTabs = DETAIL_TABS.filter((t) => canSeeStaffTabs || !STAFF_ONLY_TABS.includes(t));
 
   useEffect(() => {
     if (!canEdit) return;
@@ -243,8 +253,7 @@ export function ClientDetailPage() {
 
   useEffect(() => {
     if (location.hash !== "#vault" || !client) return;
-    const el = document.getElementById("vault-section");
-    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    setTab("Vault & Payment Methods");
   }, [location.hash, client]);
 
   async function handleSave(e: FormEvent) {
@@ -441,30 +450,57 @@ export function ClientDetailPage() {
         </form>
       ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            <div className="card">
-              <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Profile</h2>
-              <DetailRow label="Client Type" value={client.client_type} />
-              <DetailRow label="Entity Type" value={client.entity_type} />
-              <DetailRow label="State" value={client.state} />
-              <DetailRow label="Service Type" value={client.service_type} />
-              <DetailRow
-                label="Services Provided"
-                value={(client.services && client.services.length > 0)
-                  ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
-                  : null}
-                multiline
-              />
-              <DetailRow label="Email" value={client.email} />
-              <DetailRow label="Phone" value={client.phone} />
-              <DetailRow label="Address" value={client.address as string | null} multiline />
-              <DetailRow label="Assigned To (Owner)" value={client.assigned_to} />
-              <DetailRow label="Preferred Contact" value={client.preferred_contact as string | null} />
-              <DetailRow label="Preferred Language" value={client.preferred_language as string | null} />
-              <DetailRow label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
-              <DetailRow label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
-              <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
-            </div>
+          <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+            {visibleTabs.map((t) => (
+              <div
+                key={t}
+                onClick={() => setTab(t)}
+                style={{
+                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+                  color: tab === t ? "var(--ink)" : "var(--muted)",
+                  borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
+                }}
+              >
+                {t}
+              </div>
+            ))}
+          </div>
+
+          {tab === "Profile" && (
+            <>
+              <div className="card">
+                <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Profile</h2>
+                <DetailRow label="Client Type" value={client.client_type} />
+                <DetailRow label="Entity Type" value={client.entity_type} />
+                <DetailRow label="State" value={client.state} />
+                <DetailRow label="Service Type" value={client.service_type} />
+                <DetailRow
+                  label="Services Provided"
+                  value={(client.services && client.services.length > 0)
+                    ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
+                    : null}
+                  multiline
+                />
+                <DetailRow label="Email" value={client.email} />
+                <DetailRow label="Phone" value={client.phone} />
+                <DetailRow label="Address" value={client.address as string | null} multiline />
+                <DetailRow label="Assigned To (Owner)" value={client.assigned_to} />
+                <DetailRow label="Preferred Contact" value={client.preferred_contact as string | null} />
+                <DetailRow label="Preferred Language" value={client.preferred_language as string | null} />
+                <DetailRow label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
+                <DetailRow label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
+                <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
+              </div>
+              {String(client.notes || "").trim() && (
+                <div className="card" style={{ marginTop: 20 }}>
+                  <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Notes</h2>
+                  <p style={{ fontSize: 13, whiteSpace: "pre-wrap", margin: 0 }}>{linkifyNotes(String(client.notes))}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === "Compliance" && (
             <div className="card">
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Compliance &amp; Tax IDs</h2>
               <p className="muted" style={{ marginBottom: 12 }}>
@@ -488,9 +524,9 @@ export function ClientDetailPage() {
               <DetailRow label="Business Return Type" value={client.business_return_type as string | null} />
               <DetailRow label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />
             </div>
-          </div>
+          )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }}>
+          {tab === "Responsible Party" && (
             <div className="card">
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Responsible Party</h2>
               {isBusinessClient ? (
@@ -503,6 +539,9 @@ export function ClientDetailPage() {
                 <p className="muted">Not applicable for individual clients.</p>
               )}
             </div>
+          )}
+
+          {tab === "Account" && (
             <div className="card">
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account</h2>
               <DetailRow label="Open Tasks" value={summary ? String(summary.openTasks) : "—"} />
@@ -511,10 +550,10 @@ export function ClientDetailPage() {
               <DetailRow label="Balance Due" value={summary ? `$${summary.balanceDue.toFixed(2)}` : "—"} />
               <DetailRow label="Employees" value={summary ? String(summary.employeesCount) : "—"} />
             </div>
-          </div>
+          )}
 
-          {(user?.role === "admin" || user?.role === "staff") && (
-            <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 20 }}>
+          {tab === "Tasks" && canSeeStaffTabs && (
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <strong style={{ fontSize: 14 }}>Tasks</strong>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -548,32 +587,21 @@ export function ClientDetailPage() {
             </div>
           )}
 
-          {(user?.role === "admin" || user?.role === "staff") && (
-            <div style={{ marginTop: 20 }}>
-              <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+          {tab === "Contracts" && canSeeStaffTabs && (
+            <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+          )}
+
+          {tab === "Vault & Payment Methods" && canSeeStaffTabs && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }} id="vault-section">
+              {user?.role === "admin" && <VaultSection clientId={client.client_id} />}
+              <PaymentMethodsSection clientId={client.client_id} />
             </div>
           )}
 
-          {String(client.notes || "").trim() && (
-            <div className="card" style={{ marginTop: 20 }}>
-              <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Notes</h2>
-              <p style={{ fontSize: 13, whiteSpace: "pre-wrap", margin: 0 }}>{linkifyNotes(String(client.notes))}</p>
-            </div>
+          {tab === "Tax Forms" && canSeeStaffTabs && (
+            <EmployerTaxFormsSection clientId={client.client_id} />
           )}
         </>
-      )}
-
-      {!editing && client && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 20 }} id="vault-section">
-          {user?.role === "admin" && <VaultSection clientId={client.client_id} />}
-          {(user?.role === "admin" || user?.role === "staff") && <PaymentMethodsSection clientId={client.client_id} />}
-        </div>
-      )}
-
-      {!editing && client && (user?.role === "admin" || user?.role === "staff") && (
-        <div style={{ marginTop: 20 }}>
-          <EmployerTaxFormsSection clientId={client.client_id} />
-        </div>
       )}
     </div>
   );
