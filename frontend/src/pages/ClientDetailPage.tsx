@@ -100,7 +100,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
       { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "select", options: CONTACT_PREFS, hidden: (f) => !hasContact(f) },
-      { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES, hidden: (f) => !hasContact(f) },
+      { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
       { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
     ],

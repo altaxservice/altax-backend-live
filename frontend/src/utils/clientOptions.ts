@@ -5,7 +5,10 @@ export const US_STATES = [
 ];
 export const ENTITY_TYPES = ["LLC", "S-Corp", "C-Corp", "Partnership", "Sole Proprietorship", "Nonprofit", "Individual"];
 export const SERVICE_TYPES = ["Full Service", "Bookkeeping Only", "Tax Only", "Payroll Only", "Sales Tax Only", "Consulting"];
-export const FREQ_OPTIONS = ["Monthly", "Quarterly", "Annually", "N/A"];
+// "Semiannual" was missing even though it's a real stored value on 14 live clients'
+// sales_tax_frequency — the <select> silently showed blank for them instead of their
+// actual frequency (same class of casing/coverage bug as PAYROLL_FREQS below).
+export const FREQ_OPTIONS = ["Monthly", "Quarterly", "Semiannual", "Annually", "N/A"];
 // Casing matches the real values already stored on clients ("Bi-Weekly", "Semi-Monthly")
 // — a mismatch here (previously "Bi-weekly"/"Semi-monthly") makes the <select> unable to
 // find a matching <option>, so it silently shows blank instead of the client's real value.

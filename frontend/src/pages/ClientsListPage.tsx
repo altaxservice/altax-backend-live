@@ -478,18 +478,20 @@ export function ClientsListPage() {
             <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
             <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
           </div>
+          <div className="form-grid-3" style={{ marginTop: 4 }}>
+            <div className="field">
+              <label htmlFor="nc-lang">Preferred Language</label>
+              <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
+                {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
           {(form.email.trim() || form.phone.trim()) && (
             <div className="form-grid-3" style={{ marginTop: 4 }}>
               <div className="field">
                 <label htmlFor="nc-pref">Preferred Contact</label>
                 <select id="nc-pref" value={form.preferredContact} onChange={(e) => setForm((f) => ({ ...f, preferredContact: e.target.value }))}>
                   {CONTACT_PREFS.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="nc-lang">Preferred Language</label>
-                <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
-                  {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
                 </select>
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 22 }}>
