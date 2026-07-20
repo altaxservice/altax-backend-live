@@ -21,6 +21,18 @@ interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldK
 const hasService = (form: Record<string, any>, key: string) => Array.isArray(form.services) && form.services.includes(key);
 const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
 const hasContact = (form: Record<string, any>) => Boolean(String(form.email || "").trim() || String(form.phone || "").trim());
+const filled = (v: unknown) => Boolean(v) && v !== "N/A";
+// "Services Provided" is a brand-new field — almost every existing client has
+// services=[] until someone opens and re-saves them, even if they've had real
+// payroll/sales-tax/tax-prep settings configured for years. Gating these
+// sections on the service checkbox ALONE would make that existing data
+// disappear from the edit form entirely (confirmed: this is exactly what
+// happened before this fix). Each section here shows if either the matching
+// service is checked (new-client path) OR the client already has real data
+// in that area (existing-client path) — never if neither is true.
+const showPayrollDetails = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled);
+const showSalesTaxDetails = (f: Record<string, any>) => hasService(f, "sales_tax") || filled(f.salesTaxFrequency);
+const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "tax_prep") || filled(f.businessReturnType);
 
 const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
@@ -44,24 +56,24 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     title: "Payroll Details",
     fields: [
-      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !hasService(f, "payroll") },
-      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !hasService(f, "payroll") },
-      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !hasService(f, "payroll") },
-      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
-      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
-      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !hasService(f, "payroll") },
+      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollDetails(f) },
+      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll System", kind: "text", hidden: (f) => !showPayrollDetails(f) },
+      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showPayrollDetails(f) },
+      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
+      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
+      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showPayrollDetails(f) },
     ],
   },
   {
     title: "Sales Tax Details",
     fields: [
-      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !hasService(f, "sales_tax") },
+      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showSalesTaxDetails(f) },
     ],
   },
   {
     title: "Tax Preparation Details",
     fields: [
-      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES, hidden: (f) => !hasService(f, "tax_prep") },
+      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES, hidden: (f) => !showTaxPrepDetails(f) },
     ],
   },
   {

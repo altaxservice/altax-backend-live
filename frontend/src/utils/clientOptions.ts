@@ -6,7 +6,10 @@ export const US_STATES = [
 export const ENTITY_TYPES = ["LLC", "S-Corp", "C-Corp", "Partnership", "Sole Proprietorship", "Nonprofit", "Individual"];
 export const SERVICE_TYPES = ["Full Service", "Bookkeeping Only", "Tax Only", "Payroll Only", "Sales Tax Only", "Consulting"];
 export const FREQ_OPTIONS = ["Monthly", "Quarterly", "Annually", "N/A"];
-export const PAYROLL_FREQS = ["Weekly", "Bi-weekly", "Semi-monthly", "Monthly", "N/A"];
+// Casing matches the real values already stored on clients ("Bi-Weekly", "Semi-Monthly")
+// — a mismatch here (previously "Bi-weekly"/"Semi-monthly") makes the <select> unable to
+// find a matching <option>, so it silently shows blank instead of the client's real value.
+export const PAYROLL_FREQS = ["Weekly", "Bi-Weekly", "Semi-Monthly", "Monthly", "N/A"];
 export const RETURN_TYPES = ["1120", "1120S", "1065", "Schedule C", "990", "N/A"];
 export const LANGUAGES = ["English", "Spanish", "Other"];
 export const CONTACT_PREFS = ["Email", "Phone", "SMS", "Portal"];
