@@ -15,6 +15,12 @@ import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
+// Grouped into "live" (what's actually open right now) vs "history" (completed/
+// archived/everything) purely for a visual divider in the quick-tab row — same
+// underlying QUICK_TABS list and behavior, just clustered so the row reads as two
+// short groups instead of nine flat, equally-weighted pills.
+const LIVE_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active"] as const;
+const HISTORY_TABS = ["Completed", "Archived", "All History"] as const;
 type QuickTab = typeof QUICK_TABS[number];
 type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" | "assigned_to";
 
@@ -284,14 +290,18 @@ export function TasksListPage() {
           refreshing={refreshing}
           onExportCsv={handleExport}
         >
-          {!isArchivedView && (
+          {/* Bulk-action buttons only take up space once something is actually
+              selected — previously always rendered (just disabled), which meant
+              3 extra buttons sat in the toolbar on every visit regardless of
+              whether there was anything to act on. */}
+          {!isArchivedView && selected.size > 0 && (
             <>
-              <button type="button" className="ghost-button" disabled={bulkBusy || selected.size === 0} onClick={() => handleBulk("complete")}>Mark Selected Complete</button>
-              <button type="button" className="ghost-button" disabled={bulkBusy || selected.size === 0} onClick={() => handleBulk("void")}>Void Selected</button>
+              <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{selected.size} selected</span>
+              <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("complete")}>Mark Complete</button>
+              <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("void")}>Void</button>
               {user?.role === "admin" && (
-                <button type="button" className="danger-button" disabled={bulkBusy || selected.size === 0} onClick={() => handleBulk("delete")}>Delete Selected Tasks</button>
+                <button type="button" className="danger-button" disabled={bulkBusy} onClick={() => handleBulk("delete")}>Delete</button>
               )}
-              {selected.size > 0 && <span className="muted" style={{ fontSize: 12 }}>{selected.size} selected</span>}
             </>
           )}
           <button className="ghost-button" type="button" onClick={() => setShowBatchModal(true)}>Create Batch Tasks</button>
@@ -299,10 +309,18 @@ export function TasksListPage() {
         </FilterBar>
       )}
 
-      <div className="quick-tabs" style={{ margin: "10px 0 16px" }}>
-        {QUICK_TABS.map((t) => (
-          <button key={t} type="button" className={`quick-tab ${quickTab === t ? "active" : ""}`} onClick={() => goToTab(t)}>{t}</button>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "10px 0 16px" }}>
+        <div className="quick-tabs">
+          {LIVE_TABS.map((t) => (
+            <button key={t} type="button" className={`quick-tab ${quickTab === t ? "active" : ""}`} onClick={() => goToTab(t)}>{t}</button>
+          ))}
+        </div>
+        <div style={{ width: 1, alignSelf: "stretch", background: "var(--line)" }} />
+        <div className="quick-tabs">
+          {HISTORY_TABS.map((t) => (
+            <button key={t} type="button" className={`quick-tab ${quickTab === t ? "active" : ""}`} onClick={() => goToTab(t)}>{t}</button>
+          ))}
+        </div>
       </div>
 
       {canManage && !isArchivedView && (
@@ -325,12 +343,15 @@ export function TasksListPage() {
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Task Groups</div>
             <div className="metric-value">{taskGroupCounts.length}</div>
-            <div className="metric-note">{taskGroupCounts.slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" | ") || "—"}</div>
+            {/* Just the single biggest group, not a 3-way pipe-joined list — the
+                full breakdown is one click away in the table itself, so this tile
+                only needs to say "here's what's piling up," not restate the table. */}
+            <div className="metric-note">{taskGroupCounts.length ? `Top: ${taskGroupCounts[0][0]} (${taskGroupCounts[0][1]})` : "—"}</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Staff Load</div>
             <div className="metric-value">{staffLoadCounts.length}</div>
-            <div className="metric-note">{staffLoadCounts.slice(0, 2).map(([k, v]) => `${k}: ${v}`).join(" | ") || "—"}</div>
+            <div className="metric-note">{staffLoadCounts.length ? `Busiest: ${staffLoadCounts[0][0]} (${staffLoadCounts[0][1]})` : "—"}</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("Waiting")}>
             <div className="metric-label">Waiting</div>
