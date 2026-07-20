@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import type { Task } from "../api/types";
@@ -9,6 +9,14 @@ import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 
 const STATUS_OPTIONS = ["Not Started", "In Progress", "Waiting on Client", "Filed", "Paid", "Completed"];
+
+const DETAIL_TABS = ["Details", "Attachments", "Notes & Messages"] as const;
+type DetailTab = (typeof DETAIL_TABS)[number];
+function initialTabFor(openParam: string | null): DetailTab {
+  if (openParam === "files") return "Attachments";
+  if (openParam === "message" || openParam === "note") return "Notes & Messages";
+  return "Details";
+}
 
 const EDITABLE_FIELDS: { key: string; label: string; apiKey: string; type?: string }[] = [
   { key: "task_name", label: "Task Name", apiKey: "taskName" },
@@ -53,8 +61,7 @@ export function TaskDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
-  const attachmentsRef = useRef<HTMLDivElement>(null);
-  const threadRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<DetailTab>(() => initialTabFor(openParam));
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
 
@@ -65,13 +72,6 @@ export function TaskDetailPage() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit]);
-
-  useEffect(() => {
-    if (!task) return;
-    const target = openParam === "files" ? attachmentsRef.current : openParam === "message" || openParam === "note" ? threadRef.current : null;
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, openParam]);
 
   function load() {
     if (!taskId) return;
@@ -164,71 +164,89 @@ export function TaskDetailPage() {
         )}
       </div>
 
-      {editing ? (
-        <form onSubmit={handleSave} className="card" style={{ maxWidth: 560 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
-          {EDITABLE_FIELDS.map((f) => (
-            <div className="field" key={f.apiKey}>
-              {f.type === "checkbox" ? (
-                <label htmlFor={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    id={f.apiKey}
-                    type="checkbox"
-                    checked={form[f.apiKey] === "true"}
-                    onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.checked ? "true" : "false" }))}
-                  />
-                  {f.label}
-                </label>
-              ) : (
-                <>
-                  <label htmlFor={f.apiKey}>{f.label}</label>
-                  {f.apiKey === "notes" ? (
-                    <textarea id={f.apiKey} rows={3} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
-                  ) : f.type === "select" ? (
-                    <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
-                      <option value="">Unassigned</option>
-                      {form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && <option value={form[f.apiKey]}>{form[f.apiKey]}</option>}
-                      {staffOptions.map((o) => <option key={o}>{o}</option>)}
-                    </select>
-                  ) : (
+      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+        {DETAIL_TABS.map((t) => (
+          <div
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+              color: tab === t ? "var(--ink)" : "var(--muted)",
+              borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
+            }}
+          >
+            {t}
+          </div>
+        ))}
+      </div>
+
+      {tab === "Details" && (
+        editing ? (
+          <form onSubmit={handleSave} className="card" style={{ maxWidth: 560 }}>
+            {saveError && <div className="error-banner">{saveError}</div>}
+            {EDITABLE_FIELDS.map((f) => (
+              <div className="field" key={f.apiKey}>
+                {f.type === "checkbox" ? (
+                  <label htmlFor={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <input
                       id={f.apiKey}
-                      type={f.type || "text"}
-                      step={f.type === "number" ? "0.01" : undefined}
-                      value={form[f.apiKey] ?? ""}
-                      onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}
+                      type="checkbox"
+                      checked={form[f.apiKey] === "true"}
+                      onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.checked ? "true" : "false" }))}
                     />
-                  )}
-                </>
-              )}
+                    {f.label}
+                  </label>
+                ) : (
+                  <>
+                    <label htmlFor={f.apiKey}>{f.label}</label>
+                    {f.apiKey === "notes" ? (
+                      <textarea id={f.apiKey} rows={3} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                    ) : f.type === "select" ? (
+                      <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
+                        <option value="">Unassigned</option>
+                        {form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && <option value={form[f.apiKey]}>{form[f.apiKey]}</option>}
+                        {staffOptions.map((o) => <option key={o}>{o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        id={f.apiKey}
+                        type={f.type || "text"}
+                        step={f.type === "number" ? "0.01" : undefined}
+                        value={form[f.apiKey] ?? ""}
+                        onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+              <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
             </div>
-          ))}
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
-            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
+          </form>
+        ) : (
+          <div className="card" style={{ maxWidth: 560 }}>
+            <DetailRow label="Service Line" value={task.service_line} />
+            <DetailRow label="Period" value={task.period} />
+            <DetailRow label="Frequency" value={task.frequency} />
+            <DetailRow label="Assigned To" value={task.assigned_to} />
+            <DetailRow label="Agency Due Date" value={task.agency_due_date ? fmtDateOnly(task.agency_due_date) : null} />
+            <DetailRow label="Staff Due Date" value={task.staff_due_date ? fmtDateOnly(task.staff_due_date) : null} />
+            <DetailRow label="Portal Name" value={task.portal_name} />
+            <DetailRow label="Portal URL" value={task.portal_url} link />
+            <DetailRow label="Payment Required" value={task.payment_required ? "Yes" : "No"} />
+            <DetailRow label="Payment Amount" value={task.payment_amount != null ? fmtMoney(task.payment_amount) : null} />
+            <DetailRow label="Filed Date" value={task.filed_date ? fmtDateOnly(task.filed_date) : null} />
+            <DetailRow label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
+            <DetailRow label="Confirmation Number" value={task.confirmation_number} />
+            <DetailRow label="Notes" value={task.notes} />
           </div>
-        </form>
-      ) : (
-        <div className="card" style={{ maxWidth: 560 }}>
-          <DetailRow label="Service Line" value={task.service_line} />
-          <DetailRow label="Period" value={task.period} />
-          <DetailRow label="Frequency" value={task.frequency} />
-          <DetailRow label="Assigned To" value={task.assigned_to} />
-          <DetailRow label="Agency Due Date" value={task.agency_due_date ? fmtDateOnly(task.agency_due_date) : null} />
-          <DetailRow label="Staff Due Date" value={task.staff_due_date ? fmtDateOnly(task.staff_due_date) : null} />
-          <DetailRow label="Portal Name" value={task.portal_name} />
-          <DetailRow label="Portal URL" value={task.portal_url} link />
-          <DetailRow label="Payment Required" value={task.payment_required ? "Yes" : "No"} />
-          <DetailRow label="Payment Amount" value={task.payment_amount != null ? fmtMoney(task.payment_amount) : null} />
-          <DetailRow label="Filed Date" value={task.filed_date ? fmtDateOnly(task.filed_date) : null} />
-          <DetailRow label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
-          <DetailRow label="Confirmation Number" value={task.confirmation_number} />
-          <DetailRow label="Notes" value={task.notes} />
-        </div>
+        )
       )}
 
-      {canEdit && taskId && <div ref={attachmentsRef}><TaskAttachments taskId={taskId} /></div>}
-      {canEdit && taskId && <div ref={threadRef}><TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} /></div>}
+      {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} />}
+      {tab === "Notes & Messages" && canEdit && taskId && <TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} />}
     </div>
   );
 }
@@ -277,7 +295,7 @@ function TaskAttachments({ taskId }: { taskId: string }) {
   }
 
   return (
-    <div className="command-panel" style={{ maxWidth: 560, marginTop: 20 }}>
+    <div className="command-panel" style={{ maxWidth: 560 }}>
       <div className="command-panel-header">
         <h2 className="command-panel-title">Attachments</h2>
         <div className="command-panel-note">{uploads?.length ?? 0} files · internal only</div>
@@ -356,7 +374,7 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
   }
 
   return (
-    <div className="command-panel" style={{ maxWidth: 560, marginTop: 20 }}>
+    <div className="command-panel" style={{ maxWidth: 560 }}>
       <div className="command-panel-header">
         <h2 className="command-panel-title">Notes &amp; Messages</h2>
         <div className="command-panel-note">{thread?.length ?? 0} entries</div>
