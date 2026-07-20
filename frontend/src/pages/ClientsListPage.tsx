@@ -50,6 +50,25 @@ function responsibleCell(c: Client): { primary: string; secondary: string; empty
   return { primary: "Individual", secondary: ssn || "SSN not on file", empty: false };
 }
 
+/**
+ * Collapses the old Service/Sales Tax/Payroll columns into one compact badge
+ * list — each of those 3 columns was blank ("—"/"N/A") for a large share of
+ * 141 rows, so showing them as 3 always-present columns was mostly noise.
+ * Only badges for what's actually set on this client render; a client with
+ * none shows a single muted dash instead of three separate ones.
+ */
+function complianceBadges(c: Client): { label: string; key: string }[] {
+  const badges: { label: string; key: string }[] = [];
+  if (c.service_type) badges.push({ key: "service", label: c.service_type });
+  if (c.sales_tax_frequency && String(c.sales_tax_frequency).toLowerCase() !== "n/a") {
+    badges.push({ key: "sales", label: `Sales Tax: ${c.sales_tax_frequency}` });
+  }
+  if (c.payroll_enabled) {
+    badges.push({ key: "payroll", label: `Payroll${c.payroll_frequency ? `: ${c.payroll_frequency}` : ""}` });
+  }
+  return badges;
+}
+
 export function ClientsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -536,9 +555,7 @@ export function ClientsListPage() {
                 <th>Contact</th>
                 <th>Responsible</th>
                 <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
-                <th>Service</th>
-                <th>Sales Tax</th>
-                <th>Payroll</th>
+                <th>Compliance</th>
                 <th className="sortable" onClick={() => toggleSort("status")}>Status{sortArrow("status")}</th>
                 <th>Portal</th>
                 <th>Actions</th>
@@ -566,9 +583,17 @@ export function ClientsListPage() {
                       {resp.secondary && <div className="cell-sub">{resp.secondary}</div>}
                     </td>
                     <td className="muted">{c.assigned_to || "—"}</td>
-                    <td className="muted">{c.service_type || "—"}</td>
-                    <td className="muted">{c.sales_tax_frequency || "—"}</td>
-                    <td className="muted">{c.payroll_enabled ? (c.payroll_frequency || "Enabled") : "N/A"}</td>
+                    <td>
+                      {(() => {
+                        const badges = complianceBadges(c);
+                        if (!badges.length) return <span className="muted">—</span>;
+                        return (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {badges.map((b) => <span key={b.key} className="badge">{b.label}</span>)}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td><StatusBadge status={c.status} /></td>
                     <td className="muted">{c.portal_enabled ? "Yes" : "No"}</td>
                     <td onClick={(e) => e.stopPropagation()}>

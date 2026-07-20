@@ -265,6 +265,18 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 .status-teal { background: var(--teal-soft); color: var(--teal); }
 .status-gray { background: #eef2f7; color: #475467; }
 
+/* Lets an editable status <select> carry the same color as the read-only
+   .status-pill, instead of every row's status column looking like a plain
+   uncolored form control — e.g. className="inline-select status-amber". Only
+   fires when both classes are present, so unrelated selects (which only ever
+   have .inline-select) are unaffected. */
+select.inline-select.status-amber, select.inline-select.status-green, select.inline-select.status-red,
+select.inline-select.status-blue, select.inline-select.status-teal, select.inline-select.status-gray {
+  border-color: transparent;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
 /* Generic label badge (roles, tags) — distinct from .status-pill, which carries semantic color. */
 .badge {
   display: inline-flex;
@@ -288,6 +300,10 @@ th { background: var(--surface); color: var(--muted); font-weight: 800; text-tra
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--teal); }
 tr:last-child td { border-bottom: none; }
+/* Very light zebra striping — makes it easier to track a row across a wide table
+   without a magnifying-glass level of contrast; hover (below, later in source so
+   it wins) still reads as clearly distinct from either stripe. */
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface) 55%, var(--paper)); }
 tbody tr:hover { background: var(--surface); cursor: pointer; }
 .cell-primary { font-weight: 700; color: var(--ink); text-decoration: none; }
 .cell-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }

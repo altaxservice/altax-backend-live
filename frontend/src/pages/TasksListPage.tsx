@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Task } from "../api/types";
 import type { TaskRule } from "../api/types2";
-import { StatusBadge } from "../components/StatusBadge";
+import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
@@ -405,7 +405,7 @@ export function TasksListPage() {
                   <td className="muted">{t.assigned_to || "Unassigned"}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     {!isArchivedView && canManage ? (
-                      <select className="inline-select" value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleStatusChange(t.task_id, e.target.value)}>
+                      <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleStatusChange(t.task_id, e.target.value)}>
                         {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     ) : <StatusBadge status={t.status} />}

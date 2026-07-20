@@ -4,7 +4,7 @@ import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
-import { StatusBadge } from "../components/StatusBadge";
+import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
@@ -571,7 +571,7 @@ export function ClientDetailPage() {
                       <td className="muted">{t.service_line || "—"}</td>
                       <td className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>{fmtDateOnly(t.agency_due_date)} <DueLabel task={t} /></td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <select className="inline-select" value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
+                        <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
                           {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </td>

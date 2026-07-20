@@ -1,5 +1,5 @@
-/** Mirrors the legacy .status-pill color system (status-open/completed/overdue/etc). */
-function colorClassFor(status: string): string {
+/** Mirrors the legacy .status-pill color system (status-open/completed/overdue/etc). Exported so other status controls (e.g. the inline task-status <select>) can carry the same color, not just the read-only pill. */
+export function colorClassFor(status: string): string {
   const s = status.toLowerCase().trim();
   if (["open", "not started", "partial"].includes(s)) return "status-amber";
   if (["completed", "closed", "paid", "active"].includes(s)) return "status-green";
