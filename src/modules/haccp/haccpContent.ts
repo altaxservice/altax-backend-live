@@ -28,6 +28,14 @@ export interface HaccpBusinessType {
   /** Whether this type's CCP table includes hot-holding (steam table/warmer) in addition to cooking. */
   hasHotHolding: boolean;
   description: string;
+  /**
+   * Which of the 3 canonical CCP content bodies (in BUILT_IN_HACCP_TEMPLATES,
+   * keyed by convenience_grocery/deli_carryout/restaurant) this type resolves
+   * to. Lets many descriptive business-type labels share one already-verified
+   * CCP profile instead of needing new legal content drafted per label —
+   * defaults to the type's own key when omitted (the 3 canonical types).
+   */
+  ccpProfileKey?: string;
 }
 
 export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
@@ -40,6 +48,15 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     description: "Prepackaged and cold-hold items only — no cooking step on site.",
   },
   {
+    key: "grocery_deli_cold_only",
+    label: "Grocery & Deli (Cold Cuts Only, No Cooking)",
+    riskPriority: "Moderate",
+    hasCookStep: false,
+    hasHotHolding: false,
+    description: "Deli counter serving cold cuts/salads by weight, plus grocery items — no cooking step on site.",
+    ccpProfileKey: "convenience_grocery",
+  },
+  {
     key: "deli_carryout",
     label: "Deli / Carryout (Cook-and-Serve, No Hot-Holding)",
     riskPriority: "High",
@@ -48,12 +65,39 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
     description: "Made-to-order items prepared and served immediately; no extended hot-holding equipment.",
   },
   {
+    key: "convenience_hot_food",
+    label: "Convenience Store (With Hot Food)",
+    riskPriority: "High",
+    hasCookStep: true,
+    hasHotHolding: false,
+    description: "Convenience store with a made-to-order hot food counter (grill/fryer); no extended hot-holding equipment.",
+    ccpProfileKey: "deli_carryout",
+  },
+  {
+    key: "grocery_deli_hot_food",
+    label: "Grocery & Deli (Cold Cuts + Hot Food)",
+    riskPriority: "High",
+    hasCookStep: true,
+    hasHotHolding: false,
+    description: "Deli counter with both cold cuts and made-to-order hot food; no extended hot-holding equipment.",
+    ccpProfileKey: "deli_carryout",
+  },
+  {
     key: "restaurant",
     label: "Restaurant (Full-Service, With Hot-Holding)",
     riskPriority: "High",
     hasCookStep: true,
     hasHotHolding: true,
     description: "Full-service food preparation including hot-holding/steam-table equipment.",
+  },
+  {
+    key: "grocery_hot_holding",
+    label: "Grocery / Convenience (With Hot-Holding or Buffet)",
+    riskPriority: "High",
+    hasCookStep: true,
+    hasHotHolding: true,
+    description: "Grocery or convenience store operating a steam table, buffet, or other hot-holding display.",
+    ccpProfileKey: "restaurant",
   },
 ];
 

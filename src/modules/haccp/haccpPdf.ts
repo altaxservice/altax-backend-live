@@ -1,16 +1,20 @@
 /**
  * HACCP Plan PDF — hand-drawn from scratch (pdf-lib primitives), same
  * self-contained local Cursor/newPage/wrapText approach as contractPdf.ts/
- * invoicePdf.ts/reportsPdf.ts/paycheckPdf.ts. Cover sheet (business info +
- * jurisdiction/COMAR citation) on page 1, then the plan body (CCP sections,
- * general handling/training, menu + equipment checklist) flowed across
- * however many pages it needs, with light bolding for section headers and
- * CCP field labels (CCP & EQUIPMENT / MONITORING / CORRECTIVE ACTION /
+ * invoicePdf.ts/reportsPdf.ts/paycheckPdf.ts. This is AL TAX's own work
+ * product handed to a government health department, not client-facing
+ * correspondence — deliberately carries no AL TAX letterhead/logo, unlike
+ * every other generated PDF in this app.
+ *
+ * Page 1: cover sheet (business info + jurisdiction/COMAR citation).
+ * Page 2: dedicated Menu & Equipment checklist (own page, business-info
+ * banner at top, per explicit request that staff see the checklist first).
+ * Page 3+: the plan body (CCP sections, general handling/training) flowed
+ * across however many pages it needs, with light bolding for section headers
+ * and CCP field labels (CCP & EQUIPMENT / MONITORING / CORRECTIVE ACTION /
  * VERIFICATION) so the CCP tables read cleanly instead of as a wall of text.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
-import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
-import { embedFirmLogo } from "../../common/pdfLogo";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -29,6 +33,9 @@ function fmtDate(v: unknown): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
 }
 
+export interface HaccpMenuGroup { category: string; items: string[] }
+export interface HaccpEquipmentLine { label: string; quantity: number }
+
 export interface HaccpPdfData {
   planId: string;
   businessName: string;
@@ -44,6 +51,8 @@ export interface HaccpPdfData {
   licenseNumber?: string | null;
   riskPriority: "High" | "Moderate";
   renderedBody: string;
+  menuGroups: HaccpMenuGroup[];
+  equipment: HaccpEquipmentLine[];
   createdAt: string | null;
 }
 
@@ -97,29 +106,13 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const profile: FirmProfile = await getFirmProfile();
-  const logo = await embedFirmLogo(doc, profile);
 
   const L = 48, R = PAGE_W - 48;
   const maxWidth = R - L;
 
   // ---- Cover sheet ----
   let { page, c } = newPage(doc, font, bold);
-  let y = 48;
-  let textL = L;
-  if (logo) {
-    const logoH = 30;
-    const logoW = (logo.width / logo.height) * logoH;
-    page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 6, width: logoW, height: logoH });
-    textL = L + logoW + 10;
-  }
-  c.text(textL, y, profile.firmName.toUpperCase(), { size: 14, bold: true, color: TEAL });
-  y += 16;
-  for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) {
-    c.text(textL, y, line, { size: 9, color: MUTED });
-    y += 11;
-  }
-  y += 20;
+  let y = 56;
 
   c.text(PAGE_W / 2, y, "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN", { size: 18, bold: true, align: "center" });
   y += 22;
@@ -151,7 +144,57 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   drawFooter(c, data.jurisdiction, "Page 1");
   let pageNum = 1;
 
-  // ---- Body: CCP sections, general handling/training, menu + equipment checklist ----
+  // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) ----
+  ({ page, c } = newPage(doc, font, bold));
+  pageNum += 1;
+  drawFooter(c, data.jurisdiction, `Page ${pageNum}`);
+  y = 48;
+
+  c.rect(L, y, R - L, 40, TEAL_TINT);
+  c.text(L + 12, y + 17, data.businessName, { size: 12.5, bold: true });
+  c.text(L + 12, y + 32, data.businessTypeLabel, { size: 9, color: TEAL, bold: true });
+  const bannerAddr = [data.streetAddress, [data.city, data.state, data.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  if (bannerAddr) c.text(R - 12, y + 17, bannerAddr, { size: 8.5, align: "right" });
+  c.text(R - 12, y + 32, data.jurisdiction, { size: 8.5, color: MUTED, align: "right" });
+  y += 56;
+
+  c.text(L, y, "MENU", { size: 12.5, bold: true, color: TEAL });
+  y += 8;
+  c.line(L, y, R, y, LINE, 0.75);
+  y += 16;
+  if (!data.menuGroups.length) {
+    c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
+    y += 16;
+  }
+  for (const group of data.menuGroups) {
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+    c.text(L, y, group.category, { size: 10, bold: true });
+    y += 14;
+    for (const item of group.items) {
+      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+      c.text(L + 12, y, `- ${item}`, { size: 9.5 });
+      y += 13;
+    }
+    y += 6;
+  }
+
+  y += 8;
+  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+  c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
+  y += 8;
+  c.line(L, y, R, y, LINE, 0.75);
+  y += 16;
+  if (!data.equipment.length) {
+    c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
+    y += 16;
+  }
+  for (const item of data.equipment) {
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+    c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
+    y += 13;
+  }
+
+  // ---- Body: CCP sections, general handling/training — starts on its own fresh page ----
   y = 60;
   ({ page, c } = newPage(doc, font, bold));
   pageNum += 1;
@@ -189,7 +232,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
         continue;
       }
 
-      const isSubHeader = /^(Process \d|Menu:?$|MENU$|EQUIPMENT LIST$)/i.test(rawLine.trim());
+      const isSubHeader = /^Process \d/i.test(rawLine.trim());
       for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
         if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
         c.text(L, y, wrapped, isSubHeader ? { size: 10, bold: true, color: TEAL } : { size: 9.5 });

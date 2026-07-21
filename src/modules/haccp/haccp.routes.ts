@@ -36,7 +36,14 @@ function substituteHaccpPlaceholders(text: string, values: Record<string, string
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => (values[key] !== undefined ? values[key] : match));
 }
 
-const ALL_TEMPLATE_KEYS = [...HACCP_BUSINESS_TYPES.map((t) => t.key), GENERAL_HANDLING_KEY];
+/**
+ * The admin template editor operates on CCP *profiles*, not every descriptive
+ * business-type label — several labels (e.g. "Grocery & Deli (Cold Cuts
+ * Only)") share one profile's content via ccpProfileKey, so editing that
+ * profile once correctly updates every label built on it rather than needing
+ * a duplicate edit per label.
+ */
+const ALL_TEMPLATE_KEYS = [...new Set(HACCP_BUSINESS_TYPES.map((t) => t.ccpProfileKey || t.key)), GENERAL_HANDLING_KEY];
 
 interface ResolvedHaccpTemplate { businessTypeKey: string; title: string; body: string; active: boolean; source: "Custom override" | "Built-in default" }
 
@@ -213,7 +220,7 @@ async function renderPlanBody(input: PlanInput): Promise<{ title: string; render
   const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === input.businessTypeKey);
   if (!businessType) return { error: "Unknown business type." };
 
-  const [scope, general] = await Promise.all([resolveHaccpTemplate(input.businessTypeKey), resolveHaccpTemplate(GENERAL_HANDLING_KEY)]);
+  const [scope, general] = await Promise.all([resolveHaccpTemplate(businessType.ccpProfileKey || businessType.key), resolveHaccpTemplate(GENERAL_HANDLING_KEY)]);
   if (!scope) return { error: "No HACCP template for this business type." };
 
   const offPremisesClause = "None; all service is on-site."; // v1: no off-premises/catering distribution modeled yet.
@@ -225,26 +232,33 @@ async function renderPlanBody(input: PlanInput): Promise<{ title: string; render
   const scopeText = substituteHaccpPlaceholders(scope.body, values);
   const generalText = general ? substituteHaccpPlaceholders(general.body, values) : "";
 
-  const knownMenuKeys = new Set(HACCP_MENU_CATEGORIES.flatMap((cat) => cat.items.map((i) => i.key)));
-  const menuCategoryLines = HACCP_MENU_CATEGORIES.map((cat) => {
-    const checked = cat.items.filter((i) => input.selectedMenuItems.includes(i.key));
-    if (!checked.length) return null;
-    return `${cat.category}:\n${checked.map((i) => `  - ${i.label}`).join("\n")}`;
-  }).filter(Boolean) as string[];
-  // Anything typed via "Add Item" won't match a master-list key — rather than
-  // silently dropping it, it's grouped under its own category so a custom
-  // item is exactly as visible on the printed plan as a checked one.
-  const customMenuItems = input.selectedMenuItems.filter((v) => !knownMenuKeys.has(v));
-  if (customMenuItems.length) menuCategoryLines.push(`Other (Added):\n${customMenuItems.map((v) => `  - ${v}`).join("\n")}`);
-  const menuLines = menuCategoryLines.join("\n\n");
-
-  const equipmentLines = input.selectedEquipment
-    .map((e) => `  - ${e.label}${e.quantity > 1 ? ` (x${e.quantity})` : ""}`)
-    .join("\n");
-
-  const checklistText = `MENU\n\n${menuLines || "(none selected)"}\n\nEQUIPMENT LIST\n\n${equipmentLines || "(none selected)"}`;
-  const renderedBody = [scopeText, generalText, checklistText].filter(Boolean).join("\n\n\n");
+  // Menu/equipment checklist is no longer embedded in the text snapshot — it's
+  // rendered as its own structured page directly from selected_menu_items/
+  // selected_equipment (see groupMenuItems below + the /pdf route), which are
+  // already immutable-snapshot-safe on their own (equipment carries its own
+  // label). rendered_body is CCP content only from here on.
+  const renderedBody = [scopeText, generalText].filter(Boolean).join("\n\n\n");
   return { title: scope.title, renderedBody };
+}
+
+export interface MenuGroup { category: string; items: string[] }
+
+/**
+ * Groups a plan's selected menu-item keys by master-list category for the
+ * PDF's dedicated Menu/Equipment page. Anything typed via "Add Item" won't
+ * match a master-list key — rather than silently dropping it, it's grouped
+ * under "Other (Added)" so a custom item is exactly as visible on the printed
+ * plan as a checked one.
+ */
+export function groupMenuItems(selected: string[]): MenuGroup[] {
+  const knownMenuKeys = new Set(HACCP_MENU_CATEGORIES.flatMap((cat) => cat.items.map((i) => i.key)));
+  const groups: MenuGroup[] = HACCP_MENU_CATEGORIES.map((cat) => ({
+    category: cat.category,
+    items: cat.items.filter((i) => selected.includes(i.key)).map((i) => i.label),
+  })).filter((g) => g.items.length);
+  const customMenuItems = selected.filter((v) => !knownMenuKeys.has(v));
+  if (customMenuItems.length) groups.push({ category: "Other (Added)", items: customMenuItems });
+  return groups;
 }
 
 /** Create (or overwrite, via PATCH below) a HACCP plan. clientId is optional — this tool must work for businesses that aren't AL TAX clients yet. */
@@ -360,6 +374,8 @@ haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff")
     phone: plan.phone, email: plan.email, contactPerson: plan.contact_person, licenseNumber: plan.license_number,
     riskPriority: businessType?.riskPriority || "Moderate",
     renderedBody: plan.rendered_body,
+    menuGroups: groupMenuItems(plan.selected_menu_items || []),
+    equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
     createdAt: plan.created_at,
   });
   res.setHeader("Content-Type", "application/pdf");

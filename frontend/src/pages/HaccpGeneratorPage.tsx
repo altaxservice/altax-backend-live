@@ -131,6 +131,12 @@ export function HaccpGeneratorPage() {
   }
   const knownMenuKeys = useMemo(() => new Set((options?.menuCategories || []).flatMap((cat) => cat.items.map((i) => i.key))), [options]);
   const customMenuItems = Array.from(selectedMenu).filter((v) => !knownMenuKeys.has(v));
+  function selectAllMenu() {
+    setSelectedMenu((prev) => new Set([...prev, ...(options?.menuCategories || []).flatMap((cat) => cat.items.map((i) => i.key))]));
+  }
+  function selectAllMenuCategory(cat: { items: { key: string }[] }) {
+    setSelectedMenu((prev) => new Set([...prev, ...cat.items.map((i) => i.key)]));
+  }
 
   function toggleEquipment(key: string, label: string) {
     setSelectedEquipment((prev) => prev.some((e) => e.key === key) ? prev.filter((e) => e.key !== key) : [...prev, { key, label, quantity: 1 }]);
@@ -149,6 +155,13 @@ export function HaccpGeneratorPage() {
   }
   const knownEquipmentKeys = useMemo(() => new Set((options?.equipmentItems || []).map((i) => i.key)), [options]);
   const customEquipmentItems = selectedEquipment.filter((e) => !knownEquipmentKeys.has(e.key));
+  function selectAllEquipment() {
+    setSelectedEquipment((prev) => {
+      const existingKeys = new Set(prev.map((e) => e.key));
+      const additions = (options?.equipmentItems || []).filter((i) => !existingKeys.has(i.key)).map((i) => ({ key: i.key, label: i.label, quantity: 1 }));
+      return [...prev, ...additions];
+    });
+  }
 
   function addManager() {
     setLicenseForm((f) => ({ ...f, county: { ...f.county, certifiedFoodManagers: [...(f.county?.certifiedFoodManagers || []), { name: "", idNumber: "", expirationDate: "" }] } }));
@@ -338,11 +351,17 @@ export function HaccpGeneratorPage() {
             </div>
           </div>
 
-          <div className="form-section-title">Menu Items</div>
+          <div className="form-section-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Menu Items
+            <button type="button" className="btn btn-sm" onClick={selectAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Select All</button>
+          </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.</p>
           {menuCategoriesToShow.map((cat) => (
             <div key={cat.category} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{cat.category}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{cat.category}</span>
+                <button type="button" onClick={() => selectAllMenuCategory(cat)} style={{ background: "none", border: "none", color: "var(--accent, #0f766e)", cursor: "pointer", padding: 0, fontSize: 11, textDecoration: "underline" }}>Select All {cat.category}</button>
+              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
                 {cat.items.map((item) => (
                   <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
@@ -372,7 +391,10 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={addCustomMenuItem}>Add Item</button>
           </div>
 
-          <div className="form-section-title">Equipment</div>
+          <div className="form-section-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            Equipment
+            <button type="button" className="btn btn-sm" onClick={selectAllEquipment} style={{ textTransform: "none", fontWeight: 400 }}>Select All</button>
+          </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every piece of equipment on site — set a quantity if there's more than one. Not on the list? Type it below and add it.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 10 }}>
             {options?.equipmentItems.map((item) => {
