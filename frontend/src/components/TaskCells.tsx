@@ -4,8 +4,20 @@ import { daysUntil } from "../utils/date";
 import { StatusBadge } from "./StatusBadge";
 import type { ActionMenuOption } from "./ActionMenu";
 
-/** Full 12-value status list, ported 1:1 from legacy's TASK_STATUSES. */
-export const TASK_STATUSES = ["Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation", "Submitted", "Completed", "Closed", "Archived", "Void"];
+/**
+ * Full status list. The original 12 values were ported 1:1 from legacy's
+ * TASK_STATUSES; the 5 after "Submitted" (In Review through Approved) were
+ * added for permit/license application tracking (Health Permit, Use &
+ * Occupancy, etc.) — that workflow moves through a government review/
+ * inspection/fee pipeline the original tax/payroll statuses don't cover.
+ * Mirrored in src/modules/system/system.routes.ts's taskStatuses — keep both
+ * in sync (see that file's comment).
+ */
+export const TASK_STATUSES = [
+  "Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation",
+  "Submitted", "In Review", "Inspection Phase", "Additional Information Required", "Fee Due", "Approved",
+  "Completed", "Closed", "Archived", "Void",
+];
 
 export function isOpenTask(t: Task): boolean {
   return !["completed", "void", "closed", "archived"].includes(String(t.status || "").toLowerCase());

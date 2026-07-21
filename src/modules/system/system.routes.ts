@@ -335,7 +335,8 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
     taskTypes: [
       "Custom", "Other", "Sales Tax Filing", "Sales Tax Payment", "Payroll Processing", "Payroll Tax Deposit",
       "EFTPS Deposit", "MD Withholding Filing", "MD Withholding", "MD UI", "MD Annual Report Filing",
-      "MD Annual Report Payment", "Immigration Forms", "Business Formation", "EIN Registration", "Personal Tax",
+      "MD Annual Report Payment", "Immigration Forms", "Business Formation", "EIN Registration", "Business License",
+      "Health Permit", "Use & Occupancy Permit", "Trader's License", "Tobacco License", "Personal Tax",
       "Business Tax", "Business Return", "Bookkeeping", "IRS Notice", "State Notice",
     ],
     immigrationFormTypes: [
@@ -353,7 +354,11 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
     ],
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     priorities: ["Normal", "Low", "High", "Urgent"],
-    taskStatuses: ["Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation", "Submitted", "Completed", "Closed", "Archived", "Void"],
+    taskStatuses: [
+      "Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation",
+      "Submitted", "In Review", "Inspection Phase", "Additional Information Required", "Fee Due", "Approved",
+      "Completed", "Closed", "Archived", "Void",
+    ],
     invoiceStatuses: ["Unpaid", "Partial", "Paid", "Void"],
     documentStatuses: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"],
     paymentMethods: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"],

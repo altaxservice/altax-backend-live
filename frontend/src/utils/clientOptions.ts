@@ -4,7 +4,7 @@ export const US_STATES = [
   "TN","TX","UT","VT","VA","WA","WV","WI","WY",
 ];
 export const ENTITY_TYPES = ["LLC", "S-Corp", "C-Corp", "Partnership", "Sole Proprietorship", "Nonprofit", "Individual"];
-export const SERVICE_TYPES = ["Full Service", "Bookkeeping Only", "Tax Only", "Payroll Only", "Sales Tax Only", "Consulting"];
+export const SERVICE_TYPES = ["Full Service", "Bookkeeping Only", "Tax Only", "Payroll Only", "Sales Tax Only", "Permits & Licensing Only", "Consulting"];
 // "Semiannual" was missing even though it's a real stored value on 14 live clients'
 // sales_tax_frequency — the <select> silently showed blank for them instead of their
 // actual frequency (same class of casing/coverage bug as PAYROLL_FREQS below).
@@ -34,6 +34,7 @@ export const FIRM_SERVICES: { key: string; label: string }[] = [
   { key: "payroll", label: "Payroll Services" },
   { key: "sales_tax", label: "Sales Tax & Business Compliance" },
   { key: "formation", label: "Business Formation & Registered Agent" },
+  { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
   { key: "immigration", label: "Immigration Document Preparation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];

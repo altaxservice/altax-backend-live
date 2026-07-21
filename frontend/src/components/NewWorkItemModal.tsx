@@ -35,6 +35,14 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   const [payrollFilter, setPayrollFilter] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set(initialClientId ? [initialClientId] : []));
   const [internalTask, setInternalTask] = useState(false);
+  // A "Create Task"/"+ New Task" action on a client's own row or profile page
+  // navigates here with initialClientId set — in that case the searchable,
+  // 100+ row roster below is pure friction (the user already picked their
+  // client, they shouldn't have to find it again). Locked mode swaps that
+  // picker for a one-line "creating for X" banner; "Change Client" drops back
+  // to the full roster for the multi-client batch-create case this modal also
+  // serves when opened without a specific client in mind.
+  const [clientLocked, setClientLocked] = useState(!!initialClientId);
 
   const [taskType, setTaskType] = useState("Custom");
   const [taskName, setTaskName] = useState("");
@@ -68,6 +76,8 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   const requestedItemOptions = options?.requestedItems || [];
   const monthOptions = options?.months || [];
   const priorityOptions = options?.priorities || ["Normal", "Low", "High", "Urgent"];
+
+  const lockedClient = useMemo(() => clients.find((c) => c.client_id === initialClientId) || null, [clients, initialClientId]);
 
   const salesTaxOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.sales_tax_frequency).filter(Boolean))) as string[], [clients]);
   const payrollOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.payroll_frequency).filter(Boolean))) as string[], [clients]);
@@ -179,7 +189,20 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
           </label>
         )}
 
-        {!internalTask && (
+        {!internalTask && clientLocked && initialClientId && (
+          <>
+            <div className="form-section-title">Client</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{lockedClient?.client_name || "Loading…"}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{initialClientId}</div>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setClientLocked(false)}>Change Client</button>
+            </div>
+          </>
+        )}
+
+        {!internalTask && !clientLocked && (
           <>
             <div className="form-section-title">Client(s)</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>

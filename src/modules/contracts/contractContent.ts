@@ -29,6 +29,7 @@ export const FIRM_SERVICES: FirmService[] = [
   { key: "payroll", label: "Payroll Services" },
   { key: "sales_tax", label: "Sales Tax & Business Compliance" },
   { key: "formation", label: "Business Formation & Registered Agent" },
+  { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
   { key: "immigration", label: "Immigration Document Preparation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
@@ -188,6 +189,21 @@ FILING SERVICE ONLY — NOT LEGAL OR TAX ADVICE ON ENTITY CHOICE. Firm's service
 STATE FEES SEPARATE. State filing fees, registered-agent fees for future years, and any franchise or annual-report fees are separate from Firm's service fee, are billed to Client directly or passed through, and are non-refundable once paid to the state.
 
 REGISTERED AGENT — CLIENT RESPONSIBILITY TO RESPOND. If Firm serves as Client's registered agent, Client is responsible for promptly reviewing and responding to any document Firm forwards, including time-sensitive legal notices. Firm's role is limited to accepting and forwarding documents; Firm does not evaluate their legal significance.`,
+  },
+  {
+    serviceKey: "permits_licenses",
+    title: "Business Licenses & Permits Agreement",
+    body: `BUSINESS LICENSES & PERMITS AGREEMENT
+
+This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for business license and permit preparation services, effective {{effectiveDate}}.
+
+SCOPE OF SERVICES. Firm will prepare and submit applications for the license(s) and/or permit(s) Client requests — which may include a health department food service permit, a use & occupancy permit, a trader's license, a tobacco license, or similar state or local licensing/permitting requirements — using the business information Client provides, and, where the issuing agency provides its own application form, will complete that agency's own form rather than a substitute document.
+
+CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy and completeness of the business information, menu, equipment, and other details submitted with each application, and for confirming the resulting license or permit before relying on it.
+
+NO GUARANTEE OF ISSUANCE OR TIMING. Firm does not guarantee that any license or permit will be approved, and is not responsible for a licensing agency's review time, inspection scheduling, additional-information requests, or fee assessments, all of which are outside Firm's control. Government filing fees and inspection fees are separate from Firm's service fee and are Client's responsibility.
+
+RENEWAL IS A SEPARATE ENGAGEMENT UNLESS AGREED OTHERWISE. Unless the parties agree in writing to an ongoing renewal engagement, each license or permit application is a one-time engagement; Firm is not responsible for tracking or renewing a license or permit after it is issued unless separately engaged to do so.`,
   },
   {
     serviceKey: "immigration",
