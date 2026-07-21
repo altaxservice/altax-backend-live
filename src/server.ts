@@ -25,6 +25,7 @@ import { remindersRouter, runReminders } from "./modules/reminders/reminders.rou
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
+import { haccpRouter } from "./modules/haccp/haccp.routes";
 import cron from "node-cron";
 
 dotenv.config();
@@ -153,6 +154,7 @@ app.use("/reminders", remindersRouter);
 app.use("/firm-settings", firmSettingsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
+app.use("/haccp", haccpRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and
 // never collide with an API prefix, so plain static serving after the API routers is safe.

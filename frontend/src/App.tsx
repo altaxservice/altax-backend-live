@@ -21,6 +21,7 @@ import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { AccountingPage } from "./pages/AccountingPage";
 import { EmployeeDetailPage } from "./pages/EmployeeDetailPage";
 import { RulesPage } from "./pages/RulesPage";
+import { HaccpGeneratorPage } from "./pages/HaccpGeneratorPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
@@ -76,6 +77,7 @@ function App() {
                 <Route path="/accounting" element={<AccountingPage />} />
                 <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
                 <Route path="/rules" element={<RulesPage />} />
+                <Route path="/haccp" element={<HaccpGeneratorPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
               </Route>

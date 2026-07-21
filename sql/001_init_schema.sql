@@ -927,6 +927,57 @@ CREATE TABLE IF NOT EXISTS v3_client_contracts (
 );
 CREATE INDEX IF NOT EXISTS idx_v3_client_contracts_client_id ON v3_client_contracts(client_id);
 
+-- ---- v3_Haccp_Templates ----
+-- Admin-editable HACCP CCP/legal-language overrides, keyed by business_type_key —
+-- mirrors v3_contract_templates exactly. Built-in default wording lives in code
+-- (haccpContent.ts); saving here overrides it without a deploy, since HACCP
+-- content correctness is what a client's actual health inspection depends on.
+CREATE TABLE IF NOT EXISTS v3_haccp_templates (
+    template_id VARCHAR(64) PRIMARY KEY,
+    business_type_key VARCHAR(64) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    updated_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---- v3_Haccp_Plans ----
+-- A generated HACCP food-safety plan. Deliberately NOT required to reference an
+-- existing client — staff use this tool for brand-new businesses applying for a
+-- first health permit, not just existing AL TAX clients, so client_id is
+-- optional (ON DELETE SET NULL rather than CASCADE, so the plan record survives
+-- even if the linked client is later removed). rendered_body is the fully
+-- merged, immutable text snapshot at generation time, same pattern as
+-- v3_client_contracts.rendered_body — editing a template later doesn't rewrite
+-- a plan that was already printed and submitted to the health department.
+CREATE TABLE IF NOT EXISTS v3_haccp_plans (
+    plan_id VARCHAR(64) PRIMARY KEY,
+    client_id VARCHAR(64),
+    business_name VARCHAR(255) NOT NULL,
+    business_type_key VARCHAR(64) NOT NULL,
+    jurisdiction VARCHAR(32) NOT NULL DEFAULT 'Baltimore City',
+    street_address VARCHAR(255),
+    city VARCHAR(100),
+    state VARCHAR(255) DEFAULT 'MD',
+    zip_code VARCHAR(20),
+    phone VARCHAR(255),
+    email VARCHAR(255),
+    contact_person VARCHAR(255),
+    license_number VARCHAR(64),
+    selected_menu_items JSONB NOT NULL DEFAULT '[]',
+    selected_equipment JSONB NOT NULL DEFAULT '[]',
+    rendered_body TEXT NOT NULL,
+    created_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_v3_haccp_plans_client_id FOREIGN KEY (client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_client_id ON v3_haccp_plans(client_id);
+CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_business_type_key ON v3_haccp_plans(business_type_key);
+
 -- ---- v3_Check_Settings ----
 CREATE TABLE IF NOT EXISTS v3_check_settings (
     setting_id VARCHAR(64) PRIMARY KEY,
