@@ -599,7 +599,7 @@ export function HaccpGeneratorPage() {
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
                 {form.clientId && (
-                  <button type="button" className="btn btn-sm" onClick={saveToDocuments} disabled={savingToDocuments}>{savingToDocuments ? "Saving…" : "Save to Documents"}</button>
+                  <button type="button" className="btn btn-sm" onClick={() => saveToDocuments()} disabled={savingToDocuments}>{savingToDocuments ? "Saving…" : "Save to Documents"}</button>
                 )}
               </>
             )}
