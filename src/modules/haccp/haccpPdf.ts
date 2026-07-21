@@ -97,9 +97,21 @@ function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): { page: PDFPag
   return { page, c };
 }
 
-function drawFooter(c: Cursor, jurisdiction: string, pageLabel: string) {
-  c.text(48, PAGE_H - 28, `Prepared in accordance with Maryland COMAR 10.15.03 and ${jurisdiction} Health Department HACCP Guidelines`, { size: 7.5, color: MUTED });
-  c.text(PAGE_W - 48, PAGE_H - 28, pageLabel, { size: 8, color: MUTED, align: "right" });
+/**
+ * Multi-line footer on every page — identifies which business/plan a page
+ * belongs to if pages get separated or mixed with another printed plan, plus
+ * a brief exclusive-use notice (this is the firm's prepared work product for
+ * one specific business, not a template another business can reuse). The
+ * citation/notice line is wrapped rather than a single drawText call — a
+ * long business name pushes it well past one line at the small footer size.
+ */
+function drawFooter(c: Cursor, font: PDFFont, businessName: string, jurisdiction: string, pageLabel: string) {
+  const maxWidth = PAGE_W - 96;
+  c.text(48, PAGE_H - 40, `${businessName} — HACCP Plan`, { size: 8, bold: true });
+  c.text(PAGE_W - 48, PAGE_H - 40, pageLabel, { size: 8, color: MUTED, align: "right" });
+  const notice = `Prepared in accordance with Maryland COMAR 10.15.03 and ${jurisdiction} Health Department HACCP Guidelines. Prepared exclusively for ${businessName} — not for use by any other business.`;
+  const lines = wrapText(notice, font, 7, maxWidth);
+  lines.forEach((line, i) => c.text(48, PAGE_H - 28 + i * 9, line, { size: 7, color: MUTED }));
 }
 
 export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> {
@@ -141,13 +153,13 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   y += 150;
   c.line(L, y, R, y, INK, 1.25);
 
-  drawFooter(c, data.jurisdiction, "Page 1");
+  drawFooter(c, font, data.businessName, data.jurisdiction, "Page 1");
   let pageNum = 1;
 
   // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) ----
   ({ page, c } = newPage(doc, font, bold));
   pageNum += 1;
-  drawFooter(c, data.jurisdiction, `Page ${pageNum}`);
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
   y = 48;
 
   c.rect(L, y, R - L, 40, TEAL_TINT);
@@ -167,11 +179,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 16;
   }
   for (const group of data.menuGroups) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
     c.text(L, y, group.category, { size: 10, bold: true });
     y += 14;
     for (const item of group.items) {
-      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
       c.text(L + 12, y, `- ${item}`, { size: 9.5 });
       y += 13;
     }
@@ -179,7 +191,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   }
 
   y += 8;
-  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
   c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
   y += 8;
   c.line(L, y, R, y, LINE, 0.75);
@@ -189,7 +201,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 16;
   }
   for (const item of data.equipment) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
     c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
     y += 13;
   }
@@ -198,7 +210,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   y = 60;
   ({ page, c } = newPage(doc, font, bold));
   pageNum += 1;
-  drawFooter(c, data.jurisdiction, `Page ${pageNum}`);
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
 
   const paragraphs = data.renderedBody.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   for (const para of paragraphs) {
@@ -208,7 +220,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       const ccpLabelMatch = rawLine.match(CCP_LABEL_RE);
 
       if (isSectionHeader) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         y += 6;
         c.text(L, y, rawLine, { size: 11.5, bold: true, color: TEAL });
         y += 8;
@@ -221,11 +233,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
         const label = ccpLabelMatch[1] + ": ";
         const rest = rawLine.slice(ccpLabelMatch[0].length);
         const labelW = bold.widthOfTextAtSize(label, 9.5);
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         c.text(L, y, label, { size: 9.5, bold: true });
         const wrapped = wrapText(rest, font, 9.5, maxWidth - labelW);
         wrapped.forEach((line, i) => {
-          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
           c.text(i === 0 ? L + labelW : L + 14, y, line, { size: 9.5 });
           y += 13;
         });
@@ -234,7 +246,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
       const isSubHeader = /^Process \d/i.test(rawLine.trim());
       for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         c.text(L, y, wrapped, isSubHeader ? { size: 10, bold: true, color: TEAL } : { size: 9.5 });
         y += 13;
       }
