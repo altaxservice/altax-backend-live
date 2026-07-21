@@ -5,7 +5,11 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { generateHaccpPdf } from "./haccpPdf";
-import { generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf, type LicenseApplicationData } from "./licenseApplicationsPdf";
+import {
+  generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf,
+  generateCountyFoodServicePermitApplicationPdf, generateCountyPlansReviewGuidePdf,
+  type LicenseApplicationData,
+} from "./licenseApplicationsPdf";
 import {
   HACCP_BUSINESS_TYPES, HACCP_BUSINESS_TYPE_LABEL, HACCP_MENU_CATEGORIES, HACCP_EQUIPMENT_ITEMS,
   GENERAL_HANDLING_KEY, GENERAL_HANDLING_TITLE, GENERAL_HANDLING_BODY, BUILT_IN_HACCP_TEMPLATES,
@@ -124,11 +128,34 @@ haccpRouter.get("/plans/:planId", requireAuth, requireRole("admin", "staff"), as
   res.json({ plan });
 }));
 
+/**
+ * key/label/quantity rather than a bare key — needed for two reasons: (1) a
+ * custom item typed via "Add Item" has no entry in HACCP_EQUIPMENT_ITEMS to
+ * resolve a label from, so the label has to travel with the selection itself;
+ * (2) quantity (e.g. "3x 4-Door Commercial Beverage Cooler") is per-selection,
+ * not a property of the master list item. Always carrying the label (even for
+ * master-list items, where it's redundant with HACCP_EQUIPMENT_ITEMS) keeps
+ * rendering uniform and means a saved plan's checklist never breaks if the
+ * master list's wording changes later — same immutable-snapshot reasoning as
+ * rendered_body itself.
+ */
+export interface EquipmentSelection { key: string; label: string; quantity: number }
+
+function parseEquipmentSelection(raw: unknown): EquipmentSelection[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item: any, i: number) => {
+    const key = String(item?.key || `custom-${i}`).trim();
+    const label = String(item?.label || "").trim();
+    const quantity = Number(item?.quantity);
+    return { key, label, quantity: Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1 };
+  }).filter((item) => item.label);
+}
+
 interface PlanInput {
   businessName: string; businessTypeKey: string; jurisdiction: string;
   streetAddress?: string; city?: string; state?: string; zipCode?: string;
   phone?: string; email?: string; contactPerson?: string; licenseNumber?: string;
-  clientId?: string | null; selectedMenuItems: string[]; selectedEquipment: string[];
+  clientId?: string | null; selectedMenuItems: string[]; selectedEquipment: EquipmentSelection[];
   licenseApplicationData: LicenseApplicationData;
 }
 
@@ -150,6 +177,35 @@ function parseLicenseApplicationData(raw: unknown): LicenseApplicationData {
     useAndOccupancyNumber: String(d.useAndOccupancyNumber || "").trim() || undefined,
     permitsApplied: Array.isArray(d.permitsApplied) ? d.permitsApplied.map(String) : ["retailFood"],
     facilityTypeOverride: String(d.facilityTypeOverride || "").trim() || undefined,
+    county: parseCountyPermitData(d.county),
+  };
+}
+
+function parseCountyPermitData(raw: unknown): LicenseApplicationData["county"] {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const managers = Array.isArray(d.certifiedFoodManagers)
+    ? d.certifiedFoodManagers.map((m: any) => ({
+        name: String(m?.name || "").trim() || undefined,
+        idNumber: String(m?.idNumber || "").trim() || undefined,
+        expirationDate: String(m?.expirationDate || "").trim() || undefined,
+      })).filter((m: any) => m.name || m.idNumber || m.expirationDate)
+    : undefined;
+  return {
+    facilityId: String(d.facilityId || "").trim() || undefined,
+    cateringServiceProvided: Boolean(d.cateringServiceProvided),
+    cateringId: String(d.cateringId || "").trim() || undefined,
+    facilityClassification: String(d.facilityClassification || "").trim() || undefined,
+    numberOfSeats: String(d.numberOfSeats || "").trim() || undefined,
+    waterService: String(d.waterService || "").trim() || undefined,
+    sewageDisposal: String(d.sewageDisposal || "").trim() || undefined,
+    majorMenuChanges: d.majorMenuChanges === undefined ? undefined : Boolean(d.majorMenuChanges),
+    certifiedFoodManagers: managers && managers.length ? managers : undefined,
+    daysOfOperation: String(d.daysOfOperation || "").trim() || undefined,
+    hoursOfOperation: String(d.hoursOfOperation || "").trim() || undefined,
+    numberOfEmployees: String(d.numberOfEmployees || "").trim() || undefined,
+    residentAgentName: String(d.residentAgentName || "").trim() || undefined,
+    residentAgentPhone: String(d.residentAgentPhone || "").trim() || undefined,
+    sendCorrespondenceTo: ["trade", "owner"].includes(String(d.sendCorrespondenceTo)) ? (d.sendCorrespondenceTo as "trade" | "owner") : undefined,
   };
 }
 
@@ -169,12 +225,22 @@ async function renderPlanBody(input: PlanInput): Promise<{ title: string; render
   const scopeText = substituteHaccpPlaceholders(scope.body, values);
   const generalText = general ? substituteHaccpPlaceholders(general.body, values) : "";
 
-  const menuLines = HACCP_MENU_CATEGORIES.map((cat) => {
+  const knownMenuKeys = new Set(HACCP_MENU_CATEGORIES.flatMap((cat) => cat.items.map((i) => i.key)));
+  const menuCategoryLines = HACCP_MENU_CATEGORIES.map((cat) => {
     const checked = cat.items.filter((i) => input.selectedMenuItems.includes(i.key));
     if (!checked.length) return null;
     return `${cat.category}:\n${checked.map((i) => `  - ${i.label}`).join("\n")}`;
-  }).filter(Boolean).join("\n\n");
-  const equipmentLines = HACCP_EQUIPMENT_ITEMS.filter((e) => input.selectedEquipment.includes(e.key)).map((e) => `  - ${e.label}`).join("\n");
+  }).filter(Boolean) as string[];
+  // Anything typed via "Add Item" won't match a master-list key — rather than
+  // silently dropping it, it's grouped under its own category so a custom
+  // item is exactly as visible on the printed plan as a checked one.
+  const customMenuItems = input.selectedMenuItems.filter((v) => !knownMenuKeys.has(v));
+  if (customMenuItems.length) menuCategoryLines.push(`Other (Added):\n${customMenuItems.map((v) => `  - ${v}`).join("\n")}`);
+  const menuLines = menuCategoryLines.join("\n\n");
+
+  const equipmentLines = input.selectedEquipment
+    .map((e) => `  - ${e.label}${e.quantity > 1 ? ` (x${e.quantity})` : ""}`)
+    .join("\n");
 
   const checklistText = `MENU\n\n${menuLines || "(none selected)"}\n\nEQUIPMENT LIST\n\n${equipmentLines || "(none selected)"}`;
   const renderedBody = [scopeText, generalText, checklistText].filter(Boolean).join("\n\n\n");
@@ -204,7 +270,7 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
     licenseNumber: String(body.licenseNumber || "").trim() || undefined,
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : [],
-    selectedEquipment: Array.isArray(body.selectedEquipment) ? body.selectedEquipment.map(String) : [],
+    selectedEquipment: parseEquipmentSelection(body.selectedEquipment),
     licenseApplicationData: parseLicenseApplicationData(body.licenseApplicationData),
   };
 
@@ -255,7 +321,7 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
     licenseNumber: String(body.licenseNumber ?? existing.license_number ?? "").trim() || undefined,
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : existing.selected_menu_items || [],
-    selectedEquipment: Array.isArray(body.selectedEquipment) ? body.selectedEquipment.map(String) : existing.selected_equipment || [],
+    selectedEquipment: body.selectedEquipment !== undefined ? parseEquipmentSelection(body.selectedEquipment) : parseEquipmentSelection(existing.selected_equipment),
     licenseApplicationData: parseLicenseApplicationData(body.licenseApplicationData !== undefined ? body.licenseApplicationData : existing.license_application_data),
   };
 
@@ -314,15 +380,26 @@ function toLicensePdfInput(plan: any) {
   };
 }
 
-/** The two remaining pieces of "the whole package" alongside the HACCP plan above — the Baltimore City Food Facility License Application and Plan Review Application, modeled on real filed examples. See licenseApplicationsPdf.ts for the Baltimore-City-only caveat. */
+/**
+ * The two remaining pieces of "the whole package" alongside the HACCP plan
+ * above, each rendering that jurisdiction's own real form — Baltimore City's
+ * Food Facility License Application vs. Baltimore County's Food Service
+ * Facility Permit Application and Fee Statement (structurally different
+ * forms, not the same form reskinned). See licenseApplicationsPdf.ts for why
+ * the "plan-review-pdf" route renders a submission guide rather than a
+ * fabricated application for County plans, which has no such form.
+ */
 haccpRouter.get("/plans/:planId/license-pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const plan = await loadPlanForUser(req, req.params.planId);
   if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
   if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
 
-  const bytes = await generateFoodLicenseApplicationPdf(toLicensePdfInput(plan));
+  const isCounty = plan.jurisdiction === "Baltimore County";
+  const bytes = isCounty
+    ? await generateCountyFoodServicePermitApplicationPdf(toLicensePdfInput(plan))
+    : await generateFoodLicenseApplicationPdf(toLicensePdfInput(plan));
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="FoodLicenseApplication_${plan.plan_id}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="${isCounty ? "FoodServicePermitApplication" : "FoodLicenseApplication"}_${plan.plan_id}.pdf"`);
   res.send(Buffer.from(bytes));
 }));
 
@@ -331,8 +408,11 @@ haccpRouter.get("/plans/:planId/plan-review-pdf", requireAuth, requireRole("admi
   if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
   if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
 
-  const bytes = await generatePlanReviewApplicationPdf(toLicensePdfInput(plan));
+  const isCounty = plan.jurisdiction === "Baltimore County";
+  const bytes = isCounty
+    ? await generateCountyPlansReviewGuidePdf(toLicensePdfInput(plan))
+    : await generatePlanReviewApplicationPdf(toLicensePdfInput(plan));
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="PlanReviewApplication_${plan.plan_id}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="${isCounty ? "PlansReviewGuide" : "PlanReviewApplication"}_${plan.plan_id}.pdf"`);
   res.send(Buffer.from(bytes));
 }));

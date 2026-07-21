@@ -152,6 +152,7 @@ export const HACCP_MENU_CATEGORIES: ChecklistCategory[] = [
 export const HACCP_EQUIPMENT_ITEMS: ChecklistItem[] = [
   { key: "shelves", label: "Shelves / Storage Shelving" },
   { key: "beverage_cooler_1door", label: "1-Door Beverage Cooler" },
+  { key: "beverage_cooler_2door", label: "2-Door Beverage Cooler" },
   { key: "beverage_cooler_4door", label: "4-Door Commercial Beverage Cooler" },
   { key: "ice_cream_freezer", label: "Ice-Cream Freezer" },
   { key: "walk_in_cooler", label: "Walk-In Cooler" },
@@ -162,6 +163,7 @@ export const HACCP_EQUIPMENT_ITEMS: ChecklistItem[] = [
   { key: "deli_case", label: "Deli Case" },
   { key: "deli_slicer", label: "Deli Slicer" },
   { key: "grill", label: "Grill / Griddle" },
+  { key: "stove", label: "Stove / Range" },
   { key: "fryer", label: "Deep Fryer" },
   { key: "oven", label: "Oven" },
   { key: "steam_table", label: "Steam Table / Hot-Holding Unit" },

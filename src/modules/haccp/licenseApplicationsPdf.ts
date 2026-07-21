@@ -1,22 +1,31 @@
 /**
- * Food Facility License Application + Plan Review Application — the other two
- * documents that make up a complete Baltimore City health-permit submission
- * package alongside the HACCP plan (haccpPdf.ts). Modeled field-for-field on
- * two real Baltimore City Health Department (Bureau of Environmental Health,
- * 1001 E. Fayette Street) forms reviewed this session — the Food Facility
- * License Application filed for Chase Grocery And Deli LLC and the Plan
- * Review Application filed for Fells Point Cafe & Deli. Both source forms are
- * Baltimore City forms specifically; Baltimore County's equivalent
- * applications likely differ (different office, address, fee schedule) but
- * no real County sample was available to build from, so these two renderers
- * print the Baltimore City forms regardless of the plan's own jurisdiction
- * field — flagged here and to the user rather than guessing at County-specific
- * bureaucratic details with no source to verify against.
+ * The two (or, for Baltimore County, two differently-shaped) documents that
+ * make up a complete health-permit submission package alongside the HACCP
+ * plan (haccpPdf.ts). Every form here is modeled field-for-field on a real
+ * filed or published example, not invented — "use their own applications"
+ * was explicit:
  *
- * Unlike haccpPdf.ts, these are structured government forms, not flowing
- * prose — rendered as labeled field boxes / checklists / a fee table rather
- * than paragraph text, same self-contained local Cursor/newPage pattern as
- * every other PDF generator in this app.
+ * - Baltimore City: Food Facility License Application (filed for Chase
+ *   Grocery And Deli LLC) + Plan Review Application (filed for Fells Point
+ *   Cafe & Deli), both real Bureau of Environmental Health forms, 1001 E.
+ *   Fayette Street.
+ * - Baltimore County: Food Service Facility Permit Application and Fee
+ *   Statement (the County's real, structurally different permit form —
+ *   Drumcastle Government Center, 6401 York Road) + a Plans Review
+ *   Submission Guide. Baltimore County does NOT have a separate fillable
+ *   "Plan Review Application" the way the City does — the real County
+ *   process (per its own published "Guidelines for Retail Food
+ *   Establishment Plans Review Submittals") is to submit the permit
+ *   application plus plans/menu/HACCP plan/equipment cut sheets to one of
+ *   two County offices depending on whether the work needs a building
+ *   permit. Fabricating a County "Plan Review Application" that doesn't
+ *   exist would violate the same "use their own applications" instruction,
+ *   so the County package renders that real submission guide instead.
+ *
+ * These are structured government forms, not flowing prose — rendered as
+ * labeled field boxes / checklists / a fee table rather than paragraph text,
+ * same self-contained local Cursor/newPage pattern as every other PDF
+ * generator in this app.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 
@@ -60,10 +69,10 @@ function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): { page: PDFPag
   return { page, c };
 }
 
-function drawHeader(c: Cursor, title: string, deptLines: string[]): number {
+function drawHeader(c: Cursor, deptName: string, title: string, deptLines: string[], subtitle = "PLEASE PRINT ALL INFORMATION CLEARLY"): number {
   const L = 48, R = PAGE_W - 48;
   let y = 40;
-  c.text(L, y, "BALTIMORE CITY HEALTH DEPARTMENT", { size: 11, bold: true, color: TEAL });
+  c.text(L, y, deptName, { size: 11, bold: true, color: TEAL });
   y += 13;
   for (const line of deptLines) {
     c.text(L, y, line, { size: 8.5, color: MUTED });
@@ -73,13 +82,15 @@ function drawHeader(c: Cursor, title: string, deptLines: string[]): number {
   c.rect(L, y, R - L, 26, TEAL_TINT);
   c.text(PAGE_W / 2, y + 17, title, { size: 14, bold: true, align: "center" });
   y += 34;
-  c.text(PAGE_W / 2, y, "PLEASE PRINT ALL INFORMATION CLEARLY", { size: 8.5, bold: true, align: "center" });
-  y += 16;
+  if (subtitle) {
+    c.text(PAGE_W / 2, y, subtitle, { size: 8.5, bold: true, align: "center" });
+    y += 16;
+  }
   return y;
 }
 
-function drawFooter(c: Cursor, formName: string, pageLabel: string) {
-  c.text(48, PAGE_H - 28, `Baltimore City Health Department — ${formName}`, { size: 7.5, color: MUTED });
+function drawFooter(c: Cursor, deptName: string, formName: string, pageLabel: string) {
+  c.text(48, PAGE_H - 28, `${deptName} — ${formName}`, { size: 7.5, color: MUTED });
   c.text(PAGE_W - 48, PAGE_H - 28, pageLabel, { size: 8, color: MUTED, align: "right" });
 }
 
@@ -106,6 +117,25 @@ function drawSignatureBlock(c: Cursor, y: number, contactPerson: string, officer
   return y;
 }
 
+/** Fields specific to Baltimore County's own Food Service Facility Permit Application and Fee Statement — no equivalent on the Baltimore City form. */
+export interface CountyPermitData {
+  facilityId?: string;
+  cateringServiceProvided?: boolean;
+  cateringId?: string;
+  facilityClassification?: string;
+  numberOfSeats?: string;
+  waterService?: string;
+  sewageDisposal?: string;
+  majorMenuChanges?: boolean;
+  certifiedFoodManagers?: { name?: string; idNumber?: string; expirationDate?: string }[];
+  daysOfOperation?: string;
+  hoursOfOperation?: string;
+  numberOfEmployees?: string;
+  residentAgentName?: string;
+  residentAgentPhone?: string;
+  sendCorrespondenceTo?: "trade" | "owner";
+}
+
 export interface LicenseApplicationData {
   officerTitle?: string;
   tradeName?: string;
@@ -122,6 +152,7 @@ export interface LicenseApplicationData {
   useAndOccupancyNumber?: string;
   permitsApplied?: string[];
   facilityTypeOverride?: string;
+  county?: CountyPermitData;
 }
 
 export interface LicensePdfInput {
@@ -147,8 +178,8 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
   const app = data.applicationData || {};
 
   let { page, c } = newPage(doc, font, bold);
-  let y = drawHeader(c, "FOOD FACILITY LICENSE APPLICATION", ["Bureau of Environmental Health", "Environmental Inspection Services", "1001 E. Fayette Street", "Baltimore, Maryland 21202", "410-396-4428"]);
-  drawFooter(c, "Food Facility License Application", "Page 1");
+  let y = drawHeader(c, "BALTIMORE CITY HEALTH DEPARTMENT", "FOOD FACILITY LICENSE APPLICATION", ["Bureau of Environmental Health", "Environmental Inspection Services", "1001 E. Fayette Street", "Baltimore, Maryland 21202", "410-396-4428"]);
+  drawFooter(c, "Baltimore City Health Department", "Food Facility License Application", "Page 1");
 
   const rowH = 26;
   fieldRow(c, L, y, R - L, rowH, "CORPORATE NAME", data.businessName); y += rowH;
@@ -205,7 +236,7 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
 
   // ---- Page 2: waste hauler / tobacco / signature ----
   ({ page, c } = newPage(doc, font, bold));
-  drawFooter(c, "Food Facility License Application", "Page 2");
+  drawFooter(c, "Baltimore City Health Department", "Food Facility License Application", "Page 2");
   y = 48;
 
   c.rect(L, y, R - L, 14, TEAL_TINT);
@@ -267,8 +298,8 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   const app = data.applicationData || {};
 
   const { c } = newPage(doc, font, bold);
-  let y = drawHeader(c, "PLAN REVIEW APPLICATION", ["Bureau of Environmental Health", "Environmental Inspection Services", "1001 E. Fayette Street", "Baltimore, Maryland 21202", "(Office) 410-396-4425  (Fax) 410-396-5986"]);
-  drawFooter(c, "Plan Review Application", "Page 1");
+  let y = drawHeader(c, "BALTIMORE CITY HEALTH DEPARTMENT", "PLAN REVIEW APPLICATION", ["Bureau of Environmental Health", "Environmental Inspection Services", "1001 E. Fayette Street", "Baltimore, Maryland 21202", "(Office) 410-396-4425  (Fax) 410-396-5986"]);
+  drawFooter(c, "Baltimore City Health Department", "Plan Review Application", "Page 1");
 
   const rowH = 26;
   fieldRow(c, L, y, R - L, rowH, "FACILITY NAME", data.businessName); y += rowH;
@@ -338,6 +369,171 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   drawSignatureBlock(c, y, data.contactPerson || "", app.officerTitle || "");
 
   return doc.save();
+}
+
+const COUNTY_DEPT = "BALTIMORE COUNTY DEPARTMENT OF HEALTH";
+const COUNTY_DEPT_LINES = ["Division of Environmental Health Services", "Drumcastle Government Center", "6401 York Road, 3rd Floor", "Baltimore, Maryland 21212", "410-887-FOOD (3663)"];
+
+/** Real Baltimore County form — structurally different from the City's Food Facility License Application, not a reskin of it (different fields: Facility ID, Catering, Certified Food Managers, Days/Hours of Operation, Resident Agent, etc.). */
+export async function generateCountyFoodServicePermitApplicationPdf(data: LicensePdfInput): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const L = 48, R = PAGE_W - 48;
+  const app = data.applicationData || {};
+  const county = app.county || {};
+
+  let { page, c } = newPage(doc, font, bold);
+  let y = drawHeader(c, COUNTY_DEPT, "FOOD SERVICE FACILITY PERMIT APPLICATION AND FEE STATEMENT", COUNTY_DEPT_LINES, "PERMIT IS NOT TRANSFERABLE");
+  drawFooter(c, "Baltimore County Department of Health", "Food Service Facility Permit Application", "Page 1");
+
+  const introText = `Make checks payable to "Baltimore County, Maryland." Applicants for annual permits must read the information stated below and correct where necessary. The application must be signed by the owner/operator. A late fee of $14.00 per day (Monday through Friday) is due with applications filed after March 31st.`;
+  for (const line of wrapText(introText, font, 8, R - L)) { c.text(L, y, line, { size: 8, color: MUTED }); y += 10.5; }
+  y += 10;
+
+  const rowH = 26;
+  fieldRow(c, L, y, (R - L) * 0.7, rowH, "TRADE NAME", data.businessName);
+  fieldRow(c, L + (R - L) * 0.7, y, (R - L) * 0.3, rowH, "FACILITY ID", county.facilityId || ""); y += rowH;
+  const cityStateZip = [data.city, data.state].filter(Boolean).join(", ");
+  fieldRow(c, L, y, (R - L) * 0.72, rowH, "ADDRESS", [data.streetAddress, cityStateZip].filter(Boolean).join(", "));
+  fieldRow(c, L + (R - L) * 0.72, y, (R - L) * 0.28, rowH, "ZIP CODE", data.zipCode || ""); y += rowH;
+  fieldRow(c, L, y, (R - L) * 0.5, rowH, "TELEPHONE #", data.phone || "");
+  fieldRow(c, L + (R - L) * 0.5, y, (R - L) * 0.5, rowH, "E-MAIL ADDRESS", data.email || ""); y += rowH;
+  fieldRow(c, L, y, (R - L) * 0.5, rowH, "CATERING SERVICE PROVIDED?", county.cateringServiceProvided ? "Yes" : "No");
+  fieldRow(c, L + (R - L) * 0.5, y, (R - L) * 0.5, rowH, "CATERING ID #", county.cateringId || ""); y += rowH;
+  fieldRow(c, L, y, (R - L) * 0.5, rowH, "FACILITY CLASSIFICATION", county.facilityClassification || "");
+  fieldRow(c, L + (R - L) * 0.5, y, (R - L) * 0.5, rowH, "TYPE OF FACILITY", app.facilityTypeOverride || data.businessTypeLabel); y += rowH;
+  fieldRow(c, L, y, (R - L) / 3, rowH, "NUMBER OF SEATS", county.numberOfSeats || "");
+  fieldRow(c, L + (R - L) / 3, y, (R - L) / 3, rowH, "WATER SERVICE", county.waterService || "");
+  fieldRow(c, L + (2 * (R - L)) / 3, y, (R - L) / 3, rowH, "SEWAGE DISPOSAL", county.sewageDisposal || ""); y += rowH;
+
+  y += 4;
+  c.text(L, y, "Major changes in the menu during the year?", { size: 8.5, bold: true });
+  c.checkbox(L + 220, y - 8, Boolean(county.majorMenuChanges)); c.text(L + 236, y, "YES", { size: 8.5 });
+  c.checkbox(L + 270, y - 8, county.majorMenuChanges === false); c.text(L + 286, y, "NO", { size: 8.5 });
+  y += 18;
+
+  c.text(L, y, "Personnel with a Baltimore County Certified Food Manager Identification Card:", { size: 8.5, bold: true });
+  y += 12;
+  const managers = county.certifiedFoodManagers && county.certifiedFoodManagers.length ? county.certifiedFoodManagers : [{}, {}];
+  for (const mgr of managers.slice(0, 4)) {
+    const line = [mgr.name, mgr.idNumber ? `ID: ${mgr.idNumber}` : "", mgr.expirationDate ? `Exp: ${mgr.expirationDate}` : ""].filter(Boolean).join("   —   ");
+    c.text(L, y, line || "________________________________________________________________", { size: 8.5, color: line ? undefined : MUTED });
+    y += 13;
+  }
+  y += 6;
+
+  fieldRow(c, L, y, (R - L) / 3, rowH, "DAYS OF OPERATION", county.daysOfOperation || "");
+  fieldRow(c, L + (R - L) / 3, y, (R - L) / 3, rowH, "HOURS OF OPERATION", county.hoursOfOperation || "");
+  fieldRow(c, L + (2 * (R - L)) / 3, y, (R - L) / 3, rowH, "NO. OF EMPLOYEES", county.numberOfEmployees || ""); y += rowH + 6;
+
+  if (y > PAGE_H - 220) { ({ page, c } = newPage(doc, font, bold)); drawFooter(c, "Baltimore County Department of Health", "Food Service Facility Permit Application", "Page 2"); y = 48; }
+
+  c.text(L, y, "OWNER", { size: 9, bold: true, color: TEAL }); y += 4;
+  c.line(L, y, R, y, LINE, 0.75); y += 12;
+  fieldRow(c, L, y, (R - L) * 0.72, rowH, "NAME", data.contactPerson || "");
+  fieldRow(c, L + (R - L) * 0.72, y, (R - L) * 0.28, rowH, "ZIP CODE", app.ownerHomeZip || ""); y += rowH;
+  const ownerAddr = [app.ownerHomeStreet, app.ownerHomeCity].filter(Boolean).join(", ");
+  fieldRow(c, L, y, (R - L) * 0.72, rowH, "ADDRESS", ownerAddr);
+  fieldRow(c, L + (R - L) * 0.72, y, (R - L) * 0.28, rowH, "TELEPHONE", app.ownerHomePhone || ""); y += rowH;
+  if (county.residentAgentName) {
+    fieldRow(c, L, y, (R - L) * 0.72, rowH, "RESIDENT AGENT (if out of state)", county.residentAgentName);
+    fieldRow(c, L + (R - L) * 0.72, y, (R - L) * 0.28, rowH, "TELEPHONE", county.residentAgentPhone || ""); y += rowH;
+  }
+  y += 8;
+
+  fieldRow(c, L, y, (R - L) * 0.72, rowH, "APPLICANT'S NAME", data.contactPerson || "");
+  fieldRow(c, L + (R - L) * 0.72, y, (R - L) * 0.28, rowH, "TELEPHONE", data.phone || ""); y += rowH + 8;
+
+  c.text(L, y, "Send correspondence to:", { size: 8.5, bold: true });
+  c.checkbox(L + 130, y - 8, county.sendCorrespondenceTo !== "owner"); c.text(L + 146, y, "Trade Name Address", { size: 8.5 });
+  c.checkbox(L + 280, y - 8, county.sendCorrespondenceTo === "owner"); c.text(L + 296, y, "Owner Address", { size: 8.5 });
+  y += 20;
+
+  c.rect(L, y, R - L, 14, TEAL_TINT);
+  c.text(PAGE_W / 2, y + 10, "FEE STATEMENT (OFFICE USE)", { size: 8, bold: true, align: "center" });
+  y += 18;
+  c.text(L, y, "Invoice No. ____________   Program ID ____________   Program/Element ________________________   Amount Due $__________   Due By __________", { size: 7.5, color: MUTED });
+  y += 20;
+
+  drawSignatureBlock(c, y, data.contactPerson || "", app.officerTitle || "");
+
+  return doc.save();
+}
+
+/**
+ * Baltimore County has no separate fillable "Plan Review Application" the
+ * way Baltimore City does — its real process (per the County's own published
+ * "Guidelines for Retail Food Establishment Plans Review Submittals") is to
+ * submit the permit application above plus supporting materials to one of
+ * two County offices depending on the scope of work. This renders that real
+ * guidance rather than a fabricated application form.
+ */
+export async function generateCountyPlansReviewGuidePdf(data: LicensePdfInput): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const L = 48, R = PAGE_W - 48;
+
+  const { c } = newPage(doc, font, bold);
+  let y = drawHeader(c, COUNTY_DEPT, "PLANS REVIEW SUBMISSION GUIDE", COUNTY_DEPT_LINES, "");
+  drawFooter(c, "Baltimore County Department of Health", "Plans Review Submission Guide", "Page 1");
+
+  c.rect(L, y, R - L, 60, TEAL_TINT);
+  c.text(L + 12, y + 18, data.businessName, { size: 12, bold: true });
+  c.text(L + 12, y + 34, facilityTypeLine(data), { size: 9, color: TEAL, bold: true });
+  const addrLine = [data.streetAddress, [data.city, data.state, data.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+  if (addrLine) c.text(L + 12, y + 48, addrLine, { size: 9 });
+  y += 76;
+
+  const intro = "Baltimore County requires properly prepared plans to be submitted and approved before a person constructs, remodels, alters, or converts a building for use as a food establishment (COBCR 1.01.01, COMAR 10.15.03, Baltimore County Code §35-2-201, and §21-321 of the Health-General Article of the Annotated Code of Maryland).";
+  for (const line of wrapText(intro, font, 8.5, R - L)) { c.text(L, y, line, { size: 8.5 }); y += 11.5; }
+  y += 12;
+
+  c.text(L, y, "WHERE TO SUBMIT", { size: 10.5, bold: true, color: TEAL }); y += 8;
+  c.line(L, y, R, y, LINE, 0.75); y += 14;
+  c.text(L, y, "New construction and/or remodeling (building permit required):", { size: 8.5, bold: true }); y += 12;
+  for (const line of ["Baltimore County Department of Permits, Approval, and Inspections", "Building Inspections", "111 W. Chesapeake Avenue, Room 100, Towson, Maryland 21204"]) { c.text(L + 12, y, line, { size: 8.5, color: MUTED }); y += 11; }
+  y += 8;
+  c.text(L, y, "Equipment review only (alterations/changes not requiring a building permit):", { size: 8.5, bold: true }); y += 12;
+  for (const line of ["Baltimore County Department of Health", "Division of Environmental Health Services", "6401 York Road, Third Floor, Baltimore, Maryland 21212"]) { c.text(L + 12, y, line, { size: 8.5, color: MUTED }); y += 11; }
+  y += 14;
+
+  c.text(L, y, "MATERIALS NEEDED FOR PLANS REVIEW", { size: 10.5, bold: true, color: TEAL }); y += 8;
+  c.line(L, y, R, y, LINE, 0.75); y += 14;
+  for (const item of ["One set of plans (architectural, plumbing, mechanical, electrical) with a finish schedule, air balance schedule, and scaled/labeled fixture layout", "Menu", "HACCP plan", "Equipment cut sheets"]) {
+    c.text(L, y, "•", { size: 8.5 });
+    const lines = wrapText(item, font, 8.5, R - L - 14);
+    lines.forEach((line, i) => c.text(L + 14, y + i * 11, line, { size: 8.5 }));
+    y += Math.max(11, lines.length * 11) + 4;
+  }
+  y += 8;
+
+  c.text(L, y, "KEY REQUIREMENTS AT A GLANCE", { size: 10.5, bold: true, color: TEAL }); y += 8;
+  c.line(L, y, R, y, LINE, 0.75); y += 14;
+  const highlights = [
+    "Equipment must have NSF or equivalent certification; floor-mounted equipment needs casters or legs.",
+    "An easily accessible hand sink is required for each food preparation, serving, or utensil-washing area.",
+    "Each compartment of a multi-compartment sink must drain independently to a properly sized floor sink through an approved air gap.",
+    "Acceptable floor finishes in food/utensil areas: sealed concrete, ceramic/porcelain/quarry tile, epoxy resin.",
+    "Lighting in food storage/prep/utensil-washing areas must be a minimum of 20 foot-candles at 30 inches off the floor, and shielded or shatterproof.",
+    "Doors to the exterior and to restrooms must be self-closing.",
+    "Shelves over cooking equipment are not allowed.",
+  ];
+  for (const item of highlights) {
+    c.text(L, y, "•", { size: 8.5 });
+    const lines = wrapText(item, font, 8.5, R - L - 14);
+    lines.forEach((line, i) => c.text(L + 14, y + i * 11, line, { size: 8.5 }));
+    y += Math.max(11, lines.length * 11) + 4;
+  }
+  y += 6;
+  c.text(L, y, "Full technical requirements: Guidelines for Retail Food Establishment Plans Review Submittals, Baltimore County Department of Health.", { size: 7.5, color: MUTED });
+
+  return doc.save();
+}
+
+function facilityTypeLine(data: LicensePdfInput): string {
+  return `${data.applicationData?.facilityTypeOverride || data.businessTypeLabel} — Risk Priority: ${data.riskPriority}`;
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {

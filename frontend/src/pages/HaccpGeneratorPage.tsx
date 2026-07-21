@@ -14,6 +14,15 @@ interface HaccpPlanRow {
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
   created_at: string; updated_at: string;
 }
+interface EquipmentSelection { key: string; label: string; quantity: number }
+interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
+interface CountyPermitData {
+  facilityId?: string; cateringServiceProvided?: boolean; cateringId?: string; facilityClassification?: string;
+  numberOfSeats?: string; waterService?: string; sewageDisposal?: string; majorMenuChanges?: boolean;
+  certifiedFoodManagers?: CertifiedFoodManager[];
+  daysOfOperation?: string; hoursOfOperation?: string; numberOfEmployees?: string;
+  residentAgentName?: string; residentAgentPhone?: string; sendCorrespondenceTo?: "trade" | "owner";
+}
 interface LicenseApplicationData {
   officerTitle?: string; tradeName?: string;
   ownerHomeStreet?: string; ownerHomeCity?: string; ownerHomeZip?: string; ownerHomePhone?: string;
@@ -22,11 +31,12 @@ interface LicenseApplicationData {
   sellsTobacco?: boolean; tobaccoLicenseNumber?: string;
   ownerEntityType?: "Incorporated" | "LLC" | "Other";
   useAndOccupancyNumber?: string; permitsApplied?: string[]; facilityTypeOverride?: string;
+  county?: CountyPermitData;
 }
 interface HaccpPlanDetail extends HaccpPlanRow {
   street_address: string | null; zip_code: string | null; phone: string | null; email: string | null;
   contact_person: string | null; license_number: string | null;
-  selected_menu_items: string[]; selected_equipment: string[]; rendered_body: string;
+  selected_menu_items: string[]; selected_equipment: EquipmentSelection[]; rendered_body: string;
   license_application_data: LicenseApplicationData | null;
 }
 
@@ -45,6 +55,12 @@ const EMPTY_LICENSE_FORM: LicenseApplicationData = {
   sellsTobacco: false, tobaccoLicenseNumber: "",
   ownerEntityType: "LLC",
   useAndOccupancyNumber: "", permitsApplied: ["retailFood"], facilityTypeOverride: "",
+  county: {
+    facilityId: "", cateringServiceProvided: false, cateringId: "", facilityClassification: "",
+    numberOfSeats: "", waterService: "Public", sewageDisposal: "Public", majorMenuChanges: false,
+    certifiedFoodManagers: [], daysOfOperation: "", hoursOfOperation: "", numberOfEmployees: "",
+    residentAgentName: "", residentAgentPhone: "", sendCorrespondenceTo: "trade",
+  },
 };
 
 const PERMIT_OPTIONS: { key: string; label: string }[] = [
@@ -77,7 +93,9 @@ export function HaccpGeneratorPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [licenseForm, setLicenseForm] = useState<LicenseApplicationData>(EMPTY_LICENSE_FORM);
   const [selectedMenu, setSelectedMenu] = useState<Set<string>>(new Set());
-  const [selectedEquipment, setSelectedEquipment] = useState<Set<string>>(new Set());
+  const [selectedEquipment, setSelectedEquipment] = useState<EquipmentSelection[]>([]);
+  const [customMenuInput, setCustomMenuInput] = useState("");
+  const [customEquipmentInput, setCustomEquipmentInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -102,8 +120,47 @@ export function HaccpGeneratorPage() {
   function toggleMenu(key: string) {
     setSelectedMenu((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
   }
-  function toggleEquipment(key: string) {
-    setSelectedEquipment((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  function removeMenuItem(value: string) {
+    setSelectedMenu((prev) => { const next = new Set(prev); next.delete(value); return next; });
+  }
+  function addCustomMenuItem() {
+    const value = customMenuInput.trim();
+    if (!value) return;
+    setSelectedMenu((prev) => new Set(prev).add(value));
+    setCustomMenuInput("");
+  }
+  const knownMenuKeys = useMemo(() => new Set((options?.menuCategories || []).flatMap((cat) => cat.items.map((i) => i.key))), [options]);
+  const customMenuItems = Array.from(selectedMenu).filter((v) => !knownMenuKeys.has(v));
+
+  function toggleEquipment(key: string, label: string) {
+    setSelectedEquipment((prev) => prev.some((e) => e.key === key) ? prev.filter((e) => e.key !== key) : [...prev, { key, label, quantity: 1 }]);
+  }
+  function setEquipmentQuantity(key: string, quantity: number) {
+    setSelectedEquipment((prev) => prev.map((e) => (e.key === key ? { ...e, quantity: Math.max(1, Math.floor(quantity) || 1) } : e)));
+  }
+  function removeEquipmentItem(key: string) {
+    setSelectedEquipment((prev) => prev.filter((e) => e.key !== key));
+  }
+  function addCustomEquipmentItem() {
+    const label = customEquipmentInput.trim();
+    if (!label) return;
+    setSelectedEquipment((prev) => [...prev, { key: `custom-${Date.now()}-${Math.floor(Math.random() * 1000)}`, label, quantity: 1 }]);
+    setCustomEquipmentInput("");
+  }
+  const knownEquipmentKeys = useMemo(() => new Set((options?.equipmentItems || []).map((i) => i.key)), [options]);
+  const customEquipmentItems = selectedEquipment.filter((e) => !knownEquipmentKeys.has(e.key));
+
+  function addManager() {
+    setLicenseForm((f) => ({ ...f, county: { ...f.county, certifiedFoodManagers: [...(f.county?.certifiedFoodManagers || []), { name: "", idNumber: "", expirationDate: "" }] } }));
+  }
+  function updateManager(index: number, patch: Partial<CertifiedFoodManager>) {
+    setLicenseForm((f) => ({
+      ...f,
+      county: { ...f.county, certifiedFoodManagers: (f.county?.certifiedFoodManagers || []).map((m, i) => (i === index ? { ...m, ...patch } : m)) },
+    }));
+  }
+  function removeManager(index: number) {
+    setLicenseForm((f) => ({ ...f, county: { ...f.county, certifiedFoodManagers: (f.county?.certifiedFoodManagers || []).filter((_, i) => i !== index) } }));
   }
 
   function loadPlanIntoForm(plan: HaccpPlanDetail) {
@@ -114,8 +171,8 @@ export function HaccpGeneratorPage() {
       licenseNumber: plan.license_number || "", clientId: plan.client_id || "",
     });
     setSelectedMenu(new Set(plan.selected_menu_items || []));
-    setSelectedEquipment(new Set(plan.selected_equipment || []));
-    setLicenseForm({ ...EMPTY_LICENSE_FORM, ...(plan.license_application_data || {}) });
+    setSelectedEquipment(plan.selected_equipment || []);
+    setLicenseForm({ ...EMPTY_LICENSE_FORM, ...(plan.license_application_data || {}), county: { ...EMPTY_LICENSE_FORM.county, ...(plan.license_application_data?.county || {}) } });
     setSavedPlanId(plan.plan_id);
     setTab("generate");
   }
@@ -144,7 +201,7 @@ export function HaccpGeneratorPage() {
       streetAddress: form.street, city: form.city, state: "MD", zipCode: form.zip,
       phone: form.phone, email: form.email, contactPerson: form.contactPerson, licenseNumber: form.licenseNumber,
       clientId: form.clientId || null,
-      selectedMenuItems: Array.from(selectedMenu), selectedEquipment: Array.from(selectedEquipment),
+      selectedMenuItems: Array.from(selectedMenu), selectedEquipment,
       licenseApplicationData: licenseForm,
     };
     try {
@@ -169,7 +226,7 @@ export function HaccpGeneratorPage() {
     setForm(EMPTY_FORM);
     setLicenseForm(EMPTY_LICENSE_FORM);
     setSelectedMenu(new Set());
-    setSelectedEquipment(new Set());
+    setSelectedEquipment([]);
     setSavedPlanId(null);
     setError(null);
   }
@@ -218,8 +275,8 @@ export function HaccpGeneratorPage() {
                       <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>License App</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>Plan Review App</button>
+                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
+                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
                       </td>
                     </tr>
                   ))}
@@ -282,7 +339,7 @@ export function HaccpGeneratorPage() {
           </div>
 
           <div className="form-section-title">Menu Items</div>
-          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan.</p>
+          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.</p>
           {menuCategoriesToShow.map((cat) => (
             <div key={cat.category} style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{cat.category}</div>
@@ -296,21 +353,68 @@ export function HaccpGeneratorPage() {
               </div>
             </div>
           ))}
+          {customMenuItems.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Added Items</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
+                {customMenuItems.map((value) => (
+                  <span key={value} className="quick-tab active" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, padding: "3px 8px" }}>
+                    {value}
+                    <button type="button" onClick={() => removeMenuItem(value)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1 }} aria-label={`Remove ${value}`}>×</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <input value={customMenuInput} onChange={(e) => setCustomMenuInput(e.target.value)} placeholder="e.g. Rotisserie Chicken" style={{ maxWidth: 240, padding: "6px 10px" }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomMenuItem(); } }} />
+            <button type="button" className="btn btn-sm" onClick={addCustomMenuItem}>Add Item</button>
+          </div>
 
           <div className="form-section-title">Equipment</div>
-          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every piece of equipment on site.</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginBottom: 16 }}>
-            {options?.equipmentItems.map((item) => (
-              <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                <input type="checkbox" checked={selectedEquipment.has(item.key)} onChange={() => toggleEquipment(item.key)} />
-                {item.label}
-              </label>
-            ))}
+          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every piece of equipment on site — set a quantity if there's more than one. Not on the list? Type it below and add it.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 10 }}>
+            {options?.equipmentItems.map((item) => {
+              const selected = selectedEquipment.find((e) => e.key === item.key);
+              return (
+                <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={Boolean(selected)} onChange={() => toggleEquipment(item.key, item.label)} />
+                    {item.label}
+                  </label>
+                  {selected && (
+                    <input type="number" min={1} value={selected.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {customEquipmentItems.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Added Items</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px" }}>
+                {customEquipmentItems.map((item) => (
+                  <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <span>{item.label}</span>
+                    <input type="number" min={1} value={item.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
+                    <button type="button" onClick={() => removeEquipmentItem(item.key)} style={{ background: "none", border: "none", color: "var(--muted-fg, #6b7280)", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }} aria-label={`Remove ${item.label}`}>×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <input value={customEquipmentInput} onChange={(e) => setCustomEquipmentInput(e.target.value)} placeholder="e.g. Panini Press" style={{ maxWidth: 240, padding: "6px 10px" }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomEquipmentItem(); } }} />
+            <button type="button" className="btn btn-sm" onClick={addCustomEquipmentItem}>Add Item</button>
           </div>
 
           <div className="form-section-title">License &amp; Permit Applications</div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-            Fills the Baltimore City Food Facility License Application and Plan Review Application — together with the HACCP plan above, these three documents are the whole submission package.
+            {form.jurisdiction === "Baltimore County"
+              ? "Fills the Baltimore County Food Service Facility Permit Application — together with the HACCP plan above and the Plans Review Submission Guide, this is the whole package. Baltimore County has no separate fillable \"Plan Review Application\"; its real process is to submit this permit application plus the plans/HACCP plan/equipment cut sheets to the office named in the guide."
+              : "Fills the Baltimore City Food Facility License Application and Plan Review Application — together with the HACCP plan above, these three documents are the whole submission package."}
           </p>
           <div className="form-grid-3">
             <div className="field"><label htmlFor="hp-officer-title">Officer/Owner Title</label><input id="hp-officer-title" value={licenseForm.officerTitle} onChange={(e) => setLicenseForm((f) => ({ ...f, officerTitle: e.target.value }))} placeholder="e.g. Owner" /></div>
@@ -335,49 +439,112 @@ export function HaccpGeneratorPage() {
             <div className="field"><label htmlFor="hp-facility-type">Facility Type (Plan Review App)</label><input id="hp-facility-type" value={licenseForm.facilityTypeOverride} onChange={(e) => setLicenseForm((f) => ({ ...f, facilityTypeOverride: e.target.value }))} placeholder={businessType?.label || "Defaults to Business Type"} /></div>
           </div>
 
-          <div className="field" style={{ marginBottom: 12 }}>
-            <label>Waste Hauler Service</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "under3"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "under3" }))} />
-                3 or fewer 32-gallon trash receptacles per week
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "contract"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "contract" }))} />
-                More than 3, with a licensed waste hauler contract
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "smallHauler"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "smallHauler" }))} />
-                More than 3, with a small hauler license
-                {licenseForm.wasteHaulerOption === "smallHauler" && (
-                  <input value={licenseForm.smallHaulerLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, smallHaulerLicenseNumber: e.target.value }))} placeholder="License #" style={{ marginLeft: 8, width: 140, padding: "3px 8px" }} />
-                )}
-              </label>
-            </div>
-          </div>
+          {form.jurisdiction === "Baltimore City" && (
+            <>
+              <div className="field" style={{ marginBottom: 12 }}>
+                <label>Waste Hauler Service</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "under3"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "under3" }))} />
+                    3 or fewer 32-gallon trash receptacles per week
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "contract"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "contract" }))} />
+                    More than 3, with a licensed waste hauler contract
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "smallHauler"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "smallHauler" }))} />
+                    More than 3, with a small hauler license
+                    {licenseForm.wasteHaulerOption === "smallHauler" && (
+                      <input value={licenseForm.smallHaulerLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, smallHaulerLicenseNumber: e.target.value }))} placeholder="License #" style={{ marginLeft: 8, width: 140, padding: "3px 8px" }} />
+                    )}
+                  </label>
+                </div>
+              </div>
 
-          <div className="field" style={{ marginBottom: 12 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, textTransform: "none", fontSize: 13 }}>
-              <input type="checkbox" checked={Boolean(licenseForm.sellsTobacco)} onChange={(e) => setLicenseForm((f) => ({ ...f, sellsTobacco: e.target.checked }))} style={{ width: "auto" }} />
-              This business sells tobacco/electronic smoking products
-            </label>
-            {licenseForm.sellsTobacco && (
-              <input value={licenseForm.tobaccoLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, tobaccoLicenseNumber: e.target.value }))} placeholder="MD tobacco license # (if known)" style={{ marginTop: 6, maxWidth: 260 }} />
-            )}
-          </div>
-
-          <div className="field" style={{ marginBottom: 16 }}>
-            <label>Permits Applied For (Plan Review App)</label>
-            <div className="field"><label htmlFor="hp-uo-number" style={{ textTransform: "none", fontSize: 12 }}>Use and Occupancy — Use Number</label><input id="hp-uo-number" value={licenseForm.useAndOccupancyNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, useAndOccupancyNumber: e.target.value }))} placeholder="Optional" style={{ maxWidth: 260 }} /></div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 6 }}>
-              {PERMIT_OPTIONS.map((p) => (
-                <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                  <input type="checkbox" checked={(licenseForm.permitsApplied || []).includes(p.key)} onChange={() => togglePermit(p.key)} />
-                  {p.label}
+              <div className="field" style={{ marginBottom: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, textTransform: "none", fontSize: 13 }}>
+                  <input type="checkbox" checked={Boolean(licenseForm.sellsTobacco)} onChange={(e) => setLicenseForm((f) => ({ ...f, sellsTobacco: e.target.checked }))} style={{ width: "auto" }} />
+                  This business sells tobacco/electronic smoking products
                 </label>
-              ))}
-            </div>
-          </div>
+                {licenseForm.sellsTobacco && (
+                  <input value={licenseForm.tobaccoLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, tobaccoLicenseNumber: e.target.value }))} placeholder="MD tobacco license # (if known)" style={{ marginTop: 6, maxWidth: 260 }} />
+                )}
+              </div>
+
+              <div className="field" style={{ marginBottom: 16 }}>
+                <label>Permits Applied For (Plan Review App)</label>
+                <div className="field"><label htmlFor="hp-uo-number" style={{ textTransform: "none", fontSize: 12 }}>Use and Occupancy — Use Number</label><input id="hp-uo-number" value={licenseForm.useAndOccupancyNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, useAndOccupancyNumber: e.target.value }))} placeholder="Optional" style={{ maxWidth: 260 }} /></div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 6 }}>
+                  {PERMIT_OPTIONS.map((p) => (
+                    <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                      <input type="checkbox" checked={(licenseForm.permitsApplied || []).includes(p.key)} onChange={() => togglePermit(p.key)} />
+                      {p.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {form.jurisdiction === "Baltimore County" && (
+            <>
+              <div className="form-grid-3">
+                <div className="field"><label htmlFor="hp-facility-class">Facility Classification</label><input id="hp-facility-class" value={licenseForm.county?.facilityClassification} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, facilityClassification: e.target.value } }))} placeholder="e.g. Retail Food Store" /></div>
+                <div className="field"><label htmlFor="hp-seats">Number of Seats Provided</label><input id="hp-seats" value={licenseForm.county?.numberOfSeats} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, numberOfSeats: e.target.value } }))} placeholder="0 if none" /></div>
+                <div className="field"><label htmlFor="hp-employees">No. of Employees</label><input id="hp-employees" value={licenseForm.county?.numberOfEmployees} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, numberOfEmployees: e.target.value } }))} /></div>
+              </div>
+              <div className="form-grid-3">
+                <div className="field"><label htmlFor="hp-water">Water Service</label><input id="hp-water" value={licenseForm.county?.waterService} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, waterService: e.target.value } }))} placeholder="e.g. Public" /></div>
+                <div className="field"><label htmlFor="hp-sewage">Sewage Disposal</label><input id="hp-sewage" value={licenseForm.county?.sewageDisposal} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, sewageDisposal: e.target.value } }))} placeholder="e.g. Public" /></div>
+                <div className="field"><label htmlFor="hp-days">Days of Operation</label><input id="hp-days" value={licenseForm.county?.daysOfOperation} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, daysOfOperation: e.target.value } }))} placeholder="e.g. Mon–Sat" /></div>
+              </div>
+              <div className="form-grid-3">
+                <div className="field"><label htmlFor="hp-hours">Hours of Operation</label><input id="hp-hours" value={licenseForm.county?.hoursOfOperation} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, hoursOfOperation: e.target.value } }))} placeholder="e.g. 7am–9pm" /></div>
+                <div className="field"><label htmlFor="hp-facility-type-county">Facility Type (Plans Review Guide)</label><input id="hp-facility-type-county" value={licenseForm.facilityTypeOverride} onChange={(e) => setLicenseForm((f) => ({ ...f, facilityTypeOverride: e.target.value }))} placeholder={businessType?.label || "Defaults to Business Type"} /></div>
+                <div className="field">
+                  <label htmlFor="hp-correspondence">Send Correspondence To</label>
+                  <select id="hp-correspondence" value={licenseForm.county?.sendCorrespondenceTo} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, sendCorrespondenceTo: e.target.value as CountyPermitData["sendCorrespondenceTo"] } }))}>
+                    <option value="trade">Trade Name Address</option>
+                    <option value="owner">Owner Address</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  <input type="checkbox" checked={Boolean(licenseForm.county?.cateringServiceProvided)} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, cateringServiceProvided: e.target.checked } }))} />
+                  Catering service provided
+                </label>
+                {licenseForm.county?.cateringServiceProvided && (
+                  <input value={licenseForm.county?.cateringId} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, cateringId: e.target.value } }))} placeholder="Catering ID #" style={{ width: 160, padding: "3px 8px" }} />
+                )}
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  <input type="checkbox" checked={Boolean(licenseForm.county?.majorMenuChanges)} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, majorMenuChanges: e.target.checked } }))} />
+                  Major menu changes during the year
+                </label>
+              </div>
+
+              <div className="field" style={{ marginBottom: 12 }}>
+                <label>Certified Food Managers (Baltimore County ID)</label>
+                {(licenseForm.county?.certifiedFoodManagers || []).map((mgr, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                    <input value={mgr.name} onChange={(e) => updateManager(i, { name: e.target.value })} placeholder="Name" style={{ flex: 2 }} />
+                    <input value={mgr.idNumber} onChange={(e) => updateManager(i, { idNumber: e.target.value })} placeholder="County ID #" style={{ flex: 1 }} />
+                    <input value={mgr.expirationDate} onChange={(e) => updateManager(i, { expirationDate: e.target.value })} placeholder="Expiration" style={{ flex: 1 }} />
+                    <button type="button" className="btn btn-sm" onClick={() => removeManager(i)}>Remove</button>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-sm" onClick={addManager}>Add Manager</button>
+              </div>
+
+              <div className="form-grid-3" style={{ marginBottom: 16 }}>
+                <div className="field"><label htmlFor="hp-resident-agent">Resident Agent (if out of state)</label><input id="hp-resident-agent" value={licenseForm.county?.residentAgentName} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, residentAgentName: e.target.value } }))} placeholder="Optional" /></div>
+                <div className="field"><label htmlFor="hp-resident-agent-phone">Resident Agent Phone</label><input id="hp-resident-agent-phone" value={licenseForm.county?.residentAgentPhone} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, residentAgentPhone: e.target.value } }))} placeholder="Optional" /></div>
+                <div className="field"><label htmlFor="hp-facility-id">Facility ID (if known)</label><input id="hp-facility-id" value={licenseForm.county?.facilityId} onChange={(e) => setLicenseForm((f) => ({ ...f, county: { ...f.county, facilityId: e.target.value } }))} placeholder="Assigned by the County" /></div>
+              </div>
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.planId ? "Save & Regenerate" : "Generate Plan"}</button>
@@ -385,11 +552,11 @@ export function HaccpGeneratorPage() {
               <>
                 <span className="muted" style={{ fontSize: 12 }}>The whole package:</span>
                 <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>Food License Application</button>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>Plan Review Application</button>
+                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}</button>
+                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `HACCP_${savedPlanId}.pdf`)}>Download HACCP</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `FoodLicenseApplication_${savedPlanId}.pdf`)}>Download License App</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `PlanReviewApplication_${savedPlanId}.pdf`)}>Download Plan Review App</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${form.jurisdiction === "Baltimore County" ? "FoodServicePermitApplication" : "FoodLicenseApplication"}_${savedPlanId}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${form.jurisdiction === "Baltimore County" ? "PlansReviewGuide" : "PlanReviewApplication"}_${savedPlanId}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
               </>
             )}
           </div>
