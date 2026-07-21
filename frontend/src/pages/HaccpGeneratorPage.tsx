@@ -14,10 +14,20 @@ interface HaccpPlanRow {
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
   created_at: string; updated_at: string;
 }
+interface LicenseApplicationData {
+  officerTitle?: string; tradeName?: string;
+  ownerHomeStreet?: string; ownerHomeCity?: string; ownerHomeZip?: string; ownerHomePhone?: string;
+  mailingAddress?: string;
+  wasteHaulerOption?: "under3" | "contract" | "smallHauler"; smallHaulerLicenseNumber?: string;
+  sellsTobacco?: boolean; tobaccoLicenseNumber?: string;
+  ownerEntityType?: "Incorporated" | "LLC" | "Other";
+  useAndOccupancyNumber?: string; permitsApplied?: string[]; facilityTypeOverride?: string;
+}
 interface HaccpPlanDetail extends HaccpPlanRow {
   street_address: string | null; zip_code: string | null; phone: string | null; email: string | null;
   contact_person: string | null; license_number: string | null;
   selected_menu_items: string[]; selected_equipment: string[]; rendered_body: string;
+  license_application_data: LicenseApplicationData | null;
 }
 
 const JURISDICTIONS = ["Baltimore City", "Baltimore County"];
@@ -26,6 +36,26 @@ const EMPTY_FORM = {
   planId: "" as string, businessName: "", businessTypeKey: "", jurisdiction: "Baltimore City",
   street: "", city: "", zip: "", phone: "", email: "", contactPerson: "", licenseNumber: "", clientId: "",
 };
+
+const EMPTY_LICENSE_FORM: LicenseApplicationData = {
+  officerTitle: "Owner", tradeName: "",
+  ownerHomeStreet: "", ownerHomeCity: "", ownerHomeZip: "", ownerHomePhone: "",
+  mailingAddress: "",
+  wasteHaulerOption: "under3", smallHaulerLicenseNumber: "",
+  sellsTobacco: false, tobaccoLicenseNumber: "",
+  ownerEntityType: "LLC",
+  useAndOccupancyNumber: "", permitsApplied: ["retailFood"], facilityTypeOverride: "",
+};
+
+const PERMIT_OPTIONS: { key: string; label: string }[] = [
+  { key: "useAndOccupancy", label: "Use and Occupancy" },
+  { key: "zoning", label: "Zoning Permit Application" },
+  { key: "building", label: "Building Permit with Plans" },
+  { key: "occupancy", label: "Occupancy Permit Application" },
+  { key: "liquor", label: "Liquor License Application" },
+  { key: "retailFood", label: "Retail Food Permit Application" },
+  { key: "dayCare", label: "Day Care License Application" },
+];
 
 /**
  * Standalone HACCP food-safety plan generator — not client-scoped (usable for
@@ -45,6 +75,7 @@ export function HaccpGeneratorPage() {
   const [tab, setTab] = useState<"generate" | "saved">("generate");
 
   const [form, setForm] = useState(EMPTY_FORM);
+  const [licenseForm, setLicenseForm] = useState<LicenseApplicationData>(EMPTY_LICENSE_FORM);
   const [selectedMenu, setSelectedMenu] = useState<Set<string>>(new Set());
   const [selectedEquipment, setSelectedEquipment] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -84,8 +115,17 @@ export function HaccpGeneratorPage() {
     });
     setSelectedMenu(new Set(plan.selected_menu_items || []));
     setSelectedEquipment(new Set(plan.selected_equipment || []));
+    setLicenseForm({ ...EMPTY_LICENSE_FORM, ...(plan.license_application_data || {}) });
     setSavedPlanId(plan.plan_id);
     setTab("generate");
+  }
+
+  function togglePermit(key: string) {
+    setLicenseForm((f) => {
+      const set = new Set(f.permitsApplied || []);
+      set.has(key) ? set.delete(key) : set.add(key);
+      return { ...f, permitsApplied: Array.from(set) };
+    });
   }
 
   function reopenForRenewal(planId: string) {
@@ -105,6 +145,7 @@ export function HaccpGeneratorPage() {
       phone: form.phone, email: form.email, contactPerson: form.contactPerson, licenseNumber: form.licenseNumber,
       clientId: form.clientId || null,
       selectedMenuItems: Array.from(selectedMenu), selectedEquipment: Array.from(selectedEquipment),
+      licenseApplicationData: licenseForm,
     };
     try {
       if (form.planId) {
@@ -126,6 +167,7 @@ export function HaccpGeneratorPage() {
 
   function startNew() {
     setForm(EMPTY_FORM);
+    setLicenseForm(EMPTY_LICENSE_FORM);
     setSelectedMenu(new Set());
     setSelectedEquipment(new Set());
     setSavedPlanId(null);
@@ -173,9 +215,11 @@ export function HaccpGeneratorPage() {
                       <td className="muted">{p.jurisdiction}</td>
                       <td className="muted">{p.client_id || "—"}</td>
                       <td className="muted">{new Date(p.updated_at).toLocaleDateString()}</td>
-                      <td style={{ display: "flex", gap: 6 }}>
+                      <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>View PDF</button>
+                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
+                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>License App</button>
+                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>Plan Review App</button>
                       </td>
                     </tr>
                   ))}
@@ -264,12 +308,88 @@ export function HaccpGeneratorPage() {
             ))}
           </div>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="form-section-title">License &amp; Permit Applications</div>
+          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            Fills the Baltimore City Food Facility License Application and Plan Review Application — together with the HACCP plan above, these three documents are the whole submission package.
+          </p>
+          <div className="form-grid-3">
+            <div className="field"><label htmlFor="hp-officer-title">Officer/Owner Title</label><input id="hp-officer-title" value={licenseForm.officerTitle} onChange={(e) => setLicenseForm((f) => ({ ...f, officerTitle: e.target.value }))} placeholder="e.g. Owner" /></div>
+            <div className="field"><label htmlFor="hp-trade-name">Trade Name (DBA)</label><input id="hp-trade-name" value={licenseForm.tradeName} onChange={(e) => setLicenseForm((f) => ({ ...f, tradeName: e.target.value }))} placeholder="Optional" /></div>
+            <div className="field">
+              <label htmlFor="hp-entity-type">Owner Entity Type</label>
+              <select id="hp-entity-type" value={licenseForm.ownerEntityType} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerEntityType: e.target.value as LicenseApplicationData["ownerEntityType"] }))}>
+                <option value="Incorporated">Incorporated</option>
+                <option value="LLC">LLC</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-grid-3">
+            <div className="field"><label htmlFor="hp-owner-street">Owner's Home Address</label><input id="hp-owner-street" value={licenseForm.ownerHomeStreet} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerHomeStreet: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="hp-owner-city">Owner's Home City</label><input id="hp-owner-city" value={licenseForm.ownerHomeCity} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerHomeCity: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="hp-owner-zip">Owner's Home ZIP</label><input id="hp-owner-zip" value={licenseForm.ownerHomeZip} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerHomeZip: e.target.value }))} /></div>
+          </div>
+          <div className="form-grid-3">
+            <div className="field"><label htmlFor="hp-owner-phone">Owner's Home Phone</label><input id="hp-owner-phone" value={licenseForm.ownerHomePhone} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerHomePhone: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="hp-mailing">Mailing Address (if different)</label><input id="hp-mailing" value={licenseForm.mailingAddress} onChange={(e) => setLicenseForm((f) => ({ ...f, mailingAddress: e.target.value }))} placeholder="Optional" /></div>
+            <div className="field"><label htmlFor="hp-facility-type">Facility Type (Plan Review App)</label><input id="hp-facility-type" value={licenseForm.facilityTypeOverride} onChange={(e) => setLicenseForm((f) => ({ ...f, facilityTypeOverride: e.target.value }))} placeholder={businessType?.label || "Defaults to Business Type"} /></div>
+          </div>
+
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label>Waste Hauler Service</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "under3"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "under3" }))} />
+                3 or fewer 32-gallon trash receptacles per week
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "contract"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "contract" }))} />
+                More than 3, with a licensed waste hauler contract
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input type="radio" name="hp-waste" checked={licenseForm.wasteHaulerOption === "smallHauler"} onChange={() => setLicenseForm((f) => ({ ...f, wasteHaulerOption: "smallHauler" }))} />
+                More than 3, with a small hauler license
+                {licenseForm.wasteHaulerOption === "smallHauler" && (
+                  <input value={licenseForm.smallHaulerLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, smallHaulerLicenseNumber: e.target.value }))} placeholder="License #" style={{ marginLeft: 8, width: 140, padding: "3px 8px" }} />
+                )}
+              </label>
+            </div>
+          </div>
+
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, textTransform: "none", fontSize: 13 }}>
+              <input type="checkbox" checked={Boolean(licenseForm.sellsTobacco)} onChange={(e) => setLicenseForm((f) => ({ ...f, sellsTobacco: e.target.checked }))} style={{ width: "auto" }} />
+              This business sells tobacco/electronic smoking products
+            </label>
+            {licenseForm.sellsTobacco && (
+              <input value={licenseForm.tobaccoLicenseNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, tobaccoLicenseNumber: e.target.value }))} placeholder="MD tobacco license # (if known)" style={{ marginTop: 6, maxWidth: 260 }} />
+            )}
+          </div>
+
+          <div className="field" style={{ marginBottom: 16 }}>
+            <label>Permits Applied For (Plan Review App)</label>
+            <div className="field"><label htmlFor="hp-uo-number" style={{ textTransform: "none", fontSize: 12 }}>Use and Occupancy — Use Number</label><input id="hp-uo-number" value={licenseForm.useAndOccupancyNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, useAndOccupancyNumber: e.target.value }))} placeholder="Optional" style={{ maxWidth: 260 }} /></div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 6 }}>
+              {PERMIT_OPTIONS.map((p) => (
+                <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  <input type="checkbox" checked={(licenseForm.permitsApplied || []).includes(p.key)} onChange={() => togglePermit(p.key)} />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.planId ? "Save & Regenerate" : "Generate Plan"}</button>
             {savedPlanId && (
               <>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>View PDF</button>
-                <button type="button" className="btn" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `HACCP_${savedPlanId}.pdf`)}>Download PDF</button>
+                <span className="muted" style={{ fontSize: 12 }}>The whole package:</span>
+                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
+                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>Food License Application</button>
+                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>Plan Review Application</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `HACCP_${savedPlanId}.pdf`)}>Download HACCP</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `FoodLicenseApplication_${savedPlanId}.pdf`)}>Download License App</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `PlanReviewApplication_${savedPlanId}.pdf`)}>Download Plan Review App</button>
               </>
             )}
           </div>

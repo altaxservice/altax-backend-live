@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { generateHaccpPdf } from "./haccpPdf";
+import { generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf, type LicenseApplicationData } from "./licenseApplicationsPdf";
 import {
   HACCP_BUSINESS_TYPES, HACCP_BUSINESS_TYPE_LABEL, HACCP_MENU_CATEGORIES, HACCP_EQUIPMENT_ITEMS,
   GENERAL_HANDLING_KEY, GENERAL_HANDLING_TITLE, GENERAL_HANDLING_BODY, BUILT_IN_HACCP_TEMPLATES,
@@ -128,6 +129,28 @@ interface PlanInput {
   streetAddress?: string; city?: string; state?: string; zipCode?: string;
   phone?: string; email?: string; contactPerson?: string; licenseNumber?: string;
   clientId?: string | null; selectedMenuItems: string[]; selectedEquipment: string[];
+  licenseApplicationData: LicenseApplicationData;
+}
+
+function parseLicenseApplicationData(raw: unknown): LicenseApplicationData {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    officerTitle: String(d.officerTitle || "").trim() || undefined,
+    tradeName: String(d.tradeName || "").trim() || undefined,
+    ownerHomeStreet: String(d.ownerHomeStreet || "").trim() || undefined,
+    ownerHomeCity: String(d.ownerHomeCity || "").trim() || undefined,
+    ownerHomeZip: String(d.ownerHomeZip || "").trim() || undefined,
+    ownerHomePhone: String(d.ownerHomePhone || "").trim() || undefined,
+    mailingAddress: String(d.mailingAddress || "").trim() || undefined,
+    wasteHaulerOption: ["under3", "contract", "smallHauler"].includes(String(d.wasteHaulerOption)) ? (d.wasteHaulerOption as LicenseApplicationData["wasteHaulerOption"]) : undefined,
+    smallHaulerLicenseNumber: String(d.smallHaulerLicenseNumber || "").trim() || undefined,
+    sellsTobacco: Boolean(d.sellsTobacco),
+    tobaccoLicenseNumber: String(d.tobaccoLicenseNumber || "").trim() || undefined,
+    ownerEntityType: ["Incorporated", "LLC", "Other"].includes(String(d.ownerEntityType)) ? (d.ownerEntityType as LicenseApplicationData["ownerEntityType"]) : undefined,
+    useAndOccupancyNumber: String(d.useAndOccupancyNumber || "").trim() || undefined,
+    permitsApplied: Array.isArray(d.permitsApplied) ? d.permitsApplied.map(String) : ["retailFood"],
+    facilityTypeOverride: String(d.facilityTypeOverride || "").trim() || undefined,
+  };
 }
 
 async function renderPlanBody(input: PlanInput): Promise<{ title: string; renderedBody: string } | { error: string }> {
@@ -182,6 +205,7 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : [],
     selectedEquipment: Array.isArray(body.selectedEquipment) ? body.selectedEquipment.map(String) : [],
+    licenseApplicationData: parseLicenseApplicationData(body.licenseApplicationData),
   };
 
   const rendered = await renderPlanBody(input);
@@ -191,12 +215,13 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
   await query(
     `INSERT INTO altax.v3_haccp_plans
        (plan_id, client_id, business_name, business_type_key, jurisdiction, street_address, city, state, zip_code,
-        phone, email, contact_person, license_number, selected_menu_items, selected_equipment, rendered_body, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        phone, email, contact_person, license_number, selected_menu_items, selected_equipment, rendered_body,
+        license_application_data, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
     [planId, clientId, businessName, businessTypeKey, input.jurisdiction, input.streetAddress || null, input.city || null,
      input.state || null, input.zipCode || null, input.phone || null, input.email || null, input.contactPerson || null,
      input.licenseNumber || null, JSON.stringify(input.selectedMenuItems), JSON.stringify(input.selectedEquipment),
-     rendered.renderedBody, req.user!.email]
+     rendered.renderedBody, JSON.stringify(input.licenseApplicationData), req.user!.email]
   );
   await logAudit("Haccp", "GENERATE", planId, "business_type_key", "", businessTypeKey,
     `HACCP plan generated for ${businessName} by ${req.user!.email}.`, req.user!.email);
@@ -231,6 +256,7 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : existing.selected_menu_items || [],
     selectedEquipment: Array.isArray(body.selectedEquipment) ? body.selectedEquipment.map(String) : existing.selected_equipment || [],
+    licenseApplicationData: parseLicenseApplicationData(body.licenseApplicationData !== undefined ? body.licenseApplicationData : existing.license_application_data),
   };
 
   const rendered = await renderPlanBody(input);
@@ -240,12 +266,12 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
     `UPDATE altax.v3_haccp_plans SET
        client_id=$2, business_name=$3, business_type_key=$4, jurisdiction=$5, street_address=$6, city=$7, state=$8,
        zip_code=$9, phone=$10, email=$11, contact_person=$12, license_number=$13, selected_menu_items=$14,
-       selected_equipment=$15, rendered_body=$16, updated_at=now()
+       selected_equipment=$15, rendered_body=$16, license_application_data=$17, updated_at=now()
      WHERE plan_id=$1`,
     [req.params.planId, clientId, businessName, businessTypeKey, input.jurisdiction, input.streetAddress || null,
      input.city || null, input.state || null, input.zipCode || null, input.phone || null, input.email || null,
      input.contactPerson || null, input.licenseNumber || null, JSON.stringify(input.selectedMenuItems),
-     JSON.stringify(input.selectedEquipment), rendered.renderedBody]
+     JSON.stringify(input.selectedEquipment), rendered.renderedBody, JSON.stringify(input.licenseApplicationData)]
   );
   await logAudit("Haccp", "REGENERATE", req.params.planId, "business_type_key", existing.business_type_key, businessTypeKey,
     `HACCP plan updated/regenerated for ${businessName} by ${req.user!.email}.`, req.user!.email);
@@ -272,5 +298,41 @@ haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff")
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="HACCP_${plan.plan_id}.pdf"`);
+  res.send(Buffer.from(bytes));
+}));
+
+function toLicensePdfInput(plan: any) {
+  const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key);
+  return {
+    planId: plan.plan_id,
+    businessName: plan.business_name,
+    businessTypeLabel: HACCP_BUSINESS_TYPE_LABEL[plan.business_type_key] || plan.business_type_key,
+    riskPriority: businessType?.riskPriority || ("Moderate" as const),
+    streetAddress: plan.street_address, city: plan.city, state: plan.state, zipCode: plan.zip_code,
+    phone: plan.phone, email: plan.email, contactPerson: plan.contact_person,
+    applicationData: (plan.license_application_data || {}) as LicenseApplicationData,
+  };
+}
+
+/** The two remaining pieces of "the whole package" alongside the HACCP plan above — the Baltimore City Food Facility License Application and Plan Review Application, modeled on real filed examples. See licenseApplicationsPdf.ts for the Baltimore-City-only caveat. */
+haccpRouter.get("/plans/:planId/license-pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const plan = await loadPlanForUser(req, req.params.planId);
+  if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
+  if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
+
+  const bytes = await generateFoodLicenseApplicationPdf(toLicensePdfInput(plan));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="FoodLicenseApplication_${plan.plan_id}.pdf"`);
+  res.send(Buffer.from(bytes));
+}));
+
+haccpRouter.get("/plans/:planId/plan-review-pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const plan = await loadPlanForUser(req, req.params.planId);
+  if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
+  if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
+
+  const bytes = await generatePlanReviewApplicationPdf(toLicensePdfInput(plan));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="PlanReviewApplication_${plan.plan_id}.pdf"`);
   res.send(Buffer.from(bytes));
 }));

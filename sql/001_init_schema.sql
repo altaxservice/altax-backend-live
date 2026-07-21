@@ -970,6 +970,13 @@ CREATE TABLE IF NOT EXISTS v3_haccp_plans (
     selected_menu_items JSONB NOT NULL DEFAULT '[]',
     selected_equipment JSONB NOT NULL DEFAULT '[]',
     rendered_body TEXT NOT NULL,
+    -- Owner/officer, waste hauler, tobacco licensee, entity type, and
+    -- permits-applied-for fields — only needed by the Food Facility License
+    -- Application and Plan Review Application PDFs (licenseApplicationsPdf.ts),
+    -- not the HACCP plan itself. Kept as one flexible JSONB blob rather than a
+    -- dozen more named columns, same reasoning as selected_menu_items/
+    -- selected_equipment above.
+    license_application_data JSONB NOT NULL DEFAULT '{}',
     created_by VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -977,6 +984,11 @@ CREATE TABLE IF NOT EXISTS v3_haccp_plans (
 );
 CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_client_id ON v3_haccp_plans(client_id);
 CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_business_type_key ON v3_haccp_plans(business_type_key);
+-- ADD COLUMN IF NOT EXISTS so this schema file stays idempotent for a database
+-- where v3_haccp_plans was already created before this column existed (CREATE
+-- TABLE IF NOT EXISTS above is a no-op once the table exists, so re-running
+-- the file alone wouldn't add this column to an already-created table).
+ALTER TABLE v3_haccp_plans ADD COLUMN IF NOT EXISTS license_application_data JSONB NOT NULL DEFAULT '{}';
 
 -- ---- v3_Check_Settings ----
 CREATE TABLE IF NOT EXISTS v3_check_settings (
