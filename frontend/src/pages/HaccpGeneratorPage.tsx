@@ -99,6 +99,7 @@ export function HaccpGeneratorPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
+  const [savingToDocuments, setSavingToDocuments] = useState(false);
 
   const [plans, setPlans] = useState<HaccpPlanRow[] | null>(null);
   const [search, setSearch] = useState("");
@@ -116,6 +117,7 @@ export function HaccpGeneratorPage() {
   useEffect(() => { if (tab === "saved") loadPlans(); }, [tab, search]);
 
   const businessType = options?.businessTypes.find((t) => t.key === form.businessTypeKey) || null;
+  const downloadBaseName = (form.businessName.trim().replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ") || "Business").slice(0, 120);
 
   function toggleMenu(key: string) {
     setSelectedMenu((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
@@ -244,6 +246,20 @@ export function HaccpGeneratorPage() {
     setError(null);
   }
 
+  async function saveToDocuments(planId: string | null = savedPlanId) {
+    if (!planId) return;
+    setSavingToDocuments(true);
+    setError(null);
+    try {
+      await api.post(`/haccp/plans/${planId}/save-to-documents`, {});
+      toast("Saved to the client's Documents.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save to Documents.");
+    } finally {
+      setSavingToDocuments(false);
+    }
+  }
+
   const menuCategoriesToShow = useMemo(() => options?.menuCategories || [], [options]);
 
   return (
@@ -290,6 +306,9 @@ export function HaccpGeneratorPage() {
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
+                        {p.client_id && (
+                          <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments}>Save to Documents</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -576,9 +595,12 @@ export function HaccpGeneratorPage() {
                 <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
                 <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}</button>
                 <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `HACCP_${savedPlanId}.pdf`)}>Download HACCP</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${form.jurisdiction === "Baltimore County" ? "FoodServicePermitApplication" : "FoodLicenseApplication"}_${savedPlanId}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${form.jurisdiction === "Baltimore County" ? "PlansReviewGuide" : "PlanReviewApplication"}_${savedPlanId}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - HACCP Plan.pdf`)}>Download HACCP</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
+                {form.clientId && (
+                  <button type="button" className="btn btn-sm" onClick={saveToDocuments} disabled={savingToDocuments}>{savingToDocuments ? "Saving…" : "Save to Documents"}</button>
+                )}
               </>
             )}
           </div>
