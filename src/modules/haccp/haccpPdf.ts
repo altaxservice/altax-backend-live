@@ -14,7 +14,7 @@
  * and CCP field labels (CCP & EQUIPMENT / MONITORING / CORRECTIVE ACTION /
  * VERIFICATION) so the CCP tables read cleanly instead of as a wall of text.
  */
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, degrees } from "pdf-lib";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -90,8 +90,24 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines.length ? lines : [""];
 }
 
-function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): { page: PDFPage; c: Cursor } {
+/**
+ * Diagonal, low-contrast watermark across the page body (not the margin) —
+ * the footer notice alone survives printing but sits in a strip that's easy
+ * to crop off a photocopy or scan without touching the content; a page's
+ * CCP text is otherwise generic boilerplate with nothing else identifying
+ * which business it belongs to. Overlaying the watermark across the body
+ * means removing it also removes the content, which defeats the point of
+ * lifting the page in the first place.
+ */
+function drawWatermark(page: PDFPage, font: PDFFont, businessName: string) {
+  page.drawText(`PREPARED FOR ${businessName.toUpperCase()}`, {
+    x: 60, y: 330, size: 26, font, color: rgb(0.88, 0.88, 0.88), rotate: degrees(35),
+  });
+}
+
+function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont, businessName: string): { page: PDFPage; c: Cursor } {
   const page = doc.addPage([PAGE_W, PAGE_H]);
+  drawWatermark(page, font, businessName);
   const c = new Cursor(page, font, bold, PAGE_H);
   c.rect(0, 0, PAGE_W, 6, TEAL);
   return { page, c };
@@ -123,7 +139,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const maxWidth = R - L;
 
   // ---- Cover sheet ----
-  let { page, c } = newPage(doc, font, bold);
+  let { page, c } = newPage(doc, font, bold, data.businessName);
   let y = 56;
 
   c.text(PAGE_W / 2, y, "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN", { size: 18, bold: true, align: "center" });
@@ -157,7 +173,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   let pageNum = 1;
 
   // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) ----
-  ({ page, c } = newPage(doc, font, bold));
+  ({ page, c } = newPage(doc, font, bold, data.businessName));
   pageNum += 1;
   drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
   y = 48;
@@ -179,11 +195,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 16;
   }
   for (const group of data.menuGroups) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
     c.text(L, y, group.category, { size: 10, bold: true });
     y += 14;
     for (const item of group.items) {
-      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
       c.text(L + 12, y, `- ${item}`, { size: 9.5 });
       y += 13;
     }
@@ -191,7 +207,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   }
 
   y += 8;
-  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
   c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
   y += 8;
   c.line(L, y, R, y, LINE, 0.75);
@@ -201,14 +217,14 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 16;
   }
   for (const item of data.equipment) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
     c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
     y += 13;
   }
 
   // ---- Body: CCP sections, general handling/training — starts on its own fresh page ----
   y = 60;
-  ({ page, c } = newPage(doc, font, bold));
+  ({ page, c } = newPage(doc, font, bold, data.businessName));
   pageNum += 1;
   drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
 
@@ -220,7 +236,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       const ccpLabelMatch = rawLine.match(CCP_LABEL_RE);
 
       if (isSectionHeader) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         y += 6;
         c.text(L, y, rawLine, { size: 11.5, bold: true, color: TEAL });
         y += 8;
@@ -233,11 +249,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
         const label = ccpLabelMatch[1] + ": ";
         const rest = rawLine.slice(ccpLabelMatch[0].length);
         const labelW = bold.widthOfTextAtSize(label, 9.5);
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         c.text(L, y, label, { size: 9.5, bold: true });
         const wrapped = wrapText(rest, font, 9.5, maxWidth - labelW);
         wrapped.forEach((line, i) => {
-          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
           c.text(i === 0 ? L + labelW : L + 14, y, line, { size: 9.5 });
           y += 13;
         });
@@ -246,7 +262,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
       const isSubHeader = /^Process \d/i.test(rawLine.trim());
       for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
         c.text(L, y, wrapped, isSubHeader ? { size: 10, bold: true, color: TEAL } : { size: 9.5 });
         y += 13;
       }
