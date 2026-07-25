@@ -306,36 +306,70 @@ accountingRouter.get("/sales-categories", requireAuth, requireRole("admin", "sta
  * the admin management screen needs to see and reactivate inactive rows too.
  */
 accountingRouter.get("/sales-categories/all", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
-  const rows = await query(`SELECT * FROM altax.v3_sales_tax_categories ORDER BY display_order, category_name`);
+  // rate_percent lets the admin table show "6%" directly instead of forcing staff
+  // to cross-reference the linked rate_id against the Tax Rates tab to know what a
+  // category actually charges.
+  const rows = await query(
+    `SELECT c.*, r.rate AS rate_percent FROM altax.v3_sales_tax_categories c
+     LEFT JOIN altax.v3_tax_rates r ON r.rate_id = c.default_rate_id AND r.scope = 'Global' AND (r.client_id IS NULL OR r.client_id = '')
+     ORDER BY c.display_order, c.category_name`
+  );
   res.json({ categories: rows });
 }));
 
 /**
- * Create/edit a Sales Tax Category — this is the missing half of Tax Rates. A Tax
- * Rate (v3_tax_rates) is just a number; Sales Input only ever shows CATEGORIES
- * (v3_sales_tax_categories), and nothing previously let staff create or edit one —
- * only the 12 seeded at the Stage 2 migration existed, so a newly added Tax Rate
- * had no way to ever appear in Sales Input. Upserts by category_id, matching the
- * existing Tax Rate/COA save pattern.
+ * Create/edit a Sales Tax Category. Originally required staff to first go create a
+ * separate Tax Rate row (picked from a 30-row list mixed with FUTA/SUTA/Medicare/
+ * withholding rates that have nothing to do with sales tax) and then link it here by
+ * ID — two screens, two records, for what a non-technical staffer thinks of as one
+ * thing ("Prepared Food is taxed at 6% in PA"). That was confusing enough to be
+ * flagged directly by the user, so this now takes the rate PERCENT straight on the
+ * category form and auto-manages a dedicated, 1:1 v3_tax_rates row behind it — the
+ * category_id IS the rate_id, so there is exactly one thing to create, no picker, no
+ * separate ID to track. The old GET /tax-rates screen still exists (payroll/
+ * withholding rates still live there and aren't part of this simplification), but a
+ * sales tax category no longer requires visiting it at all.
  */
 accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const categoryName = String(body.categoryName || "").trim();
   if (!categoryName) return res.status(400).json({ error: "Category name is required." });
-  const defaultRateId = String(body.defaultRateId || "").trim();
-  if (!defaultRateId) return res.status(400).json({ error: "Choose the tax rate this category uses." });
+  const ratePercent = Number(body.ratePercent);
+  if (!Number.isFinite(ratePercent) || ratePercent < 0) return res.status(400).json({ error: "Enter the tax rate as a percent (e.g. 6 for 6%)." });
 
+  const state = String(body.state || "").trim() || null;
   let categoryId = String(body.categoryId || "").trim();
   if (!categoryId) {
-    const state = String(body.state || "").trim();
     const derived = `CAT-${state || "ALL"}-${categoryName}`.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
     categoryId = derived || `CAT-${idSuffix()}`;
+  }
+  const rateId = categoryId;
+  const rateDecimal = ratePercent / 100;
+
+  // Auto-manage the linked rate: same upsert-by-tuple pattern POST /tax-rates uses,
+  // just always Global scope/no client (a sales tax category isn't a per-client
+  // concept) and keyed to this category's own id instead of a staff-chosen one.
+  const existingRate = await queryOne<any>(
+    `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '') AND COALESCE(state, '') = $2`,
+    [rateId, state || ""]
+  );
+  if (existingRate) {
+    await query(
+      `UPDATE altax.v3_tax_rates SET rate_type = $2, rate = $3, active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
+      [existingRate.tax_rate_row_id, categoryName, rateDecimal]
+    );
+  } else {
+    await query(
+      `INSERT INTO altax.v3_tax_rates (rate_id, scope, client_id, client_name, rate_type, rate, state, active)
+       VALUES ($1,'Global',NULL,NULL,$2,$3,$4,true)`,
+      [rateId, categoryName, rateDecimal, state]
+    );
   }
 
   const fields = {
     category_name: categoryName,
-    state: String(body.state || "").trim() || null,
-    default_rate_id: defaultRateId,
+    state,
+    default_rate_id: rateId,
     filing_box_label: String(body.filingBoxLabel || "").trim() || null,
     display_order: Number.isFinite(Number(body.displayOrder)) ? Number(body.displayOrder) : 100,
     active: body.active === undefined ? true : Boolean(body.active),
@@ -349,14 +383,14 @@ accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), as
          display_order=$6, active=$7, notes=$8, updated_at = now() WHERE category_id = $1`,
       [categoryId, ...Object.values(fields)]
     );
-    await logAudit("Accounting", "EDIT_SALES_CATEGORY", categoryId, "", "", categoryName, `Sales tax category edited by ${req.user!.email}.`, req.user!.email);
+    await logAudit("Accounting", "EDIT_SALES_CATEGORY", categoryId, "rate", "", `${ratePercent}%`, `Sales tax category edited by ${req.user!.email}.`, req.user!.email);
   } else {
     await query(
       `INSERT INTO altax.v3_sales_tax_categories (category_id, category_name, state, default_rate_id, filing_box_label, display_order, active, notes)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [categoryId, ...Object.values(fields)]
     );
-    await logAudit("Accounting", "CREATE_SALES_CATEGORY", categoryId, "", "", categoryName, `Sales tax category created by ${req.user!.email}.`, req.user!.email);
+    await logAudit("Accounting", "CREATE_SALES_CATEGORY", categoryId, "rate", "", `${ratePercent}%`, `Sales tax category created by ${req.user!.email}.`, req.user!.email);
   }
 
   res.json({ ok: true, categoryId });

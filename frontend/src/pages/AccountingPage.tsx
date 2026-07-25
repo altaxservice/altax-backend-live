@@ -1843,30 +1843,32 @@ function TaxRatesTab() {
         </div>
       )}
 
-      <SalesCategoriesSection rates={rates || []} />
+      <SalesCategoriesSection />
     </div>
   );
 }
 
 interface SalesTaxCategoryRow {
   category_id: string; category_name: string; state: string | null; default_rate_id: string | null;
-  filing_box_label: string | null; display_order: number; active: boolean; notes: string | null;
+  rate_percent: number | string | null; filing_box_label: string | null; display_order: number; active: boolean; notes: string | null;
 }
 
 const CATEGORY_FORM_DEFAULTS = {
-  categoryId: "", categoryName: "", state: "", defaultRateId: "", filingBoxLabel: "", displayOrder: "100", notes: "", active: true,
+  categoryId: "", categoryName: "", state: "", ratePercent: "", filingBoxLabel: "", displayOrder: "100", notes: "", active: true,
 };
 
 /**
- * Sales Tax Categories — the missing half of Tax Rates. Sales Input only ever
- * shows Categories (not raw Rates), and a Category has to be manually linked to
- * a Rate via default_rate_id. Before this, there was no screen to create or edit
- * one — only the 12 seeded at the Stage 2 migration existed, so a newly added Tax
- * Rate could never appear in Sales Input no matter how many you added. Lives
- * right under Tax Rates (not a separate top-level tab) since a category is
- * meaningless without picking one of the rates above it.
+ * Sales Tax Categories — what Sales Input actually shows to pick from. This used
+ * to require staff to first create a separate Tax Rate (picked from a 30-row list
+ * mixed in with FUTA/SUTA/Medicare/withholding rates that have nothing to do with
+ * sales tax) and then link it here by ID — flagged directly by the user as
+ * confusing. Now the rate is just a plain "6" (for 6%) typed straight into this
+ * one form; the backend auto-creates/updates a dedicated 1:1 tax rate behind the
+ * scenes (category_id doubles as its rate_id), so there's exactly one thing to
+ * fill out and nothing to look up. Tax Rates above stays as-is for payroll/
+ * withholding rates, which this doesn't touch.
  */
-function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
+function SalesCategoriesSection() {
   const [categories, setCategories] = useState<SalesTaxCategoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -1889,7 +1891,8 @@ function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
   function startEdit(c: SalesTaxCategoryRow) {
     setForm({
       categoryId: c.category_id, categoryName: c.category_name, state: c.state || "",
-      defaultRateId: c.default_rate_id || "", filingBoxLabel: c.filing_box_label || "",
+      ratePercent: c.rate_percent != null ? String(Number(c.rate_percent) * 100) : "",
+      filingBoxLabel: c.filing_box_label || "",
       displayOrder: String(c.display_order ?? 100), notes: c.notes || "", active: c.active,
     });
     setShowForm(true);
@@ -1901,7 +1904,7 @@ function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.post("/accounting/sales-categories", { ...form, displayOrder: Number(form.displayOrder) || 100 });
+      await api.post("/accounting/sales-categories", { ...form, ratePercent: Number(form.ratePercent), displayOrder: Number(form.displayOrder) || 100 });
       setShowForm(false);
       setForm(CATEGORY_FORM_DEFAULTS);
       load();
@@ -1928,7 +1931,7 @@ function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
         <div>
           <h2 className="command-panel-title" style={{ fontSize: 15 }}>Sales Tax Categories</h2>
           <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
-            Sales Input only shows Categories, not raw Tax Rates — a rate has to be linked to a category here before it can be used on a sale.
+            This is what shows up on Sales Input — name it, set the rate, done. (Tax Rates above is for payroll/withholding rates only.)
           </p>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => (showForm ? setShowForm(false) : startCreate())}>{showForm ? "Cancel" : "New Category"}</button>
@@ -1936,16 +1939,10 @@ function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
       {error && <div className="error-banner">{error}</div>}
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
-          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.categoryId ? `Edit ${form.categoryId}` : "New Category"}</h2>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.categoryId ? `Edit ${form.categoryName}` : "New Category"}</h2>
           {saveError && <div className="error-banner">{saveError}</div>}
           <div className="field"><label>Category Name</label><input required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
-          <div className="field">
-            <label>Default Rate</label>
-            <select required value={form.defaultRateId} onChange={(e) => setForm((f) => ({ ...f, defaultRateId: e.target.value }))}>
-              <option value="">Choose a tax rate…</option>
-              {rates.map((r) => <option key={r.rate_id} value={r.rate_id}>{r.rate_id} — {r.rate_type} ({(Number(r.rate) * 100).toFixed(2)}%)</option>)}
-            </select>
-          </div>
+          <div className="field"><label>Tax Rate (%)</label><input required type="number" step="0.01" min="0" value={form.ratePercent} onChange={(e) => setForm((f) => ({ ...f, ratePercent: e.target.value }))} placeholder="e.g. 6 for 6%" /></div>
           <div className="field"><label>State <span className="muted">(blank = any state)</span></label><input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="e.g. MD" /></div>
           <div className="field"><label>Filing Box Label <span className="muted">(optional)</span></label><input value={form.filingBoxLabel} onChange={(e) => setForm((f) => ({ ...f, filingBoxLabel: e.target.value }))} /></div>
           <div className="field"><label>Display Order</label><input type="number" value={form.displayOrder} onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))} /></div>
@@ -1958,13 +1955,13 @@ function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
           <div style={{ overflowX: "auto" }}>
             <div className="table-scroll">
             <table>
-              <thead><tr><th>Category</th><th>State</th><th>Default Rate</th><th>Order</th><th>Active</th><th></th></tr></thead>
+              <thead><tr><th>Category</th><th>State</th><th>Rate</th><th>Order</th><th>Active</th><th></th></tr></thead>
               <tbody>
                 {categories.map((c) => (
                   <tr key={c.category_id}>
                     <td>{c.category_name}</td>
                     <td className="muted">{c.state || "Any"}</td>
-                    <td className="muted">{c.default_rate_id || "—"}</td>
+                    <td>{c.rate_percent != null ? `${(Number(c.rate_percent) * 100).toFixed(2)}%` : "—"}</td>
                     <td className="muted">{c.display_order}</td>
                     <td>{c.active ? "Yes" : "No"}</td>
                     <td style={{ display: "flex", gap: 6 }}>
