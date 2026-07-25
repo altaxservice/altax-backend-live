@@ -195,7 +195,12 @@ button { cursor: pointer; }
   border-radius: 7px;
   padding: 5px 8px;
   font-size: 11.5px;
-  max-width: 150px;
+  /* Sized to the widest option ("Additional Information Required", "Review
+     Notes / Messages"), which cost ~150px per select and pushed wide tables
+     off-screen. The closed control only ever shows the selected value, so a
+     tighter cap costs nothing — the open dropdown is not clipped by this. */
+  max-width: 118px;
+  min-width: 104px;
 }
 select.action-menu { color: var(--muted); font-weight: 600; }
 

@@ -403,16 +403,14 @@ export function TasksListPage() {
                 {!isArchivedView && canManage && (
                   <th style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
                 )}
+                {/* Client+Service, Task+Priority, Due+Risk and Owner+Last-Updated
+                    are each stacked in one cell. As 12 separate columns this table
+                    was ~1360px and ran off the right edge at 100% zoom. */}
                 <th className="sortable" onClick={() => toggleSort("client_name")}>Client{sortArrow("client_name")}</th>
-                <th className="sortable" onClick={() => toggleSort("service_line")}>Service{sortArrow("service_line")}</th>
                 <th className="sortable" onClick={() => toggleSort("task_name")}>Task{sortArrow("task_name")}</th>
                 <th className="sortable" onClick={() => toggleSort("agency_due_date")}>Due{sortArrow("agency_due_date")}</th>
-                <th>Risk</th>
-                <th>Priority</th>
                 <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
                 <th>Status</th>
-                <th>Files</th>
-                <th>Last Updated</th>
                 {isArchivedView && <th>Archived</th>}
                 <th>Action</th>
               </tr>
@@ -423,13 +421,25 @@ export function TasksListPage() {
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}
-                  <td>{t.client_name}</td>
-                  <td className="muted">{t.service_line || "—"}</td>
-                  <td>{t.task_name}</td>
-                  <td className="muted">{fmtDateOnly(t.agency_due_date)}</td>
-                  <td><DueLabel task={t} /></td>
-                  <td>{t.priority && t.priority !== "Normal" ? <StatusBadge status={t.priority} /> : <span className="muted">{t.priority || "Normal"}</span>}</td>
-                  <td className="muted">{t.assigned_to || "Unassigned"}</td>
+                  <td>
+                    <div>{t.client_name}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{t.service_line || "—"}</div>
+                  </td>
+                  <td>
+                    <div>{t.task_name}</div>
+                    {t.priority && t.priority !== "Normal" && (
+                      <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
+                    )}
+                  </td>
+                  <td>
+                    <div className="muted">{fmtDateOnly(t.agency_due_date)}</div>
+                    <DueLabel task={t} />
+                  </td>
+                  <td className="muted">
+                    <div>{t.assigned_to || "Unassigned"}</div>
+                    <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateOnly(t.updated_at)}` : "Not updated"}</div>
+                    {t.updated_by && <div style={{ fontSize: 11 }}>by {t.updated_by}</div>}
+                  </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     {!isArchivedView && canManage ? (
                       <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleStatusChange(t.task_id, e.target.value)}>
@@ -437,17 +447,18 @@ export function TasksListPage() {
                       </select>
                     ) : <StatusBadge status={t.status} />}
                   </td>
-                  <td onClick={(e) => e.stopPropagation()}><TaskFileCell task={t} /></td>
-                  <td className="muted" style={{ fontSize: 11 }}>
-                    {t.updated_at ? fmtDateOnly(t.updated_at) : "—"}
-                    {t.updated_by && <div>by {t.updated_by}</div>}
-                  </td>
                   {isArchivedView && <td className="muted">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
+                  {/* Files folded in here rather than owning a column of its own —
+                      most rows have no attachment, so a whole column was spent
+                      printing "No file". */}
                   <td onClick={(e) => e.stopPropagation()}>
                     {isArchivedView ? (
                       <button type="button" className="btn btn-sm" disabled={restoring === t.task_id} onClick={() => handleRestore(t.task_id)}>{restoring === t.task_id ? "Restoring…" : "Restore"}</button>
                     ) : (
-                      <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
+                      <>
+                        <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
+                        {t.first_file_url && <TaskFileCell task={t} />}
+                      </>
                     )}
                   </td>
                 </tr>

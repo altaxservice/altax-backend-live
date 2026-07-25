@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
@@ -155,6 +155,21 @@ function CategoryLinesEditor({ lines, setLines, categories, clientState }: {
   );
 }
 
+const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Sales-tax filing periods staff actually work in. "All time" is deliberately
+ * included so an empty period is never mistaken for missing data.
+ */
+const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string } }[] = [
+  { label: "This month", range: () => { const n = new Date(); return { start: isoDate(new Date(n.getFullYear(), n.getMonth(), 1)), end: isoDate(new Date(n.getFullYear(), n.getMonth() + 1, 0)) }; } },
+  { label: "Last month", range: () => { const n = new Date(); return { start: isoDate(new Date(n.getFullYear(), n.getMonth() - 1, 1)), end: isoDate(new Date(n.getFullYear(), n.getMonth(), 0)) }; } },
+  { label: "This quarter", range: () => { const n = new Date(); const q = Math.floor(n.getMonth() / 3); return { start: isoDate(new Date(n.getFullYear(), q * 3, 1)), end: isoDate(new Date(n.getFullYear(), q * 3 + 3, 0)) }; } },
+  { label: "Last quarter", range: () => { const n = new Date(); const q = Math.floor(n.getMonth() / 3) - 1; return { start: isoDate(new Date(n.getFullYear(), q * 3, 1)), end: isoDate(new Date(n.getFullYear(), q * 3 + 3, 0)) }; } },
+  { label: "This year", range: () => { const n = new Date(); return { start: isoDate(new Date(n.getFullYear(), 0, 1)), end: isoDate(new Date(n.getFullYear(), 11, 31)) }; } },
+  { label: "All time", range: () => ({ start: "", end: "" }) },
+];
+
 function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
@@ -204,6 +219,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     if (!d) return false;
     return (!period.start || d >= period.start) && (!period.end || d <= period.end);
   });
+  const periodLabel = !period.start && !period.end
+    ? "all time"
+    : `${fmtDate(period.start) || "the beginning"} – ${fmtDate(period.end) || "today"}`;
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
   // Per-category rollup for the period — previously the only category-level
@@ -295,8 +313,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         </form>
       </Panel>
       <Panel
-        title="Recent Sales"
-        note={`${sales.length} rows`}
+        title="Sales & Tax by Period"
+        note={periodLabel}
         action={
           <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
@@ -305,6 +323,21 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           </div>
         }
       >
+        {/* One-click periods — the two raw date boxes alone meant picking a
+            quarter was four fiddly interactions, and it was easy to end up on
+            a range with no sales in it and read that as "the data is gone". */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "12px 16px 0" }}>
+          {PERIOD_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              className={`btn btn-sm${period.start === p.range().start && period.end === p.range().end ? " btn-primary" : ""}`}
+              onClick={() => setPeriod(p.range())}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         <div className="metric-grid" style={{ margin: 16 }}>
           <div className="metric"><div className="metric-label">Rows This Period</div><div className="metric-value">{salesInPeriod.length}</div></div>
           <div className="metric"><div className="metric-label">Period Sales</div><div className="metric-value">{fmtMoney(periodSales)}</div></div>
@@ -372,19 +405,26 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             </div>
           </form>
         )}
+        {/* The list used to show ALL sales while the totals above showed only the
+            selected period — so a July period would read "$0.00" over a table of
+            June rows. Both now describe the same period. */}
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Gross</th><th>Categories</th><th>Tax Due</th><th>Payment</th><th>Notes</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Tax Due</th><th>Categories</th><th></th></tr></thead>
             <tbody>
-              {sales.map((s) => (
+              {salesInPeriod.map((s) => (
                 <tr key={s.sale_id} style={{ cursor: "pointer" }} onClick={() => { setViewing(s); setEditing(null); }}>
-                  <td>{fmtDate(s.sale_date)}</td>
-                  <td>{fmtMoney(s.gross_sales)}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</td>
-                  <td>{fmtMoney(s.total_tax_due)}</td>
-                  <td className="muted">{fmtDate(s.payment_date)}</td>
-                  <td className="muted">{s.notes || "—"}</td>
+                  <td>
+                    <div>{fmtDate(s.sale_date)}</div>
+                    {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>
+                    <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>
+                    {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
+                  </td>
                   <td onClick={(e) => e.stopPropagation()}><button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button></td>
                 </tr>
               ))}
@@ -392,7 +432,13 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           </table>
           </div>
         </div>
-        {sales.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No sales recorded yet.</p>}
+        {salesInPeriod.length === 0 && (
+          <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+            {sales.length === 0
+              ? "No sales recorded yet."
+              : `No sales in ${periodLabel}. This client has ${sales.length} sale(s) on other dates — widen the period or pick "All time".`}
+          </p>
+        )}
       </Panel>
     </div>
   );
@@ -1793,11 +1839,24 @@ function TaxRatesTab() {
   const [form, setForm] = useState(TAX_RATE_FORM_DEFAULTS);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [rateSearch, setRateSearch] = useState("");
+  const [showInactiveRates, setShowInactiveRates] = useState(false);
 
   function load() {
     api.get<{ taxRates: TaxRate[] }>("/accounting/tax-rates").then((r) => setRates(r.taxRates)).catch((e) => setError(e instanceof ApiError ? e.message : "Could not load tax rates."));
   }
   useEffect(load, []);
+
+  const visibleRates = useMemo<TaxRate[]>(() => {
+    if (!rates) return [];
+    const q = rateSearch.trim().toLowerCase();
+    return rates.filter((r) => {
+      if (!showInactiveRates && !r.active) return false;
+      if (!q) return true;
+      return [r.rate_id, r.rate_type, r.state, r.client_name, r.notes, r.employee_employer]
+        .some((v) => String(v || "").toLowerCase().includes(q));
+    });
+  }, [rates, rateSearch, showInactiveRates]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
 
   function startCreate() {
@@ -1881,35 +1940,62 @@ function TaxRatesTab() {
         </form>
       )}
       {rates && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
+        <>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <input placeholder="Search rate, type, state…" value={rateSearch} onChange={(e) => setRateSearch(e.target.value)} style={{ maxWidth: 240 }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+              <input type="checkbox" checked={showInactiveRates} onChange={(e) => setShowInactiveRates(e.target.checked)} />
+              Show inactive
+            </label>
+            <div className="muted" style={{ fontSize: 12 }}>{visibleRates.length} of {rates.length} rates</div>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            {/* Was 11 separate columns, which ran off the right edge at 100% zoom
+                once the client panel is open. Related facts are now stacked in one
+                cell each, so the whole table fits without scrolling sideways. */}
             <div className="table-scroll">
             <table>
-              <thead><tr><th>Rate ID</th><th>Rate Type</th><th>Scope</th><th>Client</th><th>Rate</th><th>Side</th><th>Wage Cap</th><th>State</th><th>Notes</th><th>Active</th><th></th></tr></thead>
+              <thead><tr><th>Rate</th><th>Applies To</th><th style={{ textAlign: "right" }}>Rate</th><th>Payroll Side</th><th></th></tr></thead>
               <tbody>
-                {rates.map((r) => (
-                  <tr key={r.tax_rate_row_id || r.rate_id}>
-                    <td className="muted">{r.rate_id}</td>
-                    <td>{r.rate_type}</td>
-                    <td className="muted">{r.scope || "Global"}</td>
-                    <td className="muted">{r.client_name || "—"}</td>
-                    <td>{(Number(r.rate) * 100).toFixed(2)}%</td>
-                    <td className="muted">{r.employee_employer || "—"}</td>
-                    <td className="muted">{r.wage_cap != null && r.wage_cap !== "" ? fmtMoney(r.wage_cap) : "—"}</td>
-                    <td className="muted">{r.state || "—"}</td>
-                    <td className="muted">{r.notes || "—"}</td>
-                    <td>{r.active ? "Yes" : "No"}</td>
-                    <td style={{ display: "flex", gap: 6 }}>
-                      <button className="btn btn-sm" onClick={() => startEdit(r)}>Edit</button>
-                      {r.active ? <button className="btn btn-sm" onClick={() => handleDeactivate(String(r.tax_rate_row_id))}>Deactivate</button> : <button className="btn btn-sm" onClick={() => handleActivate(String(r.tax_rate_row_id))}>Activate</button>}
+                {visibleRates.map((r) => (
+                  <tr key={r.tax_rate_row_id || r.rate_id} style={r.active ? undefined : { opacity: 0.55 }}>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{r.rate_type}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>
+                        {r.rate_id}
+                        {!r.active && " · Inactive"}
+                      </div>
+                      {r.notes && <div className="muted" style={{ fontSize: 11 }}>{r.notes}</div>}
+                    </td>
+                    <td>
+                      <div>{r.state === "US" ? "US (federal)" : r.state || "Any state"}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>
+                        {r.scope === "Client" ? (r.client_name || "One client") : "All clients"}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(r.rate) * 100).toFixed(2)}%</td>
+                    <td>
+                      <div>{r.employee_employer || "—"}</div>
+                      {r.wage_cap != null && r.wage_cap !== "" && (
+                        <div className="muted" style={{ fontSize: 11 }}>Cap {fmtMoney(r.wage_cap)}</div>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn btn-sm" onClick={() => startEdit(r)}>Edit</button>{" "}
+                      {r.active
+                        ? <button className="btn btn-sm" onClick={() => handleDeactivate(String(r.tax_rate_row_id))}>Deactivate</button>
+                        : <button className="btn btn-sm" onClick={() => handleActivate(String(r.tax_rate_row_id))}>Activate</button>}
                     </td>
                   </tr>
                 ))}
+                {visibleRates.length === 0 && (
+                  <tr><td colSpan={5} className="muted" style={{ textAlign: "center", padding: 20 }}>No rates match that search.</td></tr>
+                )}
               </tbody>
             </table>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       <SalesCategoriesSection />
