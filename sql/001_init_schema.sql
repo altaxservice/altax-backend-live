@@ -990,6 +990,15 @@ CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_business_type_key ON v3_haccp_plan
 -- the file alone wouldn't add this column to an already-created table).
 ALTER TABLE v3_haccp_plans ADD COLUMN IF NOT EXISTS license_application_data JSONB NOT NULL DEFAULT '{}';
 
+-- priority: Task creation had no priority field despite the rest of the app
+-- (requests, system options) already having a Normal/Low/High/Urgent concept.
+-- updated_by: v3_tasks/v3_clients had updated_at but nothing recording WHO made
+-- the last change, unlike v3_firm_settings/v3_templates/v3_contract_templates,
+-- which already track this — extending the same convention here.
+ALTER TABLE v3_tasks ADD COLUMN IF NOT EXISTS priority VARCHAR(50);
+ALTER TABLE v3_tasks ADD COLUMN IF NOT EXISTS updated_by VARCHAR(255);
+ALTER TABLE v3_clients ADD COLUMN IF NOT EXISTS updated_by VARCHAR(255);
+
 -- ---- v3_Check_Settings ----
 CREATE TABLE IF NOT EXISTS v3_check_settings (
     setting_id VARCHAR(64) PRIMARY KEY,

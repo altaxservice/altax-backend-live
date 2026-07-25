@@ -1,5 +1,5 @@
 import type { Task } from "../api/types";
-import { resolveFileUrl } from "../api/client";
+import { openAnyFile, downloadAnyFile } from "../api/client";
 import { daysUntil } from "../utils/date";
 import { StatusBadge } from "./StatusBadge";
 import type { ActionMenuOption } from "./ActionMenu";
@@ -55,14 +55,20 @@ export function DueLabel({ task }: { task: Task }) {
   return <span className="muted">{d} days</span>;
 }
 
-/** Mirrors legacy's taskFileCell(): "Open Attachment" link + file name, or "No file". */
+/**
+ * Mirrors legacy's taskFileCell(): "Open Attachment" link + file name, or "No file".
+ * Uses openAnyFile/downloadAnyFile (authed blob fetch for internal URLs) rather than a
+ * plain <a href> — a raw link can't carry the JWT, so clicking it silently failed to
+ * authenticate instead of opening the file.
+ */
 export function TaskFileCell({ task }: { task: Task }) {
   const url = task.first_file_url;
   const name = task.first_file_name;
   if (!url) return <span className="muted">No file</span>;
   return (
     <div className="task-file-cell" onClick={(e) => e.stopPropagation()}>
-      <a className="ghost-button btn-sm" href={resolveFileUrl(url)} target="_blank" rel="noopener noreferrer">Open Attachment</a>
+      <button type="button" className="ghost-button btn-sm" onClick={() => openAnyFile(url)}>Open</button>
+      <button type="button" className="ghost-button btn-sm" onClick={() => downloadAnyFile(url, name || "attachment")}>Download</button>
       <div className="task-file-name muted" style={{ fontSize: 11 }}>{name || "Attachment"}</div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, resolveFileUrl } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Task } from "../api/types";
 import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -324,9 +324,13 @@ function TaskAttachments({ taskId }: { taskId: string }) {
       {uploads && uploads.length > 0 && (
         <div style={{ padding: "8px 16px" }}>
           {uploads.map((u) => (
-            <div key={u.upload_id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <a href={resolveFileUrl(u.file_url)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>{u.file_name}</a>
-              <span className="muted" style={{ fontSize: 12 }}>{u.uploaded_at ? new Date(u.uploaded_at).toLocaleDateString() : "—"}</span>
+            <div key={u.upload_id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 13 }}>{u.file_name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
+                <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "attachment")}>Download</button>
+                <span className="muted" style={{ fontSize: 12 }}>{u.uploaded_at ? new Date(u.uploaded_at).toLocaleDateString() : "—"}</span>
+              </div>
             </div>
           ))}
         </div>

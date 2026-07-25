@@ -9,6 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
+import { UploadFileModal } from "../components/UploadFileModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 
@@ -96,6 +97,7 @@ export function ClientsListPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
+  const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
 
   const canCreate = user?.role === "admin" || user?.role === "staff";
@@ -164,7 +166,7 @@ export function ClientsListPage() {
     if (action === "profile") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); return; }
     if (action === "create-task") { navigate(`/tasks?new=1&clientId=${c.client_id}`); return; }
     if (action === "request-document") { navigate(`/documents?new=1&clientId=${c.client_id}`); return; }
-    if (action === "upload-document") { navigate(`/documents?new=1&clientId=${c.client_id}&uploadNow=1`); return; }
+    if (action === "upload-document") { setUploadFor({ clientId: c.client_id, clientName: c.client_name }); return; }
     if (action === "review-documents") { navigate(`/documents?clientId=${c.client_id}`); return; }
     if (action === "secure-vault") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}#vault`); return; }
     if (action === "edit") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?edit=1`); return; }
@@ -306,6 +308,15 @@ export function ClientsListPage() {
           </div>
           <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
         </div>
+      )}
+
+      {uploadFor && (
+        <UploadFileModal
+          clientId={uploadFor.clientId}
+          clientName={uploadFor.clientName}
+          onClose={() => setUploadFor(null)}
+          onDone={() => load()}
+        />
       )}
 
       {showForm && (

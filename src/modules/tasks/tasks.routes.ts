@@ -143,17 +143,19 @@ tasksRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(a
   await query(
     `INSERT INTO altax.v3_tasks
        (task_id, client_id, client_name, service_line, task_name, period, frequency, agency_due_date,
-        staff_due_date, status, assigned_to, payment_required, payment_amount, portal_name, portal_url,
-        notes, source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'Node Web App',$1)`,
+        staff_due_date, status, priority, assigned_to, payment_required, payment_amount, portal_name, portal_url,
+        notes, updated_by, source_system, source_record_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Node Web App',$1)`,
     [
       taskId, client.client_id, client.client_name, serviceLine, taskName,
       String(body.period || "").trim() || null, frequency, dueDate,
       String(body.staffDueDate || "").trim() || null, String(body.status || "Not Started").trim(),
+      String(body.priority || "Normal").trim(),
       String(body.assignedTo || client.assigned_to || "").trim() || null,
       paymentRequired, body.paymentAmount ?? null,
       portalName, portalUrl,
       String(body.notes || (internalTask ? "Internal task - not tied to a client yet." : "Created from web app.")).trim(),
+      req.user!.email,
     ]
   );
 
@@ -218,6 +220,7 @@ const TASK_UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean 
   agencyDueDate: { column: "agency_due_date" },
   staffDueDate: { column: "staff_due_date" },
   status: { column: "status" },
+  priority: { column: "priority" },
   assignedTo: { column: "assigned_to" },
   paymentRequired: { column: "payment_required", boolean: true },
   paymentAmount: { column: "payment_amount" },
@@ -291,7 +294,10 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
   }
 
   const setClause = Object.keys(fields).map((col, i) => `${col} = $${i + 2}`).join(", ");
-  await query(`UPDATE altax.v3_tasks SET ${setClause}, updated_at = now() WHERE task_id = $1`, [taskId, ...Object.values(fields)]);
+  await query(
+    `UPDATE altax.v3_tasks SET ${setClause}, updated_at = now(), updated_by = $${Object.keys(fields).length + 2} WHERE task_id = $1`,
+    [taskId, ...Object.values(fields), req.user!.email]
+  );
 
   for (const [col, newValue] of Object.entries(fields)) {
     const oldValue = old[col];
@@ -379,7 +385,7 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
     }
 
     if (action === "complete") {
-      await query(`UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now() WHERE task_id = $1`, [taskId]);
+      await query(`UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now(), updated_by = $2 WHERE task_id = $1`, [taskId, req.user!.email]);
       await logAudit("Tasks", "EDIT", taskId, "status", task.status || "", "Completed",
         "Task bulk-completed from web app.", req.user!.email);
       await archiveTask(taskId, "Auto-archived on bulk completion", req.user!.email);
@@ -387,7 +393,7 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
         "Task auto-archived after bulk completion.", req.user!.email);
     } else if (action === "void") {
       const newNotes = `${task.notes || ""}\nVoided ${new Date().toISOString()}: Bulk voided from web app`;
-      await query(`UPDATE altax.v3_tasks SET status = 'Void', notes = $2, updated_at = now() WHERE task_id = $1`, [taskId, newNotes]);
+      await query(`UPDATE altax.v3_tasks SET status = 'Void', notes = $2, updated_at = now(), updated_by = $3 WHERE task_id = $1`, [taskId, newNotes, req.user!.email]);
       await logAudit("Tasks", "VOID", taskId, "Status", task.status || "", "Void",
         `Task bulk-voided by ${req.user!.email}.`, req.user!.email);
     } else {
@@ -417,7 +423,7 @@ tasksRouter.post("/:taskId/void", requireAuth, requireRole("admin", "staff"), as
   }
 
   const newNotes = `${old.notes || ""}\nVoided ${new Date().toISOString()}: ${reason}`;
-  await query(`UPDATE altax.v3_tasks SET status = 'Void', notes = $2, updated_at = now() WHERE task_id = $1`, [taskId, newNotes]);
+  await query(`UPDATE altax.v3_tasks SET status = 'Void', notes = $2, updated_at = now(), updated_by = $3 WHERE task_id = $1`, [taskId, newNotes, req.user!.email]);
   await logAudit("Tasks", "VOID", taskId, "Status", old.status || "", "Void", `Task voided by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, taskId, status: "Void" });

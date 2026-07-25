@@ -310,8 +310,8 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
     .map((col, i) => `${col} = $${i + 2}`)
     .join(", ");
   await query(
-    `UPDATE altax.v3_clients SET ${setClause}, updated_at = now() WHERE client_id = $1`,
-    [clientId, ...Object.values(fields)]
+    `UPDATE altax.v3_clients SET ${setClause}, updated_at = now(), updated_by = $${Object.keys(fields).length + 2} WHERE client_id = $1`,
+    [clientId, ...Object.values(fields), req.user!.email]
   );
 
   for (const [col, newValue] of Object.entries(fields)) {
@@ -358,8 +358,8 @@ clientsRouter.post("/:clientId/archive", requireAuth, requireRole("admin"), asyn
   const newNotes = `${old.notes || ""}\nArchived ${new Date().toISOString()}: ${reason}`;
 
   await query(
-    `UPDATE altax.v3_clients SET status = 'Archived', portal_enabled = false, notes = $2, updated_at = now() WHERE client_id = $1`,
-    [clientId, newNotes]
+    `UPDATE altax.v3_clients SET status = 'Archived', portal_enabled = false, notes = $2, updated_at = now(), updated_by = $3 WHERE client_id = $1`,
+    [clientId, newNotes, req.user!.email]
   );
   await query(`UPDATE altax.v3_users SET active = false WHERE assigned_client_id = $1`, [clientId]);
 

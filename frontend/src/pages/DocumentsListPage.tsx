@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, resolveFileUrl } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -26,9 +26,13 @@ function isOverdue(r: DocumentRequest): boolean {
 function FilesCell({ request }: { request: DocumentRequest }) {
   if (!request.first_file_url) return <span className="muted">No file yet</span>;
   const extra = Number(request.file_count || 1) - 1;
+  const url = request.first_file_url;
+  const name = request.first_file_name || "file";
   return (
-    <span>
-      <a href={resolveFileUrl(request.first_file_url)} target="_blank" rel="noreferrer">{request.first_file_name || "View file"}</a>
+    <span onClick={(e) => e.stopPropagation()}>
+      <button type="button" className="link-button" onClick={() => openAnyFile(url)}>{name}</button>
+      {" "}
+      <button type="button" className="link-button" onClick={() => downloadAnyFile(url, name)}>Download</button>
       {extra > 0 && <span className="muted"> (+{extra} more)</span>}
     </span>
   );

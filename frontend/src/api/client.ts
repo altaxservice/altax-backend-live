@@ -102,3 +102,22 @@ export async function viewFile(path: string): Promise<void> {
     throw err;
   }
 }
+
+/**
+ * Opens/downloads a stored file URL, which is either this app's own internal
+ * route (relative, e.g. "/documents/uploads/xyz/download" — needs the JWT
+ * viewFile/downloadFile attach) or a client-pasted external link (Google
+ * Drive, etc. — already public, no auth to attach, and fetching it as a blob
+ * would likely hit CORS anyway). Same "/" branch resolveFileUrl already uses
+ * to decide whether to prepend API_BASE_URL. Centralized here so every list/
+ * detail page that renders an attachment gets both actions the same way,
+ * instead of each one reinventing (and forgetting) the auth-header handling.
+ */
+export async function openAnyFile(url: string): Promise<void> {
+  if (url.startsWith("/")) return viewFile(url);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+export async function downloadAnyFile(url: string, filename: string): Promise<void> {
+  if (url.startsWith("/")) return downloadFile(url, filename);
+  window.open(url, "_blank", "noopener,noreferrer");
+}

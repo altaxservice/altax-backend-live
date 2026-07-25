@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, resolveFileUrl } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, openAnyFile } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { DocumentRequest, Invoice } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -171,7 +171,7 @@ function DocumentRows({ docs, empty }: { docs: DocumentRequest[]; empty: string 
   function handleAction(d: DocumentRequest, action: string) {
     const url = d.first_file_url;
     if (action === "upload-doc" || action === "edit-doc") return navigate(`/documents/${d.request_id}`);
-    if ((action === "view-doc" || action === "open-doc") && url) return window.open(resolveFileUrl(url), "_blank", "noopener,noreferrer");
+    if ((action === "view-doc" || action === "open-doc") && url) return void openAnyFile(url);
   }
 
   return (

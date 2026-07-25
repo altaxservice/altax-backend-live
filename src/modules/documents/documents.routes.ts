@@ -406,7 +406,8 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   const body = req.body || {};
   const requestId = String(body.requestId || "").trim();
   const taskId = String(body.taskId || "").trim();
-  if (!requestId && !taskId) return res.status(400).json({ error: "requestId or taskId is required." });
+  const directClientId = !requestId && !taskId ? String(body.clientId || "").trim() : "";
+  if (!requestId && !taskId && !directClientId) return res.status(400).json({ error: "requestId, taskId, or clientId is required." });
 
   const resolved = resolveUploadFile(body);
   if ("error" in resolved) return res.status(400).json({ error: resolved.error });
@@ -442,7 +443,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         : `UPDATE altax.v3_document_requests SET attachment_link = $2, updated_at = now() WHERE request_id = $1`,
       [requestId, fileUrl]
     );
-  } else {
+  } else if (taskId) {
     if (!["admin", "staff"].includes(req.user!.role)) {
       return res.status(403).json({ error: "Only AL TAX staff can attach files directly to a task." });
     }
@@ -460,6 +461,32 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
       [
         uploadId, taskId, task.client_id, task.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
         String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
+      ]
+    );
+  } else {
+    // Direct client upload — no request or task behind it (e.g. the Clients page's
+    // "Upload Document" row action, which just needs to drop a file into a client's
+    // Documents without first creating a request asking for it). Staff-only, same as
+    // the taskId branch above. Visible to the client by default (hiddenFromClient
+    // lets the caller opt into internal-only, unlike task attachments which always
+    // default hidden since those ARE internal by nature).
+    if (!["admin", "staff"].includes(req.user!.role)) {
+      return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to a client." });
+    }
+    const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [directClientId]);
+    if (!client) return res.status(404).json({ error: `Client not found: ${directClientId}` });
+    if (!(await canAccessClient(req.user!, client.client_id))) {
+      return res.status(403).json({ error: "You do not have access to this client." });
+    }
+
+    await query(
+      `INSERT INTO altax.v3_document_uploads
+         (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client',$10,$11,$12,'Node Web App',$1)`,
+      [
+        uploadId, client.client_id, client.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
+        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient),
       ]
     );
   }

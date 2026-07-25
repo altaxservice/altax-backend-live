@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, resolveFileUrl } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -277,7 +277,15 @@ export function DocumentDetailPage() {
         {visibleUploads.map((u) => (
           <div key={u.upload_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
             <div>
-              <a href={resolveFileUrl(u.file_url) || undefined} target="_blank" rel="noreferrer">{u.file_name}</a>
+              {u.file_url ? (
+                <>
+                  <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url!)}>{u.file_name}</button>
+                  {" "}
+                  <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url!, u.file_name || "attachment")}>Download</button>
+                </>
+              ) : (
+                <span>{u.file_name}</span>
+              )}
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                 {u.direction || "—"} · {(u as any).uploaded_by || "—"} · {u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}
               </div>
