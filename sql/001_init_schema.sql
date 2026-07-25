@@ -1132,6 +1132,20 @@ CREATE TABLE IF NOT EXISTS v3_firm_settings (
     updated_by VARCHAR(255)
 );
 
+-- ---- v3_contact_submissions ----
+CREATE TABLE IF NOT EXISTS v3_contact_submissions (
+    id SERIAL PRIMARY KEY,
+    company_name VARCHAR(255),
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL,
+    phone VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    reason TEXT NOT NULL,
+    sms_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ip_address VARCHAR(64)
+);
+
 -- ---- Indexes ----
 CREATE INDEX IF NOT EXISTS idx_tasks_client ON v3_tasks(client_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON v3_tasks(status);
@@ -1155,3 +1169,4 @@ CREATE INDEX IF NOT EXISTS idx_client_secrets_client ON v3_client_secrets(client
 CREATE INDEX IF NOT EXISTS idx_secret_access_log_client ON v3_secret_access_log(client_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_module_record ON v3_audit_log(module, record_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_role ON v3_users(email, role);  -- duplicate portal users blocked per-role only (matches v16 rule)
+CREATE INDEX IF NOT EXISTS idx_contact_submissions_submitted_at ON v3_contact_submissions(submitted_at);

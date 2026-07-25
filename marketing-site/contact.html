@@ -88,7 +88,7 @@
         <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><path d="M3 7l9 6 9-6M3 7v10h18V7l-9 6-9-6z"/></svg></div>
         <div>
           <div class="label" data-i18n="contact.websiteLabel">Website</div>
-          <a class="value" href="https://www.almabarigroup.com"><bdi dir="ltr">www.almabarigroup.com</bdi></a>
+          <a class="value" href="https://www.altaxgroup.com"><bdi dir="ltr">www.altaxgroup.com</bdi></a>
         </div>
       </div>
       <div class="contact-detail">
@@ -102,6 +102,7 @@
 
     <div class="contact-form-card reveal reveal-delay-1">
       <h3 data-i18n="contact.formHeading">Send us a message</h3>
+      <div id="contact-form-status" class="form-status" style="display:none;" role="status"></div>
       <form>
         <div class="field">
           <label for="company" data-i18n="contact.companyLabel">Company name</label>
@@ -134,10 +135,13 @@
         <div class="field field-checkbox">
           <label class="checkbox-label" for="sms-consent">
             <input type="checkbox" id="sms-consent" name="sms-consent">
-            <span data-i18n="contact.smsConsent">I agree to receive SMS and WhatsApp messages (appointment reminders, tax deadline reminders, and account updates) from AL TAX SERVICE. Message and data rates may apply. Reply STOP to unsubscribe. See our <a href="/sms-terms">SMS &amp; WhatsApp Terms</a> and <a href="/privacy">Privacy Policy</a>.</span>
+            <span>
+              <span class="checkbox-optional-tag" data-i18n="contact.smsConsentOptional">Optional — only check this if you'd like text/WhatsApp updates</span>
+              <span data-i18n="contact.smsConsent">I agree to receive SMS and WhatsApp messages (appointment reminders, tax deadline reminders, and account updates) from AL TAX SERVICE. Message and data rates may apply. Reply STOP to unsubscribe. See our <a href="/sms-terms">SMS &amp; WhatsApp Terms</a> and <a href="/privacy">Privacy Policy</a>.</span>
+            </span>
           </label>
         </div>
-        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;"><span data-i18n="contact.submit">Submit</span> <span class="arrow">&rarr;</span></button>
+        <button type="submit" id="contact-submit-btn" class="btn btn-primary" style="width:100%; justify-content:center;"><span data-i18n="contact.submit">Submit</span> <span class="arrow">&rarr;</span></button>
       </form>
     </div>
   </div>
@@ -175,6 +179,9 @@
           <li><a href="/news" data-i18n="nav.news">Tax News</a></li>
           <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
           <li><a href="/login/client" data-i18n="footer.clientPortalLogin">Client Portal Login</a></li>
+          <li><a href="/login/staff" data-i18n="footer.staffPortalLogin">Staff Portal Login</a></li>
+          <li><a href="/login/employee" data-i18n="footer.employeePortalLogin">Employee Portal Login</a></li>
+          <li><a href="/login" data-i18n="footer.adminLogin">Admin Login</a></li>
         </ul>
       </div>
       <div class="footer-col">

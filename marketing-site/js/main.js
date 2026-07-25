@@ -191,10 +191,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const contactForm = document.querySelector('.contact-form-card form');
   if (contactForm) {
-    contactForm.addEventListener('submit', (e) => {
+    const statusEl = document.getElementById('contact-form-status');
+    const submitBtn = document.getElementById('contact-submit-btn');
+    const submitLabel = submitBtn ? submitBtn.querySelector('span') : null;
+
+    contactForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      alert(t('form.contactSuccess'));
-      contactForm.reset();
+      const payload = {
+        company: contactForm.querySelector('#company').value.trim(),
+        firstName: contactForm.querySelector('#first-name').value.trim(),
+        lastName: contactForm.querySelector('#last-name').value.trim(),
+        phone: contactForm.querySelector('#phone').value.trim(),
+        email: contactForm.querySelector('#email').value.trim(),
+        reason: contactForm.querySelector('#reason').value.trim(),
+        smsConsent: contactForm.querySelector('#sms-consent').checked,
+      };
+
+      if (statusEl) statusEl.style.display = 'none';
+      if (submitBtn) submitBtn.disabled = true;
+      if (submitLabel) submitLabel.textContent = t('contact.sending');
+
+      try {
+        const res = await fetch('/public/contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error('Request failed');
+        if (statusEl) {
+          statusEl.className = 'form-status success';
+          statusEl.textContent = t('contact.successMessage');
+          statusEl.style.display = 'block';
+        }
+        contactForm.reset();
+      } catch (err) {
+        if (statusEl) {
+          statusEl.className = 'form-status error';
+          statusEl.textContent = t('contact.errorMessage');
+          statusEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        if (submitLabel) submitLabel.textContent = t('contact.submit');
+      }
     });
   }
 

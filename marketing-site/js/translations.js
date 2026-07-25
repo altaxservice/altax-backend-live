@@ -33,6 +33,9 @@ const TRANSLATIONS = {
   "footer.emailPlaceholder": { en: "Your email", ar: "بريدك الإلكتروني" },
   "footer.join": { en: "Join", ar: "اشترك" },
   "footer.clientPortalLogin": { en: "Client Portal Login", ar: "تسجيل دخول بوابة العملاء" },
+  "footer.staffPortalLogin": { en: "Staff Portal Login", ar: "تسجيل دخول بوابة الموظفين" },
+  "footer.employeePortalLogin": { en: "Employee Portal Login", ar: "تسجيل دخول بوابة العاملين" },
+  "footer.adminLogin": { en: "Admin Login", ar: "تسجيل دخول المدير" },
   "footer.copyright": { en: "&copy; 2026 AL TAX SERVICE. All rights reserved.", ar: "&copy; 2026 AL TAX SERVICE. جميع الحقوق محفوظة." },
   "footer.privacyPolicy": { en: "Privacy Policy", ar: "سياسة الخصوصية" },
   "footer.accessibilityStatement": { en: "Accessibility Statement", ar: "بيان إمكانية الوصول" },
@@ -378,7 +381,9 @@ const TRANSLATIONS = {
   "date.jul2026": { en: "July 2026", ar: "يوليو 2026" },
   "date.jun2026": { en: "June 2026", ar: "يونيو 2026" },
   "date.may2026": { en: "May 2026", ar: "مايو 2026" },
-  "form.contactSuccess": { en: "Thanks! This form is a static preview for now — hook it up to email/backend when ready.", ar: "شكرًا لك! هذا النموذج معاينة ثابتة حاليًا — سيتم ربطه بالبريد الإلكتروني أو الخادم لاحقًا." },
+  "contact.successMessage": { en: "Thanks — your message has been received. We'll be in touch shortly.", ar: "شكرًا لك — تم استلام رسالتك. سنتواصل معك قريبًا." },
+  "contact.errorMessage": { en: "Something went wrong sending your message. Please try again, or call us directly.", ar: "حدث خطأ أثناء إرسال رسالتك. يرجى المحاولة مرة أخرى، أو الاتصال بنا مباشرة." },
+  "contact.sending": { en: "Sending…", ar: "جارٍ الإرسال…" },
   "form.newsletterSuccess": { en: "Thanks for subscribing! (static preview)", ar: "شكرًا لاشتراكك! (معاينة ثابتة)" },
 
   // ---------- Reviews ----------
@@ -388,6 +393,7 @@ const TRANSLATIONS = {
 
   // ---------- Contact page: SMS consent ----------
   "contact.smsConsent": { en: "I agree to receive SMS and WhatsApp messages (appointment reminders, tax deadline reminders, and account updates) from AL TAX SERVICE. Message and data rates may apply. Reply STOP to unsubscribe. See our <a href=\"/sms-terms\">SMS &amp; WhatsApp Terms</a> and <a href=\"/privacy\">Privacy Policy</a>.", ar: "أوافق على تلقي رسائل نصية ورسائل واتساب (تذكيرات بالمواعيد، وتذكيرات بالمواعيد الضريبية النهائية، وتحديثات الحساب) من AL TAX SERVICE. قد يتم تطبيق رسوم الرسائل والبيانات. أرسل كلمة STOP لإلغاء الاشتراك. راجع <a href=\"/sms-terms\">شروط الرسائل النصية وواتساب</a> و<a href=\"/privacy\">سياسة الخصوصية</a>." },
+  "contact.smsConsentOptional": { en: "Optional — only check this if you'd like text/WhatsApp updates", ar: "اختياري — حدد هذا الخيار فقط إذا كنت ترغب بتلقي تحديثات عبر الرسائل النصية أو واتساب" },
 
   // ---------- Footer: legal links ----------
   "footer.smsTerms": { en: "SMS &amp; WhatsApp Terms", ar: "شروط الرسائل النصية وواتساب" },
