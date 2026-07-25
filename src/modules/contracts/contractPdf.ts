@@ -11,6 +11,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
+import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -55,9 +56,10 @@ class Cursor {
   text(x: number, yFromTop: number, str: string, opts: { size?: number; bold?: boolean; color?: ReturnType<typeof rgb>; align?: "left" | "right" | "center" } = {}) {
     const size = opts.size ?? 10;
     const font = opts.bold ? this.bold : this.font;
-    const width = font.widthOfTextAtSize(str, size);
+    const safeStr = pdfSafeText(str);
+    const width = font.widthOfTextAtSize(safeStr, size);
     const drawX = opts.align === "right" ? x - width : opts.align === "center" ? x - width / 2 : x;
-    this.page.drawText(str, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
+    this.page.drawText(safeStr, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
   }
   line(x1: number, y1: number, x2: number, y2: number, color = LINE, thickness = 0.75) {
     this.page.drawLine({ start: { x: x1, y: this.top - y1 }, end: { x: x2, y: this.top - y2 }, thickness, color });
@@ -68,7 +70,10 @@ class Cursor {
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const words = text.split(" ");
+  // Sanitize before measuring: widthOfTextAtSize throws on characters WinAnsi
+  // can't encode, so an unsanitized string would crash here even though the
+  // Cursor.text() draw path is already safe.
+  const words = pdfSafeText(text).split(" ");
   const lines: string[] = [];
   let current = "";
   for (const word of words) {

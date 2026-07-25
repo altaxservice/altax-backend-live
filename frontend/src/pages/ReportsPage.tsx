@@ -6,15 +6,21 @@ import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 
-const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Payroll", "Client Message"] as const;
+const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Sales & Tax", "Payroll", "Client Message"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
-  "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Payroll": "payroll", "Client Message": "client-message",
+  "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Client Message": "client-message",
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
-const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Payroll": "payroll" };
+const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll" };
+
+interface SalesTaxReport {
+  byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
+  sales: { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }[];
+  totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
+}
 
 interface ReportPaycheck {
   paycheck_id: string; pay_date: string | null; employee: string; gross_wages: number | string;
@@ -57,6 +63,9 @@ export function ReportsPage() {
   const [firmError, setFirmError] = useState<string | null>(null);
   const [paychecks, setPaychecks] = useState<ReportPaycheck[]>([]);
   const [payrollLoading, setPayrollLoading] = useState(false);
+  const [salesTaxReport, setSalesTaxReport] = useState<SalesTaxReport | null>(null);
+  const [salesTaxLoading, setSalesTaxLoading] = useState(false);
+  const [salesTaxError, setSalesTaxError] = useState<string | null>(null);
   const [periodMessage, setPeriodMessage] = useState<{ subject: string; body: string; bodyArabic: string } | null>(null);
   const [messageLoading, setMessageLoading] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
@@ -85,6 +94,16 @@ export function ReportsPage() {
       .catch(() => setPaychecks([]))
       .finally(() => setPayrollLoading(false));
   }, [clientId, tab]);
+
+  useEffect(() => {
+    if (!clientId || tab !== "Sales & Tax") return;
+    setSalesTaxLoading(true);
+    setSalesTaxError(null);
+    api.get<SalesTaxReport>(`/reports/sales-tax/${clientId}?from=${from}&to=${to}`)
+      .then(setSalesTaxReport)
+      .catch((err) => { setSalesTaxReport(null); setSalesTaxError(err instanceof ApiError ? err.message : "Could not load the sales & tax report."); })
+      .finally(() => setSalesTaxLoading(false));
+  }, [clientId, tab, from, to]);
 
   useEffect(() => {
     if (!clientId || tab !== "Client Message") return;
@@ -186,6 +205,17 @@ export function ReportsPage() {
   function handleClientChange(id: string) {
     setClientId(id);
     setSelectedClient(id || null, clients.find((c) => c.client_id === id)?.client_name);
+  }
+
+  /** Firm Overview month row -> that month's P&L. `month` is "YYYY-MM". */
+  function openMonthDetail(month: string) {
+    const [y, m] = month.split("-").map(Number);
+    if (!y || !m) return;
+    const start = new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    setFrom(start);
+    setTo(end);
+    setTab("P&L");
   }
 
   async function handlePrintReport(mode: "view" | "download") {
@@ -307,10 +337,14 @@ export function ReportsPage() {
                       {tab === "Firm Overview" ? "Revenue/expense trend from general-ledger activity, last 6 months." : "Financial statements are generated from general-ledger activity for the selected period."}
                     </div>
                   </div>
+                  {/* "Preview / Print" rather than the old "Print Report": this opens the
+                      real generated PDF in a new tab, where it can be read first and printed
+                      from the browser — it never printed directly, so the old label undersold
+                      it as a preview step and the user asked for one explicitly. */}
                   {tab === "Firm Overview" ? (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("view")}>
-                        {reportBusy === "firm-view" ? "Opening…" : "Print Report"}
+                        {reportBusy === "firm-view" ? "Opening…" : "Preview / Print"}
                       </button>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("download")}>
                         {reportBusy === "firm-download" ? "Generating…" : "Download PDF"}
@@ -322,7 +356,7 @@ export function ReportsPage() {
                   ) : REPORT_PDF_SEGMENT[tab] && (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("view")}>
-                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Print Report"}
+                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Preview / Print"}
                       </button>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("download")}>
                         {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF"}
@@ -352,14 +386,17 @@ export function ReportsPage() {
                       <div className="command-panel">
                         <div className="command-panel-header">
                           <h2 className="command-panel-title">Monthly Trend</h2>
-                          <div className="command-panel-note">{firmSummary.unpaidInvoiceCount} unpaid invoice{firmSummary.unpaidInvoiceCount === 1 ? "" : "s"}</div>
+                          <div className="command-panel-note">Click a month to open its P&amp;L · {firmSummary.unpaidInvoiceCount} unpaid invoice{firmSummary.unpaidInvoiceCount === 1 ? "" : "s"}</div>
                         </div>
                         <div className="table-scroll">
                         <table>
                           <thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead>
                           <tbody>
+                            {/* Clicking a month sets the period to that month and jumps to P&L —
+                                the row's numbers are a roll-up, so "show me the detail behind
+                                this" means the account-level statement for the same window. */}
                             {firmSummary.months.map((m) => (
-                              <tr key={m.month}>
+                              <tr key={m.month} style={{ cursor: "pointer" }} onClick={() => openMonthDetail(m.month)}>
                                 <td>{m.month}</td>
                                 <td>{fmtMoney(m.revenue)}</td>
                                 <td className="muted">{fmtMoney(m.expenses)}</td>
@@ -431,6 +468,73 @@ export function ReportsPage() {
                 <Row label="Equity (Assets - Liabilities)" value={fmtMoney(totalAssets - totalLiabilities)} bold accent />
               </div>
             </div>
+          )}
+
+          {tab === "Sales & Tax" && (
+            <>
+              {salesTaxError && <div className="error-banner">{salesTaxError}</div>}
+              {salesTaxLoading && <div className="spinner-wrap">Loading…</div>}
+              {!salesTaxLoading && salesTaxReport && (
+                <>
+                  <div className="metric-grid" style={{ marginBottom: 16 }}>
+                    <div className="metric"><div className="metric-label">Gross Sales</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.grossSales)}</div></div>
+                    <div className="metric"><div className="metric-label">Total Tax Due</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.taxDue)}</div></div>
+                    <div className="metric"><div className="metric-label">Adjustments</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.adjustments)}</div></div>
+                    <div className="metric"><div className="metric-label">Sales Recorded</div><div className="metric-value">{salesTaxReport.totals.saleCount}</div></div>
+                  </div>
+
+                  <div className="command-panel" style={{ marginBottom: 16 }}>
+                    <div className="command-panel-header">
+                      <h2 className="command-panel-title">Tax by Category</h2>
+                      <div className="command-panel-note">What each filing box needs</div>
+                    </div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead><tr><th>Category</th><th>State</th><th>Rate</th><th>Taxable Sales</th><th>Tax</th></tr></thead>
+                        <tbody>
+                          {salesTaxReport.byCategory.map((c, i) => (
+                            <tr key={`${c.categoryName}-${i}`}>
+                              <td>{c.categoryName}</td>
+                              <td className="muted">{c.state || "Any"}</td>
+                              <td className="muted">{(c.rate * 100).toFixed(2)}%</td>
+                              <td>{fmtMoney(c.taxableAmount)}</td>
+                              <td style={{ fontWeight: 700 }}>{fmtMoney(c.taxAmount)}</td>
+                            </tr>
+                          ))}
+                          {salesTaxReport.byCategory.length === 0 && (
+                            <tr><td colSpan={5} className="muted" style={{ textAlign: "center", padding: 16 }}>No categorized sales in this period.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="command-panel">
+                    <div className="command-panel-header">
+                      <h2 className="command-panel-title">Sales Recorded ({salesTaxReport.sales.length})</h2>
+                    </div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead><tr><th>Date</th><th>Gross Sales</th><th>Adjustments</th><th>Tax Due</th></tr></thead>
+                        <tbody>
+                          {salesTaxReport.sales.map((s) => (
+                            <tr key={s.saleId}>
+                              <td>{s.saleDate ? String(s.saleDate).slice(0, 10) : "—"}</td>
+                              <td>{fmtMoney(s.grossSales)}</td>
+                              <td className="muted">{fmtMoney(s.adjustments)}</td>
+                              <td>{fmtMoney(s.totalTaxDue)}</td>
+                            </tr>
+                          ))}
+                          {salesTaxReport.sales.length === 0 && (
+                            <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 16 }}>No sales recorded in this period.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           {payrollLoading && tab === "Payroll" && <div className="spinner-wrap">Loading…</div>}

@@ -14,6 +14,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
+import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -77,8 +78,9 @@ class Cursor {
   text(x: number, yFromTop: number, str: string, opts: { size?: number; bold?: boolean; color?: ReturnType<typeof rgb>; align?: "left" | "right" } = {}) {
     const size = opts.size ?? 10;
     const font = opts.bold ? this.bold : this.font;
-    const width = opts.align === "right" ? font.widthOfTextAtSize(str, size) : 0;
-    this.page.drawText(str, { x: x - width, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
+    const safeStr = pdfSafeText(str);
+    const width = opts.align === "right" ? font.widthOfTextAtSize(safeStr, size) : 0;
+    this.page.drawText(safeStr, { x: x - width, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
   }
 
   line(x1: number, y1: number, x2: number, y2: number, color = LINE, thickness = 0.75) {

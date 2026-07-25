@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Task } from "../api/types";
-import type { TaskRule } from "../api/types2";
+import type { TaskRule, WebOptions } from "../api/types2";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
@@ -34,6 +34,7 @@ export function TasksListPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [archivedTasks, setArchivedTasks] = useState<Task[] | null>(null);
   const [rules, setRules] = useState<TaskRule[]>([]);
+  const [options, setOptions] = useState<WebOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -79,6 +80,10 @@ export function TasksListPage() {
     if (canManage) api.get<{ rules: TaskRule[] }>("/rules").then((res) => setRules(res.rules)).catch(() => {});
   }, [canManage]);
 
+  useEffect(() => {
+    if (canManage) api.get<WebOptions>("/system/options").then(setOptions).catch(() => {});
+  }, [canManage]);
+
   async function handleRefresh() {
     setRefreshing(true);
     try {
@@ -90,7 +95,14 @@ export function TasksListPage() {
   }
 
   const staffOptions = useMemo(() => Array.from(new Set((tasks || []).map((t) => t.assigned_to).filter(Boolean))) as string[], [tasks]);
-  const serviceOptions = useMemo(() => Array.from(new Set((tasks || []).map((t) => t.service_line).filter(Boolean))) as string[], [tasks]);
+  // Union of the canonical task-type list (/system/options) and whatever's actually
+  // on existing tasks — building this from live tasks alone (the old behavior) hid
+  // every task type no task had used yet, so newly added ones (Health Permit, Use &
+  // Occupancy Permit, …) could never be filtered on until a task existed for them.
+  const serviceOptions = useMemo(
+    () => Array.from(new Set([...(options?.taskTypes || []), ...(tasks || []).map((t) => t.service_line).filter(Boolean) as string[]])),
+    [tasks, options]
+  );
 
   const isArchivedView = quickTab === "Archived";
 

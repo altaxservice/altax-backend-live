@@ -26,6 +26,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
+import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -60,9 +61,11 @@ class Cursor {
   text(x: number, yFromTop: number, str: string, opts: { size?: number; bold?: boolean; color?: ReturnType<typeof rgb>; align?: "left" | "right" | "center" } = {}) {
     const size = opts.size ?? 10;
     const font = opts.bold ? this.bold : this.font;
-    const width = font.widthOfTextAtSize(str, size);
+    const safe = pdfSafeText(str);
+    if (!safe) return;
+    const width = font.widthOfTextAtSize(safe, size);
     const drawX = opts.align === "right" ? x - width : opts.align === "center" ? x - width / 2 : x;
-    this.page.drawText(str, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
+    this.page.drawText(safe, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
   }
 
   line(x1: number, y1: number, x2: number, y2: number, color = LINE, thickness = 0.75) {
@@ -92,7 +95,10 @@ function drawHeader(c: Cursor, client: ReportClientInfo, reportTitle: string, pe
   c.text(R, y, periodLabel, { size: 10, color: MUTED, align: "right" });
   y += 12;
   if (client.address) {
-    for (const line of client.address.split(",").map((s) => s.trim()).filter(Boolean)) {
+    // Split on newlines first (composeAddress joins street / city-state-zip with
+    // one), then on commas — splitting on commas alone left the newline embedded,
+    // which is what crashed every report PDF for multi-line addresses.
+    for (const line of client.address.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)) {
       c.text(L, y, line, { size: 9, color: MUTED });
       y += 11;
     }
@@ -329,6 +335,109 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
   return doc.save();
 }
 
+export interface SalesTaxCategoryRow { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }
+export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }
+
+export interface SalesTaxReportData {
+  client: ReportClientInfo;
+  from: string; to: string;
+  byCategory: SalesTaxCategoryRow[];
+  sales: SalesTaxSaleRow[];
+  totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
+}
+
+/**
+ * Sales & Tax report — the category-by-category breakdown a sales tax return
+ * actually needs, which no existing report covered (P&L/Balance Sheet read the
+ * GL, where sales tax is one rolled-up "Sales Tax Payable" number with no
+ * category detail).
+ */
+export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "SALES & TAX REPORT", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+
+  const tiles: [string, string][] = [
+    ["Gross Sales", money(data.totals.grossSales)],
+    ["Total Tax Due", money(data.totals.taxDue)],
+    ["Sales Recorded", String(data.totals.saleCount)],
+  ];
+  const tileW = (PAGE_W - 96 - 2 * 10) / 3;
+  tiles.forEach(([label, value], i) => {
+    const x = 48 + i * (tileW + 10);
+    c.rect(x, y, tileW, 44, TEAL_TINT);
+    c.text(x + 10, y + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+    c.text(x + 10, y + 34, value, { size: 13, bold: true });
+  });
+  y += 58;
+
+  y = sectionLabel(c, y, "Tax by Category");
+  if (!data.byCategory.length) {
+    y = emptyNote(c, y) + 12;
+  } else {
+    const colCat = 48, colRate = PAGE_W - 48 - 250, colTaxable = PAGE_W - 48 - 130, colTax = PAGE_W - 48;
+    c.text(colCat, y, "Category", { size: 8, bold: true, color: MUTED });
+    c.text(colRate, y, "Rate", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colTaxable, y, "Taxable Sales", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colTax, y, "Tax", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6;
+    c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+    y += 14;
+    for (const r of data.byCategory) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      c.text(colCat, y, `${r.categoryName}${r.state ? ` (${r.state})` : ""}`.slice(0, 46), { size: 9 });
+      c.text(colRate, y, `${(r.rate * 100).toFixed(2)}%`, { size: 9, align: "right" });
+      c.text(colTaxable, y, money(r.taxableAmount), { size: 9, align: "right" });
+      c.text(colTax, y, money(r.taxAmount), { size: 9, align: "right" });
+      y += 15;
+    }
+    y += 2;
+    c.line(48, y, PAGE_W - 48, y, INK, 1);
+    y += 14;
+    const taxableTotal = data.byCategory.reduce((s, r) => s + r.taxableAmount, 0);
+    c.text(colCat, y, "Total", { size: 9, bold: true });
+    c.text(colTaxable, y, money(taxableTotal), { size: 9, bold: true, align: "right" });
+    c.text(colTax, y, money(data.byCategory.reduce((s, r) => s + r.taxAmount, 0)), { size: 9, bold: true, align: "right" });
+    y += 26;
+  }
+
+  y = sectionLabel(c, y, `Sales Recorded (${data.sales.length})`);
+  if (!data.sales.length) {
+    emptyNote(c, y);
+  } else {
+    const colDate = 48, colGross = PAGE_W - 48 - 250, colAdj = PAGE_W - 48 - 130, colDue = PAGE_W - 48;
+    c.text(colDate, y, "Date", { size: 8, bold: true, color: MUTED });
+    c.text(colGross, y, "Gross Sales", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colAdj, y, "Adjustments", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colDue, y, "Tax Due", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6;
+    c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+    y += 14;
+    for (const s of data.sales) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      c.text(colDate, y, fmtDate(s.saleDate), { size: 9 });
+      c.text(colGross, y, money(s.grossSales), { size: 9, align: "right" });
+      c.text(colAdj, y, money(s.adjustments), { size: 9, align: "right" });
+      c.text(colDue, y, money(s.totalTaxDue), { size: 9, align: "right" });
+      y += 14;
+    }
+  }
+
+  drawFooter(c, profile.firmName);
+  return doc.save();
+}
+
 export interface ClientMessageReportData {
   client: ReportClientInfo;
   from: string; to: string;
@@ -432,7 +541,10 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const words = text.split(" ");
+  // Sanitize before measuring: widthOfTextAtSize throws on characters WinAnsi
+  // can't encode, so an unsanitized string would crash here even though the
+  // Cursor.text() draw path is already safe.
+  const words = pdfSafeText(text).split(" ");
   const lines: string[] = [];
   let current = "";
   for (const word of words) {

@@ -31,6 +31,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { loadHealthFormTemplate, readHealthFormBytes } from "../../common/healthForms";
 import { fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_H = 792;
 const INK = rgb(0.09, 0.09, 0.09);
@@ -42,9 +43,10 @@ class Cursor {
   text(x: number, yFromTop: number, str: string, opts: { size?: number; bold?: boolean; color?: ReturnType<typeof rgb>; align?: "left" | "right" | "center" } = {}) {
     const size = opts.size ?? 9.5;
     const font = opts.bold ? this.bold : this.font;
-    const width = font.widthOfTextAtSize(str, size);
+    const safeStr = pdfSafeText(str);
+    const width = font.widthOfTextAtSize(safeStr, size);
     const drawX = opts.align === "right" ? x - width : opts.align === "center" ? x - width / 2 : x;
-    this.page.drawText(str, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
+    this.page.drawText(safeStr, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
   }
   rect(x: number, y: number, w: number, h: number, color = TEAL, strokeOnly = false) {
     if (strokeOnly) this.page.drawRectangle({ x, y: this.top - y - h, width: w, height: h, borderColor: color, borderWidth: 0.75 });

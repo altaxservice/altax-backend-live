@@ -99,6 +99,12 @@ export function ClientsListPage() {
   const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
   const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  // Free-text escapes for the two fixed lists on this form — the firm keeps hitting
+  // engagements that don't map onto a predefined option, and previously the only
+  // way to add one was a code change.
+  const [serviceTypeOther, setServiceTypeOther] = useState("");
+  const [customServices, setCustomServices] = useState<string[]>([]);
+  const [newCustomService, setNewCustomService] = useState("");
 
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
@@ -149,6 +155,9 @@ export function ClientsListPage() {
       }
       setForm(EMPTY_CLIENT_FORM);
       setCreatePortalNow(false);
+      setCustomServices([]);
+      setNewCustomService("");
+      setServiceTypeOther("");
       setSearchParams({});
       await load();
       if (invite) setInviteInfo(invite);
@@ -211,7 +220,14 @@ export function ClientsListPage() {
 
   const owners = useMemo(() => Array.from(new Set((clients || []).map((c) => c.assigned_to).filter(Boolean))) as string[], [clients]);
   const types = useMemo(() => Array.from(new Set((clients || []).map((c) => c.client_type).filter(Boolean))) as string[], [clients]);
-  const services = useMemo(() => Array.from(new Set((clients || []).map((c) => c.service_type).filter(Boolean))) as string[], [clients]);
+  // Union of the canonical list and whatever's actually stored — building this from
+  // live data alone (the old behavior) silently hid any service type no client had
+  // been assigned yet, so a newly added one could never be filtered on. The stored
+  // half still matters for custom "Other" values typed on the form.
+  const services = useMemo(
+    () => Array.from(new Set([...SERVICE_TYPES, ...(clients || []).map((c) => c.service_type).filter(Boolean) as string[]])),
+    [clients]
+  );
   const statuses = useMemo(() => Array.from(new Set((clients || []).map((c) => c.status).filter(Boolean))) as string[], [clients]);
 
   const filtered = useMemo(() => {
@@ -367,10 +383,23 @@ export function ClientsListPage() {
             </div>
             <div className="field">
               <label htmlFor="nc-service">Service Type</label>
-              <select id="nc-service" value={form.serviceType} onChange={(e) => setForm((f) => ({ ...f, serviceType: e.target.value }))}>
+              <select id="nc-service" value={SERVICE_TYPES.includes(form.serviceType) || !form.serviceType ? form.serviceType : "__other"} onChange={(e) => {
+                if (e.target.value === "__other") { setForm((f) => ({ ...f, serviceType: serviceTypeOther })); return; }
+                setServiceTypeOther("");
+                setForm((f) => ({ ...f, serviceType: e.target.value }));
+              }}>
                 <option value="">Select…</option>
                 {SERVICE_TYPES.map((o) => <option key={o}>{o}</option>)}
+                <option value="__other">Other…</option>
               </select>
+              {!!form.serviceType && !SERVICE_TYPES.includes(form.serviceType) && (
+                <input
+                  style={{ marginTop: 6 }}
+                  placeholder="Describe this service type"
+                  value={form.serviceType}
+                  onChange={(e) => { setServiceTypeOther(e.target.value); setForm((f) => ({ ...f, serviceType: e.target.value })); }}
+                />
+              )}
             </div>
           </div>
 
@@ -396,6 +425,53 @@ export function ClientsListPage() {
                 {s.label}
               </label>
             ))}
+            {/* Custom services added on this form — stored in the same services[]
+                array as the built-in keys. They won't have an auto-generated
+                contract template (there's no pre-written text for a service the
+                firm just invented), which is expected, not a gap. */}
+            {customServices.map((label) => (
+              <label key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={form.services.includes(label)}
+                  onChange={(e) => setForm((f) => ({
+                    ...f,
+                    services: e.target.checked ? [...f.services, label] : f.services.filter((k) => k !== label),
+                  }))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+            <input
+              placeholder="Add another service…"
+              value={newCustomService}
+              onChange={(e) => setNewCustomService(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                const label = newCustomService.trim();
+                if (!label || customServices.includes(label)) return;
+                setCustomServices((prev) => [...prev, label]);
+                setForm((f) => ({ ...f, services: [...f.services, label] }));
+                setNewCustomService("");
+              }}
+              style={{ maxWidth: 280 }}
+            />
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => {
+                const label = newCustomService.trim();
+                if (!label || customServices.includes(label)) return;
+                setCustomServices((prev) => [...prev, label]);
+                setForm((f) => ({ ...f, services: [...f.services, label] }));
+                setNewCustomService("");
+              }}
+            >
+              + Add Item
+            </button>
           </div>
 
           {form.services.includes("payroll") && (

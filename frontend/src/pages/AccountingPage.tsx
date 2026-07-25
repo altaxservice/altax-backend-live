@@ -167,6 +167,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [editLines, setEditLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [estimatedTax, setEstimatedTax] = useState<number | null>(null);
   const [period, setPeriod] = useState(() => {
     const now = new Date();
@@ -205,6 +206,22 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   });
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
+  // Per-category rollup for the period — previously the only category-level
+  // visibility was re-opening each sale's Edit form one at a time; this answers
+  // "how much did we collect in Vape tax this quarter" without that.
+  const periodByCategory = (() => {
+    const map = new Map<string, { categoryName: string; taxable: number; tax: number }>();
+    for (const s of salesInPeriod) {
+      for (const l of s.lines || []) {
+        const key = l.category_id;
+        const row = map.get(key) || { categoryName: l.category_name, taxable: 0, tax: 0 };
+        row.taxable += Number(l.taxable_amount || 0);
+        row.tax += Number(l.tax_amount || 0);
+        map.set(key, row);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.tax - a.tax);
+  })();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -293,6 +310,48 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           <div className="metric"><div className="metric-label">Period Sales</div><div className="metric-value">{fmtMoney(periodSales)}</div></div>
           <div className="metric"><div className="metric-label">Period Tax</div><div className="metric-value">{fmtMoney(periodTax)}</div></div>
         </div>
+        {periodByCategory.length > 0 && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <div className="small-label" style={{ marginBottom: 6 }}>Tax Collected by Category (this period)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {periodByCategory.map((c) => (
+                <div key={c.categoryName} className="card" style={{ padding: "6px 10px", fontSize: 12 }}>
+                  <strong>{c.categoryName}</strong> · {fmtMoney(c.taxable)} taxed · <span className="muted">{fmtMoney(c.tax)} tax</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {viewing && (
+          <div className="card" style={{ margin: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <strong>Sale — {fmtDate(viewing.sale_date)}</strong>
+              <button type="button" className="btn btn-sm" onClick={() => setViewing(null)}>Close</button>
+            </div>
+            <div className="metric-grid" style={{ margin: "10px 0" }}>
+              <div className="metric"><div className="metric-label">Gross Sales</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtMoney(viewing.gross_sales)}</div></div>
+              <div className="metric"><div className="metric-label">Total Tax Due</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtMoney(viewing.total_tax_due)}</div></div>
+              <div className="metric"><div className="metric-label">Payment Date</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtDate(viewing.payment_date) || "—"}</div></div>
+            </div>
+            <table>
+              <thead><tr><th>Category</th><th>Taxable Amount</th><th>Rate</th><th>Tax Amount</th></tr></thead>
+              <tbody>
+                {(viewing.lines || []).map((l: any) => (
+                  <tr key={l.line_id}>
+                    <td>{l.category_name}</td>
+                    <td>{fmtMoney(l.taxable_amount)}</td>
+                    <td className="muted">{(Number(l.tax_rate_used) * 100).toFixed(2)}%</td>
+                    <td>{fmtMoney(l.tax_amount)}</td>
+                  </tr>
+                ))}
+                {(viewing.lines || []).length === 0 && <tr><td colSpan={4} className="muted">No category lines on this sale.</td></tr>}
+              </tbody>
+            </table>
+            {viewing.adjustments != null && Number(viewing.adjustments) !== 0 && <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>Adjustments: {fmtMoney(viewing.adjustments)}</p>}
+            {viewing.notes && <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>{viewing.notes}</p>}
+            <button type="button" className="btn btn-sm btn-primary" style={{ marginTop: 8 }} onClick={() => { startEdit(viewing); setViewing(null); }}>Edit This Sale</button>
+          </div>
+        )}
         {editing && (
           <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
             <strong>Edit sales record — {fmtDate(editing.sale_date)}</strong>
@@ -319,14 +378,14 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <thead><tr><th>Date</th><th>Gross</th><th>Categories</th><th>Tax Due</th><th>Payment</th><th>Notes</th><th></th></tr></thead>
             <tbody>
               {sales.map((s) => (
-                <tr key={s.sale_id}>
+                <tr key={s.sale_id} style={{ cursor: "pointer" }} onClick={() => { setViewing(s); setEditing(null); }}>
                   <td>{fmtDate(s.sale_date)}</td>
                   <td>{fmtMoney(s.gross_sales)}</td>
                   <td className="muted" style={{ fontSize: 12 }}>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</td>
                   <td>{fmtMoney(s.total_tax_due)}</td>
                   <td className="muted">{fmtDate(s.payment_date)}</td>
                   <td className="muted">{s.notes || "—"}</td>
-                  <td><button type="button" className="btn btn-sm" onClick={() => startEdit(s)}>Edit</button></td>
+                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button></td>
                 </tr>
               ))}
             </tbody>
