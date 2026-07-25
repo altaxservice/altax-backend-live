@@ -1842,6 +1842,143 @@ function TaxRatesTab() {
           </div>
         </div>
       )}
+
+      <SalesCategoriesSection rates={rates || []} />
+    </div>
+  );
+}
+
+interface SalesTaxCategoryRow {
+  category_id: string; category_name: string; state: string | null; default_rate_id: string | null;
+  filing_box_label: string | null; display_order: number; active: boolean; notes: string | null;
+}
+
+const CATEGORY_FORM_DEFAULTS = {
+  categoryId: "", categoryName: "", state: "", defaultRateId: "", filingBoxLabel: "", displayOrder: "100", notes: "", active: true,
+};
+
+/**
+ * Sales Tax Categories — the missing half of Tax Rates. Sales Input only ever
+ * shows Categories (not raw Rates), and a Category has to be manually linked to
+ * a Rate via default_rate_id. Before this, there was no screen to create or edit
+ * one — only the 12 seeded at the Stage 2 migration existed, so a newly added Tax
+ * Rate could never appear in Sales Input no matter how many you added. Lives
+ * right under Tax Rates (not a separate top-level tab) since a category is
+ * meaningless without picking one of the rates above it.
+ */
+function SalesCategoriesSection({ rates }: { rates: TaxRate[] }) {
+  const [categories, setCategories] = useState<SalesTaxCategoryRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(CATEGORY_FORM_DEFAULTS);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ categories: SalesTaxCategoryRow[] }>("/accounting/sales-categories/all")
+      .then((r) => setCategories(r.categories))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load sales tax categories."));
+  }
+  useEffect(load, []);
+
+  function startCreate() {
+    setForm(CATEGORY_FORM_DEFAULTS);
+    setShowForm(true);
+    setSaveError(null);
+  }
+  function startEdit(c: SalesTaxCategoryRow) {
+    setForm({
+      categoryId: c.category_id, categoryName: c.category_name, state: c.state || "",
+      defaultRateId: c.default_rate_id || "", filingBoxLabel: c.filing_box_label || "",
+      displayOrder: String(c.display_order ?? 100), notes: c.notes || "", active: c.active,
+    });
+    setShowForm(true);
+    setSaveError(null);
+  }
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.post("/accounting/sales-categories", { ...form, displayOrder: Number(form.displayOrder) || 100 });
+      setShowForm(false);
+      setForm(CATEGORY_FORM_DEFAULTS);
+      load();
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "Could not save this category.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeactivate(categoryId: string) {
+    if (!confirm("Deactivate this category? It will stop appearing in Sales Input.")) return;
+    await api.post(`/accounting/sales-categories/${categoryId}/deactivate`, {}).catch((e) => alert(e.message));
+    load();
+  }
+  async function handleActivate(categoryId: string) {
+    await api.post(`/accounting/sales-categories/${categoryId}/activate`, {}).catch((e) => alert(e.message));
+    load();
+  }
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div className="command-panel-header" style={{ padding: 0, marginBottom: 12 }}>
+        <div>
+          <h2 className="command-panel-title" style={{ fontSize: 15 }}>Sales Tax Categories</h2>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
+            Sales Input only shows Categories, not raw Tax Rates — a rate has to be linked to a category here before it can be used on a sale.
+          </p>
+        </div>
+        <button type="button" className="btn btn-primary" onClick={() => (showForm ? setShowForm(false) : startCreate())}>{showForm ? "Cancel" : "New Category"}</button>
+      </div>
+      {error && <div className="error-banner">{error}</div>}
+      {showForm && (
+        <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.categoryId ? `Edit ${form.categoryId}` : "New Category"}</h2>
+          {saveError && <div className="error-banner">{saveError}</div>}
+          <div className="field"><label>Category Name</label><input required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
+          <div className="field">
+            <label>Default Rate</label>
+            <select required value={form.defaultRateId} onChange={(e) => setForm((f) => ({ ...f, defaultRateId: e.target.value }))}>
+              <option value="">Choose a tax rate…</option>
+              {rates.map((r) => <option key={r.rate_id} value={r.rate_id}>{r.rate_id} — {r.rate_type} ({(Number(r.rate) * 100).toFixed(2)}%)</option>)}
+            </select>
+          </div>
+          <div className="field"><label>State <span className="muted">(blank = any state)</span></label><input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="e.g. MD" /></div>
+          <div className="field"><label>Filing Box Label <span className="muted">(optional)</span></label><input value={form.filingBoxLabel} onChange={(e) => setForm((f) => ({ ...f, filingBoxLabel: e.target.value }))} /></div>
+          <div className="field"><label>Display Order</label><input type="number" value={form.displayOrder} onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))} /></div>
+          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        </form>
+      )}
+      {categories && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <div className="table-scroll">
+            <table>
+              <thead><tr><th>Category</th><th>State</th><th>Default Rate</th><th>Order</th><th>Active</th><th></th></tr></thead>
+              <tbody>
+                {categories.map((c) => (
+                  <tr key={c.category_id}>
+                    <td>{c.category_name}</td>
+                    <td className="muted">{c.state || "Any"}</td>
+                    <td className="muted">{c.default_rate_id || "—"}</td>
+                    <td className="muted">{c.display_order}</td>
+                    <td>{c.active ? "Yes" : "No"}</td>
+                    <td style={{ display: "flex", gap: 6 }}>
+                      <button className="btn btn-sm" onClick={() => startEdit(c)}>Edit</button>
+                      {c.active ? <button className="btn btn-sm" onClick={() => handleDeactivate(c.category_id)}>Deactivate</button> : <button className="btn btn-sm" onClick={() => handleActivate(c.category_id)}>Activate</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

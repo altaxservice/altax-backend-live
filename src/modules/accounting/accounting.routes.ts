@@ -300,6 +300,80 @@ accountingRouter.get("/sales-categories", requireAuth, requireRole("admin", "sta
   res.json({ categories: rows });
 }));
 
+/**
+ * Admin view of ALL categories (including inactive) — the public GET above only
+ * returns active ones (that's what Sales Input's category picker should see), but
+ * the admin management screen needs to see and reactivate inactive rows too.
+ */
+accountingRouter.get("/sales-categories/all", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query(`SELECT * FROM altax.v3_sales_tax_categories ORDER BY display_order, category_name`);
+  res.json({ categories: rows });
+}));
+
+/**
+ * Create/edit a Sales Tax Category — this is the missing half of Tax Rates. A Tax
+ * Rate (v3_tax_rates) is just a number; Sales Input only ever shows CATEGORIES
+ * (v3_sales_tax_categories), and nothing previously let staff create or edit one —
+ * only the 12 seeded at the Stage 2 migration existed, so a newly added Tax Rate
+ * had no way to ever appear in Sales Input. Upserts by category_id, matching the
+ * existing Tax Rate/COA save pattern.
+ */
+accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const categoryName = String(body.categoryName || "").trim();
+  if (!categoryName) return res.status(400).json({ error: "Category name is required." });
+  const defaultRateId = String(body.defaultRateId || "").trim();
+  if (!defaultRateId) return res.status(400).json({ error: "Choose the tax rate this category uses." });
+
+  let categoryId = String(body.categoryId || "").trim();
+  if (!categoryId) {
+    const state = String(body.state || "").trim();
+    const derived = `CAT-${state || "ALL"}-${categoryName}`.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    categoryId = derived || `CAT-${idSuffix()}`;
+  }
+
+  const fields = {
+    category_name: categoryName,
+    state: String(body.state || "").trim() || null,
+    default_rate_id: defaultRateId,
+    filing_box_label: String(body.filingBoxLabel || "").trim() || null,
+    display_order: Number.isFinite(Number(body.displayOrder)) ? Number(body.displayOrder) : 100,
+    active: body.active === undefined ? true : Boolean(body.active),
+    notes: String(body.notes || "").trim() || null,
+  };
+
+  const existing = await queryOne<any>(`SELECT category_id FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
+  if (existing) {
+    await query(
+      `UPDATE altax.v3_sales_tax_categories SET category_name=$2, state=$3, default_rate_id=$4, filing_box_label=$5,
+         display_order=$6, active=$7, notes=$8, updated_at = now() WHERE category_id = $1`,
+      [categoryId, ...Object.values(fields)]
+    );
+    await logAudit("Accounting", "EDIT_SALES_CATEGORY", categoryId, "", "", categoryName, `Sales tax category edited by ${req.user!.email}.`, req.user!.email);
+  } else {
+    await query(
+      `INSERT INTO altax.v3_sales_tax_categories (category_id, category_name, state, default_rate_id, filing_box_label, display_order, active, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [categoryId, ...Object.values(fields)]
+    );
+    await logAudit("Accounting", "CREATE_SALES_CATEGORY", categoryId, "", "", categoryName, `Sales tax category created by ${req.user!.email}.`, req.user!.email);
+  }
+
+  res.json({ ok: true, categoryId });
+}));
+
+accountingRouter.post("/sales-categories/:categoryId/deactivate", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  await query(`UPDATE altax.v3_sales_tax_categories SET active = false, updated_at = now() WHERE category_id = $1`, [req.params.categoryId]);
+  await logAudit("Accounting", "DEACTIVATE_SALES_CATEGORY", req.params.categoryId, "active", "true", "false", `Deactivated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+accountingRouter.post("/sales-categories/:categoryId/activate", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  await query(`UPDATE altax.v3_sales_tax_categories SET active = true, updated_at = now() WHERE category_id = $1`, [req.params.categoryId]);
+  await logAudit("Accounting", "ACTIVATE_SALES_CATEGORY", req.params.categoryId, "active", "false", "true", `Activated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 interface SalesCategoryLineInput { categoryId: string; taxableAmount: number | string }
 
 /**
