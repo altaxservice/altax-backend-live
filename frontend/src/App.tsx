@@ -26,6 +26,7 @@ import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
 import { FirmSettingsPage } from "./pages/FirmSettingsPage";
+import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
@@ -62,6 +63,7 @@ function App() {
                 <Route path="/security" element={<SecurityPage />} />
                 <Route path="/fix-center" element={<FixCenterPage />} />
                 <Route path="/firm-settings" element={<FirmSettingsPage />} />
+                <Route path="/firm-portals" element={<FirmPortalsPage />} />
               </Route>
               {/* Employees have no billing relationship with the firm — only their employer
                   (the client) does. Employees are paid via payroll, not invoiced. */}

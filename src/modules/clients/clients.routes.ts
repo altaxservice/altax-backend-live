@@ -112,7 +112,7 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
     return res.status(403).json({ error: "You do not have access to this client." });
   }
 
-  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees] = await Promise.all([
+  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
         WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`,
@@ -141,6 +141,13 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
       `SELECT COUNT(*)::int AS count FROM altax.v3_employees WHERE client_id = $1 AND lower(status) <> 'archived'`,
       [clientId]
     ),
+    // Files actually on file for this client, so the panel can answer "do we
+    // have their documents?" without opening the Documents page.
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_document_uploads
+        WHERE client_id = $1 AND lower(status) NOT IN ('removed','replaced')`,
+      [clientId]
+    ),
   ]);
 
   res.json({
@@ -150,6 +157,7 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
     openInvoices: invoiceBalance?.count || 0,
     balanceDue: Number(invoiceBalance?.balance || 0),
     employeesCount: employees?.count || 0,
+    documentsCount: documents?.count || 0,
   });
 }));
 

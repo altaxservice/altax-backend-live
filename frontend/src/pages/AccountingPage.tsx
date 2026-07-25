@@ -1865,7 +1865,17 @@ function TaxRatesTab() {
           )}
           <div className="field"><label>Side</label><select value={form.employeeEmployer} onChange={(e) => setForm((f) => ({ ...f, employeeEmployer: e.target.value }))}><option value="">—</option><option value="Employee">Employee</option><option value="Employer">Employer</option><option value="Both">Both</option></select></div>
           <div className="field"><label>Wage Cap</label><input type="number" step="0.01" value={form.wageCap} onChange={(e) => setForm((f) => ({ ...f, wageCap: e.target.value }))} /></div>
-          <div className="field"><label>State</label><input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="e.g. MD" /></div>
+          <div className="field">
+            <label>State</label>
+            <select value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
+              <option value="">Select…</option>
+              {/* US = federal-level rates (FUTA, Social Security, Medicare), which
+                  aren't tied to any one state — kept as an explicit option since
+                  several seeded rates already use it. */}
+              <option value="US">US (federal)</option>
+              {US_STATES.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </div>
           <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
         </form>
@@ -2002,7 +2012,13 @@ function SalesCategoriesSection() {
           {saveError && <div className="error-banner">{saveError}</div>}
           <div className="field"><label>Category Name</label><input required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
           <div className="field"><label>Tax Rate (%)</label><input required type="number" step="0.01" min="0" value={form.ratePercent} onChange={(e) => setForm((f) => ({ ...f, ratePercent: e.target.value }))} placeholder="e.g. 6 for 6%" /></div>
-          <div className="field"><label>State <span className="muted">(blank = any state)</span></label><input value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))} placeholder="e.g. MD" /></div>
+          <div className="field">
+            <label>State <span className="muted">(blank = any state)</span></label>
+            <select value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
+              <option value="">Any state</option>
+              {US_STATES.map((s) => <option key={s}>{s}</option>)}
+            </select>
+          </div>
           <div className="field"><label>Filing Box Label <span className="muted">(optional)</span></label><input value={form.filingBoxLabel} onChange={(e) => setForm((f) => ({ ...f, filingBoxLabel: e.target.value }))} /></div>
           <div className="field"><label>Display Order</label><input type="number" value={form.displayOrder} onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))} /></div>
           <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>

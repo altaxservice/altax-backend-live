@@ -260,7 +260,7 @@ export function TaskDetailPage() {
         )
       )}
 
-      {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} />}
+      {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} clientId={task?.client_id ?? null} />}
       {tab === "Notes & Messages" && canEdit && taskId && <TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} />}
     </div>
   );
@@ -268,7 +268,7 @@ export function TaskDetailPage() {
 
 interface TaskUpload { upload_id: string; file_name: string; file_url: string; uploaded_by: string; uploaded_at: string | null; notes: string | null }
 
-function TaskAttachments({ taskId }: { taskId: string }) {
+function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: string | null }) {
   const [uploads, setUploads] = useState<TaskUpload[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"browse" | "link">("browse");
@@ -313,7 +313,14 @@ function TaskAttachments({ taskId }: { taskId: string }) {
     <div className="command-panel" style={{ maxWidth: 560 }}>
       <div className="command-panel-header">
         <h2 className="command-panel-title">Attachments</h2>
-        <div className="command-panel-note">{uploads?.length ?? 0} files · internal only</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="command-panel-note">{uploads?.length ?? 0} files · internal only</div>
+          {/* This tab only ever shows files attached to THIS task; the client's
+              full document file lives elsewhere, so give staff a way there. */}
+          {clientId && (
+            <Link to={`/clients/${clientId}?tab=Documents`} className="btn btn-sm">All Client Documents</Link>
+          )}
+        </div>
       </div>
       <form onSubmit={handleAttach} style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
         {saveError && <div className="error-banner" style={{ width: "100%" }}>{saveError}</div>}

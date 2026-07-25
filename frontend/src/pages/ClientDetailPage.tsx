@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Client, Task } from "../api/types";
-import type { VaultSecret, PaymentMethod, PortalUser } from "../api/types2";
+import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest } from "../api/types2";
+import { UploadFileModal } from "../components/UploadFileModal";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -121,12 +122,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Documents", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Contracts", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Documents", "Contracts", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -255,6 +256,20 @@ export function ClientDetailPage() {
     if (location.hash !== "#vault" || !client) return;
     setTab("Vault & Payment Methods");
   }, [location.hash, client]);
+
+  // Lets other pages deep-link straight to a tab, e.g. Task Detail's
+  // "All Client Documents" button -> /clients/:id?tab=Documents.
+  const tabParam = searchParams.get("tab");
+  const appliedTabParam = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tabParam || !client || appliedTabParam.current === tabParam) return;
+    const match = DETAIL_TABS.find(
+      (t) => t.toLowerCase() === tabParam.toLowerCase() && (canSeeStaffTabs || !STAFF_ONLY_TABS.includes(t)),
+    );
+    // Apply once per param value, so clicking a different tab afterwards sticks.
+    appliedTabParam.current = tabParam;
+    if (match) setTab(match);
+  }, [tabParam, client, canSeeStaffTabs]);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -587,6 +602,10 @@ export function ClientDetailPage() {
             </div>
           )}
 
+          {tab === "Documents" && canSeeStaffTabs && (
+            <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
+          )}
+
           {tab === "Contracts" && canSeeStaffTabs && (
             <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
           )}
@@ -621,6 +640,96 @@ const CONTRACT_STATUS_COLOR: Record<string, string> = {
  * e-signed via that link), and can be Voided but never hard-deleted, since these
  * are legal records.
  */
+/**
+ * Everything on file for this client, on the client's own profile. Previously the
+ * only way to see a client's documents was the separate Documents page — you had
+ * to leave the client you were looking at, then filter back down to them. Reads
+ * the same endpoints that page does and scopes to this client.
+ */
+function ClientDocumentsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
+  const navigate = useNavigate();
+  const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
+  const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  function load() {
+    api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
+      .then((r) => setUploads(r.uploads.filter((u) => u.client_id === clientId && !["removed", "replaced"].includes(String(u.status || "").toLowerCase()))))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load documents."));
+    api.get<{ requests: DocumentRequest[] }>("/documents/requests")
+      .then((r) => setRequests(r.requests.filter((q) => q.client_id === clientId)))
+      .catch(() => setRequests([]));
+  }
+  useEffect(load, [clientId]);
+
+  const openRequests = (requests || []).filter((r) => !["closed", "completed", "void", "archived"].includes(String(r.status || "").toLowerCase()));
+
+  return (
+    <div>
+      {error && <div className="error-banner">{error}</div>}
+
+      <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
+          <strong style={{ fontSize: 14 }}>Files on File</strong>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${uploads.length} file(s)` : "Loading…"}</span>
+            <button type="button" className="btn btn-sm" onClick={() => setUploadOpen(true)}>Upload Document</button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?new=1&clientId=${clientId}`)}>Request Document</button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?clientId=${clientId}`)}>Open Documents Page</button>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>File</th><th>Direction</th><th>Uploaded</th><th>By</th><th>Action</th></tr></thead>
+            <tbody>
+              {(uploads || []).map((u) => (
+                <tr key={u.upload_id}>
+                  <td>{u.file_name}</td>
+                  <td className="muted">{u.direction || "—"}</td>
+                  <td className="muted">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+                  <td className="muted">{String((u as any).uploaded_by || "—")}</td>
+                  <td style={{ display: "flex", gap: 8 }}>
+                    <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
+                    <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "document")}>Download</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {uploads && uploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files on file for this client yet.</p>}
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+          <strong style={{ fontSize: 14 }}>Open Requests</strong>
+          <span className="muted" style={{ fontSize: 12 }}>{requests ? `${openRequests.length} open` : "Loading…"}</span>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Requested Item</th><th>Due From Client</th><th>Status</th></tr></thead>
+            <tbody>
+              {openRequests.map((r) => (
+                <tr key={r.request_id}>
+                  <td><Link to={`/documents/${r.request_id}`}>{r.requested_item || "—"}</Link></td>
+                  <td className="muted">{r.due_from_client ? fmtDateOnly(r.due_from_client) : "—"}</td>
+                  <td><StatusBadge status={r.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {requests && openRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing outstanding from this client.</p>}
+      </div>
+
+      {uploadOpen && (
+        <UploadFileModal clientId={clientId} clientName={clientName} onClose={() => setUploadOpen(false)} onDone={load} />
+      )}
+    </div>
+  );
+}
+
 function ContractsSection({ clientId, clientServices }: { clientId: string; clientServices: string[] }) {
   const toast = useToast();
   const [contracts, setContracts] = useState<ClientContract[] | null>(null);

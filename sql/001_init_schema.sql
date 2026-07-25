@@ -463,6 +463,30 @@ CREATE TABLE IF NOT EXISTS v3_secret_access_log (
     CONSTRAINT fk_v3_secret_access_log_secret_id FOREIGN KEY (secret_id) REFERENCES v3_client_secrets(secret_id) ON DELETE SET NULL
 );
 
+-- ---- v3_Firm_Portals ----
+-- The FIRM's own agency logins (EFTPS, MD Tax Connect, ...), as opposed to the
+-- client-scoped secrets in v3_client_secrets. Separate table because a portal
+-- login is a user-id + password pair, not a single opaque secret value.
+CREATE TABLE IF NOT EXISTS v3_firm_portals (
+    portal_id VARCHAR(64) PRIMARY KEY,
+    portal_name VARCHAR(200) NOT NULL,
+    category VARCHAR(100),
+    jurisdiction VARCHAR(100),
+    agency_name VARCHAR(200),
+    portal_url VARCHAR(500),
+    username VARCHAR(300),
+    encrypted_password TEXT,
+    encrypted_notes TEXT,
+    status VARCHAR(40) NOT NULL DEFAULT 'Active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by VARCHAR(200),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by VARCHAR(200),
+    deleted_at TIMESTAMPTZ,
+    deleted_by VARCHAR(200)
+);
+CREATE INDEX IF NOT EXISTS idx_v3_firm_portals_status ON v3_firm_portals(status);
+
 -- ---- v3_Archived_Tasks ----
 CREATE TABLE IF NOT EXISTS v3_archived_tasks (
     task_id VARCHAR(64) PRIMARY KEY,

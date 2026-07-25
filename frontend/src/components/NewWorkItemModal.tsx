@@ -50,6 +50,11 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   const [assignedTo, setAssignedTo] = useState("");
   const [period, setPeriod] = useState("");
   const [paymentRequired, setPaymentRequired] = useState(false);
+  // POST /tasks already accepted these (and falls back to the matching Task
+  // Rule's portal when blank) — the form just never exposed them, so a
+  // one-off task could never carry the filing portal it has to be done on.
+  const [portalName, setPortalName] = useState("");
+  const [portalUrl, setPortalUrl] = useState("");
 
   const [requestType, setRequestType] = useState("Document Request");
   const [requestedItem, setRequestedItem] = useState("");
@@ -124,7 +129,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
             const res = await api.post<{ taskId: string }>("/tasks", {
               clientId: clientId || undefined, internalTask: isInternal || undefined,
               taskName, taskType, agencyDueDate: dueDate, assignedTo, period,
-              paymentRequired, priority, notes,
+              paymentRequired, priority, portalName, portalUrl, notes,
             });
             if (fileData || attachmentLink) {
               await api.post("/documents/uploads", {
@@ -278,6 +283,14 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
               <select value={paymentRequired ? "yes" : "no"} onChange={(e) => setPaymentRequired(e.target.value === "yes")}>
                 <option value="no">No</option><option value="yes">Yes</option>
               </select>
+            </div>
+            <div className="field">
+              <label>Portal Name <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
+              <input value={portalName} onChange={(e) => setPortalName(e.target.value)} placeholder="e.g. EFTPS, MD Tax Connect" />
+            </div>
+            <div className="field">
+              <label>Portal URL <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
+              <input value={portalUrl} onChange={(e) => setPortalUrl(e.target.value)} placeholder="https://…" />
             </div>
           </div>
         ) : (

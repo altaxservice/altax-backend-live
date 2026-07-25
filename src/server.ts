@@ -13,6 +13,7 @@ import { communicationsRouter } from "./modules/communications/communications.ro
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { rulesRouter } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
+import { firmPortalsRouter } from "./modules/vault/firmPortals.routes";
 import { paymentMethodsRouter } from "./modules/paymentMethods/paymentMethods.routes";
 import { systemRouter } from "./modules/system/system.routes";
 import { templatesRouter } from "./modules/templates/templates.routes";
@@ -143,6 +144,7 @@ app.use("/communications", communicationsRouter);
 app.use("/accounting", accountingRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
+app.use("/firm-portals", firmPortalsRouter);
 app.use("/payment-methods", paymentMethodsRouter);
 app.use("/system", systemRouter);
 app.use("/templates", templatesRouter);

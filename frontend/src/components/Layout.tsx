@@ -42,6 +42,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   // misfiled it. It belongs with the other firm-administration pages.
   { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm" },
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm" },
+  { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm" },
   { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm" },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm" },
   { to: "/guide", label: "Guide", navKey: "nav.guide" },
@@ -63,6 +64,7 @@ const TITLES: Record<string, string> = {
   "/templates": "Templates",
   "/fix-center": "Fix Center",
   "/firm-settings": "Firm Settings",
+  "/firm-portals": "Firm Portal Credentials",
   "/guide": "Guide",
 };
 
