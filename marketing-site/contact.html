@@ -104,6 +104,10 @@
       <h3 data-i18n="contact.formHeading">Send us a message</h3>
       <div id="contact-form-status" class="form-status" style="display:none;" role="status"></div>
       <form>
+        <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+          <label for="website">Leave this field blank</label>
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
         <div class="field">
           <label for="company" data-i18n="contact.companyLabel">Company name</label>
           <input type="text" id="company" name="company" placeholder="Your company (optional)" data-i18n-placeholder="contact.companyPlaceholder">

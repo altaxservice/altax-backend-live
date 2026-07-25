@@ -14,7 +14,14 @@ import { sendEmail, NotConfiguredError } from "../../common/notifications";
 export const publicContactRouter = Router();
 
 publicContactRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
-  const { company, firstName, lastName, phone, email, reason, smsConsent } = req.body || {};
+  const { company, firstName, lastName, phone, email, reason, smsConsent, website } = req.body || {};
+
+  // Honeypot: "website" is a hidden field no real visitor can see or fill in — only
+  // bots that blindly fill every input do. Pretend success so the bot doesn't notice
+  // and adjust; just skip the DB insert and admin email entirely.
+  if (website) {
+    return res.json({ ok: true });
+  }
 
   if (!firstName || !lastName || !phone || !email || !reason) {
     return res.status(400).json({ error: "First name, last name, phone, email, and a message are required." });

@@ -205,6 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
         email: contactForm.querySelector('#email').value.trim(),
         reason: contactForm.querySelector('#reason').value.trim(),
         smsConsent: contactForm.querySelector('#sms-consent').checked,
+        website: contactForm.querySelector('#website').value, // honeypot — real visitors never see or fill this
       };
 
       if (statusEl) statusEl.style.display = 'none';
