@@ -112,10 +112,19 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
     return res.status(403).json({ error: "You do not have access to this client." });
   }
 
-  const [openTasks, openRequests, invoiceBalance, employees] = await Promise.all([
+  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
         WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`,
+      [clientId]
+    ),
+    // Feeds the Client panel's status breakdown — same open-task scope as the
+    // count above, grouped so the panel can show "3 Overdue-ish / 2 Waiting"
+    // instead of a single opaque number.
+    query<any>(
+      `SELECT status, COUNT(*)::int AS count FROM altax.v3_tasks
+        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+        GROUP BY status ORDER BY count DESC`,
       [clientId]
     ),
     queryOne<any>(
@@ -136,6 +145,7 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
 
   res.json({
     openTasks: openTasks?.count || 0,
+    taskStatusBreakdown: (taskStatusBreakdown || []).map((r) => ({ status: r.status, count: r.count })),
     openRequests: openRequests?.count || 0,
     openInvoices: invoiceBalance?.count || 0,
     balanceDue: Number(invoiceBalance?.balance || 0),

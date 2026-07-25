@@ -5,10 +5,15 @@ import type { Task } from "../api/types";
 import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { TASK_STATUSES } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 
-const STATUS_OPTIONS = ["Not Started", "In Progress", "Waiting on Client", "Filed", "Paid", "Completed"];
+// Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
+// the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
+// same single source Tasks list and every other status <select> in the app use.
+const STATUS_OPTIONS = TASK_STATUSES;
+const PRIORITY_OPTIONS = ["Normal", "Low", "High", "Urgent"];
 
 const DETAIL_TABS = ["Details", "Attachments", "Notes & Messages"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
@@ -24,6 +29,7 @@ const EDITABLE_FIELDS: { key: string; label: string; apiKey: string; type?: stri
   { key: "period", label: "Period", apiKey: "period" },
   { key: "frequency", label: "Frequency", apiKey: "frequency" },
   { key: "assigned_to", label: "Assigned To", apiKey: "assignedTo", type: "select" },
+  { key: "priority", label: "Priority", apiKey: "priority", type: "priority" },
   { key: "agency_due_date", label: "Agency Due Date", apiKey: "agencyDueDate", type: "date" },
   { key: "staff_due_date", label: "Staff Due Date", apiKey: "staffDueDate", type: "date" },
   { key: "payment_required", label: "Payment Required", apiKey: "paymentRequired", type: "checkbox" },
@@ -201,6 +207,10 @@ export function TaskDetailPage() {
                     <label htmlFor={f.apiKey}>{f.label}</label>
                     {f.apiKey === "notes" ? (
                       <textarea id={f.apiKey} rows={3} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                    ) : f.type === "priority" ? (
+                      <select id={f.apiKey} value={form[f.apiKey] || "Normal"} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
+                        {PRIORITY_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                      </select>
                     ) : f.type === "select" ? (
                       <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
                         <option value="">Unassigned</option>
@@ -228,6 +238,7 @@ export function TaskDetailPage() {
         ) : (
           <div className="card" style={{ maxWidth: 560 }}>
             <DetailRow label="Service Line" value={task.service_line} />
+            <DetailRow label="Priority" value={task.priority || "Normal"} />
             <DetailRow label="Period" value={task.period} />
             <DetailRow label="Frequency" value={task.frequency} />
             <DetailRow label="Assigned To" value={task.assigned_to} />
@@ -241,6 +252,10 @@ export function TaskDetailPage() {
             <DetailRow label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
             <DetailRow label="Confirmation Number" value={task.confirmation_number} />
             <DetailRow label="Notes" value={task.notes} />
+            <DetailRow
+              label="Last Updated"
+              value={task.updated_at ? `${fmtDateOnly(task.updated_at)}${task.updated_by ? ` by ${task.updated_by}` : ""}` : null}
+            />
           </div>
         )
       )}

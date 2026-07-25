@@ -7,6 +7,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 
 interface Summary {
   openTasks: number;
+  taskStatusBreakdown: { status: string; count: number }[];
   openRequests: number;
   openInvoices: number;
   balanceDue: number;
@@ -71,12 +72,34 @@ export function ClientContextPanel() {
           {summary && (
             <div className="client-panel-section">
               <div className="small-label">Account</div>
-              <ClientRow label="Open Tasks" value={String(summary.openTasks)} onClick={() => navigate("/tasks")} />
-              <ClientRow label="Requests" value={String(summary.openRequests)} onClick={() => navigate("/documents")} />
+              <ClientRow label="Open Tasks" value={String(summary.openTasks)} onClick={() => navigate(`/tasks?clientId=${client.client_id}`)} />
+              {summary.taskStatusBreakdown.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "2px 0 8px" }}>
+                  {summary.taskStatusBreakdown.map((s) => (
+                    <button
+                      key={s.status}
+                      type="button"
+                      className="client-panel-value-link"
+                      style={{ fontSize: 11 }}
+                      onClick={() => navigate(`/tasks?clientId=${client.client_id}&status=${encodeURIComponent(s.status)}`)}
+                    >
+                      {s.count} {s.status}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <ClientRow label="Requests" value={String(summary.openRequests)} onClick={() => navigate(`/documents?clientId=${client.client_id}`)} />
               <ClientRow label="Invoices" value={String(summary.openInvoices)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
               <ClientRow label="Balance" value={fmtMoney(summary.balanceDue)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
             </div>
           )}
+
+          <div className="client-panel-section" style={{ borderBottom: "none" }}>
+            <div className="muted" style={{ fontSize: 11 }}>
+              {client.updated_at ? `Last updated ${new Date(client.updated_at).toLocaleDateString()}` : "Not yet updated"}
+              {client.updated_by && ` by ${client.updated_by}`}
+            </div>
+          </div>
 
           <div style={{ marginTop: 14 }}>
             <button type="button" className="btn btn-sm" style={{ width: "100%" }} onClick={() => navigate(`/billing?clientId=${client.client_id}`)}>View Billing</button>

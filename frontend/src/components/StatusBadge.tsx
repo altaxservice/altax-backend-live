@@ -7,6 +7,9 @@ export function colorClassFor(status: string): string {
   if (["in progress", "progress", "pending", "received", "file uploaded", "created", "queued", "printed", "inspection phase"].includes(s)) return "status-blue";
   if (["waiting on client", "waiting docs", "requested", "additional information required", "fee due"].includes(s)) return "status-amber";
   if (["ready for review", "under review", "in review"].includes(s)) return "status-teal";
+  if (["urgent"].includes(s)) return "status-red";
+  if (["high"].includes(s)) return "status-amber";
+  if (["low"].includes(s)) return "status-gray";
   if (["unknown", "inactive", "archived", "deleted"].includes(s)) return "status-gray";
   return "status-gray";
 }

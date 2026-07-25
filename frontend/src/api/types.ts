@@ -46,6 +46,8 @@ export interface Client {
   email_allowed: boolean;
   w21099_enabled: boolean;
   preferred_language: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
   [key: string]: unknown;
 }
 
@@ -77,6 +79,7 @@ export interface Task {
   agency_due_date: string | null;
   staff_due_date: string | null;
   status: string;
+  priority: string | null;
   assigned_to: string | null;
   payment_required: boolean;
   payment_amount: number | null;
@@ -86,6 +89,8 @@ export interface Task {
   portal_name: string | null;
   portal_url: string | null;
   notes: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
   file_count?: number;
   first_file_name?: string | null;
   first_file_url?: string | null;

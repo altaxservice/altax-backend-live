@@ -41,7 +41,7 @@ export function TasksListPage() {
   const [quickTab, setQuickTab] = useState<QuickTab>("Active");
   const [staffFilter, setStaffFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [period, setPeriod] = useState(activeViewDates());
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -54,6 +54,10 @@ export function TasksListPage() {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [showNewWorkItem, setShowNewWorkItem] = useState(searchParams.get("new") === "1");
   const newWorkItemClientId = searchParams.get("clientId") || undefined;
+  // Same ?clientId= param doubles as a list filter — the Client panel's "Open
+  // Tasks" count links here with just clientId (no new=1) to land on that
+  // client's tasks directly instead of the entire unfiltered pipeline.
+  const clientIdFilter = searchParams.get("clientId") || null;
 
   const canManage = user?.role === "admin" || user?.role === "staff";
 
@@ -111,6 +115,7 @@ export function TasksListPage() {
     else if (quickTab === "Due Week") rows = rows.filter((t) => isOpenTask(t) && isDueWeek(t));
     else if (quickTab === "Waiting") rows = rows.filter((t) => isOpenTask(t) && isWaiting(t));
 
+    if (clientIdFilter) rows = rows.filter((t) => t.client_id === clientIdFilter);
     if (staffFilter !== "all") rows = rows.filter((t) => t.assigned_to === staffFilter);
     if (serviceFilter !== "all") rows = rows.filter((t) => t.service_line === serviceFilter);
     if (statusFilter !== "all") rows = rows.filter((t) => String(t.status || "").toLowerCase() === statusFilter.toLowerCase());
@@ -129,7 +134,7 @@ export function TasksListPage() {
       rows = [...rows].sort((a, b) => new Date(String(b.archived_at || b.agency_due_date || 0)).getTime() - new Date(String(a.archived_at || a.agency_due_date || 0)).getTime());
     }
     return rows;
-  }, [baseRows, quickTab, staffFilter, serviceFilter, statusFilter, search, sortKey, sortDir, isArchivedView]);
+  }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, search, sortKey, sortDir, isArchivedView]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -278,6 +283,13 @@ export function TasksListPage() {
         )}
       </div>
 
+      {clientIdFilter && (
+        <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
+          <span>Showing tasks for <strong>{filtered[0]?.client_name || clientIdFilter}</strong> only.</span>
+          <button type="button" className="btn btn-sm" onClick={() => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("clientId"); return next; })}>Show all clients</button>
+        </div>
+      )}
+
       {canManage && (
         <FilterBar
           selects={[
@@ -384,9 +396,11 @@ export function TasksListPage() {
                 <th className="sortable" onClick={() => toggleSort("task_name")}>Task{sortArrow("task_name")}</th>
                 <th className="sortable" onClick={() => toggleSort("agency_due_date")}>Due{sortArrow("agency_due_date")}</th>
                 <th>Risk</th>
+                <th>Priority</th>
                 <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
                 <th>Status</th>
                 <th>Files</th>
+                <th>Last Updated</th>
                 {isArchivedView && <th>Archived</th>}
                 <th>Action</th>
               </tr>
@@ -402,6 +416,7 @@ export function TasksListPage() {
                   <td>{t.task_name}</td>
                   <td className="muted">{fmtDateOnly(t.agency_due_date)}</td>
                   <td><DueLabel task={t} /></td>
+                  <td>{t.priority && t.priority !== "Normal" ? <StatusBadge status={t.priority} /> : <span className="muted">{t.priority || "Normal"}</span>}</td>
                   <td className="muted">{t.assigned_to || "Unassigned"}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     {!isArchivedView && canManage ? (
@@ -411,6 +426,10 @@ export function TasksListPage() {
                     ) : <StatusBadge status={t.status} />}
                   </td>
                   <td onClick={(e) => e.stopPropagation()}><TaskFileCell task={t} /></td>
+                  <td className="muted" style={{ fontSize: 11 }}>
+                    {t.updated_at ? fmtDateOnly(t.updated_at) : "—"}
+                    {t.updated_by && <div>by {t.updated_by}</div>}
+                  </td>
                   {isArchivedView && <td className="muted">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
                   <td onClick={(e) => e.stopPropagation()}>
                     {isArchivedView ? (

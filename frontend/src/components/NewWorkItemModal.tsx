@@ -124,7 +124,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
             const res = await api.post<{ taskId: string }>("/tasks", {
               clientId: clientId || undefined, internalTask: isInternal || undefined,
               taskName, taskType, agencyDueDate: dueDate, assignedTo, period,
-              paymentRequired, notes,
+              paymentRequired, priority, notes,
             });
             if (fileData || attachmentLink) {
               await api.post("/documents/uploads", {
@@ -267,6 +267,12 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
               </select>
             </div>
             <div className="field"><label>Period</label><input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="e.g. June 2026" /></div>
+            <div className="field">
+              <label>Priority</label>
+              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+                {priorityOptions.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
             <div className="field">
               <label>Payment Required</label>
               <select value={paymentRequired ? "yes" : "no"} onChange={(e) => setPaymentRequired(e.target.value === "yes")}>
