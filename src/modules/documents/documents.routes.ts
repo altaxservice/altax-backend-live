@@ -572,8 +572,15 @@ documentsRouter.get("/uploads/:uploadId/download", asyncHandler(async (req: Auth
   // fetch the bytes as an authenticated blob and handle rendering entirely client-side
   // — they never look at this header — so this has no effect on in-app behavior,
   // only on someone opening the raw link directly.
+  // file_name can contain non-Latin1 characters (e.g. an Arabic filename) — HTTP header
+  // values can't hold those raw, and Node's setHeader throws ERR_INVALID_CHAR rather than
+  // silently mangling them (found live: this crashed every download of an Arabic-named
+  // file with a 500). RFC 6266's filename* carries the real UTF-8 name; the plain
+  // filename= stays as an ASCII-safe fallback for the few clients that don't read filename*.
+  const rawName = row.file_name || "file";
+  const asciiFallbackName = rawName.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "") || "file";
   res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${(row.file_name || "file").replace(/"/g, "")}"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${asciiFallbackName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(Buffer.from(decryptTolerant(row.file_data), "base64"));
 }));
