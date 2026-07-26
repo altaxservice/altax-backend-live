@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, viewFile, downloadFile } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
@@ -20,6 +20,35 @@ const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
 const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
+
+/**
+ * Bilingual report names for the "Email Report"/"Text Report" quick-send buttons —
+ * generic "here's your X" subject/body, not the full templated content the Client
+ * Message tab already sends (that tab keeps its own "Open Communications to Send"
+ * flow instead of these buttons, since it already builds real bilingual content).
+ */
+const REPORT_TITLES: Partial<Record<Tab, { en: string; ar: string }>> = {
+  "Firm Overview": { en: "Financial Overview", ar: "نظرة عامة مالية" },
+  "P&L": { en: "Profit & Loss Statement", ar: "قائمة الأرباح والخسائر" },
+  "Balance Sheet": { en: "Balance Sheet", ar: "الميزانية العمومية" },
+  "Sales & Tax": { en: "Sales Tax Report", ar: "تقرير ضريبة المبيعات" },
+  "Payroll": { en: "Payroll Report", ar: "تقرير الرواتب" },
+  "Employee": { en: "Employee Report", ar: "تقرير الموظفين" },
+  "Sales, Tax & Payroll Report": { en: "Sales, Tax & Payroll Report", ar: "تقرير المبيعات والضرائب والرواتب" },
+};
+
+/** Blob (a fetched PDF) -> base64, the shape /communications' attachment field expects. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 
 interface SalesTaxReport {
   byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
@@ -345,6 +374,49 @@ export function ReportsPage() {
     }
   }
 
+  /**
+   * "Email Report"/"Text Report" — fetches the exact same PDF Preview/Print
+   * already generates, then hands it to the same /communications send path the
+   * Communications page uses (real file on email, secure Document link on SMS —
+   * see sendChannel in communications.routes.ts). Always sends to the currently
+   * selected CLIENT's own email/phone, not any individual employee, matching
+   * every other report on this page.
+   */
+  async function handleSendReport(channel: "Email" | "SMS") {
+    if (!clientId || !client) return;
+    const title = REPORT_TITLES[tab];
+    if (!title) return;
+    const sentTo = channel === "Email" ? client.email : client.phone;
+    if (!sentTo) {
+      alert(`This client has no ${channel === "Email" ? "email address" : "phone number"} on file.`);
+      return;
+    }
+    const isFirmOverview = tab === "Firm Overview";
+    const key = `${isFirmOverview ? "firm" : REPORT_PDF_SEGMENT[tab]}-${channel.toLowerCase()}`;
+    setReportBusy(key);
+    try {
+      const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
+      const path = isFirmOverview
+        ? `/reports/pdf/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`
+        : `/reports/pdf/${REPORT_PDF_SEGMENT[tab]}/${clientId}?from=${from}&to=${to}${employeeQuery}`;
+      const contentBase64 = await blobToBase64(await fetchAuthedBlob(path));
+      const periodLabel = isFirmOverview ? "the last 6 months" : `${from} – ${to}`;
+      const periodLabelAr = isFirmOverview ? "آخر 6 أشهر" : `الفترة من ${from} إلى ${to}`;
+      const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
+        clientId, subject: title.en, channel, sentTo, sendNow: true,
+        messageEnglish: `Please find attached your ${title.en} for ${periodLabel}.`,
+        messageArabic: `يرجى الاطلاع على ${title.ar} المرفق لـ ${periodLabelAr}.`,
+        attachment: { filename: `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`, contentBase64, contentType: "application/pdf" },
+      });
+      if (res.sent) alert(`${title.en} ${channel === "Email" ? "emailed" : "texted"} to ${sentTo}.`);
+      else alert(res.sendError ? `Could not send: ${res.sendError}` : "Could not send this report.");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not send this report.");
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   async function handleSaveMessage() {
     if (!clientId || !periodMessage) return;
     setSaving(true);
@@ -423,6 +495,12 @@ export function ReportsPage() {
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
                         {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
                       </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("Email")}>
+                        {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
+                      </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("SMS")}>
+                        {reportBusy === "firm-sms" ? "Sending…" : "Text Report"}
+                      </button>
                     </div>
                   ) : REPORT_PDF_SEGMENT[tab] && (
                     <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -445,6 +523,19 @@ export function ReportsPage() {
                         <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleExportCsv}>
                           {reportBusy === "csv" ? "Exporting…" : "Export CSV"}
                         </button>
+                      )}
+                      {/* Client Message already has its own real bilingual send (Save / Open
+                          Communications to Send below) — these generic quick-send buttons would
+                          just be a second, more generic way to do the same thing on that one tab. */}
+                      {tab !== "Client Message" && (
+                        <>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("Email")}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
+                          </button>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("SMS")}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-sms` ? "Sending…" : "Text Report"}
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
