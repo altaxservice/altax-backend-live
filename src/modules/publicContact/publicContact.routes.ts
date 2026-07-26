@@ -10,10 +10,16 @@ import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { rateLimit } from "../../common/rateLimit";
 
 export const publicContactRouter = Router();
 
-publicContactRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
+// The honeypot catches naive bots, but a scripted flood that skips the hidden field
+// would still spam DB inserts and admin emails one-for-one. Same IP-keyed limiter
+// used across the auth surface (see common/rateLimit.ts).
+const contactLimiter = rateLimit({ name: "public-contact", windowMs: 15 * 60 * 1000, max: 10 });
+
+publicContactRouter.post("/", contactLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { company, firstName, lastName, phone, email, reason, smsConsent, website } = req.body || {};
 
   // Honeypot: "website" is a hidden field no real visitor can see or fill in — only

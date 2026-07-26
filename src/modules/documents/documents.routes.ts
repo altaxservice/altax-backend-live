@@ -378,6 +378,23 @@ documentsRouter.post("/requests/bulk-delete", requireAuth, requireRole("admin"),
  */
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw — mirrors legacy's own small-file-gets-embedded / large-file-gets-a-link split
 
+// mime_type is client-reported (not sniffed from the actual bytes), so this isn't a
+// hard content guarantee — it's a filter against the specific dangerous categories
+// (HTML, SVG, scripts) that would execute if ever served back, not a general
+// file-type validator. Reasonable document/image/spreadsheet types a tax firm
+// actually exchanges with clients; nothing that renders/executes as active content.
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
+  "text/plain", "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/octet-stream", // default fallback when the browser didn't report a type
+]);
+
 /**
  * Resolves a real file upload (browsed from disk, sent as base64) vs. a pasted
  * link — legacy did the same split (alTaxPortalSaveDocumentUpload embeds small
@@ -395,7 +412,11 @@ function resolveUploadFile(body: any): { fileUrl: string; fileName: string; file
     if (sizeBytes > MAX_UPLOAD_BYTES) {
       return { error: `That file is too large (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). Files over 8MB need to be shared as a link instead.` };
     }
-    return { fileUrl: "", fileName: fileName || "Uploaded file", fileData, mimeType: String(body.mimeType || "").trim() || "application/octet-stream", fileSize: sizeBytes };
+    const mimeType = String(body.mimeType || "").trim().toLowerCase() || "application/octet-stream";
+    if (!ALLOWED_UPLOAD_MIME_TYPES.has(mimeType)) {
+      return { error: `That file type (${mimeType}) isn't supported. Upload a PDF, image, Word/Excel document, text file, or ZIP instead.` };
+    }
+    return { fileUrl: "", fileName: fileName || "Uploaded file", fileData, mimeType, fileSize: sizeBytes };
   }
   const fileUrl = String(body.fileUrl || body.attachmentLink || "").trim();
   if (!fileUrl) return { error: "Choose a file to upload, or paste a document link." };
@@ -508,8 +529,17 @@ documentsRouter.get("/uploads/:uploadId/download", asyncHandler(async (req: Auth
   const row = await queryOne<any>(`SELECT file_name, file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [req.params.uploadId]);
   if (!row || !row.file_data) return res.status(404).json({ error: "File not found." });
 
+  // Always "attachment", never "inline": this route is intentionally unauthenticated
+  // (see comment above) and mime_type is whatever the uploader's browser claimed it
+  // was, unverified — an "inline" text/html or image/svg+xml would render as a page
+  // and execute in the visitor's browser instead of downloading. The app's own
+  // View/Download actions (frontend/src/api/client.ts viewFile/downloadFile) already
+  // fetch the bytes as an authenticated blob and handle rendering entirely client-side
+  // — they never look at this header — so this has no effect on in-app behavior,
+  // only on someone opening the raw link directly.
   res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
-  res.setHeader("Content-Disposition", `inline; filename="${(row.file_name || "file").replace(/"/g, "")}"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${(row.file_name || "file").replace(/"/g, "")}"`);
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(Buffer.from(row.file_data, "base64"));
 }));
 
