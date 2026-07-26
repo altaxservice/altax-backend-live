@@ -242,11 +242,12 @@ export function DocumentsListPage() {
 
       {canManage && ready && (
         <div className="metric-grid" style={{ marginBottom: 20 }}>
-          <div className="metric">
+          {/* "Waiting" is the number staff act on, so it filters the list. */}
+          <button type="button" className="metric metric-clickable" onClick={() => setStatusFilter("Requested")}>
             <div className="metric-label">Waiting</div>
             <div className="metric-value">{openRequestsAll.length}</div>
             <div className="metric-note">{openRequests.length} visible</div>
-          </div>
+          </button>
           <div className="metric">
             <div className="metric-label">Received</div>
             <div className="metric-value">{receivedUploadsAll.length}</div>

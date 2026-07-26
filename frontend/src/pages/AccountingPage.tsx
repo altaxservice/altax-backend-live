@@ -1333,6 +1333,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
 
 function GlTab({ clientId }: { clientId: string }) {
   const [entries, setEntries] = useState<any[]>([]);
+  const [viewingRef, setViewingRef] = useState<string | null>(null);
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -1349,6 +1350,13 @@ function GlTab({ clientId }: { clientId: string }) {
     if (!d) return false;
     return (!period.start || d >= period.start) && (!period.end || d <= period.end);
   });
+  // Every line of the entry the user clicked, taken from what is already loaded
+  // rather than a second fetch — the ref is the key appendGl writes for all
+  // lines of one posting.
+  const refLines = viewingRef ? entries.filter((g) => g.ref === viewingRef) : [];
+  const refDebit = refLines.reduce((sum, l) => sum + Number(l.debit || 0), 0);
+  const refCredit = refLines.reduce((sum, l) => sum + Number(l.credit || 0), 0);
+
   const totalDebit = filtered.reduce((s, g) => s + Number(g.debit || 0), 0);
   const totalCredit = filtered.reduce((s, g) => s + Number(g.credit || 0), 0);
 
@@ -1372,18 +1380,68 @@ function GlTab({ clientId }: { clientId: string }) {
           <div className="metric-value" style={{ color: Math.abs(totalDebit - totalCredit) < 0.01 ? undefined : "var(--danger, #cf222e)" }}>{fmtMoney(Math.abs(totalDebit - totalCredit))}</div>
         </div>
       </div>
+      {/* Clicking any line opens the WHOLE entry it belongs to, not just that
+          line. A ledger row on its own is half a story — the useful question is
+          always "what did this posting actually do", which means every line
+          sharing the ref, and whether they balance. */}
+      {viewingRef && (
+        <div className="card" style={{ margin: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <strong>Journal Entry — {viewingRef}</strong>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {refLines[0]?.source} · {fmtDate(refLines[0]?.entry_date)} · {refLines.length} line(s)
+              </div>
+            </div>
+            <button type="button" className="btn btn-sm" onClick={() => setViewingRef(null)}>Close</button>
+          </div>
+          <div className="table-scroll" style={{ marginTop: 10 }}>
+            <table>
+              <thead><tr><th>Account</th><th>Description</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th></tr></thead>
+              <tbody>
+                {refLines.map((l, i) => (
+                  <tr key={l.gl_entry_id || i}>
+                    <td>{l.account}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>{l.description}</td>
+                    <td style={{ textAlign: "right" }}>{Number(l.debit) ? fmtMoney(l.debit) : "—"}</td>
+                    <td style={{ textAlign: "right" }}>{Number(l.credit) ? fmtMoney(l.credit) : "—"}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ fontWeight: 700 }}>Total</td>
+                  <td />
+                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refDebit)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refCredit)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p
+            className="muted"
+            style={{ fontSize: 12, marginTop: 8, color: Math.abs(refDebit - refCredit) < 0.005 ? undefined : "#c0392b", fontWeight: Math.abs(refDebit - refCredit) < 0.005 ? undefined : 700 }}
+          >
+            {Math.abs(refDebit - refCredit) < 0.005
+              ? "This entry balances."
+              : `OUT OF BALANCE by ${fmtMoney(Math.abs(refDebit - refCredit))} — see Reports → Trial Balance.`}
+          </p>
+        </div>
+      )}
       <div className="table-scroll">
       <table>
-        <thead><tr><th>Date</th><th>Ref</th><th>Account</th><th>Description</th><th>Debit</th><th>Credit</th><th>Source</th></tr></thead>
+        <thead><tr><th>Date</th><th>Ref</th><th>Account</th><th>Description</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th><th>Source</th></tr></thead>
         <tbody>
           {filtered.slice(0, 60).map((g, i) => (
-            <tr key={g.gl_entry_id || i}>
+            <tr
+              key={g.gl_entry_id || i}
+              style={{ cursor: "pointer" }}
+              onClick={() => setViewingRef(g.ref || null)}
+            >
               <td>{fmtDate(g.entry_date)}</td>
               <td className="muted">{g.ref || "—"}</td>
               <td>{g.account}</td>
               <td className="muted">{g.description}</td>
-              <td>{Number(g.debit) ? fmtMoney(g.debit) : "—"}</td>
-              <td>{Number(g.credit) ? fmtMoney(g.credit) : "—"}</td>
+              <td style={{ textAlign: "right" }}>{Number(g.debit) ? fmtMoney(g.debit) : "—"}</td>
+              <td style={{ textAlign: "right" }}>{Number(g.credit) ? fmtMoney(g.credit) : "—"}</td>
               <td className="muted">{g.source}</td>
             </tr>
           ))}
@@ -1397,6 +1455,7 @@ function GlTab({ clientId }: { clientId: string }) {
 }
 
 function PaychecksTab({ clientId }: { clientId: string }) {
+  const [viewingCheck, setViewingCheck] = useState<any | null>(null);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [printing, setPrinting] = useState<string | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -1498,12 +1557,51 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       <div className="scroll-list">
         <div className="table-scroll">
         <table>
+          {viewingCheck && (
+            <div className="card" style={{ margin: 16 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div>
+                  <strong>{viewingCheck.employee} — {fmtDate(viewingCheck.pay_date)}</strong>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Check #{viewingCheck.check_number || "—"} ·{" "}
+                    {viewingCheck.pay_period_start || viewingCheck.pay_period_end
+                      ? `${fmtDate(viewingCheck.pay_period_start)} – ${fmtDate(viewingCheck.pay_period_end)}`
+                      : "No period recorded"}
+                  </div>
+                </div>
+                <button type="button" className="btn btn-sm" onClick={() => setViewingCheck(null)}>Close</button>
+              </div>
+              <div className="metric-grid" style={{ margin: "12px 0" }}>
+                <div className="metric"><div className="metric-label">Gross Wages</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtMoney(viewingCheck.gross_wages)}</div></div>
+                <div className="metric"><div className="metric-label">Employee Taxes</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtMoney(viewingCheck.employee_taxes)}</div></div>
+                <div className="metric"><div className="metric-label">Net Pay</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtMoney(viewingCheck.net_pay)}</div></div>
+              </div>
+              <div className="table-scroll">
+                <table>
+                  <tbody>
+                    <tr><td>Gross wages</td><td style={{ textAlign: "right" }}>{fmtMoney(viewingCheck.gross_wages)}</td></tr>
+                    <tr><td className="muted">Less employee taxes withheld</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingCheck.employee_taxes)}</td></tr>
+                    {Number(viewingCheck.total_deductions) > 0 && (
+                      <tr><td className="muted">Less other deductions</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingCheck.total_deductions)}</td></tr>
+                    )}
+                    <tr><td style={{ fontWeight: 700 }}>Net pay to employee</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingCheck.net_pay)}</td></tr>
+                    <tr><td className="muted">Employer taxes (firm cost, not withheld)</td><td style={{ textAlign: "right" }} className="muted">{fmtMoney(viewingCheck.employer_taxes)}</td></tr>
+                    <tr><td style={{ fontWeight: 700 }}>Total cost to employer</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingCheck.total_cost)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-sm" onClick={() => handleView(viewingCheck)}>View Paystub</button>
+                <button type="button" className="btn btn-sm" onClick={() => { startEdit(viewingCheck); setViewingCheck(null); }}>Edit</button>
+              </div>
+            </div>
+          )}
           {/* Period/check#/employer-side figures are stacked under their subject —
               as 11 columns this ran past the right edge at 100% zoom. */}
           <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {paychecks.map((p) => (
-              <tr key={p.paycheck_id}>
+              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} onClick={() => setViewingCheck(p)}>
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
@@ -1523,7 +1621,8 @@ function PaychecksTab({ clientId }: { clientId: string }) {
                   <div className="muted" style={{ fontSize: 11 }}>Cost {fmtMoney(p.total_cost)}</div>
                 </td>
                 <td><StatusBadge status={p.status || "Created"} /></td>
-                <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {/* Row opens the detail card; these do their own thing instead. */}
+                <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                   <button type="button" className="btn btn-sm" disabled={viewing === p.paycheck_id} onClick={() => handleView(p)}>
                     {viewing === p.paycheck_id ? "Generating…" : "View"}
                   </button>

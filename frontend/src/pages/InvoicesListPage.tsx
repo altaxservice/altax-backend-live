@@ -311,21 +311,23 @@ export function InvoicesListPage() {
 
       {canManage && (
         <div className="metric-grid" style={{ marginBottom: 20 }}>
-          <div className="metric">
+          {/* Tiles filter the list below rather than being read-only totals —
+              the number is only ever the start of the question "which ones?". */}
+          <button type="button" className="metric metric-clickable" onClick={() => setStatusFilter("Sent")}>
             <div className="metric-label">Open Firm Balance</div>
             <div className="metric-value">{fmtMoney(kpis.openBalance)}</div>
             <div className="metric-note">{kpis.openCount} KPI invoice(s)</div>
-          </div>
-          <div className="metric">
+          </button>
+          <button type="button" className="metric metric-clickable" onClick={() => setStatusFilter("Overdue")}>
             <div className="metric-label">Overdue Balance</div>
             <div className="metric-value">{fmtMoney(kpis.overdueBalance)}</div>
             <div className="metric-note">firm invoices only</div>
-          </div>
-          <div className="metric">
+          </button>
+          <button type="button" className="metric metric-clickable" onClick={() => setStatusFilter("Paid")}>
             <div className="metric-label">Paid This Period</div>
             <div className="metric-value">{fmtMoney(kpis.paidThisPeriod)}</div>
             <div className="metric-note">{kpis.paidCount} firm payment(s)</div>
-          </div>
+          </button>
           <div className="metric">
             <div className="metric-label">Client Tax Due</div>
             <div className="metric-value">{fmtMoney(kpis.clientTaxDue)}</div>
