@@ -14,6 +14,9 @@ async function fileToAttachment(file: File): Promise<{ filename: string; content
   return { filename: file.name, contentBase64: await fileToBase64(file), contentType: file.type || undefined };
 }
 
+/** Mirrors REPORT_TEMPLATE_NAMES in communications.routes.ts — these auto-attach a real PDF server-side even with no file manually chosen, so the frontend needs to know which templates that applies to (e.g. to show the "sensitive document" option). */
+const REPORT_TEMPLATE_NAMES = new Set(["Client Tax and Payroll Update", "Payroll Summary", "Sales Tax Summary"]);
+
 interface StaffDirectoryEntry { name: string; email: string; phone: string | null; role: string }
 interface TemplateRow { templateId: string | null; name: string; category: string; subject: string; source: string }
 interface TemplateDetail { subject: string; message_english: string | null; message_arabic: string | null }
@@ -456,6 +459,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [sendNow, setSendNow] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BulkResult[] | null>(null);
@@ -536,11 +540,13 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         clientIds: Array.from(selected), subject, messageEnglish, messageArabic, channels, sendNow,
         templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
         attachment: attachment ? await fileToAttachment(attachment) : undefined,
+        sensitiveAttachment,
       });
       setResults(res.results);
       setMessageEnglish("");
       setMessageArabic("");
       setAttachment(null);
+      setSensitiveAttachment(false);
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this bulk message.");
@@ -646,6 +652,12 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         </div>
         <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
         <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
+        {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
+            <input type="checkbox" checked={sensitiveAttachment} onChange={(e) => setSensitiveAttachment(e.target.checked)} />
+            Sensitive document — on SMS/WhatsApp, only offer the client-portal login, not a direct download link
+          </label>
+        )}
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
           <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
@@ -667,6 +679,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
   const [phone, setPhone] = useState(client.phone || "");
   const [sendNow, setSendNow] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
@@ -741,6 +754,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
           // report templates when no file was manually chosen — see
           // generateAutoReportAttachment in communications.routes.ts.
           templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
+          sensitiveAttachment,
         });
         outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
       }
@@ -748,6 +762,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
       setMessageEnglish("");
       setMessageArabic("");
       setAttachment(null);
+      setSensitiveAttachment(false);
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save this message.");
@@ -792,6 +807,12 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
           <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
           <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
           <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
+          {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
+              <input type="checkbox" checked={sensitiveAttachment} onChange={(e) => setSensitiveAttachment(e.target.checked)} />
+              Sensitive document — on SMS/WhatsApp, only offer the client-portal login, not a direct download link
+            </label>
+          )}
           <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />

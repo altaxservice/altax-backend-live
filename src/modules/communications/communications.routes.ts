@@ -191,12 +191,17 @@ async function sendChannel(
       let effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
         ? `${subject}. View / اطّلع على الرسالة: ${opts.viewUrl}`
         : body;
-      // A file can't ride inside SMS/WhatsApp text regardless of length — offer both
-      // a direct secure download link and the option to log into the client portal,
-      // rather than dropping the attachment with no trace of it ever existing.
+      // A file can't ride inside SMS/WhatsApp text regardless of length — normally
+      // offer both a direct secure download link and the client-portal option. When
+      // the caller marks the document sensitive (documentUrl omitted, portalUrl set),
+      // only the portal option is mentioned — the file is still saved and shows up in
+      // the client's portal Documents list either way, this only controls whether an
+      // unauthenticated direct link exists for it at all.
       if (opts.documentUrl) {
         effectiveBody += ` Attachment: ${opts.documentUrl}`;
         if (opts.portalUrl) effectiveBody += ` Or view it securely in your client portal: ${opts.portalUrl}`;
+      } else if (opts.portalUrl) {
+        effectiveBody += ` Your attachment is available securely in your client portal: ${opts.portalUrl}`;
       }
       const prefixed = `${firmName}: ${effectiveBody}`;
       if (normalized === "sms") await sendSms({ to, body: prefixed });
@@ -310,14 +315,21 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
 
   // SMS/WhatsApp can't carry the real attachment inline — save it as a Document
   // first so the send can point at a real, secure download link instead of
-  // silently dropping the file.
+  // silently dropping the file. "Sensitive" mode still saves it (so it's waiting in
+  // the client's portal Documents list) but never puts the raw unauthenticated
+  // download link in the text — only the portal-login option.
+  const sensitiveAttachment = Boolean(body.sensitiveAttachment);
   let documentUrl: string | undefined;
+  let attachmentSaved = false;
   if (attachment && ["sms", "whatsapp"].includes(normalizeText(channel)) && sendNow) {
     const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, attachment, req.user!.email);
-    if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+    if ("fileUrl" in saved) {
+      attachmentSaved = true;
+      if (!sensitiveAttachment && base) documentUrl = `${base}${saved.fileUrl}`;
+    }
   }
-  const portalUrl = base ? `${base}/login/client` : undefined;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl: documentUrl ? portalUrl : undefined }) : { sent: false };
+  const portalUrl = attachmentSaved && base ? `${base}/login/client` : undefined;
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(
@@ -619,6 +631,7 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
   if (!templateName && !rawMessageEnglish && !rawMessageArabic) return res.status(400).json({ error: "Enter a message." });
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
   const attachment: SendAttachment | undefined = body.attachment;
+  const sensitiveAttachment = Boolean(body.sensitiveAttachment);
   const firmName = (await getFirmProfile()).firmName;
   const base = publicBaseUrl(req);
 
@@ -707,11 +720,15 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
       const shareToken = sendNow && base ? generateShareToken() : null;
       const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
       let documentUrl: string | undefined;
+      let attachmentSaved = false;
       if (clientAttachment && (normalized === "sms" || normalized === "whatsapp") && sendNow) {
         const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, clientAttachment, req.user!.email);
-        if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+        if ("fileUrl" in saved) {
+          attachmentSaved = true;
+          if (!sensitiveAttachment && base) documentUrl = `${base}${saved.fileUrl}`;
+        }
       }
-      const portalUrl = documentUrl && base ? `${base}/login/client` : undefined;
+      const portalUrl = attachmentSaved && base ? `${base}/login/client` : undefined;
       const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: clientAttachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
       const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       await query(

@@ -13,6 +13,17 @@ import { asyncHandler } from "../../common/asyncHandler";
 
 export const publicMessageRouter = Router();
 
+/**
+ * A link this old is far more likely forwarded/leaked than still being actively
+ * read by its original recipient — capping how long it works limits how long a
+ * copy-pasted or accidentally-shared link stays useful. The underlying document
+ * download link (a separate route) isn't capped the same way yet: it's shared
+ * with the authenticated portal's own document viewing, and expiring it needs
+ * more care so it doesn't also break a client's legitimate in-portal access to
+ * their own file.
+ */
+const LINK_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
 publicMessageRouter.get("/:token", asyncHandler(async (req: Request, res: Response) => {
   const row = await queryOne<any>(
     `SELECT subject, message_english, message_arabic, client_name, sent_at, channel
@@ -20,6 +31,9 @@ publicMessageRouter.get("/:token", asyncHandler(async (req: Request, res: Respon
     [req.params.token]
   );
   if (!row) return res.status(404).json({ error: "This link is invalid or has expired." });
+  if (row.sent_at && Date.now() - new Date(row.sent_at).getTime() > LINK_MAX_AGE_MS) {
+    return res.status(410).json({ error: "This link has expired. Please contact the firm for a current copy." });
+  }
 
   res.json({
     message: {
