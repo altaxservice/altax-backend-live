@@ -947,12 +947,19 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   const otherTaxablePay = body.otherTaxablePay !== undefined ? money(body.otherTaxablePay) : Number(existing.other_taxable_pay || 0);
   const nonTaxableReimbursement = body.nonTaxableReimbursement !== undefined ? money(body.nonTaxableReimbursement) : Number(existing.non_taxable_reimbursement || 0);
   const otherEarnings = overtimePay + bonusPay + commissionPay + otherTaxablePay;
-  let gross = regularPay + otherEarnings;
+  // An explicit gross wins. Otherwise, if the caller edited hours or rate, gross
+  // must be recomputed from them — the previous version fell straight back to the
+  // stored gross, so editing 10h to 20h saved the new hours and kept the old pay,
+  // leaving a record whose own numbers contradicted each other. Only when neither
+  // gross nor hours/rate was sent do we keep what is already stored.
+  let gross: number;
   if (body.grossWages !== undefined && body.grossWages !== "" && money(body.grossWages) > 0) {
     gross = money(body.grossWages);
     regularPay = Math.max(0, gross - otherEarnings);
-  } else if (body.grossWages === undefined) {
-    gross = Number(existing.gross_wages) || gross;
+  } else if (body.regularHours !== undefined || body.regularRate !== undefined) {
+    gross = regularPay + otherEarnings;
+  } else {
+    gross = Number(existing.gross_wages) || regularPay + otherEarnings;
   }
 
   const preTaxRetirement = body.preTaxRetirement !== undefined ? money(body.preTaxRetirement) : Number(existing.pre_tax_retirement || 0);
@@ -993,14 +1000,30 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   const netPay = money(gross + nonTaxableReimbursement - totalDeductions - employeeTaxes);
   const totalCost = money(gross + nonTaxableReimbursement + employerTaxes);
 
+  // Every column this route recalculates gets written back. The earlier version
+  // wrote only hours/rate and the tax totals, leaving regular_hours, regular_pay,
+  // the earnings/deduction breakdown and total_deductions frozen at their
+  // pre-edit values — so the edit form and the printed paystub read one set of
+  // numbers while the row's own totals said something else.
   await query(
     `UPDATE altax.v3_paychecks SET pay_date=$2, gross_wages=$3, social_security_ee=$4, medicare_ee=$5,
        federal_withholding=$6, state_tax=$7, employee_taxes=$8, net_pay=$9, social_security_er=$10,
        medicare_er=$11, futa=$12, suta=$13, employer_taxes=$14, total_cost=$15, hours=$16, rate=$17,
-       federal_taxable_wages=$18, social_security_wages=$19, medicare_wages=$20, state_taxable_wages=$21
+       federal_taxable_wages=$18, social_security_wages=$19, medicare_wages=$20, state_taxable_wages=$21,
+       regular_hours=$16, regular_rate=$17, regular_pay=$22,
+       overtime_hours=$23, overtime_rate=$24, overtime_pay=$25, bonus_pay=$26, commission_pay=$27,
+       other_taxable_pay=$28, non_taxable_reimbursement=$29,
+       pre_tax_retirement=$30, pre_tax_health=$31, pre_tax_hsa_fsa=$32,
+       post_tax_deduction=$33, garnishment=$34, other_deduction=$35,
+       total_pre_tax_deductions=$36, total_post_tax_deductions=$37, total_deductions=$38,
+       updated_at=NOW()
      WHERE paycheck_id = $1`,
     [paycheckId, payDate, gross, ssEe, medEe, federal, state, employeeTaxes, netPay, ssEr, medEr, futa, suta,
-      employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages]
+      employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+      money(regularPay), overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay,
+      otherTaxablePay, nonTaxableReimbursement,
+      preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
+      totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions]
   );
 
   await query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);

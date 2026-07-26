@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
@@ -491,6 +491,15 @@ function SubLabel({ children }: { children: React.ReactNode }) {
 
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const [viewingPayCheck, setViewingPayCheck] = useState<any | null>(null);
+  // Edit/delete live here as well as on the Paychecks tab. Sending someone to
+  // another tab to correct the row they are already looking at is the kind of
+  // detour that gets a payroll mistake left uncorrected.
+  const [editing, setEditing] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ payDate: "", regularHours: "", regularRate: "", grossWages: "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const createFormRef = useRef<HTMLFormElement | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -582,10 +591,73 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
     }
   }
 
+  /** "Add" is the Create Paycheck form beside the list — clear it and scroll to it. */
+  function startAdd() {
+    setEditing(null);
+    setResult(null);
+    setError(null);
+    setForm(EMPTY_PAYROLL_FORM);
+    createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function startEdit(p: any) {
+    setViewingPayCheck(null);
+    setEditError(null);
+    setEditing(p);
+    setEditForm({
+      payDate: p.pay_date ? String(p.pay_date).slice(0, 10) : "",
+      regularHours: String(p.regular_hours ?? p.hours ?? ""),
+      regularRate: String(p.regular_rate ?? p.rate ?? ""),
+      // Left blank on purpose. Gross overrides hours × rate, so pre-filling it
+      // meant changing the hours saved the new hours and kept the old pay.
+      grossWages: "",
+    });
+  }
+
+  async function handleSaveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await api.patch(`/accounting/paychecks/${editing.paycheck_id}`, {
+        payDate: editForm.payDate,
+        regularHours: editForm.regularHours || undefined,
+        regularRate: editForm.regularRate || undefined,
+        grossWages: editForm.grossWages || undefined,
+      });
+      setEditing(null);
+      load();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "Could not save changes.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleDelete(p: any) {
+    const typed = prompt(
+      `Permanently delete the paycheck for ${p.employee} on ${fmtDate(p.pay_date)} (net ${fmtMoney(p.net_pay)})?\n\n` +
+      `Its payroll journal entries will be removed too. This cannot be undone.\n\nType DELETE PAYCHECK to confirm.`
+    );
+    if (typed === null) return;
+    setDeleting(p.paycheck_id);
+    try {
+      await api.post(`/accounting/paychecks/${p.paycheck_id}/delete`, { confirm: typed });
+      if (viewingPayCheck?.paycheck_id === p.paycheck_id) setViewingPayCheck(null);
+      if (editing?.paycheck_id === p.paycheck_id) setEditing(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
       <Panel title="Create Paycheck" note="Live preview updates as you type">
-        <form onSubmit={handleSubmit} style={{ padding: 16 }}>
+        <form ref={createFormRef} onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <ErrorBanner error={error} />}
           {result && (
             <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>
@@ -677,10 +749,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
         title="Recent Paychecks"
         note={`${paychecks.length} rows`}
         action={
-          <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>
           </div>
         }
       >
@@ -691,6 +764,28 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           <div className="metric"><div className="metric-label">Deductions</div><div className="metric-value">{fmtMoney(periodDeductions)}</div></div>
           <div className="metric"><div className="metric-label">Checks</div><div className="metric-value">{paychecksInPeriod.length}</div></div>
         </div>
+        {editing && (
+          <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
+            <strong>Edit paycheck — {editing.employee} ({fmtDate(editing.pay_date)})</strong>
+            <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 10px" }}>
+              Taxes, net pay and the payroll journal entries are recalculated from scratch when you save.
+            </p>
+            {editError && <ErrorBanner error={editError} />}
+            <div className="field"><label>Pay Date</label><input type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
+              <div className="field"><label>Regular Rate</label><input type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
+            </div>
+            <div className="field"><label>Or Gross Wages (leave blank to recalculate from hours × rate)</label><input type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save & Recalculate"}</button>
+              <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
+              <button type="button" className="btn btn-sm btn-danger" disabled={deleting === editing.paycheck_id} onClick={() => handleDelete(editing)}>
+                {deleting === editing.paycheck_id ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </form>
+        )}
         {viewingPayCheck && (
           <div className="card" style={{ margin: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -711,15 +806,21 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                 </tbody>
               </table>
             </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm" onClick={() => startEdit(viewingPayCheck)}>Edit</button>
+              <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingPayCheck.paycheck_id} onClick={() => handleDelete(viewingPayCheck)}>
+                {deleting === viewingPayCheck.paycheck_id ? "Deleting…" : "Delete"}
+              </button>
+            </div>
             <p className="muted" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 0 }}>
-              Open the Paychecks tab to print the paystub, edit or delete this record.
+              The Paychecks tab prints the paystub for this record.
             </p>
           </div>
         )}
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th></tr></thead>
+            <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th></th></tr></thead>
             <tbody>
               {/* This is a different table from the Paychecks tab's — it also
                   needs to open its record rather than being a dead list. */}
@@ -729,6 +830,14 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                   <td>{p.employee}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.gross_wages)}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.net_pay)}</td>
+                  {/* stopPropagation so acting on a row doesn't also open its
+                      read-only card underneath the form that just appeared. */}
+                  <td style={{ whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>{" "}
+                    <button type="button" className="btn btn-sm btn-danger" disabled={deleting === p.paycheck_id} onClick={() => handleDelete(p)}>
+                      {deleting === p.paycheck_id ? "…" : "Delete"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1590,6 +1699,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
     setDeleting(p.paycheck_id);
     try {
       await api.post(`/accounting/paychecks/${p.paycheck_id}/delete`, { confirm: confirmValue });
+      if (viewingCheck?.paycheck_id === p.paycheck_id) setViewingCheck(null);
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
@@ -1605,7 +1715,9 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       payDate: p.pay_date ? String(p.pay_date).slice(0, 10) : "",
       regularHours: String(p.regular_hours ?? p.hours ?? ""),
       regularRate: String(p.regular_rate ?? p.rate ?? ""),
-      grossWages: String(p.gross_wages ?? ""),
+      // See the Payroll tab's startEdit — pre-filling this silently defeated
+      // every hours/rate edit, because gross always wins over hours × rate.
+      grossWages: "",
     });
   }
 
@@ -1639,17 +1751,16 @@ function PaychecksTab({ clientId }: { clientId: string }) {
             <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
             <div className="field"><label>Regular Rate</label><input type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Or Gross Wages (overrides hours × rate)</label><input type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
+          <div className="field"><label>Or Gross Wages (leave blank to recalculate from hours × rate)</label><input type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save & Recalculate"}</button>
             <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
           </div>
         </form>
       )}
-      <div className="scroll-list">
-        <div className="table-scroll">
-        <table>
-          {viewingCheck && (
+      {/* This card lived inside <table> before <thead>, which is invalid markup —
+          the browser hoists it out and decides where it lands. It belongs here. */}
+      {viewingCheck && (
             <div className="card" style={{ margin: 16 }} onClick={(e) => e.stopPropagation()}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <div>
@@ -1685,9 +1796,15 @@ function PaychecksTab({ clientId }: { clientId: string }) {
               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                 <button type="button" className="btn btn-sm" onClick={() => handleView(viewingCheck)}>View Paystub</button>
                 <button type="button" className="btn btn-sm" onClick={() => { startEdit(viewingCheck); setViewingCheck(null); }}>Edit</button>
+                <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingCheck.paycheck_id} onClick={() => handleDelete(viewingCheck)}>
+                  {deleting === viewingCheck.paycheck_id ? "Deleting…" : "Delete"}
+                </button>
               </div>
             </div>
           )}
+      <div className="scroll-list">
+        <div className="table-scroll">
+        <table>
           {/* Period/check#/employer-side figures are stacked under their subject —
               as 11 columns this ran past the right edge at 100% zoom. */}
           <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th>Status</th><th></th></tr></thead>
