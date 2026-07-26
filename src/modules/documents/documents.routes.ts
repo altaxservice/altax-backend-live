@@ -376,14 +376,14 @@ documentsRouter.post("/requests/bulk-delete", requireAuth, requireRole("admin"),
  * future need says otherwise), it just had no creation path. Admin/staff only for the
  * task-only case, matching who can otherwise touch a task (canAccessTask's own rule).
  */
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw — mirrors legacy's own small-file-gets-embedded / large-file-gets-a-link split
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB raw — mirrors legacy's own small-file-gets-embedded / large-file-gets-a-link split
 
 // mime_type is client-reported (not sniffed from the actual bytes), so this isn't a
 // hard content guarantee — it's a filter against the specific dangerous categories
 // (HTML, SVG, scripts) that would execute if ever served back, not a general
 // file-type validator. Reasonable document/image/spreadsheet types a tax firm
 // actually exchanges with clients; nothing that renders/executes as active content.
-const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+export const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "application/pdf",
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
   "text/plain", "text/csv",

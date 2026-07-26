@@ -9,11 +9,58 @@ import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../comm
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
+import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic } from "../templates/templates.routes";
 
 /** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
 function generateShareToken(): string {
   return crypto.randomBytes(24).toString("hex");
+}
+
+function docUploadIdSuffix(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const rand = Math.floor(100 + Math.random() * 900);
+  return `${ts}-${rand}`;
+}
+
+/**
+ * SMS/WhatsApp can't carry a real file attachment (no MMS wired up), so when a
+ * message with an attachment goes out on those channels, the file is saved as a
+ * real Document instead — the same secure, hardened, audited path every other
+ * document upload goes through (forced-attachment download headers, mime
+ * allow-list, size cap), rather than a loosely-stored blob only reachable via a
+ * bare link. Returns the direct download URL (same unauthenticated-but-unguessable
+ * trust model as every other document link in this app) so the SMS text can point
+ * straight at it. Pass clientId/clientName null for a staff-to-staff message
+ * (there's no client behind it) — the row still gets a securely hosted download
+ * link, it just won't appear in anyone's Documents list. Returns an error (not a
+ * throw) on validation failure — the send still proceeds without a broken/
+ * oversized attachment link.
+ */
+async function saveMessageAttachmentAsDocument(
+  clientId: string | null, clientName: string | null, attachment: SendAttachment, uploadedBy: string
+): Promise<{ fileUrl: string } | { error: string }> {
+  const mimeType = (attachment.contentType || "application/octet-stream").toLowerCase();
+  if (!ALLOWED_UPLOAD_MIME_TYPES.has(mimeType)) return { error: `unsupported file type (${mimeType})` };
+  const sizeBytes = Math.ceil((attachment.contentBase64.length * 3) / 4);
+  if (sizeBytes > MAX_UPLOAD_BYTES) return { error: "attachment too large" };
+
+  // client_id is nullable — a staff-to-staff message has no client behind it at all,
+  // so this is stored as a client-less document purely to get a secure hosted
+  // download link; it won't appear in anyone's Documents list, only via this direct URL.
+  const uploadId = `DOC-${docUploadIdSuffix()}`;
+  const fileUrl = `/documents/uploads/${uploadId}/download`;
+  await query(
+    `INSERT INTO altax.v3_document_uploads
+       (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
+        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
+     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1)`,
+    [uploadId, clientId, clientName, attachment.filename, fileUrl, attachment.contentBase64, mimeType, sizeBytes, uploadedBy,
+      "Attached to a message.", !clientId]
+  );
+  return { fileUrl };
 }
 
 /**
@@ -80,14 +127,17 @@ function bodyToDirectionalHtml(body: string): string {
  *
  * Email goes out through wrapEmailHtml — the same branded header/footer shell (firm
  * name + logo, styled body, firm contact info) every other outbound email in the app
- * already uses — instead of a bare <p> tag, and can carry one attachment. SMS/WhatsApp
- * have no display-name concept at all (the client just sees a phone number), so the
- * firm's name is prefixed onto the body itself; attachments are silently dropped for
- * those two channels since Twilio SMS/WhatsApp here isn't wired for media (MMS).
+ * already uses — instead of a bare <p> tag, and can carry one real attachment.
+ * SMS/WhatsApp have no display-name concept at all (the client just sees a phone
+ * number), so the firm's name is prefixed onto the body itself. Neither can carry a
+ * real file (no MMS wired up) — when there's an attachment, the caller saves it as a
+ * Document first (saveMessageAttachmentAsDocument) and passes the resulting
+ * opts.documentUrl here, so the text can point straight at a real, secure download
+ * link instead of silently dropping the file.
  */
 async function sendChannel(
   channel: string, to: string, subject: string, body: string,
-  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string } = {}
+  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string; documentUrl?: string; portalUrl?: string } = {}
 ): Promise<{ sent: boolean; error?: string }> {
   const normalized = normalizeText(channel);
   if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
@@ -103,9 +153,16 @@ async function sendChannel(
       // Long bodies (a full bilingual report) can't fit SMS/WhatsApp in a readable
       // number of segments — send a short pointer to the public view page instead
       // of the whole text. Short messages (reminders, follow-ups) are unaffected.
-      const effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
+      let effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
         ? `${subject}. View / اطّلع على الرسالة: ${opts.viewUrl}`
         : body;
+      // A file can't ride inside SMS/WhatsApp text regardless of length — offer both
+      // a direct secure download link and the option to log into the client portal,
+      // rather than dropping the attachment with no trace of it ever existing.
+      if (opts.documentUrl) {
+        effectiveBody += ` Attachment: ${opts.documentUrl}`;
+        if (opts.portalUrl) effectiveBody += ` Or view it securely in your client portal: ${opts.portalUrl}`;
+      }
       const prefixed = `${firmName}: ${effectiveBody}`;
       if (normalized === "sms") await sendSms({ to, body: prefixed });
       else await sendWhatsApp({ to, body: prefixed });
@@ -203,7 +260,16 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const base = publicBaseUrl(req);
   const shareToken = sendNow && base && ["email", "sms", "whatsapp"].includes(normalizeText(channel)) ? generateShareToken() : null;
   const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment, viewUrl }) : { sent: false };
+  // SMS/WhatsApp can't carry the real attachment inline — save it as a Document
+  // first so the send can point at a real, secure download link instead of
+  // silently dropping the file.
+  let documentUrl: string | undefined;
+  if (body.attachment && ["sms", "whatsapp"].includes(normalizeText(channel)) && sendNow) {
+    const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, body.attachment, req.user!.email);
+    if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+  }
+  const portalUrl = base ? `${base}/login/client` : undefined;
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment, viewUrl, documentUrl, portalUrl: documentUrl ? portalUrl : undefined }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(
@@ -379,7 +445,13 @@ communicationsRouter.post("/staff", requireAuth, requireRole("admin", "staff"), 
   const sentTo = String(body.sentTo || (["sms", "whatsapp"].includes(normalizeText(channel)) ? recipient.phone : recipient.email) || "").trim();
 
   const firmName = (await getFirmProfile()).firmName;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment: body.attachment }) : { sent: false };
+  const base = publicBaseUrl(req);
+  let documentUrl: string | undefined;
+  if (body.attachment && ["sms", "whatsapp"].includes(normalizeText(channel)) && sendNow) {
+    const saved = await saveMessageAttachmentAsDocument(null, null, body.attachment, req.user!.email);
+    if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+  }
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment: body.attachment, documentUrl }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   const communicationId = nextCommunicationId();
@@ -419,6 +491,7 @@ communicationsRouter.post("/staff/bulk", requireAuth, requireRole("admin", "staf
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
   const attachment: SendAttachment | undefined = body.attachment;
   const firmName = (await getFirmProfile()).firmName;
+  const base = publicBaseUrl(req);
 
   const results: { email: string; name: string; channel: string; sent: boolean; skipped?: string; error?: string }[] = [];
 
@@ -443,7 +516,12 @@ communicationsRouter.post("/staff/bulk", requireAuth, requireRole("admin", "staf
         continue;
       }
 
-      const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment }) : { sent: false };
+      let documentUrl: string | undefined;
+      if (attachment && (normalized === "sms" || normalized === "whatsapp") && sendNow) {
+        const saved = await saveMessageAttachmentAsDocument(null, null, attachment, req.user!.email);
+        if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+      }
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment, documentUrl }) : { sent: false };
       const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       const communicationId = nextCommunicationId();
       await query(
@@ -571,7 +649,13 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
       const communicationId = nextCommunicationId();
       const shareToken = sendNow && base ? generateShareToken() : null;
       const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
-      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl }) : { sent: false };
+      let documentUrl: string | undefined;
+      if (attachment && (normalized === "sms" || normalized === "whatsapp") && sendNow) {
+        const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, attachment, req.user!.email);
+        if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
+      }
+      const portalUrl = documentUrl && base ? `${base}/login/client` : undefined;
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
       const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       await query(
         `INSERT INTO altax.v3_communications

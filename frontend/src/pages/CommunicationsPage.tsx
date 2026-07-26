@@ -143,6 +143,12 @@ export function CommunicationsPage() {
   const [clientId, setClientId] = useState(globalClientId || "");
   const [comms, setComms] = useState<Communication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Three big panels (Staff, Individual Client, Bulk Client) used to all stack on one
+  // page, each with its own client-picking mechanism — a lot of scrolling and three
+  // different ways to "pick who to message." Splitting into tabs, one panel visible
+  // at a time, matches the Reports page's own tab pattern and cuts the clutter.
+  const [activeTab, setActiveTab] = useState<"individual" | "bulk" | "staff">("individual");
+  const [clientSearch, setClientSearch] = useState("");
 
   function load() {
     api.get<{ communications: Communication[] }>("/communications")
@@ -163,6 +169,13 @@ export function CommunicationsPage() {
   const client = clients.find((c) => c.client_id === clientId);
   const staffMessages = (comms || []).filter((c) => c.direction === "Staff to Staff");
   const clientMessages = (comms || []).filter((c) => c.client_id === clientId);
+  const filteredClients = clients.filter((c) => c.client_name.toLowerCase().includes(clientSearch.toLowerCase()));
+
+  const TABS: { key: typeof activeTab; label: string }[] = [
+    { key: "individual", label: "Individual Client" },
+    { key: "bulk", label: "Bulk Client Message" },
+    { key: "staff", label: "Staff Messages" },
+  ];
 
   return (
     <div>
@@ -173,13 +186,21 @@ export function CommunicationsPage() {
       </div>
 
       {canManage && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-          <div className="field" style={{ maxWidth: 320, margin: 0 }}>
-            <label htmlFor="comm-client">Client</label>
-            <select id="comm-client" value={clientId} onChange={(e) => handleClientChange(e.target.value)}>
-              <option value="">Select a client…</option>
-              {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-            </select>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <div className="no-print" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)" }}>
+            {TABS.map((t) => (
+              <div
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                style={{
+                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+                  color: activeTab === t.key ? "var(--ink)" : "var(--muted)",
+                  borderBottom: activeTab === t.key ? "2px solid var(--teal)" : "2px solid transparent",
+                }}
+              >
+                {t.label}
+              </div>
+            ))}
           </div>
           <RunRemindersButton onDone={load} />
         </div>
@@ -187,11 +208,43 @@ export function CommunicationsPage() {
 
       {error && <ErrorBanner error={error} />}
 
-      {canManage && <StaffMessages messages={staffMessages} onSent={load} />}
+      {canManage && activeTab === "staff" && <StaffMessages messages={staffMessages} onSent={load} />}
 
-      {canManage && clients.length > 0 && <BulkClientMessage clients={clients} onSent={load} />}
+      {canManage && activeTab === "bulk" && clients.length > 0 && <BulkClientMessage clients={clients} onSent={load} />}
 
-      {canManage && client && <ClientMessages client={client} messages={clientMessages} onSent={load} />}
+      {canManage && activeTab === "individual" && (
+        <>
+          <Panel title="Choose a Client">
+            <div style={{ padding: "0 16px 16px" }}>
+              <input
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                placeholder="Search clients by name…"
+                style={{ marginBottom: 10 }}
+              />
+              <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+                {filteredClients.map((c) => (
+                  <div
+                    key={c.client_id}
+                    onClick={() => handleClientChange(c.client_id)}
+                    style={{
+                      padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 13,
+                      background: c.client_id === clientId ? "var(--teal-soft, #d9f4ef)" : "transparent",
+                      fontWeight: c.client_id === clientId ? 700 : 400,
+                    }}
+                  >
+                    {c.client_name}
+                  </div>
+                ))}
+                {filteredClients.length === 0 && <p className="muted" style={{ margin: 0, padding: 4 }}>No clients match.</p>}
+              </div>
+            </div>
+          </Panel>
+          {client
+            ? <ClientMessages client={client} messages={clientMessages} onSent={load} />
+            : <p className="muted">Pick a client above to send them a message.</p>}
+        </>
+      )}
 
       {!canManage && user && (
         <SelfMessages
@@ -201,10 +254,6 @@ export function CommunicationsPage() {
           messages={comms || []}
           onSent={load}
         />
-      )}
-
-      {canManage && !client && (
-        <p className="muted">Pick a client above to send them a message, or use Firm Staff Messages above for internal notes.</p>
       )}
     </div>
   );
