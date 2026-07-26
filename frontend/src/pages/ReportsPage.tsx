@@ -8,18 +8,18 @@ import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 
-const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Client Message", "Sales, Tax & Payroll Report"] as const;
+const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
   "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
-  "Sales & Tax": "sales-tax", "Payroll": "payroll", "Client Message": "client-message",
+  "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee", "Client Message": "client-message",
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
-const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll" };
+const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
 
 interface SalesTaxReport {
   byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
@@ -68,6 +68,7 @@ export function ReportsPage() {
   const [firmError, setFirmError] = useState<string | null>(null);
   const [paychecks, setPaychecks] = useState<ReportPaycheck[]>([]);
   const [payrollLoading, setPayrollLoading] = useState(false);
+  const [employeeFilter, setEmployeeFilter] = useState(""); // "" = All Employees
   const [salesTaxReport, setSalesTaxReport] = useState<SalesTaxReport | null>(null);
   const [salesTaxLoading, setSalesTaxLoading] = useState(false);
   const [salesTaxError, setSalesTaxError] = useState<string | null>(null);
@@ -95,13 +96,17 @@ export function ReportsPage() {
   }, [user, tab, clientId]);
 
   useEffect(() => {
-    if (!clientId || tab !== "Payroll") return;
+    if (!clientId || (tab !== "Payroll" && tab !== "Employee")) return;
     setPayrollLoading(true);
     api.get<{ paychecks: ReportPaycheck[] }>(`/accounting/paychecks/${clientId}`)
       .then((r) => setPaychecks(r.paychecks))
       .catch(() => setPaychecks([]))
       .finally(() => setPayrollLoading(false));
   }, [clientId, tab]);
+
+  // Reset the employee drill-in whenever the client changes, so a stale employee name
+  // from a different client's payroll doesn't silently carry over into this one.
+  useEffect(() => { setEmployeeFilter(""); }, [clientId]);
 
   useEffect(() => {
     if (!clientId || tab !== "Sales & Tax") return;
@@ -225,6 +230,47 @@ export function ReportsPage() {
   const payrollTaxEmployeeTotal = payrollTaxRows.reduce((s, r) => s + r.employee, 0);
   const payrollTaxEmployerTotal = payrollTaxRows.reduce((s, r) => s + r.employer, 0);
 
+  // Same period's paychecks as the Payroll tab, grouped by employee instead of left flat.
+  const employeeNames = useMemo(() => {
+    const seen = new Map<string, string>(); // lower(name) -> display name (first-seen casing)
+    for (const p of filteredPaychecks) {
+      const key = (p.employee || "").toLowerCase();
+      if (key && !seen.has(key)) seen.set(key, p.employee);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [filteredPaychecks]);
+
+  const employeeSummaryRows = useMemo(() => {
+    const byEmployee = new Map<string, { employee: string; checkCount: number; gross: number; eeTax: number; erTax: number; net: number; total: number }>();
+    for (const p of filteredPaychecks) {
+      const key = (p.employee || "").toLowerCase();
+      const row = byEmployee.get(key) || { employee: p.employee, checkCount: 0, gross: 0, eeTax: 0, erTax: 0, net: 0, total: 0 };
+      row.checkCount += 1;
+      row.gross += Number(p.gross_wages) || 0;
+      row.eeTax += Number(p.employee_taxes) || 0;
+      row.erTax += Number(p.employer_taxes) || 0;
+      row.net += Number(p.net_pay) || 0;
+      row.total += Number(p.total_cost) || 0;
+      byEmployee.set(key, row);
+    }
+    return Array.from(byEmployee.values()).sort((a, b) => a.employee.localeCompare(b.employee));
+  }, [filteredPaychecks]);
+
+  const employeePaychecks = useMemo(() => {
+    if (!employeeFilter) return [];
+    return filteredPaychecks.filter((p) => (p.employee || "").toLowerCase() === employeeFilter.toLowerCase());
+  }, [filteredPaychecks, employeeFilter]);
+
+  const employeeSum = (col: keyof ReportPaycheck) => employeePaychecks.reduce((s, p) => s + (Number(p[col]) || 0), 0);
+  const employeeTaxRows: { label: string; employee: number; employer: number }[] = [
+    { label: "Federal Withholding", employee: employeeSum("federal_withholding"), employer: 0 },
+    { label: "Social Security", employee: employeeSum("social_security_ee"), employer: employeeSum("social_security_er") },
+    { label: "Medicare", employee: employeeSum("medicare_ee"), employer: employeeSum("medicare_er") },
+    { label: `${client?.state || "State"} Withholding`, employee: employeeSum("state_tax"), employer: 0 },
+    { label: `${client?.state || "State"} Unemployment (SUTA)`, employee: 0, employer: employeeSum("suta") },
+    { label: "Federal Unemployment (FUTA)", employee: 0, employer: employeeSum("futa") },
+  ];
+
   function handleClientChange(id: string) {
     setClientId(id);
     setSelectedClient(id || null, clients.find((c) => c.client_id === id)?.client_name);
@@ -247,7 +293,8 @@ export function ReportsPage() {
     const key = `${segment}-${mode}`;
     setReportBusy(key);
     try {
-      const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}`;
+      const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
+      const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}`;
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`);
     } catch (err) {
@@ -262,7 +309,8 @@ export function ReportsPage() {
     if (!segment || !clientId) return;
     setReportBusy("csv");
     try {
-      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}`, `${segment}_${clientId}_${from}_${to}.csv`);
+      const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
+      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}`, `${segment}_${clientId}_${from}_${to}.csv`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -630,6 +678,95 @@ export function ReportsPage() {
                   </div>
                 )}
               </div>
+            </>
+          )}
+
+          {payrollLoading && tab === "Employee" && <div className="spinner-wrap">Loading…</div>}
+          {!payrollLoading && tab === "Employee" && (
+            <>
+              <div className="command-panel" style={{ marginBottom: 16 }}>
+                <div className="command-panel-header">
+                  <h2 className="command-panel-title">Employee</h2>
+                  <div className="field" style={{ margin: 0, minWidth: 220 }}>
+                    <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
+                      <option value="">All Employees</option>
+                      {employeeNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {!employeeFilter && (
+                <div className="command-panel">
+                  <div className="command-panel-header"><h2 className="command-panel-title">Employees</h2><div className="command-panel-note">{employeeSummaryRows.length} in period — click a row to see that employee's detail</div></div>
+                  {employeeSummaryRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
+                  {employeeSummaryRows.length > 0 && (
+                    <div className="table-scroll">
+                    <table>
+                      <thead><tr><th>Employee</th><th>Checks</th><th>Gross</th><th>Employee Taxes</th><th>Employer Taxes</th><th>Net Pay</th><th>Total Cost</th></tr></thead>
+                      <tbody>
+                        {employeeSummaryRows.map((r) => (
+                          <tr key={r.employee} style={{ cursor: "pointer" }} onClick={() => setEmployeeFilter(r.employee)}>
+                            <td>{r.employee}</td><td>{r.checkCount}</td><td>{fmtMoney(r.gross)}</td><td>{fmtMoney(r.eeTax)}</td><td>{fmtMoney(r.erTax)}</td><td>{fmtMoney(r.net)}</td><td>{fmtMoney(r.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {employeeFilter && (
+                <>
+                  <button type="button" className="btn" style={{ marginBottom: 16 }} onClick={() => setEmployeeFilter("")}>← All Employees</button>
+                  <div className="metric-grid" style={{ marginBottom: 16 }}>
+                    <div className="metric"><div className="metric-label">Gross Wages</div><div className="metric-value">{fmtMoney(employeeSum("gross_wages"))}</div></div>
+                    <div className="metric"><div className="metric-label">Checks</div><div className="metric-value">{employeePaychecks.length}</div></div>
+                    <div className="metric"><div className="metric-label">Employee Taxes</div><div className="metric-value">{fmtMoney(employeeSum("employee_taxes"))}</div></div>
+                    <div className="metric"><div className="metric-label">Employer Taxes</div><div className="metric-value">{fmtMoney(employeeSum("employer_taxes"))}</div></div>
+                    <div className="metric"><div className="metric-label">Net Pay</div><div className="metric-value">{fmtMoney(employeeSum("net_pay"))}</div></div>
+                    <div className="metric"><div className="metric-label">Total Payroll Cost</div><div className="metric-value">{fmtMoney(employeeSum("total_cost"))}</div></div>
+                  </div>
+                  <div className="command-panel" style={{ marginBottom: 16 }}>
+                    <div className="command-panel-header"><h2 className="command-panel-title">Payroll Tax Summary</h2><div className="command-panel-note">{from} – {to}</div></div>
+                    <div className="table-scroll">
+                    <table>
+                      <thead><tr><th>Tax</th><th>Employee</th><th>Employer</th><th>Total</th></tr></thead>
+                      <tbody>
+                        {employeeTaxRows.map((r) => (
+                          <tr key={r.label}><td>{r.label}</td><td>{fmtMoney(r.employee)}</td><td>{fmtMoney(r.employer)}</td><td>{fmtMoney(r.employee + r.employer)}</td></tr>
+                        ))}
+                        <tr style={{ fontWeight: 800, borderTop: "1px solid var(--line)" }}>
+                          <td>Total</td><td>{fmtMoney(employeeTaxRows.reduce((s, r) => s + r.employee, 0))}</td><td>{fmtMoney(employeeTaxRows.reduce((s, r) => s + r.employer, 0))}</td>
+                          <td>{fmtMoney(employeeTaxRows.reduce((s, r) => s + r.employee + r.employer, 0))}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
+                  <div className="command-panel">
+                    <div className="command-panel-header"><h2 className="command-panel-title">Checks</h2><div className="command-panel-note">{employeePaychecks.length} in period</div></div>
+                    {employeePaychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
+                    {employeePaychecks.length > 0 && (
+                      <div className="table-scroll">
+                      <table>
+                        <thead><tr><th>Date</th><th>Gross</th><th>Net</th></tr></thead>
+                        <tbody>
+                          {employeePaychecks.map((p) => (
+                            <tr
+                              key={p.paycheck_id}
+                              style={{ cursor: "pointer" }}
+                              onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
+                            ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
 

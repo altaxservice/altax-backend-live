@@ -335,6 +335,142 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
   return doc.save();
 }
 
+export interface EmployeeSummaryRow {
+  employee: string; checkCount: number; grossWages: number; employeeTaxes: number; employerTaxes: number; netPay: number; totalCost: number;
+}
+
+export interface EmployeeReportData {
+  client: ReportClientInfo;
+  from: string; to: string;
+  /** null = all-employees summary table; set = one employee's tax breakdown + check list (same shape as PayrollReportData). */
+  employeeFilter: string | null;
+  summaryRows: EmployeeSummaryRow[];
+  taxRows: PayrollTaxRow[];
+  checks: PayrollCheckRow[];
+  totals: { grossWages: number; checkCount: number; employeeTaxes: number; employerTaxes: number; netPay: number; totalCost: number };
+}
+
+/**
+ * Employee-scoped view of the same payroll data as generatePayrollPdf — that
+ * report is one flat list of every check in the period; this groups by
+ * employee instead, either as an all-employees totals table or (when a single
+ * employee is picked) that employee's own tax breakdown + check list, reusing
+ * the exact same section layout generatePayrollPdf already established.
+ */
+export async function generateEmployeeReportPdf(data: EmployeeReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const title = data.employeeFilter ? `EMPLOYEE REPORT — ${data.employeeFilter.toUpperCase()}` : "EMPLOYEE REPORT — ALL EMPLOYEES";
+  let y = drawHeader(c, data.client, title, `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+
+  const tiles: [string, string][] = [
+    ["Gross Wages", money(data.totals.grossWages)], ["Checks", String(data.totals.checkCount)],
+    ["Employee Taxes", money(data.totals.employeeTaxes)], ["Employer Taxes", money(data.totals.employerTaxes)],
+    ["Net Pay", money(data.totals.netPay)], ["Total Payroll Cost", money(data.totals.totalCost)],
+  ];
+  const tileW = (PAGE_W - 96 - 2 * 10) / 3;
+  tiles.forEach(([label, value], i) => {
+    const col = i % 3, rowI = Math.floor(i / 3);
+    const x = 48 + col * (tileW + 10);
+    const tileY = y + rowI * 54;
+    c.rect(x, tileY, tileW, 44, TEAL_TINT);
+    c.text(x + 10, tileY + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+    c.text(x + 10, tileY + 34, value, { size: 13, bold: true });
+  });
+  y += 2 * 54 + 14;
+
+  if (!data.employeeFilter) {
+    y = sectionLabel(c, y, `Employees (${data.summaryRows.length})`);
+    if (!data.summaryRows.length) {
+      emptyNote(c, y);
+    } else {
+      const colEmp = 48, colChk = PAGE_W - 48 - 320, colGross = PAGE_W - 48 - 250, colEeTax = PAGE_W - 48 - 170, colErTax = PAGE_W - 48 - 90, colNet = PAGE_W - 48;
+      c.text(colEmp, y, "Employee", { size: 8, bold: true, color: MUTED });
+      c.text(colChk, y, "Checks", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colGross, y, "Gross", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colEeTax, y, "EE Taxes", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colErTax, y, "ER Taxes", { size: 8, bold: true, color: MUTED, align: "right" });
+      c.text(colNet, y, "Net Pay", { size: 8, bold: true, color: MUTED, align: "right" });
+      y += 6;
+      c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+      y += 14;
+      for (const r of data.summaryRows) {
+        if (y > PAGE_H - 60) {
+          drawFooter(c, profile.firmName);
+          ({ page, c } = await newPage(doc, font, bold));
+          y = 60;
+        }
+        c.text(colEmp, y, r.employee.slice(0, 30), { size: 9 });
+        c.text(colChk, y, String(r.checkCount), { size: 9, align: "right" });
+        c.text(colGross, y, money(r.grossWages), { size: 9, align: "right" });
+        c.text(colEeTax, y, money(r.employeeTaxes), { size: 9, align: "right" });
+        c.text(colErTax, y, money(r.employerTaxes), { size: 9, align: "right" });
+        c.text(colNet, y, money(r.netPay), { size: 9, align: "right" });
+        y += 14;
+      }
+    }
+    drawFooter(c, profile.firmName);
+    return doc.save();
+  }
+
+  y = sectionLabel(c, y, "Payroll Tax Summary");
+  const colTax = 48, colEe = PAGE_W - 48 - 220, colEr = PAGE_W - 48 - 130, colTot = PAGE_W - 48;
+  c.text(colTax, y, "Tax", { size: 8, bold: true, color: MUTED });
+  c.text(colEe, y, "Employee", { size: 8, bold: true, color: MUTED, align: "right" });
+  c.text(colEr, y, "Employer", { size: 8, bold: true, color: MUTED, align: "right" });
+  c.text(colTot, y, "Total", { size: 8, bold: true, color: MUTED, align: "right" });
+  y += 6;
+  c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+  y += 14;
+  for (const r of data.taxRows) {
+    c.text(colTax, y, r.label, { size: 9 });
+    c.text(colEe, y, money(r.employee), { size: 9, align: "right" });
+    c.text(colEr, y, money(r.employer), { size: 9, align: "right" });
+    c.text(colTot, y, money(r.employee + r.employer), { size: 9, align: "right" });
+    y += 15;
+  }
+  y += 2;
+  c.line(48, y, PAGE_W - 48, y, INK, 1);
+  y += 14;
+  const empTotal = data.taxRows.reduce((s, r) => s + r.employee, 0);
+  const erTotal = data.taxRows.reduce((s, r) => s + r.employer, 0);
+  c.text(colTax, y, "Total", { size: 9, bold: true });
+  c.text(colEe, y, money(empTotal), { size: 9, bold: true, align: "right" });
+  c.text(colEr, y, money(erTotal), { size: 9, bold: true, align: "right" });
+  c.text(colTot, y, money(empTotal + erTotal), { size: 9, bold: true, align: "right" });
+  y += 26;
+
+  y = sectionLabel(c, y, `Checks (${data.checks.length})`);
+  if (!data.checks.length) {
+    emptyNote(c, y);
+  } else {
+    const colDate = 48, colGross = PAGE_W - 48 - 90, colNet = PAGE_W - 48;
+    c.text(colDate, y, "Date", { size: 8, bold: true, color: MUTED });
+    c.text(colGross, y, "Gross", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colNet, y, "Net", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6;
+    c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+    y += 14;
+    for (const check of data.checks) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      c.text(colDate, y, fmtDate(check.payDate), { size: 9 });
+      c.text(colGross, y, money(check.gross), { size: 9, align: "right" });
+      c.text(colNet, y, money(check.net), { size: 9, align: "right" });
+      y += 14;
+    }
+  }
+
+  drawFooter(c, profile.firmName);
+  return doc.save();
+}
+
 export interface SalesTaxCategoryRow { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }
 export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }
 
