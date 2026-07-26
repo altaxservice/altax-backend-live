@@ -8,7 +8,9 @@
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
+import { publicBaseUrl } from "../../common/publicUrl";
 import { buildInvoicePdf } from "./billing.routes";
+import { isStripeConfigured, createInvoiceCheckout, settleStripePaymentIfPaid, StripeNotConfiguredError } from "./stripePayments";
 
 export const publicInvoiceRouter = Router();
 
@@ -17,8 +19,15 @@ async function findByToken(token: string) {
 }
 
 publicInvoiceRouter.get("/:token", asyncHandler(async (req: Request, res: Response) => {
-  const invoice = await findByToken(req.params.token);
+  let invoice = await findByToken(req.params.token);
   if (!invoice) return res.status(404).json({ error: "This link is invalid or has expired." });
+
+  // Self-healing card-payment check: if a Stripe checkout was started for this
+  // invoice and it is paid, record it now — this is what turns the post-payment
+  // redirect (or any later visit) into the payment actually landing in the books.
+  if (await settleStripePaymentIfPaid(invoice).catch(() => false)) {
+    invoice = await findByToken(req.params.token);
+  }
 
   const items = await query<any>(`SELECT * FROM altax.v3_invoice_line_items WHERE invoice_id = $1 ORDER BY line_no ASC`, [invoice.invoice_id]);
 
@@ -32,7 +41,32 @@ publicInvoiceRouter.get("/:token", asyncHandler(async (req: Request, res: Respon
       sales_tax_amount: invoice.sales_tax_amount, shipping_amount: invoice.shipping_amount,
       lineItems: items,
     },
+    // The Pay button only renders when Stripe is actually connected — a button
+    // that errors "not configured" at a CLIENT is worse than no button.
+    cardPaymentsEnabled: isStripeConfigured(),
   });
+}));
+
+/**
+ * Starts a Stripe hosted checkout for this invoice's balance. Unauthenticated
+ * like the rest of this router — gated by the share token, and the only thing
+ * it can do is send money TO the firm for exactly this invoice.
+ */
+publicInvoiceRouter.post("/:token/checkout", asyncHandler(async (req: Request, res: Response) => {
+  const invoice = await findByToken(req.params.token);
+  if (!invoice) return res.status(404).json({ error: "This link is invalid or has expired." });
+  if (Number(invoice.balance_due) <= 0) return res.status(400).json({ error: "This invoice is already paid — thank you!" });
+
+  const base = publicBaseUrl(req);
+  if (!base) return res.status(500).json({ error: "Could not determine this site's address for the payment redirect." });
+
+  try {
+    const { url } = await createInvoiceCheckout(invoice, req.params.token, base);
+    res.json({ url });
+  } catch (err) {
+    if (err instanceof StripeNotConfiguredError) return res.status(503).json({ error: err.message });
+    throw err;
+  }
 }));
 
 publicInvoiceRouter.get("/:token/print", asyncHandler(async (req: Request, res: Response) => {

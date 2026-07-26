@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 
@@ -33,15 +33,34 @@ function fmtDate(v: unknown): string {
  */
 export function PublicInvoicePage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const returnedFromStripe = searchParams.get("paid") === "1";
   const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
+  const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     if (!token) return;
-    api.get<{ invoice: PublicInvoice }>(`/public/invoices/${token}`)
-      .then((r) => setInvoice(r.invoice))
+    // The GET itself settles a completed Stripe checkout server-side, so on the
+    // ?paid=1 return trip this load is what flips the invoice to Paid.
+    api.get<{ invoice: PublicInvoice; cardPaymentsEnabled?: boolean }>(`/public/invoices/${token}`)
+      .then((r) => { setInvoice(r.invoice); setCardPaymentsEnabled(Boolean(r.cardPaymentsEnabled)); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this invoice."));
   }, [token]);
+
+  async function handlePayByCard() {
+    setRedirecting(true);
+    setPayError(null);
+    try {
+      const res = await api.post<{ url: string }>(`/public/invoices/${token}/checkout`, {});
+      window.location.href = res.url;
+    } catch (err) {
+      setPayError(err instanceof ApiError ? err.message : "Could not start the card payment.");
+      setRedirecting(false);
+    }
+  }
 
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
@@ -102,6 +121,29 @@ export function PublicInvoicePage() {
         </div>
       ) : (
         <div className="card" style={{ marginBottom: 20 }}>{invoice.description || "Service invoice"}</div>
+      )}
+
+      {returnedFromStripe && Number(invoice.balance_due) <= 0 && (
+        <div className="card" style={{ marginBottom: 20, borderColor: "var(--teal, #2f7d6f)", fontSize: 14 }}>
+          <strong>Thank you — your payment was received.</strong> This invoice is now marked {invoice.status}.
+        </div>
+      )}
+      {returnedFromStripe && Number(invoice.balance_due) > 0 && (
+        <div className="card" style={{ marginBottom: 20, fontSize: 13 }}>
+          If you just completed a card payment, it can take a moment to register — refresh this page shortly.
+        </div>
+      )}
+
+      {payError && <ErrorBanner error={payError} />}
+      {cardPaymentsEnabled && Number(invoice.balance_due) > 0 && (
+        <div className="card" style={{ marginBottom: 20, textAlign: "center" }}>
+          <button type="button" className="btn btn-primary" style={{ fontSize: 15, padding: "10px 28px" }} disabled={redirecting} onClick={handlePayByCard}>
+            {redirecting ? "Opening secure checkout…" : `Pay ${fmtMoney(invoice.balance_due)} by Card`}
+          </button>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+            Secure checkout by Stripe — your card details never touch our servers.
+          </div>
+        </div>
       )}
 
       <div className="card" style={{ marginBottom: 20, marginLeft: "auto", maxWidth: 300 }}>
