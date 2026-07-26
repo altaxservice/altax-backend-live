@@ -662,7 +662,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
-      <Panel title="Create Paycheck" note="Live preview updates as you type">
+      <Panel
+        title="Create Paycheck"
+        note="Live preview updates as you type"
+        action={<button type="button" className="btn btn-primary" onClick={() => setShowBatch(true)}>Batch Create Paychecks</button>}
+      >
         <form ref={createFormRef} onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <ErrorBanner error={error} />}
           {result && (
@@ -760,7 +764,6 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>
-            <button type="button" className="btn btn-sm" onClick={() => setShowBatch(true)}>+ Batch Create</button>
           </div>
         }
       >
