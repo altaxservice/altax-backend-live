@@ -798,6 +798,17 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   .site-header .container { position: relative; }
 }
 
+/* Between the hamburger breakpoint and ~1500px, the full nav (6 links + lang
+   toggle + 2 buttons) is too wide to also fit the "AL TAX SERVICE" wordmark
+   on one line without it crowding into the language toggle — confirmed live
+   at 1280/1366/1440px widths, all extremely common laptop resolutions. Below
+   1000px the nav collapses behind the hamburger (plenty of room for the
+   name); above ~1500px there's enough slack for both. This band hides just
+   the text and keeps the icon, which still carries the wordmark itself. */
+@media (min-width: 1000px) and (max-width: 1499px) {
+  .logo-text { display: none; }
+}
+
 @media (max-width: 640px) {
   .container { padding: 0 1.4rem; }
   .section { padding: 4rem 0; }
