@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
+import { encryptValue } from "../../common/encryption";
 import { generateHaccpPdf } from "./haccpPdf";
 import {
   generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf,
@@ -482,7 +483,7 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
   const uploadIds: string[] = [];
   for (const doc of docs) {
     const uploadId = `DOC-${idSuffix()}`;
-    const fileData = Buffer.from(doc.bytes).toString("base64");
+    const fileData = encryptValue(Buffer.from(doc.bytes).toString("base64"));
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,

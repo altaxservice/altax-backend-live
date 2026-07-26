@@ -1,6 +1,6 @@
 import { query, queryOne, type DbClient } from "../config/db";
 import { normalizeText } from "./assignment";
-import { decryptValue } from "./encryption";
+import { decryptTolerant } from "./encryption";
 
 /**
  * A row's `state` column is "universal" (applies regardless of the caller's target
@@ -171,23 +171,10 @@ export interface PaymentMethodSnapshot {
   bankLast4: string | null;
 }
 
-/**
- * Decrypts a stored bank-field value, tolerating rows that predate this
- * column being encrypted (found live: a real payment method migrated from
- * the legacy sheet had a plain "98765430" in routing_number, which crashed
- * every route touching that client's default payment method — decryptValue
- * throws on anything that isn't the "v1:...:..." envelope format). Only the
- * specific case of "this was never encrypted" falls back to the raw value;
- * a value that HAS the v1 envelope shape but fails to actually decrypt
- * (wrong key, tampered data) still throws — that's a real integrity error,
- * not a legacy-data shape issue, and silently returning garbage there would
- * be worse than crashing.
- */
-export function decryptTolerant(value: string): string {
-  const parts = value.split(":");
-  if (parts.length !== 3 || parts[0] !== "v1") return value;
-  return decryptValue(value);
-}
+// decryptTolerant moved to ./encryption (it's a generic envelope-shape check, not
+// specific to payment fields) — re-exported here since accounting.routes.ts and
+// paymentMethods.routes.ts already import it from this module.
+export { decryptTolerant } from "./encryption";
 
 function toSnapshot(row: any): PaymentMethodSnapshot {
   return {

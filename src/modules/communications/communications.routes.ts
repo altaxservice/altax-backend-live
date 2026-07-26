@@ -10,6 +10,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
+import { encryptValue } from "../../common/encryption";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 
 /** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
@@ -57,7 +58,7 @@ async function saveMessageAttachmentAsDocument(
        (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
         uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
      VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1)`,
-    [uploadId, clientId, clientName, attachment.filename, fileUrl, attachment.contentBase64, mimeType, sizeBytes, uploadedBy,
+    [uploadId, clientId, clientName, attachment.filename, fileUrl, encryptValue(attachment.contentBase64), mimeType, sizeBytes, uploadedBy,
       "Attached to a message.", !clientId]
   );
   return { fileUrl };

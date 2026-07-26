@@ -80,3 +80,15 @@ export function decryptValue(serialized: string): string {
   const dataKey = decryptRaw(wrappedDataKey, masterKey);
   return decryptRaw(payloadCiphertext, dataKey).toString("utf8");
 }
+
+/**
+ * Decrypts a value that might still be in the pre-encryption legacy plaintext
+ * format (fields encrypted after this code shipped will always match the v1:
+ * envelope; older rows written before that point stay plaintext until they're
+ * next rewritten). Checking the shape avoids a forced, one-shot migration.
+ */
+export function decryptTolerant(value: string): string {
+  const parts = String(value || "").split(":");
+  if (parts.length !== 3 || parts[0] !== VERSION) return value;
+  return decryptValue(value);
+}

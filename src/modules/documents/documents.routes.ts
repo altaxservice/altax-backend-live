@@ -1,9 +1,11 @@
 import { Router, Response } from "express";
+import jwt from "jsonwebtoken";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
+import { encryptValue, decryptTolerant } from "../../common/encryption";
 
 /**
  * Documents module — Phase 4 slice covering the plan's five stated test scenarios:
@@ -432,7 +434,12 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
 
   const resolved = resolveUploadFile(body);
   if ("error" in resolved) return res.status(400).json({ error: resolved.error });
-  const { fileName, fileData, mimeType, fileSize } = resolved;
+  const { fileName, mimeType, fileSize } = resolved;
+  // Encrypted after size/mime validation (which needs the real plaintext length) but
+  // before it's ever written — every new row's file_data is the "v1:...:..." envelope,
+  // never plaintext. fileSize/mime stay unencrypted since they're needed unauthenticated
+  // (Content-Type/Content-Disposition headers, size display) and reveal nothing sensitive.
+  const fileData = resolved.fileData ? encryptValue(resolved.fileData) : null;
   let fileUrl = resolved.fileUrl;
   const uploadId = nextUploadId();
   if (fileData) fileUrl = `/documents/uploads/${uploadId}/download`;
@@ -517,17 +524,45 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   res.status(201).json({ ok: true, uploadId, fileUrl });
 }));
 
+// Same cap as publicMessage.routes.ts's LINK_MAX_AGE_MS — kept as a separate constant
+// here rather than importing, since this route's expiry only applies to the
+// unauthenticated-tap case below, not to every request the way that route's does.
+const UNAUTHED_DOWNLOAD_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
 /**
- * Serves an uploaded file's actual bytes. Deliberately unauthenticated (no
- * requireAuth) — the same trust model legacy used for pasted Drive links
- * ("anyone with the link"), and the uploadId itself is an unguessable
- * timestamp+random string, not a sequential/enumerable ID. This keeps every
- * existing "Open Attachment"/"View File" link working as a plain <a href>
- * across the app without needing bearer-token-aware download logic everywhere.
+ * Serves an uploaded file's actual bytes. No requireAuth gate — the same trust
+ * model legacy used for pasted Drive links ("anyone with the link"), and the
+ * uploadId itself is an unguessable timestamp+random string, not a
+ * sequential/enumerable ID. This keeps every existing "Open Attachment"/"View
+ * File" link working as a plain <a href> across the app without needing
+ * bearer-token-aware download logic everywhere.
+ *
+ * The Authorization header is decoded if present but never required — the app's
+ * own View/Download actions (frontend/src/api/client.ts fetchAuthedBlob) always
+ * send a valid Bearer token, so a present-and-valid token means this is the
+ * app's own portal/admin fetch of a client's real, ongoing document and should
+ * never expire. Absence (or an invalid/expired token) means this is a raw link
+ * tap — e.g. from an SMS — and gets the same 90-day cap as the message-view
+ * link, so an old forwarded/leaked link doesn't stay useful forever.
  */
 documentsRouter.get("/uploads/:uploadId/download", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const row = await queryOne<any>(`SELECT file_name, file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [req.params.uploadId]);
+  const row = await queryOne<any>(`SELECT file_name, file_data, mime_type, uploaded_at FROM altax.v3_document_uploads WHERE upload_id = $1`, [req.params.uploadId]);
   if (!row || !row.file_data) return res.status(404).json({ error: "File not found." });
+
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  let isAuthed = false;
+  if (token) {
+    try {
+      jwt.verify(token, process.env.JWT_SECRET as string);
+      isAuthed = true;
+    } catch {
+      isAuthed = false;
+    }
+  }
+  if (!isAuthed && row.uploaded_at && Date.now() - new Date(row.uploaded_at).getTime() > UNAUTHED_DOWNLOAD_MAX_AGE_MS) {
+    return res.status(410).json({ error: "This link has expired. Please log in to your client portal to view this document, or contact the firm for a current copy." });
+  }
 
   // Always "attachment", never "inline": this route is intentionally unauthenticated
   // (see comment above) and mime_type is whatever the uploader's browser claimed it
@@ -540,7 +575,7 @@ documentsRouter.get("/uploads/:uploadId/download", asyncHandler(async (req: Auth
   res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${(row.file_name || "file").replace(/"/g, "")}"`);
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.send(Buffer.from(row.file_data, "base64"));
+  res.send(Buffer.from(decryptTolerant(row.file_data), "base64"));
 }));
 
 /**
