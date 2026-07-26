@@ -139,16 +139,17 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
 }
 .site-header.is-scrolled { padding: 0.9rem 0; box-shadow: var(--shadow-lg); }
 .site-header .container { display: flex; align-items: center; justify-content: space-between; }
-.logo { display: flex; align-items: center; gap: 0.75rem; text-decoration: none; color: var(--color-white); }
+.logo { display: flex; align-items: center; gap: 0.75rem; text-decoration: none; color: var(--color-white); flex-shrink: 0; }
 .logo img { height: 72px; width: auto; flex-shrink: 0; }
-.logo-text { line-height: 1.15; }
+.logo-text { line-height: 1.15; flex-shrink: 0; }
 .logo-text .logo-name {
   font-family: var(--font-display);
-  font-size: 1.28rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   color: var(--color-white);
   display: block;
+  white-space: nowrap;
 }
 .logo-text .logo-tag {
   font-family: var(--font-body);
