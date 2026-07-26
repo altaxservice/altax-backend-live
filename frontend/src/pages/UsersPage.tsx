@@ -128,6 +128,13 @@ export function UsersPage() {
       } else if (action === "temp-password") {
         const res = await api.post<{ userId: string; temporaryPassword: string }>(`/users/${userId}/temporary-password`, {});
         setInviteInfo({ ...res, note: "Share this temporary password. They'll be asked to change it after signing in." });
+      } else if (action === "reset-2fa") {
+        // The recovery path for a lost/replaced phone. Safe because 2FA is
+        // mandatory: clearing it forces fresh enrollment at the next sign-in
+        // rather than leaving the account with password-only access.
+        if (!confirm("Reset this user's two-factor authentication?\n\nTheir current authenticator will stop working and they'll be asked to set up a new one the next time they sign in.")) return;
+        await api.post(`/users/${userId}/2fa/reset`, {});
+        alert("Two-factor authentication reset. The user will set up a new authenticator at their next sign-in.");
       }
       load();
     } catch (err) {
@@ -347,6 +354,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
                       <option value="resend-invite">Resend Invite</option>
                       <option value="reset-invite">Reset Invite</option>
                       <option value="temp-password">Set Temporary Password</option>
+                      <option value="reset-2fa">Reset 2FA (lost phone)</option>
                       <option value="delete-user">Delete User</option>
                     </select>
                     {u.active && <button className="btn btn-sm btn-danger" onClick={() => onDeactivate(u.user_id)}>Deactivate</button>}

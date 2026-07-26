@@ -571,6 +571,35 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   padding: 18px 16px;
   overflow-y: auto;
 }
+/* Collapsed state of .client-panel: a narrow vertical tab that gives the panel
+   back once it has been hidden. Sits in the same flex slot, so hiding the panel
+   returns nearly all 260px to the page content. */
+.client-panel-reopen {
+  width: 30px;
+  flex-shrink: 0;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 14px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.client-panel-reopen:hover { color: var(--teal); background: var(--surface-2, #f4f6f8); }
+.client-panel-reopen-label {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  max-height: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .client-panel-section { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .client-panel-name-link {
   background: none; border: none; padding: 0; margin: 0; font: inherit; text-align: left;
@@ -703,7 +732,7 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 
   .topbar { padding: 14px 16px; }
   main { padding: 16px !important; }
-  .client-panel { display: none; }
+  .client-panel, .client-panel-reopen { display: none; }
 
   /* .command-grid's right column has a minmax(280px, …) floor that never shrinks —
      on a phone its content overflows the collapsed left column's track and visually

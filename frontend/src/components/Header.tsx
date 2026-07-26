@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
+import { APP_NAME } from "../utils/branding";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
@@ -16,6 +17,34 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
   const [showMore, setShowMore] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+
+  // The dropdown used to stay open until the Admin chip was clicked again —
+  // clicking anywhere else on the page left it hanging over the content.
+  useEffect(() => {
+    if (!showUserMenu) return;
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      if (!userMenuRef.current?.contains(e.target as Node)) setShowUserMenu(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setShowUserMenu(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showUserMenu]);
+
+  // Navigating away should never leave the menu (or the ⋮ tray) open behind the new page.
+  useEffect(() => {
+    setShowUserMenu(false);
+    setShowMore(false);
+  }, [location.pathname]);
 
   function handleSearch(e: FormEvent) {
     e.preventDefault();
@@ -60,7 +89,7 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
             </form>
             <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
           </div>
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative" }} ref={userMenuRef}>
             <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
               <div>
                 <div className="topbar-user-name">{user?.name || user?.email}</div>
@@ -180,21 +209,6 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  async function handleDisable(e: FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await api.post("/auth/2fa/disable", { code });
-      updateUser({ totpEnabled: false });
-      setDone("disabled");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not disable 2FA.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   if (done === "enabled") {
     return (
       <div className="modal-overlay" onClick={onClose}>
@@ -209,20 +223,9 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
     );
   }
 
-  if (done === "disabled") {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-panel" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <h2>Two-Factor Authentication</h2>
-            <button className="btn btn-sm" onClick={onClose}>Close</button>
-          </div>
-          <p className="muted" style={{ padding: "8px 0" }}>Two-factor authentication has been turned off for this account.</p>
-        </div>
-      </div>
-    );
-  }
-
+  // 2FA is mandatory on every portal, so there is no "turn it off" path here
+  // any more — the backend refuses it outright. A replaced phone is handled by
+  // an admin reset on the Users & Access page.
   if (user?.totpEnabled) {
     return (
       <div className="modal-overlay" onClick={onClose}>
@@ -231,23 +234,14 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
             <h2>Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
           </div>
-          <p className="muted" style={{ padding: "8px 0" }}>Two-factor authentication is currently <strong>on</strong> for this account. Enter a current code from your authenticator app to turn it off.</p>
-          <form onSubmit={handleDisable}>
-            {error && <div className="error-banner">{error}</div>}
-            <div className="field">
-              <label htmlFor="tfa-disable-code">Authenticator Code</label>
-              <input
-                id="tfa-disable-code"
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                required
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              />
-            </div>
-            <button type="submit" className="btn btn-danger" disabled={saving || code.length !== 6}>{saving ? "Disabling…" : "Disable 2FA"}</button>
-          </form>
+          <p className="muted" style={{ padding: "8px 0" }}>
+            Two-factor authentication is <strong>on</strong> for this account, and is required on every {APP_NAME}
+            {" "}portal — it cannot be turned off.
+          </p>
+          <p className="muted" style={{ padding: "0 0 8px", fontSize: 12 }}>
+            Changed or lost your phone? Ask an admin to reset your 2FA from Users &amp; Access. You'll set up a new
+            authenticator the next time you sign in.
+          </p>
         </div>
       </div>
     );

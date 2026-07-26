@@ -21,7 +21,7 @@ function fmtMoney(v: unknown): string {
 }
 
 export function ClientContextPanel() {
-  const { clientId, setSelectedClient } = useSelectedClient();
+  const { clientId, clientName, setSelectedClient, panelHidden, setPanelHidden } = useSelectedClient();
   const navigate = useNavigate();
   const [client, setClient] = useState<Client | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -40,11 +40,30 @@ export function ClientContextPanel() {
 
   if (!clientId) return null;
 
+  // Hidden, but still selected — leave a way back in. Without this the ✕ was a
+  // one-way door: the panel vanished and nothing on screen could bring it back.
+  if (panelHidden) {
+    return (
+      <button
+        type="button"
+        className="client-panel-reopen"
+        onClick={() => setPanelHidden(false)}
+        title={`Show client panel — ${clientName || clientId}`}
+      >
+        <span aria-hidden="true">‹</span>
+        <span className="client-panel-reopen-label">{clientName || clientId}</span>
+      </button>
+    );
+  }
+
   return (
     <aside className="client-panel">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 6 }}>
         <div className="small-label" style={{ color: "var(--muted)" }}>{clientId}</div>
-        <button type="button" className="btn btn-sm" onClick={() => setSelectedClient(null)} title="Clear selected client">✕</button>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button type="button" className="btn btn-sm" onClick={() => setPanelHidden(true)} title="Hide this panel (keeps the client selected)">✕</button>
+          <button type="button" className="btn btn-sm" onClick={() => setSelectedClient(null)} title="Clear the selected client">Clear</button>
+        </div>
       </div>
 
       {!client && <div className="spinner-wrap" style={{ padding: 24 }}>Loading…</div>}

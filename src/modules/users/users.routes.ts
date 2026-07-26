@@ -262,6 +262,32 @@ usersRouter.post("/:userId/deactivate", requireAuth, requireRole("admin"), async
 }));
 
 /**
+ * Reset a user's two-factor enrollment — the recovery path for a lost, stolen
+ * or replaced phone. Because 2FA is mandatory, this does NOT leave the account
+ * unprotected: clearing the secret forces a fresh enrollment on the very next
+ * sign-in, before any session token is issued.
+ *
+ * Admins cannot reset their own 2FA here. Doing so from a live admin session
+ * would let anyone with a hijacked session quietly swap the authenticator to
+ * their own device; a locked-out admin is recovered at the database instead.
+ */
+usersRouter.post("/:userId/2fa/reset", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  if (userId === req.user!.sub) {
+    return res.status(400).json({ error: "You cannot reset your own 2FA from inside your own session. Another admin must do it." });
+  }
+
+  const target = await queryOne<any>(`SELECT user_id, email, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!target) return res.status(404).json({ error: "Portal user not found." });
+
+  await query(`UPDATE altax.v3_users SET totp_secret = NULL, totp_enabled = FALSE, updated_at = now() WHERE user_id = $1`, [userId]);
+  await logAudit("Security", "2FA_RESET", userId, "TOTPEnabled", String(Boolean(target.totp_enabled)), "false",
+    `Two-factor enrollment reset for ${target.email} by ${req.user!.email}; user must re-enroll at next sign-in.`, req.user!.email);
+
+  res.json({ ok: true, userId, email: target.email });
+}));
+
+/**
  * Permanently delete a portal user — ported from alTaxPortalHardDeleteUser. Previously
  * skipped like every other hard-delete this session; now built at the user's explicit
  * request with a typed-confirmation gate added as extra safety beyond legacy's ungated

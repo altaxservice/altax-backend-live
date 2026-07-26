@@ -26,7 +26,7 @@ const PORTAL_COPY: Record<string, string> = {
  * group only ever sees their own portal. Admin keeps the full picker at /login.
  */
 export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
-  const { login, completeTotpLogin } = useAuth();
+  const { login, completeTotpLogin, startTotpEnrollment, completeTotpEnrollment } = useAuth();
   const navigate = useNavigate();
   const { lang, setLang, t, dir } = useLanguage();
   const [email, setEmail] = useState("");
@@ -37,6 +37,11 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
   const [submitting, setSubmitting] = useState(false);
   const [challenge, setChallenge] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  // Mandatory-2FA enrollment: set when the password was right but the account
+  // has no authenticator yet. There is no way past this screen except finishing
+  // setup (or going back and signing in as someone else).
+  const [enrollChallenge, setEnrollChallenge] = useState<string | null>(null);
+  const [enrollSetup, setEnrollSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
@@ -70,8 +75,12 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     setSubmitting(true);
     try {
       const outcome = await login(email, portal, password);
-      if (outcome.totpRequired) {
+      if (outcome.step === "totp") {
         setChallenge(outcome.challenge);
+      } else if (outcome.step === "enroll") {
+        setEnrollChallenge(outcome.challenge);
+        const setup = await startTotpEnrollment(outcome.challenge);
+        setEnrollSetup(setup);
       } else {
         navigate("/dashboard", { replace: true });
       }
@@ -80,6 +89,28 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleConfirmEnrollment(e: FormEvent) {
+    e.preventDefault();
+    if (!enrollChallenge) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await completeTotpEnrollment(enrollChallenge, code);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not reach the server.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function cancelEnrollment() {
+    setEnrollChallenge(null);
+    setEnrollSetup(null);
+    setCode("");
+    setError(null);
   }
 
   async function handleVerifyCode(e: FormEvent) {
@@ -95,6 +126,85 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (enrollChallenge) {
+    return (
+      <div className="login-screen">
+        <form onSubmit={handleConfirmEnrollment} className="login-panel">
+          <div className="login-brand">
+            <FirmLogo size={40} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
+            </div>
+          </div>
+
+          <h1>Set Up Two-Factor Authentication</h1>
+          <p className="login-copy">
+            Two-factor authentication is required on every {APP_NAME} portal. Scan this QR code with an authenticator
+            app (Google Authenticator, Microsoft Authenticator, 1Password, Authy), then enter the 6-digit code it shows
+            to finish signing in.
+          </p>
+
+          {error && <div className="error-banner">{error}</div>}
+
+          {!enrollSetup ? (
+            <p className="muted">Preparing your setup code…</p>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "center", margin: "6px 0 10px" }}>
+                <img src={enrollSetup.qrCodeDataUrl} alt="Two-factor setup QR code" width={190} height={190} />
+              </div>
+              <p className="muted" style={{ fontSize: 11.5, textAlign: "center", margin: "0 0 12px" }}>
+                Can't scan it? Enter this key by hand:<br />
+                <code style={{ fontSize: 12, wordBreak: "break-all" }}>{enrollSetup.secret}</code>
+              </p>
+
+              <div className="field">
+                <label htmlFor="enroll-code">6-digit code from the app</label>
+                <input
+                  id="enroll-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  required
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  autoFocus
+                  style={{ letterSpacing: 4, fontSize: 18, textAlign: "center" }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
+                disabled={submitting || code.length !== 6}
+              >
+                {submitting ? "Verifying…" : "Finish Setup & Sign In"}
+              </button>
+            </>
+          )}
+
+          <p className="muted" style={{ fontSize: 11, marginTop: 12 }}>
+            Keep this authenticator safe — you will need it every time you sign in. If you lose the device, an admin
+            can reset your 2FA so you can set it up again.
+          </p>
+
+          <button
+            type="button"
+            className="btn btn-sm"
+            style={{ alignSelf: "center", marginTop: 6, border: "none", background: "none", color: "var(--muted)", textDecoration: "underline" }}
+            onClick={cancelEnrollment}
+          >
+            Back to sign in
+          </button>
+        </form>
+      </div>
+    );
   }
 
   if (challenge) {

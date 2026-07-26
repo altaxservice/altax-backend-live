@@ -80,8 +80,87 @@ authRouter.post("/login", asyncHandler(async (req: Request, res: Response) => {
     return res.json({ totpRequired: true, challenge });
   }
 
-  const token = issueSessionToken(result);
-  return res.json({ token, user: result });
+  // 2FA is MANDATORY on every portal. A correct password alone never yields a
+  // session token: a user without an authenticator gets an enrollment challenge
+  // instead and must finish setup before they can reach anything. This is the
+  // only path that creates the first authenticator for an account.
+  const enrollment = jwt.sign(
+    { sub: result.userId, purpose: "2fa-enroll" },
+    process.env.JWT_SECRET as string,
+    { expiresIn: "15m" }
+  );
+  return res.json({ enrollmentRequired: true, challenge: enrollment, email: result.email });
+}));
+
+/** Resolves a purpose-scoped challenge token to a user id, or null. */
+function readChallenge(token: unknown, purpose: string): string | null {
+  try {
+    const payload: any = jwt.verify(String(token), process.env.JWT_SECRET as string);
+    if (payload.purpose !== purpose || !payload.sub) return null;
+    return String(payload.sub);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Step 1 of mandatory enrollment: issue a fresh secret + QR for a user who has
+ * authenticated with a password but has no authenticator yet. Deliberately NOT
+ * behind requireAuth — the caller has no session token, that's the whole point.
+ * The 15-minute enrollment challenge is the credential.
+ */
+authRouter.post("/enroll/2fa/start", asyncHandler(async (req: Request, res: Response) => {
+  const userId = readChallenge(req.body?.challenge, "2fa-enroll");
+  if (!userId) return res.status(401).json({ error: "Setup session expired. Please sign in again." });
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT email, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [userId]);
+    if (!rows[0]) return res.status(404).json({ error: "User not found." });
+    if (rows[0].totp_enabled) return res.status(400).json({ error: "Two-factor authentication is already set up." });
+
+    const secret = generateTotpSecret();
+    await client.query(`UPDATE altax.v3_users SET totp_secret = $1, totp_enabled = FALSE WHERE user_id = $2`, [secret, userId]);
+    const qrCodeDataUrl = await totpQrCodeDataUrl(rows[0].email, secret);
+    return res.json({ secret, qrCodeDataUrl });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * Step 2 of mandatory enrollment: verify the first code, mark 2FA enabled, and
+ * only then mint the real session token — so enrollment and sign-in complete in
+ * one go rather than bouncing the user back to the login form.
+ */
+authRouter.post("/enroll/2fa/confirm", asyncHandler(async (req: Request, res: Response) => {
+  const userId = readChallenge(req.body?.challenge, "2fa-enroll");
+  if (!userId) return res.status(401).json({ error: "Setup session expired. Please sign in again." });
+  const code = String(req.body?.code || "").trim();
+  if (!code) return res.status(400).json({ error: "Enter the 6-digit code from your authenticator app." });
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT * FROM altax.v3_users WHERE user_id = $1`, [userId]);
+    const row = rows[0];
+    if (!row?.totp_secret) return res.status(400).json({ error: "Start two-factor setup first." });
+    if (!(await verifyTotpCode(row.totp_secret, code))) {
+      return res.status(401).json({ error: "Incorrect code. Check your authenticator app and try again." });
+    }
+
+    await client.query(`UPDATE altax.v3_users SET totp_enabled = TRUE WHERE user_id = $1`, [userId]);
+    const result = await buildAuthSuccess(client, { ...row, totp_enabled: true });
+    if (isError(result)) return res.status(401).json({ error: result.error });
+
+    await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [userId]);
+    await logAudit("Security", "2FA_ENROLLED", userId, "TOTPEnabled", "false", "true",
+      "Two-factor authentication enrolled (mandatory enrollment at sign-in).", row.email);
+
+    const token = issueSessionToken(result);
+    return res.json({ token, user: result });
+  } finally {
+    client.release();
+  }
 }));
 
 /**
@@ -165,23 +244,18 @@ authRouter.post("/2fa/confirm", requireAuth, asyncHandler(async (req: AuthedRequ
   }
 }));
 
+/**
+ * Self-service disable is gone: 2FA is mandatory on every portal, so letting a
+ * user switch it off would just re-open the hole. A lost or replaced phone is
+ * handled by an admin reset (POST /users/:userId/2fa/reset), which forces fresh
+ * enrollment at the user's next sign-in instead of leaving the account bare.
+ */
 authRouter.post("/2fa/disable", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const code = String(req.body?.code || "").trim();
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(`SELECT totp_secret, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
-    const row = rows[0];
-    if (!row?.totp_enabled) return res.status(400).json({ error: "2FA is not enabled." });
-    if (!code || !(await verifyTotpCode(row.totp_secret, code))) {
-      return res.status(401).json({ error: "Incorrect code. Enter a current authenticator code to disable 2FA." });
-    }
-
-    await client.query(`UPDATE altax.v3_users SET totp_enabled = FALSE, totp_secret = NULL WHERE user_id = $1`, [req.user!.sub]);
-    await logAudit("Security", "2FA_DISABLED", req.user!.sub, "TOTPEnabled", "true", "false", "Two-factor authentication disabled.", req.user!.email);
-    return res.json({ ok: true });
-  } finally {
-    client.release();
-  }
+  await logAudit("Security", "2FA_DISABLE_REFUSED", req.user!.sub, "", "", "",
+    "Attempt to disable mandatory two-factor authentication.", req.user!.email);
+  return res.status(403).json({
+    error: "Two-factor authentication is required for all portals and cannot be turned off. If you replaced your phone, ask an admin to reset your 2FA so you can set it up again.",
+  });
 }));
 
 /**

@@ -2,13 +2,20 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { api, setAuthToken, getAuthToken } from "../api/client";
 import type { AuthUser, LoginResponse, LoginStepResponse } from "../api/types";
 
-export type LoginOutcome = { totpRequired: true; challenge: string } | { totpRequired: false };
+export type LoginOutcome =
+  | { step: "totp"; challenge: string }
+  | { step: "enroll"; challenge: string; email: string }
+  | { step: "done" };
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, portal: string, password: string) => Promise<LoginOutcome>;
   completeTotpLogin: (challenge: string, code: string) => Promise<void>;
+  /** Mandatory-enrollment step 1: fetch a QR + secret for a user with no authenticator yet. */
+  startTotpEnrollment: (challenge: string) => Promise<{ secret: string; qrCodeDataUrl: string }>;
+  /** Mandatory-enrollment step 2: verify the first code, which also signs the user in. */
+  completeTotpEnrollment: (challenge: string, code: string) => Promise<void>;
   updateUser: (patch: Partial<AuthUser>) => void;
   logout: () => void;
 }
@@ -34,23 +41,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = useCallback(async (email: string, portal: string, password: string): Promise<LoginOutcome> => {
-    const result = await api.post<LoginStepResponse>("/auth/login", { email, portal, password });
-    if ("totpRequired" in result) {
-      return { totpRequired: true, challenge: result.challenge };
-    }
+  const applySession = useCallback((result: LoginResponse) => {
     setAuthToken(result.token);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
     setUser(result.user);
-    return { totpRequired: false };
   }, []);
 
+  const login = useCallback(async (email: string, portal: string, password: string): Promise<LoginOutcome> => {
+    const result = await api.post<LoginStepResponse>("/auth/login", { email, portal, password });
+    if ("totpRequired" in result) return { step: "totp", challenge: result.challenge };
+    // 2FA is mandatory, so a user with no authenticator gets an enrollment
+    // challenge rather than a session — there is no "skip" branch here.
+    if ("enrollmentRequired" in result) return { step: "enroll", challenge: result.challenge, email: result.email };
+    applySession(result);
+    return { step: "done" };
+  }, [applySession]);
+
   const completeTotpLogin = useCallback(async (challenge: string, code: string) => {
-    const result = await api.post<LoginResponse>("/auth/login/verify-totp", { challenge, code });
-    setAuthToken(result.token);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
-    setUser(result.user);
+    applySession(await api.post<LoginResponse>("/auth/login/verify-totp", { challenge, code }));
+  }, [applySession]);
+
+  const startTotpEnrollment = useCallback(async (challenge: string) => {
+    return api.post<{ secret: string; qrCodeDataUrl: string }>("/auth/enroll/2fa/start", { challenge });
   }, []);
+
+  const completeTotpEnrollment = useCallback(async (challenge: string, code: string) => {
+    applySession(await api.post<LoginResponse>("/auth/enroll/2fa/confirm", { challenge, code }));
+  }, [applySession]);
 
   const updateUser = useCallback((patch: Partial<AuthUser>) => {
     setUser((prev) => {
@@ -67,7 +84,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  return <AuthContext.Provider value={{ user, loading, login, completeTotpLogin, updateUser, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ user, loading, login, completeTotpLogin, startTotpEnrollment, completeTotpEnrollment, updateUser, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {
