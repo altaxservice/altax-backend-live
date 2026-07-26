@@ -261,6 +261,29 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     }
   }
 
+  /**
+   * Deleting a sale also reverses the three GL lines it posted, so it needs a
+   * heavier gate than the Edit button next to it — hence typed confirmation
+   * rather than a plain OK/Cancel.
+   */
+  async function handleDeleteSale(sale: any) {
+    const typed = prompt(
+      `Delete the sale dated ${fmtDate(sale.sale_date)} for ${fmtMoney(sale.gross_sales)}?\n\n` +
+      `Its sales revenue and sales tax payable entries will be reversed in the General Ledger. This cannot be undone.\n\n` +
+      `Type DELETE to confirm.`
+    );
+    if (typed === null) return;
+    try {
+      const res = await api.post<{ glLinesRemoved: number }>(`/accounting/sales/${sale.sale_id}/delete`, { confirm: typed });
+      setViewing(null);
+      setEditing(null);
+      load();
+      alert(`Sale deleted. ${res.glLinesRemoved} general-ledger line(s) reversed.`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this sale.");
+    }
+  }
+
   function startEdit(s: any) {
     setEditing(s);
     setEditError(null);
@@ -382,7 +405,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             </table>
             {viewing.adjustments != null && Number(viewing.adjustments) !== 0 && <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>Adjustments: {fmtMoney(viewing.adjustments)}</p>}
             {viewing.notes && <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>{viewing.notes}</p>}
-            <button type="button" className="btn btn-sm btn-primary" style={{ marginTop: 8 }} onClick={() => { startEdit(viewing); setViewing(null); }}>Edit This Sale</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => { startEdit(viewing); setViewing(null); }}>Edit This Sale</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(viewing)}>Delete This Sale</button>
+            </div>
           </div>
         )}
         {editing && (
@@ -1102,8 +1128,14 @@ function ContractorsTab({ clientId }: { clientId: string }) {
   );
 }
 
+/** Sum one side of a journal entry — used for both the list total and the balance check. */
+function jeTotal(entry: any, side: "debit" | "credit"): number {
+  return (entry?.lines || []).reduce((sum: number, l: any) => sum + Number(l[side] || 0), 0);
+}
+
 function ManualJeTab({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
+  const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [entryDate, setEntryDate] = useState("");
   const [ref, setRef] = useState("");
   const [description, setDescription] = useState("");
@@ -1132,6 +1164,29 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa").then((r) => setAccounts(r.accounts)).catch(() => {});
   }, []);
   useEffect(loadHistory, [clientId]);
+
+  /**
+   * Journal entries delete whole, never line-by-line: a half-deleted entry would
+   * leave the ledger permanently out of balance.
+   */
+  async function handleDeleteJe(entry: any) {
+    const typed = prompt(
+      `Delete journal entry ${entry.ref || entry.journalEntryId} dated ${fmtDate(entry.entryDate)}?\n\n` +
+      `All ${entry.lines.length} line(s) and their general-ledger postings will be removed. This cannot be undone.\n\n` +
+      `Type DELETE to confirm.`
+    );
+    if (typed === null) return;
+    try {
+      const res = await api.post<{ linesRemoved: number; glLinesRemoved: number }>(
+        `/accounting/journal-entries/${entry.journalEntryId}/delete`, { confirm: typed }
+      );
+      setViewingJe(null);
+      loadHistory();
+      alert(`Journal entry deleted — ${res.linesRemoved} line(s), ${res.glLinesRemoved} general-ledger line(s) reversed.`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this journal entry.");
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1193,22 +1248,58 @@ function ManualJeTab({ clientId }: { clientId: string }) {
         </form>
       </Panel>
       <Panel title="Recent Manual Entries" note={`${entries.length} entries`}>
+        {/* Row click opens the full entry, matching how Sales rows behave. */}
+        {viewingJe && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <strong>Journal Entry — {fmtDate(viewingJe.entryDate)}</strong>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  {viewingJe.ref || viewingJe.journalEntryId}{viewingJe.description ? ` · ${viewingJe.description}` : ""}
+                </div>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setViewingJe(null)}>Close</button>
+            </div>
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th><th>Memo</th></tr></thead>
+                <tbody>
+                  {viewingJe.lines.map((l: any, idx: number) => (
+                    <tr key={idx}>
+                      <td>{l.account}</td>
+                      <td style={{ textAlign: "right" }}>{Number(l.debit) ? fmtMoney(l.debit) : "—"}</td>
+                      <td style={{ textAlign: "right" }}>{Number(l.credit) ? fmtMoney(l.credit) : "—"}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>{l.notes || "—"}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ fontWeight: 700 }}>Total</td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(jeTotal(viewingJe, "debit"))}</td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(jeTotal(viewingJe, "credit"))}</td>
+                    <td className="muted" style={{ fontSize: 11 }}>
+                      {Math.abs(jeTotal(viewingJe, "debit") - jeTotal(viewingJe, "credit")) < 0.005 ? "In balance" : "OUT OF BALANCE"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="btn btn-sm btn-danger" style={{ marginTop: 10 }} onClick={() => handleDeleteJe(viewingJe)}>
+              Delete This Entry
+            </button>
+          </div>
+        )}
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Lines</th><th>Total</th></tr></thead>
+            <thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Lines</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.journalEntryId}>
+                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} onClick={() => setViewingJe(e)}>
                   <td>{fmtDate(e.entryDate)}</td>
                   <td className="muted">{e.ref || "—"}</td>
                   <td>{e.description || "—"}</td>
-                  <td className="muted">
-                    {e.lines.map((l: any, idx: number) => (
-                      <div key={idx}>{l.account}: {l.debit > 0 ? `Dr ${fmtMoney(l.debit)}` : `Cr ${fmtMoney(l.credit)}`}</div>
-                    ))}
-                  </td>
-                  <td>{fmtMoney(e.lines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0))}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{e.lines.length} line(s)</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(jeTotal(e, "debit"))}</td>
                 </tr>
               ))}
             </tbody>

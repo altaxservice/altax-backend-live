@@ -627,6 +627,39 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
 }));
 
 /**
+ * Delete one sales record. Admin-only and typed-confirmation gated, because it
+ * removes money that has already been posted to the ledger.
+ *
+ * Deleting the row alone would leave its three GL postings behind and silently
+ * overstate revenue and sales tax payable forever, so the ledger lines keyed to
+ * this sale's ref are removed in the same breath — the same reversal the edit
+ * path above already performs before re-posting.
+ */
+accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { saleId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
+  if (!existing) return res.status(404).json({ error: "Sales record not found." });
+  if (!(await canAccessClient(req.user!, existing.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  if (String((req.body || {}).confirm || "").trim().toUpperCase() !== "DELETE") {
+    return res.status(400).json({ error: "Type DELETE to confirm removing this sales record." });
+  }
+
+  const removedGl = await query<any>(
+    `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
+    [saleId]
+  );
+  await query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
+  await query(`DELETE FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
+
+  await logAudit("Accounting", "DELETE_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), "",
+    `Sales input deleted by ${req.user!.email}; ${removedGl.length} GL line(s) reversed.`, req.user!.email);
+
+  res.json({ ok: true, saleId, glLinesRemoved: removedGl.length });
+}));
+
+/**
  * Record payroll for one pay period — ported from alTaxPortalSavePayrollInput.
  * Requires an active, non-contractor employee profile (same guard legacy uses to
  * keep contractors out of the payroll workflow). Computes pay/withholding via the
@@ -1308,6 +1341,42 @@ accountingRouter.get("/journal-entries/:clientId", requireAuth, requireRole("adm
     byEntry.get(key).lines.push({ account: row.account, debit: row.debit, credit: row.credit, notes: row.notes });
   }
   res.json({ entries: Array.from(byEntry.values()) });
+}));
+
+/**
+ * Delete a whole manual journal entry — every line of it, plus the GL postings
+ * it produced. Admin-only and typed-confirmation gated.
+ *
+ * Deliberately entry-level, not line-level: a journal entry is only valid when
+ * its debits and credits balance, so removing a single line would leave the
+ * ledger permanently out of balance. All-or-nothing is the only safe unit.
+ */
+accountingRouter.post("/journal-entries/:journalEntryId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { journalEntryId } = req.params;
+  const lines = await query<any>(
+    `SELECT * FROM altax.v3_manual_je WHERE journal_entry_id = $1 OR jeid = $1`,
+    [journalEntryId]
+  );
+  if (lines.length === 0) return res.status(404).json({ error: "Journal entry not found." });
+  if (!(await canAccessClient(req.user!, lines[0].client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  if (String((req.body || {}).confirm || "").trim().toUpperCase() !== "DELETE") {
+    return res.status(400).json({ error: "Type DELETE to confirm removing this journal entry." });
+  }
+
+  // GL rows are keyed by the entry's ref, not its id — same key appendGl wrote.
+  const ref = lines[0].ref || journalEntryId;
+  const removedGl = await query<any>(
+    `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Manual JE' RETURNING gl_entry_id`,
+    [ref]
+  );
+  await query(`DELETE FROM altax.v3_manual_je WHERE journal_entry_id = $1 OR jeid = $1`, [journalEntryId]);
+
+  await logAudit("Accounting", "DELETE_JE", journalEntryId, "", String(lines.length) + " line(s)", "",
+    `Manual journal entry deleted by ${req.user!.email}; ${removedGl.length} GL line(s) reversed.`, req.user!.email);
+
+  res.json({ ok: true, journalEntryId, linesRemoved: lines.length, glLinesRemoved: removedGl.length });
 }));
 
 /** List every employee/contractor across all clients — admin-only. Powers the Assigned Employee picker on Portal Access's Add/Edit User form. */
