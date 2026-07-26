@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Employee } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { AddressFields } from "../components/AddressFields";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -207,7 +208,7 @@ export function EmployeeDetailPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!employee) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -250,7 +251,7 @@ export function EmployeeDetailPage() {
 
       {editing ? (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
           <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
           <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
@@ -330,7 +331,7 @@ export function EmployeeDetailPage() {
         )}
         {isAdmin && editingSensitive && (
           <form onSubmit={handleSaveSensitive}>
-            {sensitiveError && <div className="error-banner">{sensitiveError}</div>}
+            {sensitiveError && <ErrorBanner error={sensitiveError} />}
             <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave SSN/EIN/TIN or bank fields blank to keep the values already on file — only fill them in to replace them.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label>SSN (leave blank to keep current)</label><input value={sensitiveForm.ssn} onChange={(e) => setSensitiveForm((f) => ({ ...f, ssn: e.target.value }))} /></div>

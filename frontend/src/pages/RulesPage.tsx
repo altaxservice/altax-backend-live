@@ -4,6 +4,7 @@ import type { TaskRule, TaskBatch, WebOptions } from "../api/types2";
 import { useToast } from "../components/Toast";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const TRIGGER_COLUMNS = [
   "SalesTaxFrequency", "PayrollFrequency", "PayrollSystem", "PayrollEnabled", "EFTPSEnabled", "MDWithholdingFrequency",
@@ -102,7 +103,7 @@ export function RulesPage() {
         <h2>Task Rules</h2>
         <p>Use rules to create batch work for clients with the same service, frequency, and filing/payment requirements.</p>
       </div>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 10 }}>
@@ -119,7 +120,7 @@ export function RulesPage() {
 
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.ruleId ? `Edit ${form.ruleId}` : "New Rule"}</h2>
           <div className="form-grid">
             <div className="field">

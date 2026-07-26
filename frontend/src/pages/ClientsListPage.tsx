@@ -12,6 +12,7 @@ import { useToast } from "../components/Toast";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const EMPTY_CLIENT_FORM = {
   clientName: "", status: "Active", clientType: "Business", entityType: "", state: "", serviceType: "", services: [] as string[],
@@ -313,7 +314,7 @@ export function ClientsListPage() {
         ))}
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {inviteInfo && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
@@ -337,7 +338,7 @@ export function ClientsListPage() {
 
       {showForm && (
         <form onSubmit={handleCreate} className="card" style={{ maxWidth: 960, marginBottom: 24 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
 
           <div className="form-section-title">Client Identity</div>
           <div className="form-grid-3">

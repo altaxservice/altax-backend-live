@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import type { Invoice } from "../api/types2";
 import { useToast } from "./Toast";
+import { ErrorBanner } from "./ErrorBanner";
 
 interface SendResult { channel: string; ok: boolean; error?: string }
 
@@ -70,7 +71,7 @@ export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }:
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-panel" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Send {invoice.invoice_id}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
@@ -107,7 +108,7 @@ export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }:
 
           <div>
             <label className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 6 }}>Preview</label>
-            {previewError && <div className="error-banner">{previewError}</div>}
+            {previewError && <ErrorBanner error={previewError} />}
             {previewUrl ? (
               <iframe src={previewUrl} title="Invoice preview" style={{ width: "100%", height: 460, border: "1px solid var(--line)", borderRadius: 6 }} />
             ) : !previewError ? (

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { useToast } from "../components/Toast";
 import { US_STATES } from "../utils/clientOptions";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 /**
  * Firm Portal Credentials — the firm's own agency logins (EFTPS, MD Tax Connect,
@@ -148,7 +149,7 @@ export function FirmPortalsPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!portals) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -175,7 +176,7 @@ export function FirmPortalsPage() {
       {showForm && (
         <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 620, marginBottom: 18 }}>
           <h3 style={{ marginTop: 0 }}>{form.portalId ? "Edit Portal" : "Add Portal"}</h3>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
 
           <div className="field">
             <label>Portal Name *</label>

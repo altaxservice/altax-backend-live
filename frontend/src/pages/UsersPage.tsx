@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
 import { FilterBar, exportCsv } from "../components/FilterBar";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -199,7 +200,7 @@ export function UsersPage() {
         onExportCsv={handleExport}
       />
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {inviteInfo && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
@@ -225,7 +226,7 @@ export function UsersPage() {
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 480, marginBottom: 24 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.userId ? "Edit User" : "New User"}</h2>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="field">
             <label htmlFor="u-id">User ID</label>
             <input id="u-id" disabled value={form.userId || "Auto"} style={{ color: "var(--muted, #6b7280)" }} />

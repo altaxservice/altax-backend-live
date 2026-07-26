@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface DiagnosticCheck {
   id: string;
@@ -70,7 +71,7 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
         </div>
       )}
       {result && <pre className="card" style={{ marginTop: 12, whiteSpace: "pre-wrap", fontSize: 12, borderColor: "var(--teal)" }}>{result}</pre>}
-      {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ marginTop: 12 }} />}
     </div>
   );
 }
@@ -146,7 +147,7 @@ export function FixCenterPage() {
             </div>
           </div>
         </div>
-        {checksError && <div className="error-banner" style={{ margin: 16 }}>{checksError}</div>}
+        {checksError && <ErrorBanner error={checksError} style={{ margin: 16 }} />}
         {!checks && !checksError && <div className="spinner-wrap">Running diagnostics…</div>}
         {checks && checks.map((c) => <DiagnosticRow key={c.id} check={c} onFixed={loadDiagnostics} />)}
       </div>
@@ -168,7 +169,7 @@ export function FixCenterPage() {
         </div>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {!tables && !error && <div className="spinner-wrap">Loading…</div>}
       {tables && (
         <div className="command-panel">

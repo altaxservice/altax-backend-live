@@ -8,6 +8,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { TASK_STATUSES } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -139,7 +140,7 @@ export function TaskDetailPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!task) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -189,7 +190,7 @@ export function TaskDetailPage() {
       {tab === "Details" && (
         editing ? (
           <form onSubmit={handleSave} className="card" style={{ maxWidth: 560 }}>
-            {saveError && <div className="error-banner">{saveError}</div>}
+            {saveError && <ErrorBanner error={saveError} />}
             {EDITABLE_FIELDS.map((f) => (
               <div className="field" key={f.apiKey}>
                 {f.type === "checkbox" ? (
@@ -323,7 +324,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
         </div>
       </div>
       <form onSubmit={handleAttach} style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
-        {saveError && <div className="error-banner" style={{ width: "100%" }}>{saveError}</div>}
+        {saveError && <ErrorBanner error={saveError} style={{ width: "100%" }} />}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button type="button" className={`btn btn-sm ${mode === "browse" ? "btn-primary" : ""}`} onClick={() => setMode("browse")}>Browse a file</button>
           <button type="button" className={`btn btn-sm ${mode === "link" ? "btn-primary" : ""}`} onClick={() => setMode("link")}>Paste a link instead</button>
@@ -341,7 +342,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Attaching…" : "Attach"}</button>
         </div>
       </form>
-      {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
       {uploads && uploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files attached to this task yet.</p>}
       {uploads && uploads.length > 0 && (
         <div style={{ padding: "8px 16px" }}>
@@ -407,7 +408,7 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
       </div>
 
       <form onSubmit={handleSend} style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
-        {sendError && <div className="error-banner">{sendError}</div>}
+        {sendError && <ErrorBanner error={sendError} />}
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <button type="button" className={`btn btn-sm ${mode === "note" ? "btn-primary" : ""}`} onClick={() => setMode("note")}>Add Note</button>
           <button type="button" className={`btn btn-sm ${mode === "message" ? "btn-primary" : ""}`} onClick={() => setMode("message")}>Send Message</button>
@@ -428,7 +429,7 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
         <button type="submit" className="btn btn-primary" disabled={sending}>{sending ? "Saving…" : mode === "note" ? "Save Note" : "Send Message"}</button>
       </form>
 
-      {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
       {!thread && !error && <div className="spinner-wrap">Loading…</div>}
       {thread && thread.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No notes or messages on this task yet.</p>}
       {thread && thread.length > 0 && (

@@ -11,6 +11,7 @@ import { useToast } from "../components/Toast";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
 import { useLanguage, Num } from "../context/LanguageContext";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -293,7 +294,7 @@ export function DashboardPage() {
 
   useEffect(() => { load(); }, []);
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (loading) return <div className="spinner-wrap">Loading…</div>;
 
   if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} />;
@@ -578,7 +579,7 @@ function EmployeeCommand() {
             <div className="command-panel-note"><Num>{paychecks?.length ?? 0}</Num> {t("dashboard.employee.onFile")}</div>
           </div>
         </div>
-        {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+        {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
         {!paychecks && !error && <p className="muted" style={{ padding: 16 }}>{t("common.loading")}</p>}
         {paychecks && paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("dashboard.employee.noPaystubs")}</p>}
         {paychecks && paychecks.length > 0 && (

@@ -3,6 +3,7 @@ import { api, ApiError, resolveFileUrl } from "../api/client";
 import { useToast } from "../components/Toast";
 import { AddressFields } from "../components/AddressFields";
 import { formatPhoneInput } from "../utils/formatPhone";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface FirmProfile {
   firmName: string;
@@ -87,7 +88,7 @@ export function FirmSettingsPage() {
     }
   }
 
-  if (!profile) return error ? <div className="error-banner">{error}</div> : <div className="spinner-wrap">Loading…</div>;
+  if (!profile) return error ? <ErrorBanner error={error} /> : <div className="spinner-wrap">Loading…</div>;
 
   return (
     <div>
@@ -97,7 +98,7 @@ export function FirmSettingsPage() {
       </p>
 
       <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 520 }}>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         <div className="field">
           <label>Logo</label>

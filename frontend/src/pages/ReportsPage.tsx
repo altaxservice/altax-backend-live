@@ -5,6 +5,7 @@ import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Client Message"] as const;
 type Tab = (typeof TABS)[number];
@@ -375,7 +376,7 @@ export function ReportsPage() {
 
               {tab === "Firm Overview" && (
                 <>
-                  {firmError && <div className="error-banner">{firmError}</div>}
+                  {firmError && <ErrorBanner error={firmError} />}
                   {!firmSummary && !firmError && <div className="spinner-wrap">Loading…</div>}
                   {firmSummary && (
                     <>
@@ -476,7 +477,7 @@ export function ReportsPage() {
 
           {tab === "Sales & Tax" && (
             <>
-              {salesTaxError && <div className="error-banner">{salesTaxError}</div>}
+              {salesTaxError && <ErrorBanner error={salesTaxError} />}
               {salesTaxLoading && <div className="spinner-wrap">Loading…</div>}
               {!salesTaxLoading && salesTaxReport && (
                 <>
@@ -496,8 +497,15 @@ export function ReportsPage() {
                       <table>
                         <thead><tr><th>Category</th><th>State</th><th>Rate</th><th>Taxable Sales</th><th>Tax</th></tr></thead>
                         <tbody>
+                          {/* Every row here is a real record elsewhere — categories
+                              live in Accounting → Tax Rates, sales in the Sales tab. */}
                           {salesTaxReport.byCategory.map((c, i) => (
-                            <tr key={`${c.categoryName}-${i}`}>
+                            <tr
+                              key={`${c.categoryName}-${i}`}
+                              style={{ cursor: "pointer" }}
+                              title={`Open ${c.categoryName} in Accounting → Tax Rates`}
+                              onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Tax Rates")}`)}
+                            >
                               <td>{c.categoryName}</td>
                               <td className="muted">{c.state || "Any"}</td>
                               <td className="muted">{(c.rate * 100).toFixed(2)}%</td>
@@ -522,7 +530,12 @@ export function ReportsPage() {
                         <thead><tr><th>Date</th><th>Gross Sales</th><th>Adjustments</th><th>Tax Due</th></tr></thead>
                         <tbody>
                           {salesTaxReport.sales.map((s) => (
-                            <tr key={s.saleId}>
+                            <tr
+                              key={s.saleId}
+                              style={{ cursor: "pointer" }}
+                              title="Open this sale in Accounting → Sales"
+                              onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Sales")}`)}
+                            >
                               <td>{s.saleDate ? String(s.saleDate).slice(0, 10) : "—"}</td>
                               <td>{fmtMoney(s.grossSales)}</td>
                               <td className="muted">{fmtMoney(s.adjustments)}</td>
@@ -596,7 +609,7 @@ export function ReportsPage() {
                 </div>
               </div>
               {messageLoading && <div className="spinner-wrap">Loading…</div>}
-              {messageError && <div className="error-banner" style={{ margin: 16 }}>{messageError}</div>}
+              {messageError && <ErrorBanner error={messageError} style={{ margin: 16 }} />}
               {!messageLoading && periodMessage && (
                 <div style={{ padding: 16 }}>
                   <div className="field"><label>Subject</label><input readOnly value={periodMessage.subject} /></div>
@@ -689,7 +702,7 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
   }, [clientId, from, to, wholeHistory]);
 
   if (!clientId) return <p className="muted" style={{ padding: 16 }}>Choose a client to run a trial balance.</p>;
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (loading || !data) return <div className="spinner-wrap">Loading…</div>;
 
   return (

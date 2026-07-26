@@ -5,6 +5,7 @@ import type { Invoice, ProductService } from "../api/types2";
 import { AddRecurringModal } from "./AddRecurringModal";
 import { useToast } from "./Toast";
 import { AddressFields } from "./AddressFields";
+import { ErrorBanner } from "./ErrorBanner";
 
 const TERMS_OPTIONS = ["Due on receipt", "Net 15", "Net 30", "Net 60"];
 const TERMS_DAYS: Record<string, number> = { "Due on receipt": 0, "Net 15": 15, "Net 30": 30, "Net 60": 60 };
@@ -215,7 +216,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-panel" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>{isEdit ? `Edit ${editing!.invoice_id}` : "Create Invoice"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         <div className="form-grid">
           <div className="field"><label>Client</label><select value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={isEdit}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>

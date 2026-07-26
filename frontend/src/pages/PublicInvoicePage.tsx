@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface PublicLineItem {
   line_item_id: string; service_date: string | null; product_name: string | null; description: string | null;
@@ -44,7 +45,7 @@ export function PublicInvoicePage() {
 
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
-  if (error) return <div style={pageStyle}><div className="error-banner">{error}</div></div>;
+  if (error) return <div style={pageStyle}><ErrorBanner error={error} /></div>;
   if (!invoice) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
 
   const lineItems = invoice.lineItems || [];

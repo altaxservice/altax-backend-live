@@ -13,6 +13,7 @@ import { fmtDateOnly } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
@@ -385,7 +386,7 @@ export function TasksListPage() {
         </div>
       )}
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {!ready && <div className="spinner-wrap">Loading tasks…</div>}
 

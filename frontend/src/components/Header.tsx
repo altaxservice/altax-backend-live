@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
 import { APP_NAME } from "../utils/branding";
+import { ErrorBanner } from "./ErrorBanner";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
@@ -152,7 +153,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           <p className="muted" style={{ padding: "8px 0" }}>Password updated.</p>
         ) : (
           <form onSubmit={handleSubmit}>
-            {error && <div className="error-banner">{error}</div>}
+            {error && <ErrorBanner error={error} />}
             <div className="field">
               <label htmlFor="cp-current">Current Password</label>
               <input id="cp-current" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
@@ -287,7 +288,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               <form onSubmit={handleRegenerate} style={{ marginTop: 8 }}>
-                {error && <div className="error-banner">{error}</div>}
+                {error && <ErrorBanner error={error} />}
                 <div className="field">
                   <label htmlFor="tfa-regen-code">Authenticator code (to issue new recovery codes)</label>
                   <input
@@ -322,7 +323,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
           <h2>Two-Factor Authentication</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
         {!setup ? (
           <>
             <p className="muted" style={{ padding: "8px 0" }}>

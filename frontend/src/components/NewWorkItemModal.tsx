@@ -4,6 +4,7 @@ import type { Client } from "../api/types";
 import type { WebOptions } from "../api/types2";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
+import { ErrorBanner } from "./ErrorBanner";
 
 type Mode = "task" | "request";
 const OTHER = "Other";
@@ -180,7 +181,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
           <h2>New Work Item</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button type="button" className={`quick-tab ${mode === "task" ? "active" : ""}`} onClick={() => setMode("task")}>Task</button>

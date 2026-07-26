@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
+import { ErrorBanner } from "./ErrorBanner";
 
 /**
  * Direct "drop a file into this client's Documents" flow — for the Clients page's
@@ -57,7 +58,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
           <h2>Upload Document — {clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
         <form onSubmit={handleSubmit}>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button type="button" className={`btn btn-sm ${mode === "browse" ? "btn-primary" : ""}`} onClick={() => setMode("browse")}>Browse a file</button>

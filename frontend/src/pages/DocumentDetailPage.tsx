@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
@@ -166,7 +167,7 @@ export function DocumentDetailPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!request) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -198,7 +199,7 @@ export function DocumentDetailPage() {
 
       {showUploadForm && (
         <form onSubmit={handleUpload} className="card" style={{ maxWidth: 480, marginBottom: 24 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button type="button" className={`btn btn-sm ${uploadMode === "browse" ? "btn-primary" : ""}`} onClick={() => setUploadMode("browse")}>Browse a file</button>
             <button type="button" className={`btn btn-sm ${uploadMode === "link" ? "btn-primary" : ""}`} onClick={() => setUploadMode("link")}>Paste a link instead</button>
@@ -231,7 +232,7 @@ export function DocumentDetailPage() {
 
       {editing ? (
         <form onSubmit={handleEditSave} className="card" style={{ maxWidth: 560, marginBottom: 16 }}>
-          {editError && <div className="error-banner">{editError}</div>}
+          {editError && <ErrorBanner error={editError} />}
           <div className="field">
             <label htmlFor="e-item">Requested Item</label>
             <input

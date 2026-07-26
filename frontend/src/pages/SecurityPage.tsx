@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { exportCsv } from "../components/FilterBar";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface SecurityUser {
   userId: string;
@@ -56,7 +57,7 @@ export function SecurityPage() {
     ], data.users as unknown as Record<string, unknown>[]);
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!data) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -225,7 +226,7 @@ function BackupSection() {
       </div>
 
       <div style={{ padding: 16 }}>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         {summary && (
           <div className="metric-grid" style={{ marginBottom: 14 }}>

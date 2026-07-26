@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
@@ -9,6 +9,7 @@ import type { PaymentMethod } from "../api/types2";
 import { StatusBadge } from "../components/StatusBadge";
 import { US_STATES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const TABS = ["Sales", "Payroll", "Employees", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -21,7 +22,13 @@ function fmtMoney(v: unknown): string {
 
 export function AccountingPage() {
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
-  const [tab, setTab] = useState<Tab>("Sales");
+  const [searchParams] = useSearchParams();
+  // ?tab=<name> lets other pages deep-link a specific tab — the Sales & Tax
+  // report rows point here, and without this they would all land on Sales.
+  const [tab, setTab] = useState<Tab>(() => {
+    const wanted = searchParams.get("tab");
+    return (TABS as readonly string[]).includes(wanted || "") ? (wanted as Tab) : "Sales";
+  });
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(globalClientId || "");
 
@@ -320,7 +327,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
       <Panel title="Sales Input" note={clientState ? `${clientState} sales tax by category` : "Sales tax by category"}>
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Date</label><input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
             <div className="field"><label>Gross Sales</label><input type="number" step="0.01" value={form.grossSales} onChange={(e) => setForm((f) => ({ ...f, grossSales: e.target.value }))} /></div>
@@ -414,7 +421,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         {editing && (
           <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
             <strong>Edit sales record — {fmtDate(editing.sale_date)}</strong>
-            {editError && <div className="error-banner">{editError}</div>}
+            {editError && <ErrorBanner error={editError} />}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label>Date</label><input type="date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
               <div className="field"><label>Gross Sales</label><input type="number" step="0.01" value={editForm.grossSales} onChange={(e) => setEditForm((f) => ({ ...f, grossSales: e.target.value }))} /></div>
@@ -483,6 +490,7 @@ function SubLabel({ children }: { children: React.ReactNode }) {
 }
 
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const [viewingPayCheck, setViewingPayCheck] = useState<any | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -578,7 +586,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
       <Panel title="Create Paycheck" note="Live preview updates as you type">
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           {result && (
             <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>
               <strong>Paycheck created.</strong>
@@ -683,17 +691,44 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           <div className="metric"><div className="metric-label">Deductions</div><div className="metric-value">{fmtMoney(periodDeductions)}</div></div>
           <div className="metric"><div className="metric-label">Checks</div><div className="metric-value">{paychecksInPeriod.length}</div></div>
         </div>
+        {viewingPayCheck && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <strong>{viewingPayCheck.employee} — {fmtDate(viewingPayCheck.pay_date)}</strong>
+                <div className="muted" style={{ fontSize: 12 }}>Check #{viewingPayCheck.check_number || "—"}</div>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setViewingPayCheck(null)}>Close</button>
+            </div>
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <tbody>
+                  <tr><td>Gross wages</td><td style={{ textAlign: "right" }}>{fmtMoney(viewingPayCheck.gross_wages)}</td></tr>
+                  <tr><td className="muted">Less employee taxes</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingPayCheck.employee_taxes)}</td></tr>
+                  <tr><td style={{ fontWeight: 700 }}>Net pay</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingPayCheck.net_pay)}</td></tr>
+                  <tr><td className="muted">Employer taxes</td><td style={{ textAlign: "right" }} className="muted">{fmtMoney(viewingPayCheck.employer_taxes)}</td></tr>
+                  <tr><td style={{ fontWeight: 700 }}>Total employer cost</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingPayCheck.total_cost)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 0 }}>
+              Open the Paychecks tab to print the paystub, edit or delete this record.
+            </p>
+          </div>
+        )}
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Pay Date</th><th>Employee</th><th>Gross</th><th>Net Pay</th></tr></thead>
+            <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th></tr></thead>
             <tbody>
+              {/* This is a different table from the Paychecks tab's — it also
+                  needs to open its record rather than being a dead list. */}
               {paychecksInPeriod.map((p) => (
-                <tr key={p.paycheck_id}>
+                <tr key={p.paycheck_id} style={{ cursor: "pointer" }} onClick={() => setViewingPayCheck(p)}>
                   <td>{fmtDate(p.pay_date)}</td>
                   <td>{p.employee}</td>
-                  <td>{fmtMoney(p.gross_wages)}</td>
-                  <td>{fmtMoney(p.net_pay)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(p.gross_wages)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(p.net_pay)}</td>
                 </tr>
               ))}
             </tbody>
@@ -788,7 +823,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
       )}
       {showForm && (
         <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 460, marginBottom: 20 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
           <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
           <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
@@ -998,7 +1033,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
       <Panel title="Record Contractor Payment">
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <div className="field">
             <label>Contractor</label>
             <select required value={form.contractorId} onChange={(e) => setForm((f) => ({ ...f, contractorId: e.target.value }))}>
@@ -1053,7 +1088,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
         {editing && (
           <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
             <strong>Edit payment — {editing.contractor_name}</strong>
-            {editError && <div className="error-banner">{editError}</div>}
+            {editError && <ErrorBanner error={editError} />}
             <div className="field"><label>Amount</label><input type="number" step="0.01" required value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} /></div>
             <div className="field"><label>Payment Date</label><input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1147,6 +1182,7 @@ function jeTotal(entry: any, side: "debit" | "credit"): number {
 function ManualJeTab({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
+  const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
   const [entryDate, setEntryDate] = useState("");
   const [ref, setRef] = useState("");
   const [description, setDescription] = useState("");
@@ -1199,6 +1235,44 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     }
   }
 
+  /**
+   * Edits by replacement: the entry's lines are loaded back into the form, and
+   * saving posts the corrected entry then removes the original.
+   *
+   * There is no update route for journal entries, and adding one would mean
+   * reconciling changed/added/removed lines against their GL postings — a lot
+   * of moving parts for something post-then-remove achieves exactly. The new
+   * entry is created BEFORE the old one is deleted, so a failure mid-way leaves
+   * the original intact rather than losing both.
+   */
+  function startEditJe(entry: any) {
+    setEntryDate(entry.entryDate ? String(entry.entryDate).slice(0, 10) : "");
+    setRef(entry.ref || "");
+    setDescription(entry.description || "");
+    setNotes("");
+    setLines(
+      (entry.lines || []).map((l: any) => ({
+        account: l.account || "",
+        debit: Number(l.debit) ? String(l.debit) : "",
+        credit: Number(l.credit) ? String(l.credit) : "",
+        memo: l.notes || "",
+      }))
+    );
+    setReplacingJeId(entry.journalEntryId);
+    setViewingJe(null);
+    setError(null);
+    setSuccess(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEditJe() {
+    setReplacingJeId(null);
+    setLines([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
+    setDescription("");
+    setRef("");
+    setNotes("");
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -1209,7 +1283,14 @@ function ManualJeTab({ clientId }: { clientId: string }) {
         clientId, entryDate, ref, description, notes,
         lines: lines.map((l) => ({ account: l.account, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, memo: l.memo })),
       });
-      setSuccess(`Journal entry ${res.jeId} posted (${res.lines} lines).`);
+      if (replacingJeId) {
+        // Only now that the replacement exists is it safe to drop the original.
+        await api.post(`/accounting/journal-entries/${replacingJeId}/delete`, { confirm: "DELETE" });
+        setReplacingJeId(null);
+        setSuccess(`Journal entry replaced — ${res.jeId} posted and the previous version removed.`);
+      } else {
+        setSuccess(`Journal entry ${res.jeId} posted (${res.lines} lines).`);
+      }
       setLines([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
       setDescription("");
       setRef("");
@@ -1226,9 +1307,15 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     // Stacked for the same reason as Contractors: the entry history and its
     // expanded detail card need the full width, not a ~366px column.
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-      <Panel title="Manual Journal Entry" note="Debits must equal credits">
+      <Panel title={replacingJeId ? "Edit Journal Entry" : "Manual Journal Entry"} note={replacingJeId ? "Saving replaces the original entry" : "Debits must equal credits"}>
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {replacingJeId && (
+            <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)", fontSize: 13 }}>
+              Editing <strong>{replacingJeId}</strong>. Saving posts the corrected entry and removes the original.{" "}
+              <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }} onClick={cancelEditJe}>Cancel edit</button>
+            </div>
+          )}
+          {error && <ErrorBanner error={error} />}
           {success && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>{success}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <div className="field"><label>Entry Date</label><input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
@@ -1296,9 +1383,14 @@ function ManualJeTab({ clientId }: { clientId: string }) {
                 </tbody>
               </table>
             </div>
-            <button type="button" className="btn btn-sm btn-danger" style={{ marginTop: 10 }} onClick={() => handleDeleteJe(viewingJe)}>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => startEditJe(viewingJe)}>
+              Edit This Entry
+            </button>
+            <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteJe(viewingJe)}>
               Delete This Entry
             </button>
+            </div>
           </div>
         )}
         <div className="scroll-list">
@@ -1541,7 +1633,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       {editing && (
         <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16, maxWidth: 460 }}>
           <strong>Edit paycheck — {editing.employee}</strong>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <div className="field"><label>Pay Date</label><input type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
@@ -1733,7 +1825,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
         </div>
       }
     >
-      {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
       {!items && !error && <div className="spinner-wrap">Loading…</div>}
       {items && (
         <div className="table-scroll">
@@ -1862,7 +1954,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Check Settings" note={settings ? `Last updated ${settings.setting_id}` : "No calibration saved yet for this client"}>
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           {saved && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>Check settings saved.</div>}
           <p className="muted" style={{ marginTop: -4 }}>
             X/Y offsets (in points) used when printing a paycheck onto this client's pre-printed check stock.
@@ -1955,7 +2047,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
         }
       >
         {loading && <div className="spinner-wrap">Loading…</div>}
-        {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+        {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
         {!loading && data && (
           <div style={{ padding: 16 }}>
             {data.clientIssues.length > 0 && (
@@ -2125,11 +2217,11 @@ function TaxRatesTab() {
   return (
     <div>
       <button className="btn btn-primary" style={{ marginBottom: 16 }} onClick={() => (showForm ? setShowForm(false) : startCreate())}>{showForm ? "Cancel" : "New Rate"}</button>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.rateId ? `Edit ${form.rateId}` : "New Rate"}</h2>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="field"><label>Rate Type</label><input required value={form.rateType} onChange={(e) => setForm((f) => ({ ...f, rateType: e.target.value }))} placeholder="e.g. Sales Tax 6" /></div>
           <div className="field"><label>Rate (decimal, e.g. 0.06 = 6%)</label><input type="number" step="0.0001" required value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} /></div>
           <div className="field"><label>Scope</label><select value={form.scope} onChange={(e) => setForm((f) => ({ ...f, scope: e.target.value, clientId: e.target.value === "Global" ? "" : f.clientId }))}><option>Global</option><option>Client</option></select></div>
@@ -2311,11 +2403,11 @@ function SalesCategoriesSection() {
         </div>
         <button type="button" className="btn btn-primary" onClick={() => (showForm ? setShowForm(false) : startCreate())}>{showForm ? "Cancel" : "New Category"}</button>
       </div>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.categoryId ? `Edit ${form.categoryName}` : "New Category"}</h2>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="field"><label>Category Name</label><input required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
           <div className="field"><label>Tax Rate (%)</label><input required type="number" step="0.01" min="0" value={form.ratePercent} onChange={(e) => setForm((f) => ({ ...f, ratePercent: e.target.value }))} placeholder="e.g. 6 for 6%" /></div>
           <div className="field">
@@ -2419,7 +2511,7 @@ function CoaTab() {
   return (
     <div>
       <button className="btn btn-primary" style={{ marginBottom: 16 }} onClick={() => (showForm ? setShowForm(false) : startCreate())}>{showForm ? "Cancel" : "New Account"}</button>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.accountId ? `Edit ${form.accountId}` : "New Account"}</h2>

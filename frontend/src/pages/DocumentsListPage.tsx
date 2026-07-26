@@ -10,6 +10,7 @@ import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly } from "../utils/date";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const DOCUMENT_STATUSES = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const CLOSED_STATUSES = ["completed", "closed", "void"];
@@ -238,7 +239,7 @@ export function DocumentsListPage() {
         </div>
       )}
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {canManage && ready && (
         <div className="metric-grid" style={{ marginBottom: 20 }}>

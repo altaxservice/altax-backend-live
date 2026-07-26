@@ -14,6 +14,7 @@ import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCe
 import { fmtDateOnly } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -328,7 +329,7 @@ export function ClientDetailPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!client) return <div className="spinner-wrap">Loading…</div>;
 
   const isBusinessClient = String(client.client_type || client.entity_type || "").toLowerCase() !== "individual";
@@ -370,7 +371,7 @@ export function ClientDetailPage() {
 
       {editing ? (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 960 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           {EDIT_SECTIONS.map((section) => {
             const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
             // A conditional section (Payroll/Sales Tax/Tax Prep/Business Compliance
@@ -667,7 +668,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
 
   return (
     <div>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
@@ -864,7 +865,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
         <span className="muted" style={{ fontSize: 12 }}>{contracts ? `${contracts.length} contract(s)` : "Loading…"}</span>
       </div>
 
-      {error && <div className="error-banner" style={{ margin: 16 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
 
       {suggested.length > 0 && (
         <div style={{ padding: 16, borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
@@ -1148,7 +1149,7 @@ function VaultSection({ clientId }: { clientId: string }) {
         <button className="btn btn-sm" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Secret"}</button>
       </div>
       <p className="muted" style={{ marginBottom: 12 }}>Encrypted server-side. Every view is logged. Vault records are excluded from profiles, notes, exports, and statement PDFs.</p>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
           <div className="field"><label>Category</label><input required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
@@ -1267,7 +1268,7 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
         <button className="btn btn-sm" onClick={() => { setForm(PAYMENT_METHOD_FORM_DEFAULTS); setShowForm((v) => !v); }}>{showForm ? "Cancel" : "Add Method"}</button>
       </div>
       <p className="muted" style={{ marginBottom: 12 }}>Account/routing numbers are encrypted; only the last 4 digits are ever shown. Credit cards are stored as a reference only (brand, name, last 4, expiry) — never a full card number or CVV. Mark one method "Default for Payroll" so paychecks pick up its bank info automatically.</p>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
           {form.paymentMethodId && <strong style={{ display: "block", marginBottom: 8, fontSize: 13 }}>Editing {form.methodName}</strong>}

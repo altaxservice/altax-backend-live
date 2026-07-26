@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { APP_NAME } from "../utils/branding";
 import { FirmLogo } from "../components/FirmLogo";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 export function AcceptInvitePage() {
   const [searchParams] = useSearchParams();
@@ -56,7 +57,7 @@ export function AcceptInvitePage() {
             <h1>Set Up Your Account</h1>
             <p className="login-copy">Enter the email your invite was sent to and choose a password.</p>
 
-            {error && <div className="error-banner">{error}</div>}
+            {error && <ErrorBanner error={error} />}
 
             {!token && (
               <div className="error-banner">

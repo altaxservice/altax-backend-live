@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface TemplateRow {
   templateId: string | null;
@@ -46,7 +47,7 @@ export function TemplatesPage() {
         <button className="btn btn-primary" onClick={() => setShowNewForm((v) => !v)}>{showNewForm ? "Cancel" : "Add Template"}</button>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {showNewForm && <TemplateForm onSaved={() => { setShowNewForm(false); load(); }} onCancel={() => setShowNewForm(false)} />}
       {editing && <TemplateForm templateName={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
@@ -130,7 +131,7 @@ function ContractTemplatesPanel() {
           ? "Edit a template to override its wording. Contracts already generated keep their original text even after an override is saved — only new contracts use the updated wording."
           : "Only Admin can edit contract wording. Contact an administrator to change this text."}
       </p>
-      {error && <div className="error-banner" style={{ margin: "0 16px 16px" }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: "0 16px 16px" }} />}
 
       {editing && <ContractTemplateForm serviceKey={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
 
@@ -189,7 +190,7 @@ function ContractTemplateForm({ serviceKey, onSaved, onCancel }: { serviceKey: s
   return (
     <form onSubmit={handleSubmit} className="card" style={{ margin: "0 16px 16px" }}>
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit: {serviceKey}</h2>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       <div className="field"><label>Title</label><input required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
       <div className="field">
         <label>Body</label>
@@ -250,7 +251,7 @@ function TemplateForm({ templateName, onSaved, onCancel }: { templateName?: stri
   return (
     <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{templateName ? `Edit: ${templateName}` : "New Template"}</h2>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       <div className="field">
         <label>Template Name</label>
         <input required disabled={!!templateName} value={form.templateName} onChange={(e) => setForm((f) => ({ ...f, templateName: e.target.value }))} />

@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import { APP_NAME } from "../utils/branding";
 import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "../components/FirmLogo";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 const PORTALS = [
   { value: "admin", label: "Admin Portal", description: "Firm owner and admin tools" },
@@ -185,7 +186,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
             We sent a 6-digit sign-in code to <strong>{emailOtpSentTo}</strong>. It expires in 10 minutes.
           </p>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           {resendNote && <p className="muted" style={{ fontSize: 12.5, margin: "0 0 8px" }}>{resendNote}</p>}
 
           <div className="field">
@@ -328,7 +329,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
             to finish signing in.
           </p>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
 
           {!enrollSetup ? (
             <p className="muted">Preparing your setup code…</p>
@@ -409,7 +410,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
             Lost your phone? Enter one of your recovery codes instead.
           </p>
 
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
 
           <div className="field">
             <label htmlFor="totp-code">6-digit code</label>
@@ -514,7 +515,7 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
         <h1>{portal === "client" ? t("login.clientPortal") : portal === "employee" ? t("login.employeePortal") : portalLabel} {showLanguageToggle ? "" : "Sign In"}</h1>
         <p className="login-copy">{portal === "client" ? t("login.clientCopy") : portal === "employee" ? t("login.employeeCopy") : PORTAL_COPY[portal]}</p>
 
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         {!lockedPortal && (
           <div className="login-role-grid">

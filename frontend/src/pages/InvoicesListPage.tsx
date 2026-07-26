@@ -13,6 +13,7 @@ import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
 import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { AddRecurringModal } from "../components/AddRecurringModal";
 import { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 export { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 
@@ -292,7 +293,7 @@ export function InvoicesListPage() {
         />
       )}
 
-      {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ marginTop: 12 }} />}
 
       {canManage && (
         <div className="portal-banner" style={{ margin: "16px 0" }}>
@@ -568,7 +569,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-panel" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
         <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
         <div className="form-grid">
           <div className="field"><label>Receipt Date</label><input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
@@ -638,7 +639,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-panel" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
         <div className="field">
           <label>Invoice</label>
           <select value={form.invoiceId} onChange={(e) => setForm((f) => ({ ...f, invoiceId: e.target.value }))}>

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ContractBodyText } from "../components/ContractBodyText";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface PublicContract {
   contract_id: string; title: string; rendered_body: string; effective_date: string | null;
@@ -69,7 +70,7 @@ export function PublicContractPage() {
 
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
-  if (error) return <div style={pageStyle}><div className="error-banner">{error}</div></div>;
+  if (error) return <div style={pageStyle}><ErrorBanner error={error} /></div>;
   if (!contract) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
 
   const isSigned = contract.status === "Signed";
@@ -128,7 +129,7 @@ export function PublicContractPage() {
             <p className="muted" style={{ fontSize: 12.5, marginBottom: 14 }}>
               Typing your name below and checking the box acts as your electronic signature and has the same legal effect as a handwritten signature.
             </p>
-            {signError && <div className="error-banner">{signError}</div>}
+            {signError && <ErrorBanner error={signError} />}
             <div className="field"><label htmlFor="sign-name">Full Legal Name</label><input id="sign-name" required value={signerName} onChange={(e) => setSignerName(e.target.value)} /></div>
             <div className="field"><label htmlFor="sign-title">Title (optional)</label><input id="sign-title" value={signerTitle} onChange={(e) => setSignerTitle(e.target.value)} placeholder="e.g. Owner" /></div>
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, margin: "10px 0 14px" }}>

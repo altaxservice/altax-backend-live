@@ -4,6 +4,7 @@ import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface StaffDirectoryEntry { name: string; email: string; phone: string | null; role: string }
 interface TemplateRow { templateId: string | null; name: string; category: string; subject: string; source: string }
@@ -176,7 +177,7 @@ export function CommunicationsPage() {
         </div>
       )}
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
 
       {canManage && <StaffMessages messages={staffMessages} onSent={load} />}
 
@@ -251,7 +252,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
     <Panel title="Firm Staff Messages" note={`${messages.length} staff message(s)`}>
       <p className="muted" style={{ padding: "0 16px 12px" }}>Internal firm-to-staff messages. Only active Admin/Staff portal users appear here; clients are excluded.</p>
       <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
         <SendResults results={results} />
         <div className="field">
           <label>Staff / Manager / Admin</label>
@@ -387,7 +388,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
     <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Send / Save Client Message" note={client.email || undefined}>
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <SendResults results={results} />
           <div className="field">
             <label>Template</label>
@@ -477,7 +478,7 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
     <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Send Message to AL TAX">
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
           <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
           <div className="field"><label>Message</label><textarea rows={4} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={role === "employee" ? "Ask about your paystub, direct deposit, or account." : "Ask about documents, payments, or your account."} /></div>
           <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />

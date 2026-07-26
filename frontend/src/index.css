@@ -851,3 +851,17 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   .create-grid { grid-template-columns: 1fr; }
   .login-role-grid { grid-template-columns: 1fr; }
 }
+
+/* The actionable half of an error message — see components/ErrorBanner.tsx.
+   Deliberately inline rather than a hover tooltip: a tooltip is invisible on
+   touch, invisible to screen readers, and undiscoverable to anyone who does
+   not think to hover, which is exactly the person who is stuck. */
+.error-banner-fix {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  opacity: 0.95;
+}

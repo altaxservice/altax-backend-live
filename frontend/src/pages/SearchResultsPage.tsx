@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null }
 interface TaskHit { task_id: string; task_name: string; client_id: string; client_name: string; status: string; agency_due_date: string | null }
@@ -41,7 +42,7 @@ export function SearchResultsPage() {
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Search Results</h1>
       <p className="muted" style={{ marginBottom: 20 }}>{q ? `Results for "${q}"` : "Enter a search term above."}</p>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       {!results && !error && <div className="spinner-wrap">Searching…</div>}
       {results && q.trim().length >= 2 && totalHits === 0 && <p className="muted">No matches across clients, tasks, invoices, or document requests.</p>}
 

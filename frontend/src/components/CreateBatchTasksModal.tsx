@@ -5,6 +5,7 @@ import type { TaskRule, PortalUser } from "../api/types2";
 import { clientMatchesRule } from "../utils/ruleMatch";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { useToast } from "./Toast";
+import { ErrorBanner } from "./ErrorBanner";
 
 interface PreviewResult {
   wouldCreate: number;
@@ -172,7 +173,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
           <h2>Create Batch Tasks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <ErrorBanner error={error} />}
 
         <div className="field">
           <label>Rule</label>

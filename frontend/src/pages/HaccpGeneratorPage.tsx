@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 import { AddressFields } from "../components/AddressFields";
 import type { Client } from "../api/types";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate"; hasCookStep: boolean; hasHotHolding: boolean; description: string }
 interface ChecklistItem { key: string; label: string }
@@ -327,7 +328,7 @@ export function HaccpGeneratorPage() {
               <button type="button" className="btn btn-sm" onClick={startNew}>Start New Plan Instead</button>
             </div>
           )}
-          {error && <div className="error-banner">{error}</div>}
+          {error && <ErrorBanner error={error} />}
 
           <div className="form-section-title">Business Information</div>
           <div className="form-grid-3">
@@ -638,7 +639,7 @@ function HaccpTemplatesPanel({ businessTypes }: { businessTypes: BusinessType[] 
         </div>
         {templates && <div className="command-panel-note">{templates.length} template(s)</div>}
       </div>
-      {error && <div className="error-banner" style={{ margin: "0 16px 16px" }}>{error}</div>}
+      {error && <ErrorBanner error={error} style={{ margin: "0 16px 16px" }} />}
 
       {editing && <HaccpTemplateForm businessTypeKey={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
 
@@ -697,7 +698,7 @@ function HaccpTemplateForm({ businessTypeKey, onSaved, onCancel }: { businessTyp
   return (
     <form onSubmit={handleSubmit} className="card" style={{ margin: "0 16px 16px" }}>
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit: {businessTypeKey}</h2>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <ErrorBanner error={error} />}
       <div className="field"><label>Title</label><input required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
       <div className="field">
         <label>Body</label>

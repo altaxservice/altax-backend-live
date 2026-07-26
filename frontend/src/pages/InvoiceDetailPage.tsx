@@ -10,6 +10,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -169,7 +170,7 @@ export function InvoiceDetailPage() {
     }
   }
 
-  if (error) return <div className="error-banner">{error}</div>;
+  if (error) return <ErrorBanner error={error} />;
   if (!invoice) return <div className="spinner-wrap">Loading…</div>;
 
   const lineItems = invoice.lineItems || [];
@@ -220,7 +221,7 @@ export function InvoiceDetailPage() {
 
       {showPaymentForm && (
         <form onSubmit={handleRecordPayment} className="card" style={{ maxWidth: 500, marginBottom: 24 }}>
-          {saveError && <div className="error-banner">{saveError}</div>}
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="form-grid">
             <div className="field"><label>Payment Date</label><input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div className="field"><label>Amount</label><input type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))} /></div>
