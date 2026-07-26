@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { APP_NAME } from "../../common/branding";
 import { clientMatchesRule, isActiveFlag } from "../rules/rules.routes";
+import { canAccessClient } from "../../common/assignment";
 
 export const templatesRouter = Router();
 
@@ -27,7 +28,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nنتواصل معكم لمتابعة حسابكم. يرجى إعلامنا إذا كان لديكم أي استفسارات." },
   { name: "Client Tax and Payroll Update", category: "Communications", subject: "Client tax and payroll update{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your tax and payroll update{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم تحديث الضرائب والرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummary}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم تحديث الضرائب والرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
   { name: "Direct Deposit Question", category: "Communications", subject: "Direct deposit question",
     english: "We have a question about your direct deposit setup.",
     arabic: "لدينا استفسار بخصوص إعدادات الإيداع المباشر الخاصة بكم." },
@@ -57,7 +58,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nهذا تذكير بأن لديكم رصيداً مستحقاً غير مسدد بقيمة {{balanceDue}}. يرجى ترتيب السداد في أقرب وقت ممكن.\n\nشكراً لكم." },
   { name: "Payroll Summary", category: "Communications", subject: "Payroll summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your payroll summary{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص الرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummary}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص الرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
   { name: "Payroll Tax Question", category: "Communications", subject: "Payroll tax question",
     english: "We have a question about payroll taxes.",
     arabic: "لدينا استفسار بخصوص ضرائب الرواتب." },
@@ -72,7 +73,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nنحتاج إلى بعض المعلومات الإضافية منكم للمتابعة. يرجى الرد على هذه الرسالة أو الاتصال بمكتبنا في أقرب وقت ممكن.\n\nشكراً لكم." },
   { name: "Sales Tax Summary", category: "Communications", subject: "Sales tax summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your sales tax summary{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabel}}.\n\n{{periodSummary}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
   { name: "Signature Required", category: "Communications", subject: "Signature required",
     english: "Hello {{clientName}},\n\nA document is waiting for your signature in your client portal. Please review and sign it at your earliest convenience so we can continue.\n\nThank you.",
     arabic: "مرحباً {{clientName}}،\n\nهناك مستند بانتظار توقيعكم في بوابة العميل الخاصة بكم. يرجى مراجعته وتوقيعه في أقرب وقت ممكن حتى نتمكن من المتابعة.\n\nشكراً لكم." },
@@ -131,12 +132,13 @@ export function substitutePlaceholders(text: string, client: any | null, extra?:
     balanceDue: client?.balance_due !== undefined && client?.balance_due !== null
       ? `$${Number(client.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : "",
-    periodLabel: "", periodSummary: "",
+    periodLabel: "", periodSummary: "", periodSummaryAr: "",
     ...extra,
   };
+  const blankable = new Set(["{{periodLabel}}", "{{periodSummary}}", "{{periodSummaryAr}}"]);
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     const value = values[key];
-    return value !== undefined && value !== "" ? value : match === "{{periodLabel}}" || match === "{{periodSummary}}" ? "" : match;
+    return value !== undefined && value !== "" ? value : blankable.has(match) ? "" : match;
   });
 }
 
@@ -215,16 +217,37 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
   return dates;
 }
 
+interface PeriodFigures {
+  sales: any[];
+  paychecks: any[];
+  salesTaxDue: number;
+  grossSales: number;
+  grossWages: number;
+  employeeTaxes: number;
+  employerTaxes: number;
+  netPay: number;
+  totalPayrollCost: number;
+  adjustments: number;
+  byCategory: [string, { taxable: number; tax: number }][];
+  lastPayment: string | null;
+  federalWithholding: number;
+  socialSecurityEe: number;
+  socialSecurityEr: number;
+  medicareEe: number;
+  medicareEr: number;
+  stateTax: number;
+  suta: number;
+  importantDates: { label: string; date: Date }[];
+}
+
 /**
- * Builds a real, computed period summary (sales tax + payroll figures) from this
- * client's actual v3_sales_input/v3_paychecks rows for the given date range — not a
- * static blurb. Powers the {{periodSummary}} token on the three "report" built-in
- * templates (Client Tax and Payroll Update, Sales Tax Summary, Payroll Summary).
- * Sections are omitted entirely when there's no data for that period, rather than
- * printing an all-zeros block. Only reads already-recorded rows (no payroll
- * creation/bank fields touched — that area stays paused pending real verification).
+ * The real, computed sales-tax + payroll figures for a client's period — shared by
+ * both computeClientPeriodSummary (plain-text, for SMS/WhatsApp/the {{periodSummary}}
+ * token) and computeClientPeriodSummaryTable (bilingual structured rows, for the
+ * Reports "Client Message" table and the new Sales, Tax & Payroll report) so the two
+ * presentations can never drift into showing different numbers for the same period.
  */
-async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string): Promise<string> {
+async function fetchPeriodFigures(clientId: string, periodStart: string, periodEnd: string): Promise<PeriodFigures> {
   const sales = await query<any>(
     `SELECT * FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date BETWEEN $2 AND $3 ORDER BY sale_date ASC`,
     [clientId, periodStart, periodEnd]
@@ -235,83 +258,218 @@ async function computeClientPeriodSummary(clientId: string, periodStart: string,
   );
 
   const sum = (rows: any[], col: string) => rows.reduce((s, r) => s + Number(r[col] || 0), 0);
-  const salesTaxDue = sum(sales, "total_tax_due");
-  const grossWages = sum(paychecks, "gross_wages");
-  const employeeTaxes = sum(paychecks, "employee_taxes");
-  const employerTaxes = sum(paychecks, "employer_taxes");
-  const netPay = sum(paychecks, "net_pay");
+
+  // Category breakdown reads v3_sales_input_lines (multi-state/multi-category,
+  // 2026-07-14) rather than the old fixed taxable6_sales/special12_sales/
+  // vape20_sales/sixty_rate_sales columns — those stay populated on legacy rows for
+  // audit purposes but are no longer written to, so summing them here would silently
+  // miss every sale recorded after the migration.
+  const saleIds = sales.map((s) => s.sale_id);
+  const lineRows = saleIds.length
+    ? await query<any>(
+        `SELECT l.taxable_amount, l.tax_amount, c.category_name FROM altax.v3_sales_input_lines l
+         JOIN altax.v3_sales_tax_categories c ON c.category_id = l.category_id
+         WHERE l.sale_id = ANY($1::text[]) ORDER BY c.display_order`,
+        [saleIds]
+      )
+    : [];
+  const byCategoryMap = new Map<string, { taxable: number; tax: number }>();
+  for (const l of lineRows) {
+    const entry = byCategoryMap.get(l.category_name) || { taxable: 0, tax: 0 };
+    entry.taxable += Number(l.taxable_amount) || 0;
+    entry.tax += Number(l.tax_amount) || 0;
+    byCategoryMap.set(l.category_name, entry);
+  }
+
+  const periodEndDate = new Date(periodEnd);
+  let importantDates: { label: string; date: Date }[] = [];
+  if (!Number.isNaN(periodEndDate.getTime())) {
+    const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    importantDates = client ? await computeImportantDates(client, periodEndDate) : [];
+  }
+
+  return {
+    sales, paychecks,
+    salesTaxDue: sum(sales, "total_tax_due"),
+    grossSales: sum(sales, "gross_sales"),
+    grossWages: sum(paychecks, "gross_wages"),
+    employeeTaxes: sum(paychecks, "employee_taxes"),
+    employerTaxes: sum(paychecks, "employer_taxes"),
+    netPay: sum(paychecks, "net_pay"),
+    totalPayrollCost: sum(paychecks, "total_cost"),
+    adjustments: sum(sales, "adjustments"),
+    byCategory: Array.from(byCategoryMap.entries()),
+    lastPayment: sales.map((s) => s.payment_date).filter(Boolean).sort().slice(-1)[0] || null,
+    federalWithholding: sum(paychecks, "federal_withholding"),
+    socialSecurityEe: sum(paychecks, "social_security_ee"),
+    socialSecurityEr: sum(paychecks, "social_security_er"),
+    medicareEe: sum(paychecks, "medicare_ee"),
+    medicareEr: sum(paychecks, "medicare_er"),
+    stateTax: sum(paychecks, "state_tax"),
+    suta: sum(paychecks, "suta"),
+    importantDates,
+  };
+}
+
+/**
+ * Builds a real, computed period summary (sales tax + payroll figures) from this
+ * client's actual v3_sales_input/v3_paychecks rows for the given date range — not a
+ * static blurb. Powers the {{periodSummary}} token on the three "report" built-in
+ * templates (Client Tax and Payroll Update, Sales Tax Summary, Payroll Summary) and
+ * every SMS/WhatsApp send, which can only ever carry plain text. Sections are omitted
+ * entirely when there's no data for that period, rather than printing an all-zeros
+ * block.
+ */
+export async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string): Promise<string> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd);
+  const { sales, paychecks } = f;
 
   const lines: string[] = ["SUMMARY"];
-  if (sales.length) lines.push(`Sales tax due: ${fmtMoney(salesTaxDue)}`);
+  if (sales.length) lines.push(`Sales tax due: ${fmtMoney(f.salesTaxDue)}`);
   if (paychecks.length) {
     lines.push(`Payroll checks: ${paychecks.length}`);
-    lines.push(`Payroll gross wages: ${fmtMoney(grossWages)}`);
-    lines.push(`Net payroll paid: ${fmtMoney(netPay)}`);
-    lines.push(`Payroll taxes: employee ${fmtMoney(employeeTaxes)} | employer ${fmtMoney(employerTaxes)}`);
+    lines.push(`Payroll gross wages: ${fmtMoney(f.grossWages)}`);
+    lines.push(`Net payroll paid: ${fmtMoney(f.netPay)}`);
+    lines.push(`Payroll taxes: employee ${fmtMoney(f.employeeTaxes)} | employer ${fmtMoney(f.employerTaxes)}`);
   }
   if (!sales.length && !paychecks.length) lines.push("No sales or payroll activity recorded for this period.");
 
   if (sales.length) {
     lines.push("", "SALES TAX DETAIL");
-    lines.push(`Gross sales: ${fmtMoney(sum(sales, "gross_sales"))}`);
-    // Category breakdown reads v3_sales_input_lines (multi-state/multi-category,
-    // 2026-07-14) rather than the old fixed taxable6_sales/special12_sales/
-    // vape20_sales/sixty_rate_sales columns — those stay populated on legacy rows
-    // for audit purposes but are no longer written to, so summing them here would
-    // silently miss every sale recorded after the migration.
-    const saleIds = sales.map((s) => s.sale_id);
-    const lineRows = saleIds.length
-      ? await query<any>(
-          `SELECT l.taxable_amount, l.tax_amount, c.category_name FROM altax.v3_sales_input_lines l
-           JOIN altax.v3_sales_tax_categories c ON c.category_id = l.category_id
-           WHERE l.sale_id = ANY($1::text[]) ORDER BY c.display_order`,
-          [saleIds]
-        )
-      : [];
-    const byCategory = new Map<string, { taxable: number; tax: number }>();
-    for (const l of lineRows) {
-      const entry = byCategory.get(l.category_name) || { taxable: 0, tax: 0 };
-      entry.taxable += Number(l.taxable_amount) || 0;
-      entry.tax += Number(l.tax_amount) || 0;
-      byCategory.set(l.category_name, entry);
-    }
-    for (const [categoryName, { taxable, tax }] of byCategory) {
+    lines.push(`Gross sales: ${fmtMoney(f.grossSales)}`);
+    for (const [categoryName, { taxable, tax }] of f.byCategory) {
       lines.push(`${categoryName}: ${fmtMoney(taxable)} taxable, ${fmtMoney(tax)} tax`);
     }
-    lines.push(`Adjustments: ${fmtMoney(sum(sales, "adjustments"))}`);
-    lines.push(`Sales tax due: ${fmtMoney(salesTaxDue)}`);
-    const lastPayment = sales.map((s) => s.payment_date).filter(Boolean).sort().slice(-1)[0];
-    if (lastPayment) lines.push(`Last recorded payment date: ${fmtDate(lastPayment)}`);
+    lines.push(`Adjustments: ${fmtMoney(f.adjustments)}`);
+    lines.push(`Sales tax due: ${fmtMoney(f.salesTaxDue)}`);
+    if (f.lastPayment) lines.push(`Last recorded payment date: ${fmtDate(f.lastPayment)}`);
   }
 
   if (paychecks.length) {
     lines.push("", "PAYROLL SUMMARY");
     lines.push(`Checks: ${paychecks.length}`);
-    lines.push(`Gross wages: ${fmtMoney(grossWages)}`);
-    lines.push(`Employee taxes: ${fmtMoney(employeeTaxes)}`);
-    lines.push(`Employer taxes: ${fmtMoney(employerTaxes)}`);
-    lines.push(`Net pay: ${fmtMoney(netPay)}`);
-    lines.push(`Total payroll cost: ${fmtMoney(sum(paychecks, "total_cost"))}`);
+    lines.push(`Gross wages: ${fmtMoney(f.grossWages)}`);
+    lines.push(`Employee taxes: ${fmtMoney(f.employeeTaxes)}`);
+    lines.push(`Employer taxes: ${fmtMoney(f.employerTaxes)}`);
+    lines.push(`Net pay: ${fmtMoney(f.netPay)}`);
+    lines.push(`Total payroll cost: ${fmtMoney(f.totalPayrollCost)}`);
     lines.push("", "PAYROLL TAX DETAIL");
-    lines.push(`Federal withholding: ${fmtMoney(sum(paychecks, "federal_withholding"))}`);
-    lines.push(`Social Security - employee: ${fmtMoney(sum(paychecks, "social_security_ee"))}`);
-    lines.push(`Social Security - employer: ${fmtMoney(sum(paychecks, "social_security_er"))}`);
-    lines.push(`Medicare - employee: ${fmtMoney(sum(paychecks, "medicare_ee"))}`);
-    lines.push(`Medicare - employer: ${fmtMoney(sum(paychecks, "medicare_er"))}`);
-    lines.push(`State withholding: ${fmtMoney(sum(paychecks, "state_tax"))}`);
-    lines.push(`State unemployment (SUTA): ${fmtMoney(sum(paychecks, "suta"))}`);
+    lines.push(`Federal withholding: ${fmtMoney(f.federalWithholding)}`);
+    lines.push(`Social Security - employee: ${fmtMoney(f.socialSecurityEe)}`);
+    lines.push(`Social Security - employer: ${fmtMoney(f.socialSecurityEr)}`);
+    lines.push(`Medicare - employee: ${fmtMoney(f.medicareEe)}`);
+    lines.push(`Medicare - employer: ${fmtMoney(f.medicareEr)}`);
+    lines.push(`State withholding: ${fmtMoney(f.stateTax)}`);
+    lines.push(`State unemployment (SUTA): ${fmtMoney(f.suta)}`);
   }
 
-  const periodEndDate = new Date(periodEnd);
-  if (!Number.isNaN(periodEndDate.getTime())) {
-    const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-    const importantDates = client ? await computeImportantDates(client, periodEndDate) : [];
-    if (importantDates.length) {
-      lines.push("", "IMPORTANT DATES");
-      for (const { label, date } of importantDates) lines.push(`${label} due date: ${fmtDate(date)}`);
+  if (f.importantDates.length) {
+    lines.push("", "IMPORTANT DATES");
+    for (const { label, date } of f.importantDates) lines.push(`${label} due date: ${fmtDate(date)}`);
+  }
+
+  return lines.join("\n");
+}
+
+export interface SummaryTableRow { label: string; labelAr: string; value: string }
+export interface SummaryTableSection { title: string; titleAr: string; rows: SummaryTableRow[] }
+export interface SummaryTable { sections: SummaryTableSection[]; hasData: boolean }
+
+/**
+ * Same figures as computeClientPeriodSummary, but as real structured bilingual
+ * rows instead of a pre-formatted English string — powers the Reports "Client
+ * Message" table and the Sales, Tax & Payroll report. Every label has a genuine
+ * Arabic translation (the old plain-text version's "Arabic side" was actually just
+ * the same English lines shown twice — this is what fixes that). Category names and
+ * task-rule labels are free-text pulled from the database (categories staff define,
+ * task types like "1120 Return") with no stored Arabic equivalent, so those two stay
+ * as-is in both columns, same as the firm name staying English on the Arabic site.
+ */
+export async function computeClientPeriodSummaryTable(clientId: string, periodStart: string, periodEnd: string): Promise<SummaryTable> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd);
+  const { sales, paychecks } = f;
+  const sections: SummaryTableSection[] = [];
+  const row = (label: string, labelAr: string, value: string): SummaryTableRow => ({ label, labelAr, value });
+
+  const summaryRows: SummaryTableRow[] = [];
+  if (sales.length) summaryRows.push(row("Sales tax due", "ضريبة المبيعات المستحقة", fmtMoney(f.salesTaxDue)));
+  if (paychecks.length) {
+    summaryRows.push(row("Payroll checks", "عدد شيكات الرواتب", String(paychecks.length)));
+    summaryRows.push(row("Payroll gross wages", "إجمالي الأجور", fmtMoney(f.grossWages)));
+    summaryRows.push(row("Net payroll paid", "صافي الرواتب المدفوعة", fmtMoney(f.netPay)));
+    summaryRows.push(row("Payroll taxes — employee", "ضرائب الرواتب — الموظف", fmtMoney(f.employeeTaxes)));
+    summaryRows.push(row("Payroll taxes — employer", "ضرائب الرواتب — صاحب العمل", fmtMoney(f.employerTaxes)));
+  }
+  if (!sales.length && !paychecks.length) {
+    summaryRows.push(row("No sales or payroll activity recorded for this period.", "لا يوجد نشاط مبيعات أو رواتب مسجل لهذه الفترة.", ""));
+  }
+  sections.push({ title: "Summary", titleAr: "الملخص", rows: summaryRows });
+
+  if (sales.length) {
+    const rows: SummaryTableRow[] = [row("Gross sales", "إجمالي المبيعات", fmtMoney(f.grossSales))];
+    for (const [categoryName, { taxable, tax }] of f.byCategory) {
+      rows.push(row(categoryName, categoryName, `${fmtMoney(taxable)} taxable, ${fmtMoney(tax)} tax`));
     }
+    rows.push(row("Adjustments", "التعديلات", fmtMoney(f.adjustments)));
+    rows.push(row("Sales tax due", "ضريبة المبيعات المستحقة", fmtMoney(f.salesTaxDue)));
+    if (f.lastPayment) rows.push(row("Last recorded payment date", "تاريخ آخر دفعة مسجلة", fmtDate(f.lastPayment)));
+    sections.push({ title: "Sales Tax Detail", titleAr: "تفاصيل ضريبة المبيعات", rows });
   }
 
+  if (paychecks.length) {
+    sections.push({
+      title: "Payroll Summary", titleAr: "ملخص الرواتب",
+      rows: [
+        row("Checks", "عدد الشيكات", String(paychecks.length)),
+        row("Gross wages", "إجمالي الأجور", fmtMoney(f.grossWages)),
+        row("Employee taxes", "ضرائب الموظف", fmtMoney(f.employeeTaxes)),
+        row("Employer taxes", "ضرائب صاحب العمل", fmtMoney(f.employerTaxes)),
+        row("Net pay", "صافي الراتب", fmtMoney(f.netPay)),
+        row("Total payroll cost", "إجمالي تكلفة الرواتب", fmtMoney(f.totalPayrollCost)),
+      ],
+    });
+    sections.push({
+      title: "Payroll Tax Detail", titleAr: "تفاصيل ضرائب الرواتب",
+      rows: [
+        row("Federal withholding", "الضريبة الفيدرالية المقتطعة", fmtMoney(f.federalWithholding)),
+        row("Social Security — employee", "الضمان الاجتماعي — الموظف", fmtMoney(f.socialSecurityEe)),
+        row("Social Security — employer", "الضمان الاجتماعي — صاحب العمل", fmtMoney(f.socialSecurityEr)),
+        row("Medicare — employee", "الرعاية الطبية (ميديكير) — الموظف", fmtMoney(f.medicareEe)),
+        row("Medicare — employer", "الرعاية الطبية (ميديكير) — صاحب العمل", fmtMoney(f.medicareEr)),
+        row("State withholding", "ضريبة الولاية المقتطعة", fmtMoney(f.stateTax)),
+        row("State unemployment (SUTA)", "تأمين البطالة الحكومي (SUTA)", fmtMoney(f.suta)),
+      ],
+    });
+  }
+
+  if (f.importantDates.length) {
+    sections.push({
+      title: "Important Dates", titleAr: "تواريخ مهمة",
+      rows: f.importantDates.map(({ label, date }) => row(`${label} due date`, `${label} — تاريخ الاستحقاق`, fmtDate(date))),
+    });
+  }
+
+  return { sections, hasData: sales.length > 0 || paychecks.length > 0 };
+}
+
+/**
+ * The Arabic-language counterpart to computeClientPeriodSummary — plain-text, for
+ * the {{periodSummaryAr}} token in the Arabic side of the three "report" built-in
+ * templates. Before this existed, the Arabic message body substituted the SAME
+ * {{periodSummary}} token as the English body, so a client who set their language
+ * preference to Arabic still received this section in English — only the greeting/
+ * framing text around it was actually translated. Derived from
+ * computeClientPeriodSummaryTable so the English and Arabic sends can never show
+ * different numbers for the same period.
+ */
+export async function computeClientPeriodSummaryArabic(clientId: string, periodStart: string, periodEnd: string): Promise<string> {
+  const { sections } = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd);
+  const lines: string[] = [];
+  for (const section of sections) {
+    if (lines.length) lines.push("");
+    lines.push(section.titleAr);
+    for (const r of section.rows) lines.push(r.value ? `${r.labelAr}: ${r.value}` : r.labelAr);
+  }
   return lines.join("\n");
 }
 
@@ -339,6 +497,7 @@ export async function resolveTemplate(
   if (clientId && periodStart && periodEnd) {
     extra.periodLabel = ` for ${fmtDate(periodStart)} - ${fmtDate(periodEnd)}`;
     extra.periodSummary = await computeClientPeriodSummary(clientId, periodStart, periodEnd);
+    extra.periodSummaryAr = await computeClientPeriodSummaryArabic(clientId, periodStart, periodEnd);
   }
   Object.assign(extra, extraOverride);
 
@@ -362,6 +521,29 @@ export async function resolveTemplate(
     source: "Built-in default",
   };
 }
+
+/**
+ * Real bilingual structured period figures for one client — powers the Reports
+ * "Client Message" table and the Sales, Tax & Payroll report. Registered ahead of
+ * the generic GET /:templateName below only for readability; there's no actual
+ * routing collision since this path always has 2 segments (a client id after
+ * "period-summary-table") and that one only ever matches 1.
+ */
+templatesRouter.get("/period-summary-table/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const periodStart = String(req.query.periodStart || "").trim();
+  const periodEnd = String(req.query.periodEnd || "").trim();
+  if (!periodStart || !periodEnd) return res.status(400).json({ error: "periodStart and periodEnd are required." });
+
+  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd);
+  res.json({ clientName: client.client_name, periodStart, periodEnd, ...table });
+}));
 
 templatesRouter.get("/:templateName", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const name = req.params.templateName;

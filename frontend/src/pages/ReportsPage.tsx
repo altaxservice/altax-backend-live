@@ -6,8 +6,9 @@ import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 
-const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Client Message"] as const;
+const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview). */
@@ -15,6 +16,7 @@ const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
   "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
   "Sales & Tax": "sales-tax", "Payroll": "payroll", "Client Message": "client-message",
+  "Sales, Tax & Payroll Report": "sales-tax-payroll",
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
 const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll" };
@@ -75,6 +77,9 @@ export function ReportsPage() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [reportBusy, setReportBusy] = useState<string | null>(null);
+  const [summaryTable, setSummaryTable] = useState<SummaryTableSection[] | null>(null);
+  const [summaryTableLoading, setSummaryTableLoading] = useState(false);
+  const [summaryTableError, setSummaryTableError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
@@ -119,6 +124,21 @@ export function ReportsPage() {
       .then((r) => setPeriodMessage({ subject: r.template.subject, body: r.template.message_english || "", bodyArabic: r.template.message_arabic || "" }))
       .catch((err) => setMessageError(err instanceof ApiError ? err.message : "Could not generate this period's message."))
       .finally(() => setMessageLoading(false));
+  }, [clientId, tab, from, to]);
+
+  // Real bilingual structured table — same underlying figures as periodMessage above,
+  // shared by the Client Message tab's on-screen table and the standalone Sales, Tax
+  // & Payroll report tab.
+  useEffect(() => {
+    if (!clientId || (tab !== "Client Message" && tab !== "Sales, Tax & Payroll Report")) return;
+    setSummaryTableLoading(true);
+    setSummaryTableError(null);
+    api.get<{ sections: SummaryTableSection[] }>(
+      `/templates/period-summary-table/${encodeURIComponent(clientId)}?periodStart=${from}&periodEnd=${to}`
+    )
+      .then((r) => setSummaryTable(r.sections))
+      .catch((err) => setSummaryTableError(err instanceof ApiError ? err.message : "Could not load this period's figures."))
+      .finally(() => setSummaryTableLoading(false));
   }, [clientId, tab, from, to]);
 
   useEffect(() => {
@@ -283,7 +303,7 @@ export function ReportsPage() {
     setSaveStatus(null);
     try {
       await api.post("/communications", {
-        clientId, subject: periodMessage.subject, messageEnglish: periodMessage.body,
+        clientId, subject: periodMessage.subject, messageEnglish: periodMessage.body, messageArabic: periodMessage.bodyArabic,
         channel: "Portal Note", sendNow: false,
       });
       setSaveStatus("Saved to client portal history.");
@@ -297,7 +317,7 @@ export function ReportsPage() {
   function handleOpenToSend() {
     if (!clientId || !periodMessage || !client) return;
     sessionStorage.setItem(`${CLIENT_MESSAGE_HANDOFF_KEY}:${clientId}`, JSON.stringify({
-      subject: periodMessage.subject, body: periodMessage.body, periodStart: from, periodEnd: to,
+      subject: periodMessage.subject, body: periodMessage.body, bodyArabic: periodMessage.bodyArabic, periodStart: from, periodEnd: to,
     }));
     setSelectedClient(clientId, client.client_name);
     navigate("/communications");
@@ -612,35 +632,46 @@ export function ReportsPage() {
                   <div className="command-panel-note">Real sales tax + payroll figures for {from} – {to}, merged into the same summary Communications uses. The downloadable PDF is English-only — see note below.</div>
                 </div>
               </div>
-              {messageLoading && <div className="spinner-wrap">Loading…</div>}
+              {(messageLoading || summaryTableLoading) && <div className="spinner-wrap">Loading…</div>}
               {messageError && <ErrorBanner error={messageError} style={{ margin: 16 }} />}
+              {summaryTableError && <ErrorBanner error={summaryTableError} style={{ margin: 16 }} />}
               {!messageLoading && periodMessage && (
                 <div style={{ padding: 16 }}>
                   <div className="field"><label>Subject</label><input readOnly value={periodMessage.subject} /></div>
-                  <div style={{ display: "grid", gridTemplateColumns: periodMessage.bodyArabic ? "1fr 1fr" : "1fr", gap: 16, margin: "12px 0 16px" }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>English</div>
-                      <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, background: "#fff", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 420, overflowY: "auto" }}>
-                        {periodMessage.body}
-                      </div>
+                  {!summaryTableLoading && summaryTable && (
+                    <div style={{ margin: "12px 0 16px" }}>
+                      <SummaryTable sections={summaryTable} />
                     </div>
-                    {periodMessage.bodyArabic && (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>العربية (Arabic)</div>
-                        <div dir="rtl" style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 16, background: "#fff", fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap", maxHeight: 420, overflowY: "auto", textAlign: "right" }}>
-                          {periodMessage.bodyArabic}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  )}
                   <p className="muted" style={{ fontSize: 11, marginBottom: 12 }}>
-                    Print Report/Download PDF above renders the English text only — reliable Arabic PDF rendering needs proper right-to-left glyph shaping this app doesn't yet do. Emailed/SMS/WhatsApp sends (via Open Communications to Send) use the full bilingual text shown here.
+                    Print Report/Download PDF above renders the English text only — reliable Arabic PDF rendering needs proper right-to-left glyph shaping this app doesn't yet do. Emailed/SMS/WhatsApp sends (via Open Communications to Send) use the full bilingual text.
                   </p>
                   {saveStatus && <p className="muted" style={{ fontSize: 12 }}>{saveStatus}</p>}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button type="button" className="btn" disabled={saving} onClick={handleSaveMessage}>{saving ? "Saving…" : "Save Period Message"}</button>
                     <button type="button" className="btn btn-primary" onClick={handleOpenToSend}>Open Communications to Send</button>
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "Sales, Tax & Payroll Report" && (
+            <div className="command-panel">
+              <div className="command-panel-header">
+                <div>
+                  <h2 className="command-panel-title">Sales, Tax &amp; Payroll Report</h2>
+                  <div className="command-panel-note">{client?.client_name} — {from} – {to}. Same real figures as the Client Message tab, as a standalone bilingual report rather than a message to send. The downloadable PDF is English-only — see note below.</div>
+                </div>
+              </div>
+              {summaryTableLoading && <div className="spinner-wrap">Loading…</div>}
+              {summaryTableError && <ErrorBanner error={summaryTableError} style={{ margin: 16 }} />}
+              {!summaryTableLoading && summaryTable && (
+                <div style={{ padding: 16 }}>
+                  <SummaryTable sections={summaryTable} />
+                  <p className="muted" style={{ fontSize: 11, marginTop: 12 }}>
+                    Print Report/Download PDF above renders the English text only — reliable Arabic PDF rendering needs proper right-to-left glyph shaping this app doesn't yet do.
+                  </p>
                 </div>
               )}
             </div>
@@ -715,17 +746,19 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
   }
 
   /**
-   * A paycheck's ledger lines are always rebuilt in full when the paycheck is
-   * re-saved — so for a half-posted Payroll entry, an empty edit is a complete
-   * repair. This turns "one or more entries posted only part of their lines"
-   * from a diagnosis into a button.
+   * Rebuilds a payroll entry's GL lines straight from the paycheck's already-stored
+   * figures — POST /paychecks/:id/repost-gl, not the PATCH edit route, so this can
+   * never recalculate against today's tax rates and silently change the paycheck's
+   * own withholding numbers (that PATCH route re-runs the full rate lookup; this one
+   * doesn't touch the paycheck row at all). This turns "one or more entries posted
+   * only part of their lines" from a diagnosis into a button.
    */
   async function handleRepost(refId: string) {
     if (!confirm(`Repost all ledger lines for ${refId} from its paycheck? The paycheck itself is not changed.`)) return;
     setReposting(refId);
     setRepostNote(null);
     try {
-      await api.patch(`/accounting/paychecks/${refId}`, {});
+      await api.post(`/accounting/paychecks/${refId}/repost-gl`, {});
       setRepostNote(`Ledger lines for ${refId} were rebuilt from the paycheck.`);
       load();
     } catch (err) {

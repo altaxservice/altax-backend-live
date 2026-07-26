@@ -7,6 +7,7 @@ import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from
 import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
+import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic } from "../templates/templates.routes";
 
 /**
  * Communications module — Phase 6 slice covering the plan's named test scenarios:
@@ -433,10 +434,13 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
   const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
   if (channels.length === 0) return res.status(400).json({ error: "Choose at least one channel." });
 
-  const subject = String(body.subject || "AL TAX SERVICE").trim();
-  const messageEnglish = String(body.messageEnglish || "").trim();
-  const messageArabic = String(body.messageArabic || "").trim();
-  if (!messageEnglish && !messageArabic) return res.status(400).json({ error: "Enter a message." });
+  const rawSubject = String(body.subject || "AL TAX SERVICE").trim();
+  const rawMessageEnglish = String(body.messageEnglish || "").trim();
+  const rawMessageArabic = String(body.messageArabic || "").trim();
+  const templateName = String(body.templateName || "").trim();
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  if (!templateName && !rawMessageEnglish && !rawMessageArabic) return res.status(400).json({ error: "Enter a message." });
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
   const attachment: SendAttachment | undefined = body.attachment;
   const firmName = (await getFirmProfile()).firmName;
@@ -455,6 +459,38 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
     if (!client) {
       results.push({ clientId, clientName: clientId, channel: "-", sent: false, skipped: "Client not found." });
       continue;
+    }
+
+    // Every recipient gets their own resolved text, not the same literal string —
+    // {{clientName}}, {{periodSummary}}, etc. are substituted per-client here (a named
+    // template pulls the client's own real sales-tax/payroll numbers for the period;
+    // free-typed text still gets {{clientName}}-style tokens resolved) so a bulk send
+    // reads as personalized mail-merge, not a form letter with literal placeholders.
+    let subject = rawSubject;
+    let messageEnglish = rawMessageEnglish;
+    let messageArabic = rawMessageArabic;
+    if (templateName) {
+      const resolved = await resolveTemplate(templateName, clientId, periodStart, periodEnd);
+      if (resolved) {
+        subject = resolved.subject;
+        messageEnglish = resolved.message_english;
+        messageArabic = resolved.message_arabic;
+      }
+    } else {
+      const extra: Record<string, string> = {};
+      const usesPeriodSummary = [subject, messageEnglish, messageArabic].some((t) => t.includes("{{periodSummary}}"));
+      const usesPeriodSummaryAr = [subject, messageEnglish, messageArabic].some((t) => t.includes("{{periodSummaryAr}}"));
+      if (periodStart && periodEnd) {
+        extra.periodLabel = ` for ${periodStart} - ${periodEnd}`;
+        // Only queried when the free-typed text actually uses the token — computing it for
+        // every recipient regardless would be a wasted sales/payroll query per client on
+        // every bulk send that sets a period but doesn't reference it.
+        if (usesPeriodSummary) extra.periodSummary = await computeClientPeriodSummary(clientId, periodStart, periodEnd);
+        if (usesPeriodSummaryAr) extra.periodSummaryAr = await computeClientPeriodSummaryArabic(clientId, periodStart, periodEnd);
+      }
+      subject = substitutePlaceholders(subject, client, extra);
+      messageEnglish = substitutePlaceholders(messageEnglish, client, extra);
+      messageArabic = substitutePlaceholders(messageArabic, client, extra);
     }
 
     const previewBody = communicationBodyForPreference(messageEnglish, messageArabic, subject, body.languagePreference || client.preferred_language);

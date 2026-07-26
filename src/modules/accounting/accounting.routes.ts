@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, withTransaction } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -820,48 +820,54 @@ accountingRouter.post("/payroll", requireAuth, requireRole("admin", "staff"), as
     String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType,
   ];
 
-  await query(
-    `INSERT INTO altax.v3_payroll_input
-       (payroll_input_id, client_id, client_name, pay_date, employee, gross_wages, federal_withholding,
-        state_tax, notes, source_system, source_record_id, pay_period_start, pay_period_end, check_number,
-        hours, rate, pay_type)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1,$10,$11,$12,$13,$14,$15)`,
-    [payrollInputId, client.client_id, client.client_name, payDate, employeeName, gross, federal, state,
-      String(body.notes || "").trim() || null, String(body.payPeriodStart || "").trim() || null,
-      String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType]
-  );
+  // The payroll_input audit row, the paycheck row, and its 4-5 GL lines are one unit —
+  // withTransaction means a failure anywhere in here (including postPayrollGl's own
+  // balance check) rolls back everything instead of leaving an orphaned paycheck with
+  // no GL postings, or vice versa.
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_payroll_input
+         (payroll_input_id, client_id, client_name, pay_date, employee, gross_wages, federal_withholding,
+          state_tax, notes, source_system, source_record_id, pay_period_start, pay_period_end, check_number,
+          hours, rate, pay_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1,$10,$11,$12,$13,$14,$15)`,
+      [payrollInputId, client.client_id, client.client_name, payDate, employeeName, gross, federal, state,
+        String(body.notes || "").trim() || null, String(body.payPeriodStart || "").trim() || null,
+        String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType]
+    );
 
-  await query(
-    `INSERT INTO altax.v3_paychecks
-       (paycheck_id, client_id, client_name, pay_date, employee, gross_wages, social_security_ee, medicare_ee,
-        federal_withholding, state_tax, employee_taxes, net_pay, social_security_er, medicare_er, futa, suta,
-        employer_taxes, total_cost, status, source_system, source_record_id, pay_period_start, pay_period_end,
-        check_number, hours, rate, pay_type, employee_ssn, employee_address,
-        federal_taxable_wages, social_security_wages, medicare_wages, state_taxable_wages,
-        payment_method_id, payment_method, payment_bank_name, payment_routing_number, payment_account_number,
-        payment_account_type, payment_bank_last4,
-        regular_hours, regular_rate, regular_pay, overtime_hours, overtime_rate, overtime_pay,
-        bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
-        pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
-        total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Created','Node Web App',$1,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,
-             $38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)`,
-    [paycheckId, client.client_id, client.client_name, payDate, employeeName, gross, ssEe, medEe, federal, state,
-      employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
-      String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
-      checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
-      federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
-      paymentMethod?.paymentMethodId || null, paymentMethod?.methodName || null, paymentMethod?.bankName || null,
-      paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null, paymentMethod?.accountType || null,
-      paymentMethod?.bankLast4 || null,
-      regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
-      bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
-      preTaxRetirement || null, preTaxHealth || null, preTaxHsaFsa || null, postTaxDeduction || null, garnishment || null, otherDeduction || null,
-      totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null]
-  );
+    await db.query(
+      `INSERT INTO altax.v3_paychecks
+         (paycheck_id, client_id, client_name, pay_date, employee, gross_wages, social_security_ee, medicare_ee,
+          federal_withholding, state_tax, employee_taxes, net_pay, social_security_er, medicare_er, futa, suta,
+          employer_taxes, total_cost, status, source_system, source_record_id, pay_period_start, pay_period_end,
+          check_number, hours, rate, pay_type, employee_ssn, employee_address,
+          federal_taxable_wages, social_security_wages, medicare_wages, state_taxable_wages,
+          payment_method_id, payment_method, payment_bank_name, payment_routing_number, payment_account_number,
+          payment_account_type, payment_bank_last4,
+          regular_hours, regular_rate, regular_pay, overtime_hours, overtime_rate, overtime_pay,
+          bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
+          pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
+          total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Created','Node Web App',$1,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,
+               $38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)`,
+      [paycheckId, client.client_id, client.client_name, payDate, employeeName, gross, ssEe, medEe, federal, state,
+        employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
+        String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
+        checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
+        federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+        paymentMethod?.paymentMethodId || null, paymentMethod?.methodName || null, paymentMethod?.bankName || null,
+        paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null, paymentMethod?.accountType || null,
+        paymentMethod?.bankLast4 || null,
+        regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
+        bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
+        preTaxRetirement || null, preTaxHealth || null, preTaxHsaFsa || null, postTaxDeduction || null, garnishment || null, otherDeduction || null,
+        totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null]
+    );
 
-  await postPayrollGl(client.client_id, client.client_name, paycheckId, payDate, {
-    gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+    await postPayrollGl(client.client_id, client.client_name, paycheckId, payDate, {
+      gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+    }, db);
   });
 
   await logAudit("Accounting", "CREATE_PAYROLL", payrollInputId, "", "", String(gross),
@@ -1005,30 +1011,37 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   // the earnings/deduction breakdown and total_deductions frozen at their
   // pre-edit values — so the edit form and the printed paystub read one set of
   // numbers while the row's own totals said something else.
-  await query(
-    `UPDATE altax.v3_paychecks SET pay_date=$2, gross_wages=$3, social_security_ee=$4, medicare_ee=$5,
-       federal_withholding=$6, state_tax=$7, employee_taxes=$8, net_pay=$9, social_security_er=$10,
-       medicare_er=$11, futa=$12, suta=$13, employer_taxes=$14, total_cost=$15, hours=$16, rate=$17,
-       federal_taxable_wages=$18, social_security_wages=$19, medicare_wages=$20, state_taxable_wages=$21,
-       regular_hours=$16, regular_rate=$17, regular_pay=$22,
-       overtime_hours=$23, overtime_rate=$24, overtime_pay=$25, bonus_pay=$26, commission_pay=$27,
-       other_taxable_pay=$28, non_taxable_reimbursement=$29,
-       pre_tax_retirement=$30, pre_tax_health=$31, pre_tax_hsa_fsa=$32,
-       post_tax_deduction=$33, garnishment=$34, other_deduction=$35,
-       total_pre_tax_deductions=$36, total_post_tax_deductions=$37, total_deductions=$38,
-       updated_at=NOW()
-     WHERE paycheck_id = $1`,
-    [paycheckId, payDate, gross, ssEe, medEe, federal, state, employeeTaxes, netPay, ssEr, medEr, futa, suta,
-      employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
-      money(regularPay), overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay,
-      otherTaxablePay, nonTaxableReimbursement,
-      preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
-      totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions]
-  );
+  // Same atomicity fix as the create route: the paycheck UPDATE, the old GL lines'
+  // DELETE, and the new lines' INSERT (via postPayrollGl) must all land together —
+  // otherwise a failure between the DELETE and the repost leaves the paycheck with
+  // no GL entry at all, or the UPDATE could commit against GL lines that no longer
+  // match its own numbers.
+  await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_paychecks SET pay_date=$2, gross_wages=$3, social_security_ee=$4, medicare_ee=$5,
+         federal_withholding=$6, state_tax=$7, employee_taxes=$8, net_pay=$9, social_security_er=$10,
+         medicare_er=$11, futa=$12, suta=$13, employer_taxes=$14, total_cost=$15, hours=$16, rate=$17,
+         federal_taxable_wages=$18, social_security_wages=$19, medicare_wages=$20, state_taxable_wages=$21,
+         regular_hours=$16, regular_rate=$17, regular_pay=$22,
+         overtime_hours=$23, overtime_rate=$24, overtime_pay=$25, bonus_pay=$26, commission_pay=$27,
+         other_taxable_pay=$28, non_taxable_reimbursement=$29,
+         pre_tax_retirement=$30, pre_tax_health=$31, pre_tax_hsa_fsa=$32,
+         post_tax_deduction=$33, garnishment=$34, other_deduction=$35,
+         total_pre_tax_deductions=$36, total_post_tax_deductions=$37, total_deductions=$38,
+         updated_at=NOW()
+       WHERE paycheck_id = $1`,
+      [paycheckId, payDate, gross, ssEe, medEe, federal, state, employeeTaxes, netPay, ssEr, medEr, futa, suta,
+        employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+        money(regularPay), overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay,
+        otherTaxablePay, nonTaxableReimbursement,
+        preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
+        totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions]
+    );
 
-  await query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
-  await postPayrollGl(existing.client_id, existing.client_name, paycheckId, payDate, {
-    gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+    await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
+    await postPayrollGl(existing.client_id, existing.client_name, paycheckId, payDate, {
+      gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+    }, db);
   });
 
   await logAudit("Accounting", "EDIT_PAYCHECK", paycheckId, "GrossWages", String(existing.gross_wages ?? ""), String(gross),
@@ -1143,11 +1156,50 @@ accountingRouter.post("/paychecks/:paycheckId/delete", requireAuth, requireRole(
     return res.status(400).json({ error: "Printed or finalized paychecks cannot be deleted. Void it instead." });
   }
 
-  await query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
-  await query(`DELETE FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
+  await withTransaction(async (db) => {
+    await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
+    await db.query(`DELETE FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
+  });
 
   await logAudit("Accounting", "DELETE_PAYCHECK", paycheckId, "Employee", existing.employee || "", "",
     `Paycheck permanently deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, paycheckId });
+}));
+
+/**
+ * Repost this paycheck's GL lines exactly as its ALREADY-STORED figures say — no
+ * recalculation against current tax rates. Powers the Trial Balance "Repost lines"
+ * fix action for an out-of-balance payroll entry. Previously that button called
+ * PATCH /paychecks/:id with an empty body, which re-runs the full rate lookup and
+ * silently rewrites the paycheck's own withholding columns to today's rates before
+ * reposting — fine for a genuine edit, wrong for a repair tool whose only job is to
+ * make the GL match the paycheck as it already stands.
+ */
+accountingRouter.post("/paychecks/:paycheckId/repost-gl", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { paycheckId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
+  if (!existing) return res.status(404).json({ error: "Paycheck not found." });
+  if (!(await canAccessClient(req.user!, existing.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
+  const gross = Number(existing.gross_wages) || 0;
+  const nonTaxableReimbursement = Number(existing.non_taxable_reimbursement) || 0;
+  const netPay = Number(existing.net_pay) || 0;
+  const totalDeductions = Number(existing.total_deductions) || 0;
+  const employerTaxes = Number(existing.employer_taxes) || 0;
+  const employeeTaxes = Number(existing.employee_taxes) || 0;
+
+  await withTransaction(async (db) => {
+    await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Payroll'`, [paycheckId]);
+    await postPayrollGl(existing.client_id, existing.client_name, paycheckId, existing.pay_date, {
+      gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+    }, db);
+  });
+
+  await logAudit("Accounting", "REPOST_PAYROLL_GL", paycheckId, "", "", "",
+    `Payroll GL lines reposted from stored figures by ${req.user!.email}.`, req.user!.email);
+
   res.json({ ok: true, paycheckId });
 }));
 

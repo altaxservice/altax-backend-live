@@ -481,6 +481,53 @@ export async function generateClientMessagePdf(data: ClientMessageReportData): P
   return doc.save();
 }
 
+export interface SalesTaxPayrollReportData {
+  client: ReportClientInfo;
+  from: string; to: string;
+  sections: { title: string; rows: { label: string; value: string }[] }[];
+}
+
+/**
+ * Standalone report version of the same figures Client Message sends — a clean
+ * label/value table per section (Summary, Sales Tax Detail, Payroll Summary, Payroll
+ * Tax Detail, Important Dates) instead of a wall of pre-formatted text. English-only
+ * for the same reason generateClientMessagePdf is: pdf-lib has no Arabic shaping (see
+ * this file's top doc comment) — the on-screen and emailed versions carry the real
+ * Arabic translation, only this specific PDF path can't render it correctly.
+ */
+export async function generateSalesTaxPayrollReportPdf(data: SalesTaxPayrollReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "SALES, TAX & PAYROLL REPORT", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+
+  if (data.sections.length === 0) {
+    y = emptyNote(c, y);
+  }
+  for (const section of data.sections) {
+    if (y > PAGE_H - 80) {
+      drawFooter(c, profile.firmName);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+    y = sectionLabel(c, y, section.title);
+    for (const r of section.rows) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      y = row(c, y, r.label, r.value);
+    }
+    y += 8;
+  }
+
+  drawFooter(c, profile.firmName);
+  return doc.save();
+}
+
 export interface FirmOverviewMonth { month: string; revenue: number; expenses: number; profit: number }
 export interface FirmOverviewReportData {
   monthsBack: number;

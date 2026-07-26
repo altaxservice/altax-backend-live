@@ -1,4 +1,4 @@
-import { query, queryOne } from "../config/db";
+import { query, queryOne, type DbClient } from "../config/db";
 import { normalizeText } from "./assignment";
 import { decryptValue } from "./encryption";
 
@@ -230,10 +230,15 @@ export async function resolvePaymentMethod(
   return row ? toSnapshot(row) : null;
 }
 
-/** Mirrors alTaxV5AppendGl_: posts one GL entry row for a client. */
-export async function appendGl(clientId: string, clientName: string, entry: GlEntryInput): Promise<string> {
+/**
+ * Mirrors alTaxV5AppendGl_: posts one GL entry row for a client. Pass `db` (from
+ * withTransaction) when this call is one of several related writes that must all
+ * succeed or all roll back together — e.g. every line of a multi-line payroll entry
+ * (see postPayrollGl). Defaults to the plain pool for single-line, standalone posts.
+ */
+export async function appendGl(clientId: string, clientName: string, entry: GlEntryInput, db: DbClient = { query, queryOne }): Promise<string> {
   const glEntryId = `GL-${idSuffix()}`;
-  await query(
+  await db.query(
     `INSERT INTO altax.v3_gl_entries
        (gl_entry_id, client_id, client_name, entry_date, ref, description, account, debit, credit,
         source, notes, source_system, source_record_id)
@@ -261,30 +266,47 @@ export interface PayrollGlInput {
  * Debits: Payroll Expense (gross + reimbursement) + Payroll Tax Expense (employer taxes).
  * Credits: Cash (net pay only) + Payroll Deduction Payable (if any) + Payroll Tax Payable
  * (employee withholding + employer accrual). Debits always equal credits.
+ *
+ * Two safeguards added after a batch of imported legacy paychecks turned up
+ * permanently out of balance (missing their Payroll Tax Expense debit line —
+ * see the Trial Balance "how to fix" investigation): (1) the invariant is
+ * checked BEFORE any row is written, so a bad `calc` throws instead of posting
+ * partial/unbalanced lines; (2) pass `db` (from withTransaction) so the 4-5
+ * INSERTs commit or roll back together — a mid-sequence failure can no longer
+ * leave a half-posted entry the way independent pool.query() calls could.
  */
 export async function postPayrollGl(
-  clientId: string, clientName: string, paycheckId: string, payDate: string | null, calc: PayrollGlInput
+  clientId: string, clientName: string, paycheckId: string, payDate: string | null, calc: PayrollGlInput, db: DbClient = { query, queryOne }
 ): Promise<void> {
+  const totalDebits = money(calc.gross + calc.nonTaxableReimbursement + calc.employerTaxes);
+  const totalCredits = money(calc.netPay + calc.totalDeductions + calc.employeeTaxes + calc.employerTaxes);
+  if (Math.abs(totalDebits - totalCredits) > 0.005) {
+    throw new Error(
+      `Refusing to post an unbalanced payroll GL entry for ${paycheckId}: debits ${totalDebits} vs credits ${totalCredits}. ` +
+      `This means the paycheck's own numbers don't add up (net pay + deductions + taxes should equal gross + reimbursement + employer taxes) — fix the paycheck's figures rather than the posting.`
+    );
+  }
+
   await appendGl(clientId, clientName, {
     entryDate: payDate, ref: paycheckId, description: "Payroll wages", account: "Payroll Expense",
     debit: money(calc.gross + calc.nonTaxableReimbursement), credit: 0, source: "Payroll",
-  });
+  }, db);
   await appendGl(clientId, clientName, {
     entryDate: payDate, ref: paycheckId, description: "Net pay liability/cash", account: "Cash",
     debit: 0, credit: calc.netPay, source: "Payroll",
-  });
+  }, db);
   if (calc.totalDeductions) {
     await appendGl(clientId, clientName, {
       entryDate: payDate, ref: paycheckId, description: "Employee payroll deductions payable", account: "Payroll Deduction Payable",
       debit: 0, credit: calc.totalDeductions, source: "Payroll",
-    });
+    }, db);
   }
   await appendGl(clientId, clientName, {
     entryDate: payDate, ref: paycheckId, description: "Employer payroll taxes", account: "Payroll Tax Expense",
     debit: calc.employerTaxes, credit: 0, source: "Payroll",
-  });
+  }, db);
   await appendGl(clientId, clientName, {
     entryDate: payDate, ref: paycheckId, description: "Payroll tax payable", account: "Payroll Tax Payable",
     debit: 0, credit: money(calc.employeeTaxes + calc.employerTaxes), source: "Payroll",
-  });
+  }, db);
 }

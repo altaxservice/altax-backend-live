@@ -392,6 +392,15 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const [salesTaxFilter, setSalesTaxFilter] = useState("all");
   const [payrollFilter, setPayrollFilter] = useState("all");
   const [payrollProviderFilter, setPayrollProviderFilter] = useState("all");
+  const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [period, setPeriod] = useState(() => {
+    const now = new Date();
+    return {
+      start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
+      end: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10),
+    };
+  });
   const [subject, setSubject] = useState("AL TAX SERVICE");
   const [messageEnglish, setMessageEnglish] = useState("");
   const [messageArabic, setMessageArabic] = useState("");
@@ -403,6 +412,30 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const [results, setResults] = useState<BulkResult[] | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
+  useEffect(() => {
+    api.get<{ templates: TemplateRow[] }>("/templates").then((r) => setTemplates(r.templates)).catch(() => {});
+  }, []);
+
+  // Bulk has no single client to resolve {{clientName}}/{{periodSummary}} against, so this
+  // preview intentionally shows the raw template — literal {{tokens}} stay visible (see
+  // substitutePlaceholders' fallback) as a signal they'll be personalized per recipient when
+  // actually sent (POST /communications/bulk resolves them individually for each client).
+  async function applyTemplate(name: string, periodOverride?: { start: string; end: string }) {
+    setTemplateName(name);
+    if (!name) return;
+    const p = periodOverride || period;
+    try {
+      const res = await api.get<{ template: TemplateDetail }>(
+        `/templates/${encodeURIComponent(name)}?periodStart=${p.start}&periodEnd=${p.end}`
+      );
+      setSubject(res.template.subject || "");
+      setMessageEnglish(res.template.message_english || "");
+      setMessageArabic(res.template.message_arabic || "");
+    } catch {
+      // Template couldn't be loaded; leave existing draft as-is.
+    }
+  }
+
   // Same group-category filters as Create Batch Tasks (status/sales tax/payroll/payroll
   // provider) so a bulk message can target "everyone Quarterly on Sales Tax" or "all
   // Active payroll clients" the same way batch task creation already lets staff group
@@ -412,7 +445,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return clients.filter((c) => {
+    const matches = clients.filter((c) => {
       if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
       if (salesTaxFilter !== "all" && String(c.sales_tax_frequency || "") !== salesTaxFilter) return false;
       if (payrollFilter !== "all" && String(c.payroll_frequency || "") !== payrollFilter) return false;
@@ -420,7 +453,11 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
       if (q && !c.client_name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, payrollProviderFilter]);
+    // Selected clients float to the top (stable sort keeps alphabetical order within each
+    // group) so a staff member reviewing a large selection doesn't have to hunt through an
+    // alphabetical list to confirm who's checked — same pattern as Create Batch Tasks.
+    return [...matches].sort((a, b) => Number(selected.has(b.client_id)) - Number(selected.has(a.client_id)));
+  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, payrollProviderFilter, selected]);
   const smsOptedIn = filtered.filter((c) => c.sms_allowed && c.phone);
   const emailOptedIn = filtered.filter((c) => c.email_allowed && c.email);
 
@@ -448,6 +485,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
     try {
       const res = await api.post<{ results: BulkResult[] }>("/communications/bulk", {
         clientIds: Array.from(selected), subject, messageEnglish, messageArabic, channels, sendNow,
+        templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
         attachment: attachment ? await fileToAttachment(attachment) : undefined,
       });
       setResults(res.results);
@@ -534,8 +572,29 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
           </div>
         </div>
 
+        <div className="field">
+          <label>Template</label>
+          <select value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
+            <option value="">Custom</option>
+            {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+          </select>
+        </div>
+        <div className="form-grid">
+          <div className="field">
+            <label>Period Start</label>
+            <input type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+          </div>
+          <div className="field">
+            <label>Period End</label>
+            <input type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+          </div>
+        </div>
         <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-        <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
+        <div className="field">
+          <label>English Message</label>
+          <textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} />
+          <span className="muted" style={{ fontSize: 11 }}>Tokens like {"{{clientName}}"} and {"{{periodSummary}}"} are personalized per client when sent — they stay literal here in the preview.</span>
+        </div>
         <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
         <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
@@ -584,9 +643,10 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
     if (!raw) return;
     sessionStorage.removeItem(key);
     try {
-      const handoff = JSON.parse(raw) as { subject: string; body: string; periodStart: string; periodEnd: string };
+      const handoff = JSON.parse(raw) as { subject: string; body: string; bodyArabic?: string; periodStart: string; periodEnd: string };
       setSubject(handoff.subject);
       setMessageEnglish(handoff.body);
+      setMessageArabic(handoff.bodyArabic || "");
       setPeriod({ start: handoff.periodStart, end: handoff.periodEnd });
       setTemplateName("Client Tax and Payroll Update");
     } catch {
