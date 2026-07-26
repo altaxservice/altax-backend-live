@@ -162,7 +162,18 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   margin-top: 0.15rem;
 }
 
-.nav-links { display: flex; align-items: center; gap: 1.7rem; list-style: none; margin: 0; padding: 0; }
+.nav-links {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem 1.7rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 .nav-links a {
   position: relative;
   display: inline-block;
@@ -796,17 +807,6 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   .nav-links .btn { margin: 0.8rem 0 0.3rem; justify-content: center; }
   .nav-toggle { display: block; }
   .site-header .container { position: relative; }
-}
-
-/* Between the hamburger breakpoint and ~1500px, the full nav (6 links + lang
-   toggle + 2 buttons) is too wide to also fit the "AL TAX SERVICE" wordmark
-   on one line without it crowding into the language toggle — confirmed live
-   at 1280/1366/1440px widths, all extremely common laptop resolutions. Below
-   1000px the nav collapses behind the hamburger (plenty of room for the
-   name); above ~1500px there's enough slack for both. This band hides just
-   the text and keeps the icon, which still carries the wordmark itself. */
-@media (min-width: 1000px) and (max-width: 1499px) {
-  .logo-text { display: none; }
 }
 
 @media (max-width: 640px) {
