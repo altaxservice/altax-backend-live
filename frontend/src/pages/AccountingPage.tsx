@@ -1240,7 +1240,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
             <thead><tr><th>Date</th><th>Contractor</th><th style={{ textAlign: "right" }}>Amount</th><th></th></tr></thead>
             <tbody>
               {payments.map((p) => (
-                <tr key={p.contractor_payment_id}>
+                <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} onClick={() => setViewing(p)}>
                   <td>
                     <div>{fmtDate(p.payment_date)}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{p.method}</div>
@@ -1254,7 +1254,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
                     {p.memo && <div className="muted" style={{ fontSize: 11 }}>{p.memo}</div>}
                   </td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.amount)}</td>
-                  <td style={{ display: "flex", gap: 6 }}>
+                  <td style={{ display: "flex", gap: 6 }} onClick={(ev) => ev.stopPropagation()}>
                     <button type="button" className="btn btn-sm" onClick={() => setViewing(p)}>View</button>
                     <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>
                   </td>

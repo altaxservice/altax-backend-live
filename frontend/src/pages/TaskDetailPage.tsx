@@ -9,6 +9,7 @@ import { TASK_STATUSES } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -333,7 +334,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
           {mode === "browse" ? (
             <div className="field" style={{ margin: 0, flex: "2 1 240px" }}>
               <label>Choose File</label>
-              <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+              <FileDropInput file={file} onChange={setFile} />
             </div>
           ) : (
             <div className="field" style={{ margin: 0, flex: "2 1 240px" }}><label>File Link</label><input required value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="Drive link or other URL" /></div>

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { useToast } from "../components/Toast";
 import { AddressFields } from "../components/AddressFields";
 import { formatPhoneInput } from "../utils/formatPhone";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
 
 interface FirmProfile {
   firmName: string;
@@ -23,7 +24,6 @@ const MAX_LOGO_BYTES = 1_500_000;
 
 export function FirmSettingsPage() {
   const toast = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [profile, setProfile] = useState<FirmProfile | null>(null);
   const [form, setForm] = useState({ firmName: "", street: "", city: "", state: "", zipCode: "", phone: "", email: "" });
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -66,7 +66,6 @@ export function FirmSettingsPage() {
   function handleRemoveLogo() {
     setLogoPreview(null);
     setPendingLogoDataUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -110,8 +109,8 @@ export function FirmSettingsPage() {
                 <span className="muted" style={{ fontSize: 11 }}>No logo</span>
               )}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={(e) => handleLogoFile(e.target.files?.[0] || null)} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+              <FileDropInput file={null} onChange={handleLogoFile} accept="image/png,image/jpeg,image/svg+xml" hint="PNG, JPEG, or SVG" />
               {logoPreview && <button type="button" className="btn btn-sm" onClick={handleRemoveLogo} style={{ alignSelf: "flex-start" }}>Remove Logo</button>}
             </div>
           </div>

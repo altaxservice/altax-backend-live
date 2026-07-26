@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
 
 interface SecurityUser {
   userId: string;
@@ -36,6 +38,7 @@ function fmtLockedUntil(v: string | null): string {
 }
 
 export function SecurityPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<SecurityOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,9 +71,9 @@ export function SecurityPage() {
       </div>
 
       <div className="metric-grid" style={{ marginBottom: 16 }}>
-        <div className="metric"><div className="metric-label">Active Users</div><div className="metric-value">{data.summary.activeUsers}</div><div className="metric-note">{data.summary.totalUsers} visible records</div></div>
-        <div className="metric"><div className="metric-label">Locked Accounts</div><div className="metric-value">{data.summary.lockedAccounts}</div><div className="metric-note">15 minute lock after failed sign-ins</div></div>
-        <div className="metric"><div className="metric-label">Needs Setup</div><div className="metric-value">{data.summary.needsSetup}</div><div className="metric-note">invite, reset, or password setup required</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Active Users</div><div className="metric-value">{data.summary.activeUsers}</div><div className="metric-note">{data.summary.totalUsers} visible records</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Locked Accounts</div><div className="metric-value">{data.summary.lockedAccounts}</div><div className="metric-note">15 minute lock after failed sign-ins</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Needs Setup</div><div className="metric-value">{data.summary.needsSetup}</div><div className="metric-note">invite, reset, or password setup required</div></div>
         <div className="metric"><div className="metric-label">MFA</div><div className="metric-value" style={{ fontSize: 18 }}>Required</div><div className="metric-note">Admin/Staff: authenticator app · Client/Employee: emailed code</div></div>
       </div>
 
@@ -105,7 +108,9 @@ export function SecurityPage() {
             </thead>
             <tbody>
               {data.users.map((u) => (
-                <tr key={u.userId}>
+                // Account management (reset, role, unlock) lives on Users & Access —
+                // the row takes you straight to it rather than dead-ending here.
+                <tr key={u.userId} style={{ cursor: "pointer" }} onClick={() => navigate("/users")}>
                   <td>{u.name}</td>
                   <td className="muted">{u.email}</td>
                   <td className="muted">{u.role}</td>
@@ -391,12 +396,9 @@ function RestoreControls({ onRestored }: { onRestored: () => void }) {
         <div className="card" style={{ borderColor: "var(--teal)", marginBottom: 10, fontSize: 13 }}>{result}</div>
       )}
 
-      <input
-        type="file"
-        accept="application/json,.json,.enc"
-        onChange={(e) => handlePick(e.target.files?.[0] || null)}
-        style={{ fontSize: 12.5, marginBottom: 10 }}
-      />
+      <div style={{ marginBottom: 10 }}>
+        <FileDropInput file={file} onChange={handlePick} accept="application/json,.json,.enc" />
+      </div>
 
       {preview && (
         <div className="card" style={{ marginBottom: 10, fontSize: 13 }}>

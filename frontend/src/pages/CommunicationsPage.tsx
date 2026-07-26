@@ -223,6 +223,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
   const [bulkResults, setBulkResults] = useState<{ name: string; channel: string; sent: boolean; skipped?: string; error?: string }[]>([]);
+  const [viewingMsg, setViewingMsg] = useState<Communication | null>(null);
 
   useEffect(() => {
     api.get<{ staff: StaffDirectoryEntry[] }>("/communications/staff-directory").then((r) => setStaff(r.staff)).catch(() => {});
@@ -338,12 +339,26 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         </label>
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Staff Message"}</button>
       </form>
+      {viewingMsg && (
+        <div className="card" style={{ margin: "0 16px 12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+            <div>
+              <strong>{viewingMsg.subject}</strong>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {viewingMsg.channel} · to {viewingMsg.sent_to} · {viewingMsg.sent_at ? new Date(viewingMsg.sent_at).toLocaleString() : "—"} · {viewingMsg.status}
+              </div>
+            </div>
+            <button type="button" className="btn btn-sm" onClick={() => setViewingMsg(null)}>Close</button>
+          </div>
+          <p style={{ whiteSpace: "pre-wrap", fontSize: 13, margin: "10px 0 0" }}>{viewingMsg.message_english || "(no message text saved)"}</p>
+        </div>
+      )}
       <div className="table-scroll card-table">
       <table>
         <thead><tr><th>Date/Time</th><th>Channel</th><th>Sent To</th><th>Subject</th><th>Status</th></tr></thead>
         <tbody>
           {messages.slice(0, 10).map((m) => (
-            <tr key={m.communication_id}>
+            <tr key={m.communication_id} style={{ cursor: "pointer" }} onClick={() => setViewingMsg(m)}>
               <td>{m.sent_at ? new Date(m.sent_at).toLocaleString() : "—"}</td>
               <td className="muted" data-label="Channel">{m.channel}</td>
               <td className="muted" data-label="Sent To">{m.sent_to}</td>
@@ -426,16 +441,19 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
     if (selected.size === 0) { setError("Select at least one client."); return; }
     if (channels.length === 0) { setError("Choose at least one channel."); return; }
     if (!messageEnglish.trim() && !messageArabic.trim()) { setError("Enter a message."); return; }
+    if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
     setSaving(true);
     setError(null);
     setResults(null);
     try {
       const res = await api.post<{ results: BulkResult[] }>("/communications/bulk", {
         clientIds: Array.from(selected), subject, messageEnglish, messageArabic, channels, sendNow,
+        attachment: attachment ? await fileToAttachment(attachment) : undefined,
       });
       setResults(res.results);
       setMessageEnglish("");
       setMessageArabic("");
+      setAttachment(null);
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this bulk message.");
@@ -519,6 +537,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
         <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
         <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+        <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
           <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
@@ -539,6 +558,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [phone, setPhone] = useState(client.phone || "");
   const [sendNow, setSendNow] = useState(true);
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
@@ -597,19 +617,22 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
   async function send(channelsOverride?: string[]) {
     const targetChannels = channelsOverride || channels;
     if (targetChannels.length === 0) { setError("Choose at least one channel."); return; }
+    if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
     setSaving(true);
     setError(null);
     setResults([]);
     try {
+      const attachmentPayload = attachment ? await fileToAttachment(attachment) : undefined;
       const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
       for (const channel of targetChannels) {
         const sentTo = ["SMS", "WhatsApp", "Phone"].includes(channel) ? (phone || undefined) : (client.email || undefined);
-        const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", { clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow });
+        const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", { clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow, attachment: attachmentPayload });
         outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
       }
       setResults(outcomes);
       setMessageEnglish("");
       setMessageArabic("");
+      setAttachment(null);
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save this message.");
@@ -653,6 +676,7 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
           <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
           <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
           <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+          <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
           <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />

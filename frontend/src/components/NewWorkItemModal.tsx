@@ -5,6 +5,7 @@ import type { WebOptions } from "../api/types2";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { FileDropInput } from "./FileDropInput";
 
 type Mode = "task" | "request";
 const OTHER = "Other";
@@ -336,7 +337,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
         )}
 
         <div className="form-section-title">Attachment</div>
-        <div className="field"><label>Upload Attachment</label><input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} /></div>
+        <div className="field"><label>Upload Attachment</label><FileDropInput file={file} onChange={setFile} /></div>
         <div className="form-grid">
           <div className="field"><label>Attachment Name</label><input value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} placeholder="Optional when choosing a file" /></div>
           <div className="field"><label>Attachment Link</label><input value={attachmentLink} onChange={(e) => setAttachmentLink(e.target.value)} placeholder="Google Drive or portal link" disabled={!!file} /></div>

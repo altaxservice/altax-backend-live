@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { FileDropInput } from "./FileDropInput";
 
 /**
  * Direct "drop a file into this client's Documents" flow — for the Clients page's
@@ -65,13 +66,10 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
             <button type="button" className={`btn btn-sm ${mode === "link" ? "btn-primary" : ""}`} onClick={() => setMode("link")}>Paste a link instead</button>
           </div>
           {mode === "browse" ? (
-            <>
-              <div className="field">
-                <label>Choose File</label>
-                <input type="file" required onChange={(e) => setFile(e.target.files?.[0] || null)} />
-              </div>
-              {file && <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{file.name} · {(file.size / 1024).toFixed(0)} KB</p>}
-            </>
+            <div className="field">
+              <label>Choose File</label>
+              <FileDropInput file={file} onChange={setFile} />
+            </div>
           ) : (
             <div className="field">
               <label>File Link (Drive, etc.)</label>

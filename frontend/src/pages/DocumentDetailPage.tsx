@@ -8,6 +8,7 @@ import { useToast } from "../components/Toast";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
@@ -205,13 +206,10 @@ export function DocumentDetailPage() {
             <button type="button" className={`btn btn-sm ${uploadMode === "link" ? "btn-primary" : ""}`} onClick={() => setUploadMode("link")}>Paste a link instead</button>
           </div>
           {uploadMode === "browse" ? (
-            <>
-              <div className="field">
-                <label htmlFor="f-file">Choose File</label>
-                <input id="f-file" type="file" required onChange={(e) => setFile(e.target.files?.[0] || null)} />
-              </div>
-              {file && <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{file.name} · {(file.size / 1024).toFixed(0)} KB</p>}
-            </>
+            <div className="field">
+              <label htmlFor="f-file">Choose File</label>
+              <FileDropInput file={file} onChange={setFile} />
+            </div>
           ) : (
             <div className="field">
               <label htmlFor="f-url">File Link (Drive, etc.)</label>

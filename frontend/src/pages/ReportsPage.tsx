@@ -381,10 +381,10 @@ export function ReportsPage() {
                   {firmSummary && (
                     <>
                       <div className="metric-grid" style={{ marginBottom: 20 }}>
-                        <div className="metric"><div className="metric-label">Revenue (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
-                        <div className="metric"><div className="metric-label">Expenses (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
-                        <div className="metric"><div className="metric-label">Net Profit (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
-                        <div className="metric"><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/billing")}><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
                       </div>
                       <div className="command-panel">
                         <div className="command-panel-header">
@@ -439,10 +439,10 @@ export function ReportsPage() {
               <div className="command-panel">
                 <div className="command-panel-header"><h2 className="command-panel-title">Period Snapshot</h2></div>
                 <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
-                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Sales Tax</div><div className="metric-value">{fmtMoney(salesTax)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Payroll Gross</div><div className="metric-value">{fmtMoney(payrollGross)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Net Income</div><div className="metric-value">{fmtMoney(netIncome)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">GL Entries</div><div className="metric-value">{filtered.length}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Sales Tax</div><div className="metric-value">{fmtMoney(salesTax)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)}><div className="metric-label">Payroll Gross</div><div className="metric-value">{fmtMoney(payrollGross)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Income</div><div className="metric-value">{fmtMoney(netIncome)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">GL Entries</div><div className="metric-value">{filtered.length}</div></div>
                 </div>
                 <div className="table-scroll">
                 <table>
@@ -482,10 +482,10 @@ export function ReportsPage() {
               {!salesTaxLoading && salesTaxReport && (
                 <>
                   <div className="metric-grid" style={{ marginBottom: 16 }}>
-                    <div className="metric"><div className="metric-label">Gross Sales</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.grossSales)}</div></div>
-                    <div className="metric"><div className="metric-label">Total Tax Due</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.taxDue)}</div></div>
-                    <div className="metric"><div className="metric-label">Adjustments</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.adjustments)}</div></div>
-                    <div className="metric"><div className="metric-label">Sales Recorded</div><div className="metric-value">{salesTaxReport.totals.saleCount}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Gross Sales</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.grossSales)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Total Tax Due</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.taxDue)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Adjustments</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.adjustments)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Sales Recorded</div><div className="metric-value">{salesTaxReport.totals.saleCount}</div></div>
                   </div>
 
                   <div className="command-panel" style={{ marginBottom: 16 }}>
@@ -558,12 +558,12 @@ export function ReportsPage() {
           {!payrollLoading && tab === "Payroll" && (
             <>
               <div className="metric-grid" style={{ marginBottom: 16 }}>
-                <div className="metric"><div className="metric-label">Gross Wages</div><div className="metric-value">{fmtMoney(payrollGrossWages)}</div></div>
-                <div className="metric"><div className="metric-label">Checks</div><div className="metric-value">{filteredPaychecks.length}</div></div>
-                <div className="metric"><div className="metric-label">Employee Taxes</div><div className="metric-value">{fmtMoney(payrollEmployeeTaxes)}</div></div>
-                <div className="metric"><div className="metric-label">Employer Taxes</div><div className="metric-value">{fmtMoney(payrollEmployerTaxes)}</div></div>
-                <div className="metric"><div className="metric-label">Net Pay</div><div className="metric-value">{fmtMoney(payrollNetPay)}</div></div>
-                <div className="metric"><div className="metric-label">Total Payroll Cost</div><div className="metric-value">{fmtMoney(payrollTotalCost)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)}><div className="metric-label">Gross Wages</div><div className="metric-value">{fmtMoney(payrollGrossWages)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Checks</div><div className="metric-value">{filteredPaychecks.length}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Employee Taxes</div><div className="metric-value">{fmtMoney(payrollEmployeeTaxes)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Employer Taxes</div><div className="metric-value">{fmtMoney(payrollEmployerTaxes)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Net Pay</div><div className="metric-value">{fmtMoney(payrollNetPay)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Total Payroll Cost</div><div className="metric-value">{fmtMoney(payrollTotalCost)}</div></div>
               </div>
               <div className="command-panel" style={{ marginBottom: 16 }}>
                 <div className="command-panel-header"><h2 className="command-panel-title">Payroll Tax Summary</h2><div className="command-panel-note">{from} – {to}</div></div>
