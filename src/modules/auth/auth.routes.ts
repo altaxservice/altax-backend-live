@@ -41,6 +41,27 @@ function isError(result: AuthSuccess | AuthError): result is AuthError {
   return (result as AuthError).error !== undefined;
 }
 
+/**
+ * Which portals must have two-factor authentication.
+ *
+ * Configurable per role so the requirement can be tightened or relaxed without
+ * a code change — the office should never have to wait for a deploy to unblock
+ * a login. Defaults to all four portals; setting REQUIRE_2FA_ROLES to an empty
+ * string makes 2FA optional everywhere, which is the emergency off switch.
+ *
+ * Note this only governs whether an account is FORCED to enroll. An account
+ * that already has 2FA on is always challenged for a code regardless of this
+ * setting — relaxing the policy must never silently downgrade someone who is
+ * already protected.
+ */
+function rolesRequiring2fa(): Set<string> {
+  const raw = process.env.REQUIRE_2FA_ROLES;
+  const value = raw === undefined ? "admin,staff,client,employee" : raw;
+  return new Set(
+    value.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean)
+  );
+}
+
 function issueSessionToken(result: AuthSuccess): string {
   return jwt.sign(
     {
@@ -83,16 +104,23 @@ authRouter.post("/login", asyncHandler(async (req: Request, res: Response) => {
     return res.json({ totpRequired: true, challenge });
   }
 
-  // 2FA is MANDATORY on every portal. A correct password alone never yields a
-  // session token: a user without an authenticator gets an enrollment challenge
-  // instead and must finish setup before they can reach anything. This is the
-  // only path that creates the first authenticator for an account.
-  const enrollment = jwt.sign(
-    { sub: result.userId, purpose: "2fa-enroll" },
-    process.env.JWT_SECRET as string,
-    { expiresIn: "15m" }
-  );
-  return res.json({ enrollmentRequired: true, challenge: enrollment, email: result.email });
+  // No authenticator yet. On a portal that requires 2FA, a correct password
+  // alone does NOT yield a session token — the user gets an enrollment
+  // challenge and must finish setup first. This is the only path that creates
+  // the first authenticator for an account.
+  if (rolesRequiring2fa().has(String(result.role || "").toLowerCase())) {
+    const enrollment = jwt.sign(
+      { sub: result.userId, purpose: "2fa-enroll" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "15m" }
+    );
+    return res.json({ enrollmentRequired: true, challenge: enrollment, email: result.email });
+  }
+
+  // Portal not covered by the policy: sign in as normal. Such a user can still
+  // turn 2FA on voluntarily from the header menu.
+  const token = issueSessionToken(result);
+  return res.json({ token, user: result });
 }));
 
 /** Resolves a purpose-scoped challenge token to a user id, or null. */
@@ -326,17 +354,42 @@ authRouter.post("/2fa/backup-codes/regenerate", requireAuth, asyncHandler(async 
 }));
 
 /**
- * Self-service disable is gone: 2FA is mandatory on every portal, so letting a
- * user switch it off would just re-open the hole. A lost or replaced phone is
- * handled by an admin reset (POST /users/:userId/2fa/reset), which forces fresh
- * enrollment at the user's next sign-in instead of leaving the account bare.
+ * Turn 2FA off — refused on any portal the policy covers, since allowing it
+ * there would just re-open the hole the requirement closes. On those portals a
+ * lost phone is handled by a recovery code, or an admin reset
+ * (POST /users/:userId/2fa/reset) which forces fresh enrollment at the next
+ * sign-in rather than leaving the account bare.
  */
 authRouter.post("/2fa/disable", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  await logAudit("Security", "2FA_DISABLE_REFUSED", req.user!.sub, "", "", "",
-    "Attempt to disable mandatory two-factor authentication.", req.user!.email);
-  return res.status(403).json({
-    error: "Two-factor authentication is required for all portals and cannot be turned off. If you replaced your phone, ask an admin to reset your 2FA so you can set it up again.",
-  });
+  const role = String(req.user!.role || "").toLowerCase();
+  if (rolesRequiring2fa().has(role)) {
+    await logAudit("Security", "2FA_DISABLE_REFUSED", req.user!.sub, "", "", "",
+      "Attempt to disable required two-factor authentication.", req.user!.email);
+    return res.status(403).json({
+      error: "Two-factor authentication is required on this portal and cannot be turned off. If you replaced your phone, use a recovery code or ask an admin to reset your 2FA.",
+    });
+  }
+
+  const code = String(req.body?.code || "").trim();
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT totp_secret, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
+    const row = rows[0];
+    if (!row?.totp_enabled) return res.status(400).json({ error: "Two-factor authentication is not enabled." });
+    if (!code || !(await verifyTotpCode(row.totp_secret, code))) {
+      return res.status(401).json({ error: "Enter a current authenticator code to turn 2FA off." });
+    }
+
+    await client.query(
+      `UPDATE altax.v3_users SET totp_enabled = FALSE, totp_secret = NULL, totp_backup_codes = '[]'::jsonb WHERE user_id = $1`,
+      [req.user!.sub]
+    );
+    await logAudit("Security", "2FA_DISABLED", req.user!.sub, "TOTPEnabled", "true", "false",
+      "Two-factor authentication turned off by the user (portal not covered by the 2FA policy).", req.user!.email);
+    return res.json({ ok: true });
+  } finally {
+    client.release();
+  }
 }));
 
 /**
