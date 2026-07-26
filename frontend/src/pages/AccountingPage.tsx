@@ -508,6 +508,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [showBatch, setShowBatch] = useState(false);
   const [form, setForm] = useState(EMPTY_PAYROLL_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -759,6 +760,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>
+            <button type="button" className="btn btn-sm" onClick={() => setShowBatch(true)}>+ Batch Create</button>
           </div>
         }
       >
@@ -851,6 +853,254 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
         </div>
         {paychecksInPeriod.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
       </Panel>
+      {showBatch && (
+        <BatchPayrollModal
+          clientId={clientId}
+          employees={employees}
+          onClose={() => setShowBatch(false)}
+          onDone={load}
+        />
+      )}
+    </div>
+  );
+}
+
+interface BatchPayrollRow {
+  key: string; employee: string; payDate: string; payPeriodStart: string; payPeriodEnd: string;
+  regularHours: string; regularRate: string; grossWages: string;
+}
+type BatchPayrollResult = { ok: true; paycheckId: string; netPay: number } | { ok: false; error: string };
+
+let batchRowSeq = 0;
+function newBatchRow(employee: string, payDate: string, employees: Employee[]): BatchPayrollRow {
+  const emp = employees.find((e) => e.employee_name === employee);
+  return {
+    key: `row-${++batchRowSeq}`, employee, payDate, payPeriodStart: "", payPeriodEnd: "",
+    regularHours: emp?.default_hours ? String(emp.default_hours) : "",
+    regularRate: emp?.pay_rate ? String(emp.pay_rate) : "",
+    grossWages: emp?.default_gross_wages ? String(emp.default_gross_wages) : "",
+  };
+}
+
+/**
+ * Two ways into the same batch grid: pick several employees (one row each, same pay
+ * date to start) for a normal payroll run, or pick one employee and add several period
+ * rows (different pay dates) for catch-up/back pay. Either way every row stays
+ * independently editable before submit — real payroll runs rarely have every employee
+ * on identical hours. Each row is created via the same createSinglePaycheck the single
+ * form uses (POST /accounting/payroll/batch), independently — one bad row doesn't block
+ * the rest, and results are shown per row instead of an all-or-nothing outcome.
+ */
+function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId: string; employees: Employee[]; onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<"employees" | "periods">("employees");
+  const [sharedPayDate, setSharedPayDate] = useState("");
+  const [periodsEmployee, setPeriodsEmployee] = useState("");
+  const [rows, setRows] = useState<BatchPayrollRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, BatchPayrollResult> | null>(null);
+
+  const activeEmployees = employees.filter((e) => !String(e.worker_type || "").toLowerCase().includes("contractor"));
+  const selectedNames = new Set(mode === "employees" ? rows.map((r) => r.employee) : []);
+
+  function toggleEmployee(name: string) {
+    setResults(null);
+    if (selectedNames.has(name)) {
+      setRows((prev) => prev.filter((r) => r.employee !== name));
+    } else {
+      setRows((prev) => [...prev, newBatchRow(name, sharedPayDate, employees)]);
+    }
+  }
+
+  function applySharedPayDate(value: string) {
+    setSharedPayDate(value);
+    setRows((prev) => prev.map((r) => ({ ...r, payDate: value })));
+  }
+
+  function addPeriodRow() {
+    if (!periodsEmployee) return;
+    setResults(null);
+    const last = rows[rows.length - 1];
+    const row = newBatchRow(periodsEmployee, "", employees);
+    if (last) { row.regularHours = last.regularHours; row.regularRate = last.regularRate; row.grossWages = last.grossWages; }
+    setRows((prev) => [...prev, row]);
+  }
+
+  function changeMode(next: "employees" | "periods") {
+    setMode(next);
+    setRows([]);
+    setResults(null);
+  }
+
+  function changePeriodsEmployee(name: string) {
+    setPeriodsEmployee(name);
+    setRows((prev) => prev.map((r) => ({ ...r, employee: name })));
+  }
+
+  function updateRow(key: string, patch: Partial<BatchPayrollRow>) {
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setResults(null);
+  }
+
+  function removeRow(key: string) {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+    setResults(null);
+  }
+
+  const canSubmit = rows.length > 0 && rows.every((r) => r.employee && r.payDate);
+
+  async function handleSubmit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.post<{ ok: boolean; succeeded: number; failed: number; results: any[] }>("/accounting/payroll/batch", {
+        clientId,
+        items: rows.map((r) => ({
+          employee: r.employee, payDate: r.payDate,
+          payPeriodStart: r.payPeriodStart || undefined, payPeriodEnd: r.payPeriodEnd || undefined,
+          regularHours: r.regularHours || undefined, regularRate: r.regularRate || undefined,
+          grossWages: r.grossWages || undefined,
+        })),
+      });
+      const byIndex: Record<string, BatchPayrollResult> = {};
+      res.results.forEach((r, i) => {
+        byIndex[rows[i].key] = r.ok ? { ok: true, paycheckId: r.paycheckId, netPay: Number(r.netPay) || 0 } : { ok: false, error: r.error };
+      });
+      setResults(byIndex);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not run this batch.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const succeededCount = results ? Object.values(results).filter((r) => r.ok).length : 0;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Batch Create Paychecks</h2>
+          <button className="btn btn-sm" onClick={onClose}>Close</button>
+        </div>
+        {error && <ErrorBanner error={error} />}
+
+        {!results && (
+          <>
+            <div className="btn-group" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden", marginBottom: 14, width: "fit-content" }}>
+              <button type="button" className="btn btn-sm" style={mode === "employees" ? { background: "var(--teal)", color: "#fff", border: "none", borderRadius: 0 } : { border: "none", borderRadius: 0 }} onClick={() => changeMode("employees")}>
+                Multiple Employees
+              </button>
+              <button type="button" className="btn btn-sm" style={mode === "periods" ? { background: "var(--teal)", color: "#fff", border: "none", borderRadius: 0 } : { border: "none", borderRadius: 0 }} onClick={() => changeMode("periods")}>
+                One Employee, Multiple Periods
+              </button>
+            </div>
+
+            {mode === "employees" ? (
+              <>
+                <div className="field"><label>Pay Date (applies to newly checked employees, still editable per row)</label><input type="date" value={sharedPayDate} onChange={(e) => applySharedPayDate(e.target.value)} /></div>
+                <div className="form-section-title">Employees</div>
+                <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 14 }}>
+                  {activeEmployees.map((e) => (
+                    <label key={e.employee_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)", fontSize: 12.5, cursor: "pointer" }}>
+                      <input type="checkbox" checked={selectedNames.has(e.employee_name)} onChange={() => toggleEmployee(e.employee_name)} />
+                      <div style={{ flex: 1 }}>{e.employee_name}</div>
+                    </label>
+                  ))}
+                  {activeEmployees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No active employees on this client yet.</p>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label>Employee</label>
+                  <select value={periodsEmployee} onChange={(e) => changePeriodsEmployee(e.target.value)}>
+                    <option value="">Select an employee…</option>
+                    {activeEmployees.map((e) => <option key={e.employee_id} value={e.employee_name}>{e.employee_name}</option>)}
+                  </select>
+                </div>
+                <button type="button" className="btn btn-sm" disabled={!periodsEmployee} onClick={addPeriodRow} style={{ marginBottom: 14 }}>+ Add Period</button>
+              </>
+            )}
+
+            {rows.length > 0 && (
+              <div className="table-scroll" style={{ marginBottom: 14 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      {mode === "employees" ? <th>Employee</th> : <th>Pay Date</th>}
+                      {mode === "employees" && <th>Pay Date</th>}
+                      <th>Regular Hours</th><th>Regular Rate</th><th>Or Gross Wages</th><th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.key}>
+                        {mode === "employees" ? <td>{r.employee}</td> : (
+                          <td><input type="date" value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
+                        )}
+                        {mode === "employees" && (
+                          <td><input type="date" value={r.payDate} onChange={(e) => updateRow(r.key, { payDate: e.target.value })} style={{ width: 130 }} /></td>
+                        )}
+                        <td><input type="number" step="0.01" value={r.regularHours} onChange={(e) => updateRow(r.key, { regularHours: e.target.value })} style={{ width: 80 }} /></td>
+                        <td><input type="number" step="0.01" value={r.regularRate} onChange={(e) => updateRow(r.key, { regularRate: e.target.value })} style={{ width: 80 }} /></td>
+                        <td><input type="number" step="0.01" value={r.grossWages} onChange={(e) => updateRow(r.key, { grossWages: e.target.value })} style={{ width: 90 }} /></td>
+                        <td>
+                          {mode === "periods"
+                            ? <button type="button" className="btn btn-sm" onClick={() => removeRow(r.key)}>✕</button>
+                            : <button type="button" className="btn btn-sm" onClick={() => toggleEmployee(r.employee)}>✕</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              {rows.length === 0
+                ? "Pick employees (or add periods) above to build the batch."
+                : `${rows.length} paycheck(s) ready. Each row needs its own Pay Date. Taxes are calculated the same way as a single paycheck — leave Hours/Rate/Gross blank to record a zero-wage entry.`}
+            </p>
+          </>
+        )}
+
+        {results && (
+          <>
+            <p style={{ fontWeight: 700, marginBottom: 10 }}>{succeededCount} of {rows.length} paycheck(s) created.</p>
+            <div className="table-scroll" style={{ marginBottom: 14 }}>
+              <table>
+                <thead><tr><th>Employee</th><th>Pay Date</th><th>Result</th></tr></thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const res = results[r.key];
+                    return (
+                      <tr key={r.key}>
+                        <td>{r.employee}</td>
+                        <td>{r.payDate}</td>
+                        <td>{res?.ok ? <span style={{ color: "var(--teal)" }}>Created — net {fmtMoney(res.netPay)}</span> : <span style={{ color: "var(--danger, #b91c1c)" }}>{res?.error || "Failed"}</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          {results ? (
+            <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
+          ) : (
+            <>
+              <button type="button" className="btn" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={!canSubmit || busy} onClick={handleSubmit}>
+                {busy ? "Creating…" : `Create ${rows.length} Paycheck${rows.length === 1 ? "" : "s"}`}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

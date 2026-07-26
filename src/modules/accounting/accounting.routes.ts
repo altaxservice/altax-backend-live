@@ -772,6 +772,116 @@ accountingRouter.post("/payroll/preview", requireAuth, requireRole("admin", "sta
   res.json(calc);
 }));
 
+type PaycheckCreationResult =
+  | { ok: true; payrollInputId: string; paycheckId: string; gross: number; netPay: number; employeeTaxes: number; employerTaxes: number }
+  | { ok: false; error: string };
+
+/**
+ * The full validate-calculate-post-atomically flow for one paycheck — shared by the
+ * single POST /payroll route and POST /payroll/batch below, so a batch run is
+ * literally N calls to the exact same logic a single create already uses (same tax
+ * calculation, same GL atomicity, same employee/contractor guards), not a parallel
+ * reimplementation. Returns a result object rather than throwing/responding directly,
+ * so the batch route can continue past one failed row and report per-row outcomes
+ * instead of one bad row aborting an entire payroll run.
+ */
+async function createSinglePaycheck(
+  client: { client_id: string; client_name: string; state: string },
+  employeeName: string, body: any, userEmail: string
+): Promise<PaycheckCreationResult> {
+  if (!employeeName) return { ok: false, error: "Employee name is required." };
+
+  const employee = await queryOne<any>(
+    `SELECT * FROM altax.v3_employees WHERE client_id = $1 AND lower(employee_name) = lower($2)`,
+    [client.client_id, employeeName]
+  );
+  if (!employee) return { ok: false, error: "Payroll requires an active employee profile. Use the Contractors/1099 workflow for contractors." };
+  const employeeStatus = String(employee.status || "Active").trim().toLowerCase();
+  if (["inactive", "archived", "deleted", "no", "false"].includes(employeeStatus)) {
+    return { ok: false, error: "This worker is not active for payroll." };
+  }
+  const workerSignal = [employee.worker_type, employee.form_type, body.payType].join(" ").toLowerCase();
+  if (workerSignal.includes("contractor") || workerSignal.includes("1099")) {
+    return { ok: false, error: "Contractors cannot be paid through payroll. Use the Contractors/1099 workflow instead." };
+  }
+
+  try {
+    const calc = await calculatePaycheck(client.client_id, employeeName, employee, body, client.state);
+    const {
+      regularHours, regularRate, regularPay, gross, payDate,
+      overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay, otherTaxablePay, nonTaxableReimbursement,
+      preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
+      totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions,
+      federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+      federal, state, ssEe, medEe, ssEr, medEr, futa, suta,
+      employeeTaxes, employerTaxes, netPay, totalCost,
+    } = calc;
+
+    const payrollInputId = `PAYIN-${idSuffix()}`;
+    const paycheckId = `CHK-${idSuffix()}`;
+    const checkNumber = String(body.checkNumber || "").trim() || await nextCheckNumber(client.client_id);
+    const payType = String(body.payType || employee.pay_type || "").trim() || null;
+    const paymentMethod = await resolvePaymentMethod(client.client_id, "payroll", body.paymentMethodId);
+
+    // The payroll_input audit row, the paycheck row, and its 4-5 GL lines are one unit —
+    // withTransaction means a failure anywhere in here (including postPayrollGl's own
+    // balance check) rolls back everything instead of leaving an orphaned paycheck with
+    // no GL postings, or vice versa.
+    await withTransaction(async (db) => {
+      await db.query(
+        `INSERT INTO altax.v3_payroll_input
+           (payroll_input_id, client_id, client_name, pay_date, employee, gross_wages, federal_withholding,
+            state_tax, notes, source_system, source_record_id, pay_period_start, pay_period_end, check_number,
+            hours, rate, pay_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1,$10,$11,$12,$13,$14,$15)`,
+        [payrollInputId, client.client_id, client.client_name, payDate, employeeName, gross, federal, state,
+          String(body.notes || "").trim() || null, String(body.payPeriodStart || "").trim() || null,
+          String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType]
+      );
+
+      await db.query(
+        `INSERT INTO altax.v3_paychecks
+           (paycheck_id, client_id, client_name, pay_date, employee, gross_wages, social_security_ee, medicare_ee,
+            federal_withholding, state_tax, employee_taxes, net_pay, social_security_er, medicare_er, futa, suta,
+            employer_taxes, total_cost, status, source_system, source_record_id, pay_period_start, pay_period_end,
+            check_number, hours, rate, pay_type, employee_ssn, employee_address,
+            federal_taxable_wages, social_security_wages, medicare_wages, state_taxable_wages,
+            payment_method_id, payment_method, payment_bank_name, payment_routing_number, payment_account_number,
+            payment_account_type, payment_bank_last4,
+            regular_hours, regular_rate, regular_pay, overtime_hours, overtime_rate, overtime_pay,
+            bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
+            pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
+            total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Created','Node Web App',$1,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,
+                 $38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)`,
+        [paycheckId, client.client_id, client.client_name, payDate, employeeName, gross, ssEe, medEe, federal, state,
+          employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
+          String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
+          checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
+          federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+          paymentMethod?.paymentMethodId || null, paymentMethod?.methodName || null, paymentMethod?.bankName || null,
+          paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null, paymentMethod?.accountType || null,
+          paymentMethod?.bankLast4 || null,
+          regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
+          bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
+          preTaxRetirement || null, preTaxHealth || null, preTaxHsaFsa || null, postTaxDeduction || null, garnishment || null, otherDeduction || null,
+          totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null]
+      );
+
+      await postPayrollGl(client.client_id, client.client_name, paycheckId, payDate, {
+        gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
+      }, db);
+    });
+
+    await logAudit("Accounting", "CREATE_PAYROLL", payrollInputId, "", "", String(gross),
+      `Payroll recorded by ${userEmail}.`, userEmail);
+
+    return { ok: true, payrollInputId, paycheckId, gross, netPay, employeeTaxes, employerTaxes };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Could not create this paycheck." };
+  }
+}
+
 accountingRouter.post("/payroll", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const clientId = String(body.clientId || "").trim();
@@ -782,98 +892,46 @@ accountingRouter.post("/payroll", requireAuth, requireRole("admin", "staff"), as
   const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: "Client not found." });
 
-  const employeeName = String(body.employee || "").trim();
-  if (!employeeName) return res.status(400).json({ error: "Employee name is required." });
+  const result = await createSinglePaycheck(client, String(body.employee || "").trim(), body, req.user!.email);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.status(201).json(result);
+}));
 
-  const employee = await queryOne<any>(
-    `SELECT * FROM altax.v3_employees WHERE client_id = $1 AND lower(employee_name) = lower($2)`,
-    [clientId, employeeName]
-  );
-  if (!employee) return res.status(400).json({ error: "Payroll requires an active employee profile. Use the Contractors/1099 workflow for contractors." });
-  const employeeStatus = String(employee.status || "Active").trim().toLowerCase();
-  if (["inactive", "archived", "deleted", "no", "false"].includes(employeeStatus)) {
-    return res.status(400).json({ error: "This worker is not active for payroll." });
+/**
+ * Batch payroll run — either several employees for the same pay date, or one employee
+ * across several pay dates/periods (catch-up back pay). Each item is created via the
+ * exact same createSinglePaycheck as a single create, independently: one bad row (e.g.
+ * a typo'd employee name) doesn't block the rest of the batch, matching how bulk
+ * messaging elsewhere in this app works. Results are returned per-row so the caller can
+ * show exactly which paychecks were created and which failed and why.
+ */
+accountingRouter.post("/payroll/batch", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const workerSignal = [employee.worker_type, employee.form_type, body.payType].join(" ").toLowerCase();
-  if (workerSignal.includes("contractor") || workerSignal.includes("1099")) {
-    return res.status(400).json({ error: "Contractors cannot be paid through payroll. Use the Contractors/1099 workflow instead." });
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const items: any[] = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) return res.status(400).json({ error: "At least one paycheck is required." });
+  if (items.length > 200) return res.status(400).json({ error: "Batches are limited to 200 paychecks at a time." });
+
+  const results: ({ index: number; employee: string } & PaycheckCreationResult)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] || {};
+    const employeeName = String(item.employee || "").trim();
+    const result = await createSinglePaycheck(client, employeeName, item, req.user!.email);
+    results.push({ index: i, employee: employeeName, ...result });
   }
 
-  const calc = await calculatePaycheck(clientId, employeeName, employee, body, client.state);
-  const {
-    regularHours, regularRate, regularPay, gross, payDate,
-    overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay, otherTaxablePay, nonTaxableReimbursement,
-    preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
-    totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions,
-    federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
-    federal, state, ssEe, medEe, ssEr, medEr, futa, suta,
-    employeeTaxes, employerTaxes, netPay, totalCost,
-  } = calc;
+  const succeeded = results.filter((r) => r.ok).length;
+  await logAudit("Accounting", "CREATE_PAYROLL_BATCH", clientId, "", "", `${succeeded}/${items.length}`,
+    `Batch payroll: ${succeeded}/${items.length} paychecks created by ${req.user!.email}.`, req.user!.email);
 
-  const payrollInputId = `PAYIN-${idSuffix()}`;
-  const paycheckId = `CHK-${idSuffix()}`;
-  const checkNumber = String(body.checkNumber || "").trim() || await nextCheckNumber(clientId);
-  const payType = String(body.payType || employee.pay_type || "").trim() || null;
-  const paymentMethod = await resolvePaymentMethod(clientId, "payroll", body.paymentMethodId);
-  const common = [
-    payDate, employeeName, gross, String(body.payPeriodStart || "").trim() || null,
-    String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType,
-  ];
-
-  // The payroll_input audit row, the paycheck row, and its 4-5 GL lines are one unit —
-  // withTransaction means a failure anywhere in here (including postPayrollGl's own
-  // balance check) rolls back everything instead of leaving an orphaned paycheck with
-  // no GL postings, or vice versa.
-  await withTransaction(async (db) => {
-    await db.query(
-      `INSERT INTO altax.v3_payroll_input
-         (payroll_input_id, client_id, client_name, pay_date, employee, gross_wages, federal_withholding,
-          state_tax, notes, source_system, source_record_id, pay_period_start, pay_period_end, check_number,
-          hours, rate, pay_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1,$10,$11,$12,$13,$14,$15)`,
-      [payrollInputId, client.client_id, client.client_name, payDate, employeeName, gross, federal, state,
-        String(body.notes || "").trim() || null, String(body.payPeriodStart || "").trim() || null,
-        String(body.payPeriodEnd || "").trim() || null, checkNumber, regularHours, regularRate, payType]
-    );
-
-    await db.query(
-      `INSERT INTO altax.v3_paychecks
-         (paycheck_id, client_id, client_name, pay_date, employee, gross_wages, social_security_ee, medicare_ee,
-          federal_withholding, state_tax, employee_taxes, net_pay, social_security_er, medicare_er, futa, suta,
-          employer_taxes, total_cost, status, source_system, source_record_id, pay_period_start, pay_period_end,
-          check_number, hours, rate, pay_type, employee_ssn, employee_address,
-          federal_taxable_wages, social_security_wages, medicare_wages, state_taxable_wages,
-          payment_method_id, payment_method, payment_bank_name, payment_routing_number, payment_account_number,
-          payment_account_type, payment_bank_last4,
-          regular_hours, regular_rate, regular_pay, overtime_hours, overtime_rate, overtime_pay,
-          bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
-          pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
-          total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Created','Node Web App',$1,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,
-               $38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)`,
-      [paycheckId, client.client_id, client.client_name, payDate, employeeName, gross, ssEe, medEe, federal, state,
-        employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
-        String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
-        checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
-        federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
-        paymentMethod?.paymentMethodId || null, paymentMethod?.methodName || null, paymentMethod?.bankName || null,
-        paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null, paymentMethod?.accountType || null,
-        paymentMethod?.bankLast4 || null,
-        regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
-        bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
-        preTaxRetirement || null, preTaxHealth || null, preTaxHsaFsa || null, postTaxDeduction || null, garnishment || null, otherDeduction || null,
-        totalPreTaxDeductions || null, totalPostTaxDeductions || null, totalDeductions || null]
-    );
-
-    await postPayrollGl(client.client_id, client.client_name, paycheckId, payDate, {
-      gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
-    }, db);
-  });
-
-  await logAudit("Accounting", "CREATE_PAYROLL", payrollInputId, "", "", String(gross),
-    `Payroll recorded by ${req.user!.email}.`, req.user!.email);
-
-  res.status(201).json({ ok: true, payrollInputId, paycheckId, gross, netPay, employeeTaxes, employerTaxes });
+  res.status(succeeded > 0 ? 201 : 400).json({ ok: succeeded > 0, succeeded, failed: items.length - succeeded, results });
 }));
 
 /**
