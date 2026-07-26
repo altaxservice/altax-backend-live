@@ -38,7 +38,31 @@ const app = express();
 // e-signature audit trail (see publicContract.routes.ts POST /:token/sign).
 app.set("trust proxy", true);
 app.use(helmet());
-app.use(cors());
+
+// The app is same-origin in production (marketing site, portals, and API all served
+// from altaxgroup.com by this one process) — cross-origin requests should only ever
+// come from local dev (frontend on :5173 hitting this backend on :4000) or the
+// Railway-assigned subdomain during the window before the custom domain was live.
+// Default cors() reflects any origin; an explicit allow-list closes that off without
+// breaking the one legitimate cross-origin case (dev).
+const ALLOWED_ORIGINS = new Set([
+  "https://altaxgroup.com",
+  "https://www.altaxgroup.com",
+  "http://localhost:5173",
+  "http://localhost:4000",
+]);
+app.use(cors({
+  origin(origin, callback) {
+    // No Origin header (same-origin requests, curl, server-to-server) — allow.
+    if (!origin || ALLOWED_ORIGINS.has(origin)) return callback(null, true);
+    try {
+      if (/\.up\.railway\.app$/.test(new URL(origin).hostname)) return callback(null, true);
+    } catch {
+      // Malformed Origin header — fall through to rejection below.
+    }
+    callback(new Error("Not allowed by CORS"));
+  },
+}));
 app.use(express.json({ limit: "12mb" })); // covers base64-encoded file uploads (see documents.routes.ts POST /uploads) up to ~8MB raw
 
 app.get("/health", (_req, res) => res.json({ ok: true, phase: "0-foundation" }));
