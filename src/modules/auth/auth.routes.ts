@@ -7,7 +7,10 @@ import { requireAuth, AuthedRequest } from "../../common/requireAuth";
 import { verifyPassword, createPasswordHashFields } from "./password";
 import { pool } from "../../config/db";
 import { logAudit } from "../../common/audit";
-import { generateTotpSecret, verifyTotpCode, totpQrCodeDataUrl } from "./totp";
+import {
+  generateTotpSecret, verifyTotpCode, totpQrCodeDataUrl,
+  generateBackupCodes, hashBackupCodes, consumeBackupCode,
+} from "./totp";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 
 export const authRouter = Router();
@@ -148,7 +151,13 @@ authRouter.post("/enroll/2fa/confirm", asyncHandler(async (req: Request, res: Re
       return res.status(401).json({ error: "Incorrect code. Check your authenticator app and try again." });
     }
 
-    await client.query(`UPDATE altax.v3_users SET totp_enabled = TRUE WHERE user_id = $1`, [userId]);
+    // Recovery codes are issued at the same moment 2FA is switched on, so an
+    // account is never protected by a single device with no way back in.
+    const backupCodes = generateBackupCodes();
+    await client.query(
+      `UPDATE altax.v3_users SET totp_enabled = TRUE, totp_backup_codes = $2::jsonb WHERE user_id = $1`,
+      [userId, JSON.stringify(hashBackupCodes(backupCodes))]
+    );
     const result = await buildAuthSuccess(client, { ...row, totp_enabled: true });
     if (isError(result)) return res.status(401).json({ error: result.error });
 
@@ -157,7 +166,8 @@ authRouter.post("/enroll/2fa/confirm", asyncHandler(async (req: Request, res: Re
       "Two-factor authentication enrolled (mandatory enrollment at sign-in).", row.email);
 
     const token = issueSessionToken(result);
-    return res.json({ token, user: result });
+    // The only time these are ever returned in plaintext — the DB holds hashes.
+    return res.json({ token, user: result, backupCodes });
   } finally {
     client.release();
   }
@@ -189,16 +199,42 @@ authRouter.post("/login/verify-totp", asyncHandler(async (req: Request, res: Res
     if (!row || !row.totp_enabled || !row.totp_secret) {
       return res.status(401).json({ error: "Invalid login session." });
     }
+    // Either a live authenticator code OR one single-use recovery code. The
+    // recovery path exists so a lost phone is an inconvenience, not a lockout.
+    let usedBackupCode = false;
+    let remainingBackupCodes: string[] | null = null;
     if (!(await verifyTotpCode(row.totp_secret, String(code).trim()))) {
-      return res.status(401).json({ error: "Incorrect authenticator code." });
+      remainingBackupCodes = consumeBackupCode(row.totp_backup_codes, String(code));
+      if (remainingBackupCodes === null) {
+        return res.status(401).json({ error: "Incorrect authenticator code. You can also enter one of your recovery codes." });
+      }
+      usedBackupCode = true;
     }
 
     const result = await buildAuthSuccess(client, row);
     if (isError(result)) return res.status(401).json({ error: result.error });
 
-    await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [row.user_id]);
+    if (usedBackupCode) {
+      // Burn it in the same update that grants the session, so a code can never
+      // be replayed even if two logins race.
+      await client.query(
+        `UPDATE altax.v3_users SET last_login = now(), totp_backup_codes = $2::jsonb WHERE user_id = $1`,
+        [row.user_id, JSON.stringify(remainingBackupCodes)]
+      );
+      await logAudit("Security", "2FA_BACKUP_CODE_USED", row.user_id, "BackupCodes",
+        String((remainingBackupCodes as string[]).length + 1), String((remainingBackupCodes as string[]).length),
+        `Signed in with a recovery code; ${(remainingBackupCodes as string[]).length} left.`, row.email);
+    } else {
+      await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [row.user_id]);
+    }
+
     const token = issueSessionToken(result);
-    return res.json({ token, user: result });
+    return res.json({
+      token,
+      user: result,
+      usedBackupCode,
+      backupCodesRemaining: usedBackupCode ? (remainingBackupCodes as string[]).length : undefined,
+    });
   } finally {
     client.release();
   }
@@ -239,6 +275,51 @@ authRouter.post("/2fa/confirm", requireAuth, asyncHandler(async (req: AuthedRequ
     await client.query(`UPDATE altax.v3_users SET totp_enabled = TRUE WHERE user_id = $1`, [req.user!.sub]);
     await logAudit("Security", "2FA_ENABLED", req.user!.sub, "TOTPEnabled", "false", "true", "Two-factor authentication enabled.", req.user!.email);
     return res.json({ ok: true });
+  } finally {
+    client.release();
+  }
+}));
+
+/** How many recovery codes the signed-in user has left. Never returns the codes themselves. */
+authRouter.get("/2fa/backup-codes", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT totp_backup_codes, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
+    const stored = rows[0]?.totp_backup_codes;
+    return res.json({
+      totpEnabled: Boolean(rows[0]?.totp_enabled),
+      remaining: Array.isArray(stored) ? stored.length : 0,
+    });
+  } finally {
+    client.release();
+  }
+}));
+
+/**
+ * Issue a fresh set of recovery codes, invalidating the old ones. Requires a
+ * current authenticator code: without that, anyone who walked up to an unlocked
+ * screen could mint themselves a permanent way back into the account.
+ */
+authRouter.post("/2fa/backup-codes/regenerate", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const code = String(req.body?.code || "").trim();
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT totp_secret, totp_enabled, email FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
+    const row = rows[0];
+    if (!row?.totp_enabled || !row.totp_secret) return res.status(400).json({ error: "Two-factor authentication is not set up yet." });
+    if (!code || !(await verifyTotpCode(row.totp_secret, code))) {
+      return res.status(401).json({ error: "Enter a current code from your authenticator app to issue new recovery codes." });
+    }
+
+    const backupCodes = generateBackupCodes();
+    await client.query(
+      `UPDATE altax.v3_users SET totp_backup_codes = $2::jsonb WHERE user_id = $1`,
+      [req.user!.sub, JSON.stringify(hashBackupCodes(backupCodes))]
+    );
+    await logAudit("Security", "2FA_BACKUP_CODES_REGENERATED", req.user!.sub, "BackupCodes", "", String(backupCodes.length),
+      "New recovery codes issued; previous codes invalidated.", row.email);
+
+    return res.json({ ok: true, backupCodes });
   } finally {
     client.release();
   }

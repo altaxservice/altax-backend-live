@@ -42,6 +42,10 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
   // setup (or going back and signing in as someone else).
   const [enrollChallenge, setEnrollChallenge] = useState<string | null>(null);
   const [enrollSetup, setEnrollSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  // Shown after enrollment succeeds and before the dashboard — this is the only
+  // time these codes are readable, so the user must not be navigated past them.
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [recoverySaved, setRecoverySaved] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotSent, setForgotSent] = useState(false);
@@ -97,8 +101,10 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     setError(null);
     setSubmitting(true);
     try {
-      await completeTotpEnrollment(enrollChallenge, code);
-      navigate("/dashboard", { replace: true });
+      const codes = await completeTotpEnrollment(enrollChallenge, code);
+      // Signed in already, but hold here so the codes get saved somewhere first.
+      if (codes.length > 0) setRecoveryCodes(codes);
+      else navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server.");
     } finally {
@@ -126,6 +132,78 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (recoveryCodes) {
+    const codesText = recoveryCodes.join("\n");
+    return (
+      <div className="login-screen">
+        <div className="login-panel">
+          <div className="login-brand">
+            <FirmLogo size={40} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
+            </div>
+          </div>
+
+          <h1>Save Your Recovery Codes</h1>
+          <p className="login-copy">
+            If you ever lose your phone, any one of these codes will get you back in — each works once.
+            <strong> This is the only time they are shown.</strong> Print them or keep them somewhere safe
+            that is not your phone.
+          </p>
+
+          <div
+            className="card"
+            style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 18px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 14, letterSpacing: 1, padding: 14, margin: "4px 0 12px",
+            }}
+          >
+            {recoveryCodes.map((c) => <div key={c}>{c}</div>)}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => { navigator.clipboard?.writeText(codesText); }}
+            >Copy</button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => {
+                const blob = new Blob([`${APP_NAME} recovery codes\n${email}\n\n${codesText}\n`], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "altax-nexus-recovery-codes.txt";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >Download</button>
+            <button type="button" className="btn btn-sm" onClick={() => window.print()}>Print</button>
+          </div>
+
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13, marginBottom: 12 }}>
+            <input type="checkbox" checked={recoverySaved} onChange={(e) => setRecoverySaved(e.target.checked)} style={{ marginTop: 3 }} />
+            <span>I have saved these codes somewhere safe.</span>
+          </label>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ width: "100%", justifyContent: "center" }}
+            disabled={!recoverySaved}
+            onClick={() => navigate("/dashboard", { replace: true })}
+          >
+            Continue to {APP_NAME}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (enrollChallenge) {
@@ -223,7 +301,10 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
           </div>
 
           <h1>Enter Authenticator Code</h1>
-          <p className="login-copy">Open your authenticator app and enter the current 6-digit code for this account.</p>
+          <p className="login-copy">
+            Open your authenticator app and enter the current 6-digit code for this account.
+            Lost your phone? Enter one of your recovery codes instead.
+          </p>
 
           {error && <div className="error-banner">{error}</div>}
 

@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS v3_users (
     assigned_employee_id VARCHAR(64),
     totp_secret VARCHAR(255),
     totp_enabled BOOLEAN DEFAULT FALSE,
+    -- SHA-256 hashes of the user's unused one-time recovery codes. Hashed, never
+    -- plaintext: the database must not hold anything that can sign in by itself.
+    -- Each code is removed from this array the first time it is used.
+    totp_backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_v3_users_assigned_client_id FOREIGN KEY (assigned_client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL,

@@ -14,8 +14,12 @@ interface AuthContextValue {
   completeTotpLogin: (challenge: string, code: string) => Promise<void>;
   /** Mandatory-enrollment step 1: fetch a QR + secret for a user with no authenticator yet. */
   startTotpEnrollment: (challenge: string) => Promise<{ secret: string; qrCodeDataUrl: string }>;
-  /** Mandatory-enrollment step 2: verify the first code, which also signs the user in. */
-  completeTotpEnrollment: (challenge: string, code: string) => Promise<void>;
+  /**
+   * Mandatory-enrollment step 2: verify the first code, which also signs the
+   * user in. Returns the one-time recovery codes — the only moment they are
+   * ever readable, so the caller must show them before navigating away.
+   */
+  completeTotpEnrollment: (challenge: string, code: string) => Promise<string[]>;
   updateUser: (patch: Partial<AuthUser>) => void;
   logout: () => void;
 }
@@ -66,7 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const completeTotpEnrollment = useCallback(async (challenge: string, code: string) => {
-    applySession(await api.post<LoginResponse>("/auth/enroll/2fa/confirm", { challenge, code }));
+    const result = await api.post<LoginResponse & { backupCodes?: string[] }>("/auth/enroll/2fa/confirm", { challenge, code });
+    applySession(result);
+    return result.backupCodes || [];
   }, [applySession]);
 
   const updateUser = useCallback((patch: Partial<AuthUser>) => {

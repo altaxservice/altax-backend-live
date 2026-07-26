@@ -180,6 +180,31 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<"enabled" | "disabled" | null>(null);
+  const [backupRemaining, setBackupRemaining] = useState<number | null>(null);
+  const [newCodes, setNewCodes] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!user?.totpEnabled) return;
+    api.get<{ remaining: number }>("/auth/2fa/backup-codes")
+      .then((r) => setBackupRemaining(r.remaining))
+      .catch(() => setBackupRemaining(null));
+  }, [user?.totpEnabled]);
+
+  async function handleRegenerate(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.post<{ backupCodes: string[] }>("/auth/2fa/backup-codes/regenerate", { code });
+      setNewCodes(res.backupCodes);
+      setBackupRemaining(res.backupCodes.length);
+      setCode("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not generate new recovery codes.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleStartSetup() {
     setSaving(true);
@@ -224,12 +249,12 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   }
 
   // 2FA is mandatory on every portal, so there is no "turn it off" path here
-  // any more — the backend refuses it outright. A replaced phone is handled by
-  // an admin reset on the Users & Access page.
+  // any more — the backend refuses it outright. A lost phone is handled by a
+  // recovery code, or failing that an admin reset on Users & Access.
   if (user?.totpEnabled) {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-panel" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-panel" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2>Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -238,9 +263,52 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
             Two-factor authentication is <strong>on</strong> for this account, and is required on every {APP_NAME}
             {" "}portal — it cannot be turned off.
           </p>
-          <p className="muted" style={{ padding: "0 0 8px", fontSize: 12 }}>
-            Changed or lost your phone? Ask an admin to reset your 2FA from Users &amp; Access. You'll set up a new
-            authenticator the next time you sign in.
+
+          {newCodes ? (
+            <>
+              <p style={{ fontSize: 13, margin: "4px 0 8px" }}>
+                <strong>Your new recovery codes.</strong> The old ones no longer work. This is the only time these
+                are shown.
+              </p>
+              <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 18px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: 13, padding: 12 }}>
+                {newCodes.map((c) => <div key={c}>{c}</div>)}
+              </div>
+              <button type="button" className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => navigator.clipboard?.writeText(newCodes.join("\n"))}>Copy</button>
+            </>
+          ) : (
+            <>
+              <p className="muted" style={{ padding: "0 0 4px", fontSize: 12.5 }}>
+                Recovery codes let you sign in if you lose your phone — each works once.
+                {backupRemaining !== null && <> You have <strong>{backupRemaining}</strong> left.</>}
+              </p>
+              {backupRemaining !== null && backupRemaining <= 2 && (
+                <div className="error-banner" style={{ fontSize: 12 }}>
+                  You are nearly out of recovery codes. Generate a new set now.
+                </div>
+              )}
+              <form onSubmit={handleRegenerate} style={{ marginTop: 8 }}>
+                {error && <div className="error-banner">{error}</div>}
+                <div className="field">
+                  <label htmlFor="tfa-regen-code">Authenticator code (to issue new recovery codes)</label>
+                  <input
+                    id="tfa-regen-code"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                  />
+                </div>
+                <button type="submit" className="btn btn-sm" disabled={saving || code.length !== 6}>
+                  {saving ? "Generating…" : "Generate New Recovery Codes"}
+                </button>
+              </form>
+            </>
+          )}
+
+          <p className="muted" style={{ padding: "10px 0 0", fontSize: 11.5 }}>
+            Out of codes and without your phone? An admin can reset your 2FA from Users &amp; Access, and you'll set
+            up a new authenticator at your next sign-in.
           </p>
         </div>
       </div>
