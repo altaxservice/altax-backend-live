@@ -253,14 +253,39 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   const fmtTaskLine = (t: any) => `- ${t.client_name || t.client_id || "Unassigned"}: ${t.task_name || "Task"} (${t.status || "Not Started"}, due ${fmtDate(t.staff_due_date || t.agency_due_date)})`;
   const statusBreakdown = Array.from(statusCounts.entries()).map(([status, count]) => `${status}: ${count}`).join("\n");
 
+  // --- Books health: trial-balance every client's ledger nightly, so an
+  // out-of-balance ledger is flagged the next morning instead of whenever
+  // someone happens to open Reports → Trial Balance. Same half-cent tolerance
+  // as the report itself. Silence in the digest means everything balances.
+  const unbalancedClients = await query<any>(
+    `SELECT client_id, client_name,
+            ROUND(SUM(debit)::numeric, 2) AS debits,
+            ROUND(SUM(credit)::numeric, 2) AS credits,
+            ROUND((SUM(debit) - SUM(credit))::numeric, 2) AS difference
+       FROM altax.v3_gl_entries
+      GROUP BY client_id, client_name
+     HAVING ABS(SUM(debit) - SUM(credit)) > 0.005
+      ORDER BY ABS(SUM(debit) - SUM(credit)) DESC`
+  );
+  const booksHealthSection = unbalancedClients.length
+    ? `\n*** BOOKS OUT OF BALANCE (${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}) ***\n` +
+      unbalancedClients.map((c) =>
+        `- ${c.client_name || c.client_id}: off by $${Math.abs(Number(c.difference)).toFixed(2)} (debits $${c.debits} vs credits $${c.credits})`
+      ).join("\n") +
+      `\nOpen Reports -> Trial Balance for the client to see and repair the exact entries.`
+    : `\nBooks health: every client's ledger balances.`;
+
   const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
   for (const admin of admins) {
     const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
     if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
 
-    const subject = `Firm task status — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
+    const subject = unbalancedClients.length
+      ? `Firm task status — ${openTasks.length} open, BOOKS OUT OF BALANCE (${unbalancedClients.length})`
+      : `Firm task status — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
     const bodyEnglish = [
       `Firm-wide task status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
+      booksHealthSection,
       `\nBy status:\n${statusBreakdown || "None"}`,
       `\nOverdue (${overdueTasks.length}):\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None"}`,
       `\nDue within ${daysAhead} day${daysAhead === 1 ? "" : "s"} (${dueSoonTasks.length}):\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None"}`,

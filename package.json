@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && mkdir -p dist/assets && cp -r src/assets/. dist/assets/ && npm install --prefix frontend && npm run build --prefix frontend",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "test": "tsc -p tsconfig.json && node --test \"dist/tests/**/*.test.js\"",
     "start": "node dist/server.js",
     "migrate:schema": "psql \"$DATABASE_URL\" -f sql/001_init_schema.sql",
     "migrate:sheets": "ts-node src/migration/sheetsToPostgres.ts"
