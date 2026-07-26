@@ -313,10 +313,10 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
         <table>
           <thead>
             <tr>
+              {/* Email sits under Name and Assignment under Role — as 10 columns
+                  this ran off the right edge at 100% zoom. */}
               <th>Name</th>
-              <th>Email</th>
               <th>Role</th>
-              <th>Assignment</th>
               <th>Invite</th>
               <th>Last Login</th>
               <th>Active</th>
@@ -330,10 +330,14 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
               const status = inviteStatus(u);
               return (
                 <tr key={u.user_id}>
-                  <td onClick={() => onEdit(u)}>{u.name}</td>
-                  <td className="muted" onClick={() => onEdit(u)}>{u.email}</td>
-                  <td onClick={() => onEdit(u)}><span className="badge">{u.role}</span></td>
-                  <td className="muted" onClick={() => onEdit(u)}>{u.assignment_label || "Firm-wide"}</td>
+                  <td onClick={() => onEdit(u)}>
+                    <div>{u.name}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{u.email}</div>
+                  </td>
+                  <td onClick={() => onEdit(u)}>
+                    <span className="badge">{u.role}</span>
+                    <div className="muted" style={{ fontSize: 11 }}>{u.assignment_label || "Firm-wide"}</div>
+                  </td>
                   <td onClick={() => onEdit(u)} style={{ color: inviteStatusColor(status), fontWeight: inviteStatusColor(status) ? 600 : undefined }}>{status}</td>
                   <td className="muted" onClick={() => onEdit(u)}>{u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}</td>
                   <td onClick={() => onEdit(u)}>{u.active ? "Yes" : "No"}</td>

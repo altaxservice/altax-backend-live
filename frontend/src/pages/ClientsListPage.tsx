@@ -649,14 +649,14 @@ export function ClientsListPage() {
           <table>
             <thead>
               <tr>
+                {/* Type folds under Client, Responsible under Contact, and Portal
+                    under Status — as 9 columns this ran ~210px off the right edge
+                    at 100% zoom with the client panel open. */}
                 <th className="sortable" onClick={() => toggleSort("client_name")}>Client{sortArrow("client_name")}</th>
-                <th className="sortable" onClick={() => toggleSort("client_type")}>Type{sortArrow("client_type")}</th>
                 <th>Contact</th>
-                <th>Responsible</th>
                 <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
                 <th>Compliance</th>
                 <th className="sortable" onClick={() => toggleSort("status")}>Status{sortArrow("status")}</th>
-                <th>Portal</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -667,19 +667,16 @@ export function ClientsListPage() {
                   <tr key={c.client_id} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
                     <td>
                       <div className="cell-primary">{c.client_name}</div>
-                      <div className="cell-sub">{c.client_id}</div>
-                    </td>
-                    <td>
-                      <div className="cell-primary">{c.client_type || "—"}</div>
-                      <div className="cell-sub">{c.entity_type || ""}</div>
+                      <div className="cell-sub">
+                        {c.client_id}
+                        {c.client_type ? ` · ${c.client_type}` : ""}
+                        {c.entity_type ? ` · ${c.entity_type}` : ""}
+                      </div>
                     </td>
                     <td>
                       {c.email ? <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="cell-primary">{c.email}</a> : <div className="cell-primary muted">—</div>}
                       <div className="cell-sub">{c.phone || ""}</div>
-                    </td>
-                    <td>
-                      <div className={resp.empty ? "cell-primary muted" : "cell-primary"}>{resp.primary}</div>
-                      {resp.secondary && <div className="cell-sub">{resp.secondary}</div>}
+                      {!resp.empty && <div className="cell-sub">Resp: {resp.primary}{resp.secondary ? ` · ${resp.secondary}` : ""}</div>}
                     </td>
                     <td className="muted">{c.assigned_to || "—"}</td>
                     <td>
@@ -693,8 +690,10 @@ export function ClientsListPage() {
                         );
                       })()}
                     </td>
-                    <td><StatusBadge status={c.status} /></td>
-                    <td className="muted">{c.portal_enabled ? "Yes" : "No"}</td>
+                    <td>
+                      <StatusBadge status={c.status} />
+                      <div className="cell-sub">{c.portal_enabled ? "Portal on" : "No portal"}</div>
+                    </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <ActionMenu options={actionOptions(c)} onSelect={(action) => handleAction(c, action)} />
                     </td>

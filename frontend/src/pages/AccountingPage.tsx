@@ -992,7 +992,10 @@ function ContractorsTab({ clientId }: { clientId: string }) {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
+    // Stacked, not side-by-side: the payment history needs ~620px and only got
+    // 476 as the right half of a two-column grid, so it was cut off at 100%
+    // zoom no matter how few columns it had.
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
       <Panel title="Record Contractor Payment">
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <div className="error-banner">{error}</div>}
@@ -1082,17 +1085,25 @@ function ContractorsTab({ clientId }: { clientId: string }) {
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Contractor</th><th>Amount</th><th>Method</th><th>Category</th><th>1099</th><th>Memo</th><th></th></tr></thead>
+            {/* Method/Category/1099/Memo used to be four separate columns and ran
+                ~145px past the panel edge; they now ride under their subject. */}
+            <thead><tr><th>Date</th><th>Contractor</th><th style={{ textAlign: "right" }}>Amount</th><th></th></tr></thead>
             <tbody>
               {payments.map((p) => (
                 <tr key={p.contractor_payment_id}>
-                  <td>{fmtDate(p.payment_date)}</td>
-                  <td>{p.contractor_name}</td>
-                  <td>{fmtMoney(p.amount)}</td>
-                  <td className="muted">{p.method}</td>
-                  <td className="muted">{p.expense_category || "—"}</td>
-                  <td className="muted">{p.is_1099_eligible ? "Yes" : "No"}</td>
-                  <td className="muted">{p.memo || "—"}</td>
+                  <td>
+                    <div>{fmtDate(p.payment_date)}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{p.method}</div>
+                  </td>
+                  <td>
+                    <div>{p.contractor_name}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>
+                      {p.expense_category || "Uncategorized"}
+                      {p.is_1099_eligible ? " · 1099" : ""}
+                    </div>
+                    {p.memo && <div className="muted" style={{ fontSize: 11 }}>{p.memo}</div>}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(p.amount)}</td>
                   <td style={{ display: "flex", gap: 6 }}>
                     <button type="button" className="btn btn-sm" onClick={() => setViewing(p)}>View</button>
                     <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>
@@ -1212,7 +1223,9 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16, alignItems: "start" }}>
+    // Stacked for the same reason as Contractors: the entry history and its
+    // expanded detail card need the full width, not a ~366px column.
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
       <Panel title="Manual Journal Entry" note="Debits must equal credits">
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <div className="error-banner">{error}</div>}
@@ -1291,14 +1304,20 @@ function ManualJeTab({ clientId }: { clientId: string }) {
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Lines</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
+            {/* This panel is the narrow half of a two-column grid, so Ref and the
+                line count ride under their neighbours rather than owning columns. */}
+            <thead><tr><th>Date</th><th>Entry</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
             <tbody>
               {entries.map((e) => (
                 <tr key={e.journalEntryId} style={{ cursor: "pointer" }} onClick={() => setViewingJe(e)}>
-                  <td>{fmtDate(e.entryDate)}</td>
-                  <td className="muted">{e.ref || "—"}</td>
-                  <td>{e.description || "—"}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>{e.lines.length} line(s)</td>
+                  <td>
+                    <div>{fmtDate(e.entryDate)}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{e.lines.length} line(s)</div>
+                  </td>
+                  <td>
+                    <div>{e.description || "—"}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{e.ref || e.journalEntryId}</div>
+                  </td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(jeTotal(e, "debit"))}</td>
                 </tr>
               ))}
@@ -1479,21 +1498,32 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       <div className="scroll-list">
         <div className="table-scroll">
         <table>
-          <thead><tr><th>Pay Date</th><th>Period</th><th>Check #</th><th>Employee</th><th>Gross</th><th>Employee Taxes</th><th>Net Pay</th><th>Employer Taxes</th><th>Total Cost</th><th>Status</th><th></th></tr></thead>
+          {/* Period/check#/employer-side figures are stacked under their subject —
+              as 11 columns this ran past the right edge at 100% zoom. */}
+          <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {paychecks.map((p) => (
               <tr key={p.paycheck_id}>
-                <td>{fmtDate(p.pay_date)}</td>
-                <td className="muted">{p.pay_period_start || p.pay_period_end ? `${fmtDate(p.pay_period_start)} – ${fmtDate(p.pay_period_end)}` : "—"}</td>
-                <td className="muted">{p.check_number || "—"}</td>
-                <td>{p.employee}</td>
-                <td>{fmtMoney(p.gross_wages)}</td>
-                <td className="muted">{fmtMoney(p.employee_taxes)}</td>
-                <td>{fmtMoney(p.net_pay)}</td>
-                <td className="muted">{fmtMoney(p.employer_taxes)}</td>
-                <td className="muted">{fmtMoney(p.total_cost)}</td>
+                <td>
+                  <div>{fmtDate(p.pay_date)}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    {p.pay_period_start || p.pay_period_end ? `${fmtDate(p.pay_period_start)} – ${fmtDate(p.pay_period_end)}` : "No period"}
+                  </div>
+                </td>
+                <td>
+                  <div>{p.employee}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>Check #{p.check_number || "—"}</div>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <div>{fmtMoney(p.gross_wages)}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>−{fmtMoney(p.employee_taxes)} tax</div>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <div style={{ fontWeight: 600 }}>{fmtMoney(p.net_pay)}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>Cost {fmtMoney(p.total_cost)}</div>
+                </td>
                 <td><StatusBadge status={p.status || "Created"} /></td>
-                <td style={{ display: "flex", gap: 6 }}>
+                <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <button type="button" className="btn btn-sm" disabled={viewing === p.paycheck_id} onClick={() => handleView(p)}>
                     {viewing === p.paycheck_id ? "Generating…" : "View"}
                   </button>
