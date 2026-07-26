@@ -19,6 +19,78 @@ const TABLES = [
 ];
 
 /** Read-only table-row-count check, mirroring the "System Check" panel of legacy's Fix Center. */
+/**
+ * Full data export — a backup the firm holds itself, independent of the
+ * database provider.
+ *
+ * Neon's free tier keeps only about 24 hours of point-in-time history, and the
+ * accounting module now performs real hard deletes (a sale or journal entry and
+ * its ledger lines are removed, not flagged). Those two facts together mean a
+ * mistake noticed on Monday about something deleted on Friday is unrecoverable
+ * from the provider alone. This closes that window.
+ *
+ * Deliberately reads the table list from the database rather than a hardcoded
+ * array: a backup that silently misses tables added later is worse than no
+ * backup, because it looks like it worked. (The TABLES constant above is for
+ * the diagnostics count screen and is allowed to be a curated subset.)
+ *
+ * WARNING: the output contains everything, including encrypted vault payloads
+ * and client tax identifiers. It is only as safe as wherever it is stored.
+ */
+systemRouter.get("/backup/export", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const tables = await query<any>(
+    `SELECT tablename FROM pg_tables WHERE schemaname = 'altax' ORDER BY tablename`
+  );
+
+  const data: Record<string, any[]> = {};
+  const counts: Record<string, number> = {};
+  for (const t of tables) {
+    const name = String(t.tablename);
+    // Identifier can't be parameterised; it comes from pg_tables, not user input.
+    const rows = await query<any>(`SELECT * FROM altax."${name}"`);
+    data[name] = rows;
+    counts[name] = rows.length;
+  }
+
+  const totalRows = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  await logAudit("System", "BACKUP_EXPORT", "", "", "", String(totalRows),
+    `Full data export downloaded by ${req.user!.email}: ${tables.length} tables, ${totalRows} rows.`,
+    req.user!.email);
+
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="altax-nexus-backup-${stamp}.json"`);
+  res.send(JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    exportedBy: req.user!.email,
+    schema: "altax",
+    tableCount: tables.length,
+    rowCounts: counts,
+    totalRows,
+    data,
+  }, null, 2));
+}));
+
+/** Row counts per table without shipping the data — a fast "is the backup worth taking" check. */
+systemRouter.get("/backup/summary", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const tables = await query<any>(
+    `SELECT tablename FROM pg_tables WHERE schemaname = 'altax' ORDER BY tablename`
+  );
+  const counts: { table: string; rows: number }[] = [];
+  for (const t of tables) {
+    const name = String(t.tablename);
+    const r = await queryOne<any>(`SELECT count(*)::int AS c FROM altax."${name}"`);
+    counts.push({ table: name, rows: Number(r?.c || 0) });
+  }
+  const size = await queryOne<any>(`SELECT pg_size_pretty(pg_database_size(current_database())) AS s`);
+  res.json({
+    tableCount: tables.length,
+    totalRows: counts.reduce((sum, c) => sum + c.rows, 0),
+    databaseSize: size?.s || "unknown",
+    tables: counts.sort((a, b) => b.rows - a.rows),
+  });
+}));
+
 systemRouter.get("/table-counts", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const results: { table: string; count: number }[] = [];
   for (const table of TABLES) {
