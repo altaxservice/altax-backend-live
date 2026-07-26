@@ -260,7 +260,122 @@ function BackupSection() {
           safe as wherever you store it. Keep it somewhere access-controlled (not a shared drive), and keep more than
           one dated copy. Every download is recorded in the audit log.
         </p>
+
+        <RestoreControls onRestored={() => api.get<BackupSummary>("/system/backup/summary").then(setSummary).catch(() => {})} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Restore is deliberately a multi-step gauntlet: pick the file, read what it
+ * actually contains, then type RESTORE. It replaces every record in the
+ * database, so a mis-click must never be enough to trigger it.
+ */
+function RestoreControls({ onRestored }: { onRestored: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<{ exportedAt: string | null; tableCount: number; totalRows: number } | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [restoring, setRestoring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function handlePick(f: File | null) {
+    setFile(f);
+    setPreview(null);
+    setConfirmText("");
+    setError(null);
+    setResult(null);
+    if (!f) return;
+    try {
+      const parsed = JSON.parse(await f.text());
+      if (parsed?.schema !== "altax" || typeof parsed?.data !== "object") {
+        setError("That file is not an AL TAX Nexus backup export. Use a file downloaded from Download Full Backup.");
+        setFile(null);
+        return;
+      }
+      setPreview({
+        exportedAt: parsed.exportedAt || null,
+        tableCount: Number(parsed.tableCount) || Object.keys(parsed.data).length,
+        totalRows: Number(parsed.totalRows) || 0,
+      });
+    } catch {
+      setError("That file could not be read as a backup — it is not valid JSON.");
+      setFile(null);
+    }
+  }
+
+  async function handleRestore() {
+    if (!file) return;
+    setRestoring(true);
+    setError(null);
+    try {
+      const res = await fetch(resolveFileUrl(`/system/backup/restore?confirm=${encodeURIComponent(confirmText.trim())}`), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("altax_token") || ""}`,
+          "Content-Type": "text/plain",
+        },
+        body: await file.text(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Restore failed — no data was changed.");
+      setResult(
+        `Restored ${data.totalRows.toLocaleString()} records across ${data.tablesRestored} tables` +
+        (data.backupDate ? ` from the backup taken ${new Date(data.backupDate).toLocaleString()}.` : ".") +
+        " Reload the page to see the restored data."
+      );
+      setFile(null);
+      setPreview(null);
+      setConfirmText("");
+      onRestored();
+    } catch (err) {
+      setError((err as Error).message || "Could not restore from this file.");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 14 }}>
+      <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>Restore from a backup file</div>
+      <p className="muted" style={{ fontSize: 11.5, marginTop: 0 }}>
+        Replaces <strong>everything</strong> — every client, task, invoice, paycheck, user account and setting —
+        with the contents of the file. Anything entered after the backup was taken is lost. Download a fresh backup
+        of the current data first, so you can undo the restore itself. The restore is all-or-nothing: if it fails
+        part-way, nothing is changed.
+      </p>
+
+      {error && <ErrorBanner error={error} />}
+      {result && (
+        <div className="card" style={{ borderColor: "var(--teal)", marginBottom: 10, fontSize: 13 }}>{result}</div>
+      )}
+
+      <input
+        type="file"
+        accept="application/json,.json"
+        onChange={(e) => handlePick(e.target.files?.[0] || null)}
+        style={{ fontSize: 12.5, marginBottom: 10 }}
+      />
+
+      {preview && (
+        <div className="card" style={{ marginBottom: 10, fontSize: 13 }}>
+          <div><strong>Backup taken:</strong> {preview.exportedAt ? new Date(preview.exportedAt).toLocaleString() : "unknown"}</div>
+          <div><strong>Contents:</strong> {preview.totalRows.toLocaleString()} records across {preview.tableCount} tables</div>
+          <div className="field" style={{ marginTop: 10, maxWidth: 320 }}>
+            <label>Type RESTORE to confirm replacing all current data</label>
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESTORE" />
+          </div>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={restoring || confirmText.trim() !== "RESTORE"}
+            onClick={handleRestore}
+          >
+            {restoring ? "Restoring…" : "Replace All Data With This Backup"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

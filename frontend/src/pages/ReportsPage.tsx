@@ -590,7 +590,11 @@ export function ReportsPage() {
                     <thead><tr><th>Date</th><th>Employee</th><th>Gross</th><th>Net</th></tr></thead>
                     <tbody>
                       {filteredPaychecks.map((p) => (
-                        <tr key={p.paycheck_id}><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{p.employee}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
+                        <tr
+                          key={p.paycheck_id}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
+                        ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{p.employee}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
                       ))}
                     </tbody>
                   </table>
@@ -685,12 +689,15 @@ interface TrialBalanceData {
  * document when something is off rather than just reporting a total.
  */
 function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: string; to: string }) {
+  const navigate = useNavigate();
   const [data, setData] = useState<TrialBalanceData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [wholeHistory, setWholeHistory] = useState(true);
+  const [reposting, setReposting] = useState<string | null>(null);
+  const [repostNote, setRepostNote] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     if (!clientId) return;
     setLoading(true);
     setError(null);
@@ -699,7 +706,36 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
       .then(setData)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the trial balance."))
       .finally(() => setLoading(false));
-  }, [clientId, from, to, wholeHistory]);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [clientId, from, to, wholeHistory]);
+
+  function openInLedger(extra: string) {
+    navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL${extra}`);
+  }
+
+  /**
+   * A paycheck's ledger lines are always rebuilt in full when the paycheck is
+   * re-saved — so for a half-posted Payroll entry, an empty edit is a complete
+   * repair. This turns "one or more entries posted only part of their lines"
+   * from a diagnosis into a button.
+   */
+  async function handleRepost(refId: string) {
+    if (!confirm(`Repost all ledger lines for ${refId} from its paycheck? The paycheck itself is not changed.`)) return;
+    setReposting(refId);
+    setRepostNote(null);
+    try {
+      await api.patch(`/accounting/paychecks/${refId}`, {});
+      setRepostNote(`Ledger lines for ${refId} were rebuilt from the paycheck.`);
+      load();
+    } catch (err) {
+      setRepostNote(err instanceof ApiError
+        ? `${refId}: ${err.message}`
+        : `${refId}: could not repost — open it under Accounting → Paychecks instead.`);
+    } finally {
+      setReposting(null);
+    }
+  }
 
   if (!clientId) return <p className="muted" style={{ padding: 16 }}>Choose a client to run a trial balance.</p>;
   if (error) return <ErrorBanner error={error} />;
@@ -738,22 +774,45 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
               ? " — every entry's debits and credits agree."
               : " — one or more entries posted only part of their lines."}
           </div>
+          {!data.inBalance && (
+            <div style={{ fontSize: 12.5, marginTop: 10, lineHeight: 1.55 }}>
+              <strong>How to fix:</strong> each entry listed below wrote some of its ledger lines but not all of them.
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                <li><strong>Payroll entries</strong> — click <em>Repost lines</em> on the row. The missing lines are rebuilt from the paycheck automatically. If the paycheck itself is test data you no longer want, delete it under Accounting → Payroll instead.</li>
+                <li><strong>Manual journal entries</strong> — open the entry under Accounting → Manual JE, edit it, and save it with matching debit and credit totals (or delete it).</li>
+                <li><strong>Sales entries</strong> — open the sale under Accounting → Sales, edit and re-save it, or delete it.</li>
+              </ul>
+              <div className="muted" style={{ marginTop: 6 }}>Click any row below to see its posted lines in the General Ledger. Re-run this report after each fix — the total updates immediately.</div>
+            </div>
+          )}
         </div>
+
+        {repostNote && (
+          <div className="card" style={{ marginBottom: 12, fontSize: 13, borderColor: "var(--teal)" }}>{repostNote}</div>
+        )}
 
         {data.unbalancedEntries.length > 0 && (
           <>
             <SectionLabel>Entries that do not balance</SectionLabel>
             <div className="table-scroll" style={{ marginBottom: 16 }}>
               <table>
-                <thead><tr><th>Reference</th><th>Source</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Difference</th></tr></thead>
+                <thead><tr><th>Reference</th><th>Source</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Difference</th><th></th></tr></thead>
                 <tbody>
                   {data.unbalancedEntries.map((e) => (
-                    <tr key={e.ref}>
+                    <tr key={e.ref} style={{ cursor: "pointer" }} onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)}>
                       <td><code style={{ fontSize: 12 }}>{e.ref}</code></td>
                       <td className="muted">{e.source}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(e.debits)}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(e.credits)}</td>
                       <td style={{ textAlign: "right", fontWeight: 700, color: "#c0392b" }}>{fmtMoney(e.difference)}</td>
+                      <td style={{ whiteSpace: "nowrap" }} onClick={(ev) => ev.stopPropagation()}>
+                        {String(e.source).toLowerCase() === "payroll" && (
+                          <button type="button" className="btn btn-sm btn-primary" disabled={reposting === e.ref} onClick={() => handleRepost(e.ref)}>
+                            {reposting === e.ref ? "Reposting…" : "Repost lines"}
+                          </button>
+                        )}{" "}
+                        <button type="button" className="btn btn-sm" onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)}>View lines</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -768,7 +827,7 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
             <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Balance</th></tr></thead>
             <tbody>
               {data.accounts.map((a) => (
-                <tr key={a.account}>
+                <tr key={a.account} style={{ cursor: "pointer" }} onClick={() => openInLedger(`&account=${encodeURIComponent(a.account)}`)}>
                   <td>
                     <div>{a.account}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{a.lineCount} line(s)</div>

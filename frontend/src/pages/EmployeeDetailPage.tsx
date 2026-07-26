@@ -273,6 +273,13 @@ export function EmployeeDetailPage() {
         </form>
       ) : (
         <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
+          {/* The basics repeat the header on purpose — this card is what gets
+              read (and screenshotted) as "the profile", so it must stand alone. */}
+          <DetailRow label="Name" value={employee.employee_name} />
+          <DetailRow label="Worker Type" value={employee.worker_type || "Employee"} />
+          <DetailRow label="Status" value={employee.status} />
+          <DetailRow label="Client" value={employee.client_name as string} />
+          <DetailRow label="Home State (payroll)" value={(employee as any).state} />
           <DetailRow label="Pay Type" value={employee.pay_type} />
           <DetailRow label="Pay Rate" value={fmtMoney(employee.pay_rate)} />
           <DetailRow label="Default Hours" value={employee.default_hours != null ? String(employee.default_hours) : null} />

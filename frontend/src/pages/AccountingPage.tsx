@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
@@ -30,7 +30,10 @@ export function AccountingPage() {
     return (TABS as readonly string[]).includes(wanted || "") ? (wanted as Tab) : "Sales";
   });
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState(globalClientId || "");
+  // ?client= wins over the globally selected client: links from reports and
+  // profile pages point at a specific client's books, and landing on a
+  // different client's ledger would be quietly wrong.
+  const [clientId, setClientId] = useState(searchParams.get("client") || globalClientId || "");
 
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
@@ -90,7 +93,9 @@ export function AccountingPage() {
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
-      {tab === "GL" && clientId && <GlTab clientId={clientId} />}
+      {tab === "GL" && clientId && (
+        <GlTab clientId={clientId} initialRef={searchParams.get("ref")} initialAccount={searchParams.get("account")} />
+      )}
       {tab === "Paychecks" && clientId && <PaychecksTab clientId={clientId} />}
       {tab === "Month-End" && clientId && <MonthEndTab clientId={clientId} />}
       {tab === "Check Settings" && clientId && <CheckSettingsTab clientId={clientId} />}
@@ -851,6 +856,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
 }
 
 function EmployeesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const navigate = useNavigate();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showForm, setShowForm] = useState(false);
   const EMPTY_EMPLOYEE_FORM = { employeeName: "", email: "", phone: "", workerType: "Employee", payType: "Hourly", payRate: "", defaultHours: "", defaultGrossWages: "", payFrequency: "", serviceCategory: "", grantPortalAccess: false, streetAddress: "", city: "", zipCode: "", state: clientState || "" };
@@ -992,14 +998,14 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
             {employees.map((e) => {
               const isContractor = String(e.worker_type || "").toLowerCase().includes("contractor");
               return (
-                <tr key={e.employee_id}>
+                <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
                   <td><Link to={`/employees/${e.employee_id}`}>{e.employee_name}</Link></td>
                   <td className="muted">{e.worker_type || "Employee"}</td>
                   <td className="muted">{e.pay_type || "—"}</td>
                   <td className="muted">{e.state || "—"}</td>
                   <td>{fmtMoney(e.pay_rate)}</td>
                   <td className="muted">{e.status}</td>
-                  <td style={{ display: "flex", gap: 6 }}>
+                  <td style={{ display: "flex", gap: 6 }} onClick={(ev) => ev.stopPropagation()}>
                     <Link to={`/employees/${e.employee_id}`} className="btn btn-sm" style={{ textDecoration: "none" }}>Profile</Link>
                     {!isContractor && (
                       <>
@@ -1532,10 +1538,14 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   );
 }
 
-function GlTab({ clientId }: { clientId: string }) {
+function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; initialRef?: string | null; initialAccount?: string | null }) {
   const [entries, setEntries] = useState<any[]>([]);
-  const [viewingRef, setViewingRef] = useState<string | null>(null);
+  const [viewingRef, setViewingRef] = useState<string | null>(initialRef || null);
+  const [accountFilter, setAccountFilter] = useState(initialAccount || "");
+  // Deep links (Trial Balance rows) must not have their target hidden by the
+  // default this-month window — the entry they point at can be any age.
   const [period, setPeriod] = useState(() => {
+    if (initialRef || initialAccount) return { start: "", end: "" };
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -1546,7 +1556,10 @@ function GlTab({ clientId }: { clientId: string }) {
     api.get<{ glEntries: any[] }>(`/accounting/gl/${clientId}`).then((r) => setEntries(r.glEntries)).catch(() => {});
   }, [clientId]);
 
+  const accounts = [...new Set(entries.map((g) => String(g.account || "")))].filter(Boolean).sort();
+
   const filtered = entries.filter((g) => {
+    if (accountFilter && String(g.account || "") !== accountFilter) return false;
     const d = g.entry_date ? String(g.entry_date).slice(0, 10) : null;
     if (!d) return false;
     return (!period.start || d >= period.start) && (!period.end || d <= period.end);
@@ -1566,7 +1579,11 @@ function GlTab({ clientId }: { clientId: string }) {
       title="General Ledger"
       note={`${filtered.length} of ${entries.length} entries`}
       action={
-        <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
+          <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} style={{ padding: "4px 6px", maxWidth: 180 }}>
+            <option value="">All accounts</option>
+            {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
           <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />

@@ -1506,7 +1506,7 @@ accountingRouter.get("/employees/:employeeId/profile", requireAuth, requireRole(
   const employee = await queryOne<any>(
     `SELECT employee_id, client_id, client_name, employee_name, email, phone, pay_type, worker_type, form_type,
             status, default_gross_wages, pay_rate, default_hours, pay_frequency, service_category,
-            w9_status, is_1099_eligible, bank_last4, created_at, updated_at
+            w9_status, is_1099_eligible, bank_last4, state, created_at, updated_at
        FROM altax.v3_employees WHERE employee_id = $1`,
     [employeeId]
   );

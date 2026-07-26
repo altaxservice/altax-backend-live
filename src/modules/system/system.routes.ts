@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { Router, Response } from "express";
-import { query, queryOne } from "../../config/db";
+import express, { Router, Response } from "express";
+import { pool, query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
@@ -88,6 +88,154 @@ systemRouter.get("/backup/summary", requireAuth, requireRole("admin"), asyncHand
     totalRows: counts.reduce((sum, c) => sum + c.rows, 0),
     databaseSize: size?.s || "unknown",
     tables: counts.sort((a, b) => b.rows - a.rows),
+  });
+}));
+
+/**
+ * Restore from a backup file produced by GET /backup/export.
+ *
+ * This REPLACES every table's contents with what the file holds, inside one
+ * transaction — either the whole restore lands or nothing changes. That
+ * atomicity is the safety story: a bad file, a mid-restore crash, or a table
+ * mismatch rolls back to the exact pre-restore state.
+ *
+ * The body is the raw backup file sent as text/plain, not JSON: the global
+ * express.json() parser has a 12MB cap sized for document uploads, and a
+ * whole-database backup will outgrow that long before the database itself is
+ * big. text/plain slips past that parser and gets its own 200MB budget here.
+ *
+ * Insert order is a topological sort of the live foreign-key graph (parents
+ * before children), read from pg_constraint at restore time rather than
+ * hardcoded — the same reasoning as the export reading pg_tables: a frozen
+ * list rots silently as the schema grows.
+ */
+const restoreBodyParser = express.text({ type: "text/plain", limit: "200mb" });
+systemRouter.post("/backup/restore", requireAuth, requireRole("admin"), restoreBodyParser, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (String(req.query.confirm || "") !== "RESTORE") {
+    return res.status(400).json({ error: 'Type "RESTORE" to confirm replacing all current data.' });
+  }
+
+  let backup: any;
+  try {
+    backup = JSON.parse(String(req.body || ""));
+  } catch {
+    return res.status(400).json({ error: "That file is not a valid backup — it could not be read as JSON." });
+  }
+  if (!backup || backup.schema !== "altax" || typeof backup.data !== "object" || !backup.data) {
+    return res.status(400).json({ error: "That file is not an AL TAX Nexus backup export. Use a file downloaded from Download Full Backup." });
+  }
+
+  const liveTables = (await query<any>(`SELECT tablename FROM pg_tables WHERE schemaname = 'altax'`))
+    .map((t) => String(t.tablename));
+  const backupTables = Object.keys(backup.data);
+  const restorable = backupTables.filter((t) => liveTables.includes(t));
+  const skippedFromBackup = backupTables.filter((t) => !liveTables.includes(t));
+  const notInBackup = liveTables.filter((t) => !backupTables.includes(t));
+  if (restorable.length === 0) {
+    return res.status(400).json({ error: "None of the tables in that file exist in the current database." });
+  }
+
+  // Parents-first order from the live FK graph.
+  const fkRows = await query<any>(
+    `SELECT conrelid::regclass::text AS child, confrelid::regclass::text AS parent
+       FROM pg_constraint WHERE contype = 'f' AND connamespace = 'altax'::regnamespace`
+  );
+  const strip = (n: string) => n.replace(/^altax\./, "").replace(/"/g, "");
+  const parentsOf = new Map<string, Set<string>>();
+  for (const t of restorable) parentsOf.set(t, new Set());
+  for (const fk of fkRows) {
+    const child = strip(String(fk.child));
+    const parent = strip(String(fk.parent));
+    if (parentsOf.has(child) && restorable.includes(parent) && child !== parent) {
+      parentsOf.get(child)!.add(parent);
+    }
+  }
+  const ordered: string[] = [];
+  const placed = new Set<string>();
+  while (ordered.length < restorable.length) {
+    const ready = restorable.filter((t) => !placed.has(t) && [...parentsOf.get(t)!].every((p) => placed.has(p)));
+    if (ready.length === 0) {
+      // FK cycle (none exist today) — append the remainder rather than hang.
+      for (const t of restorable) if (!placed.has(t)) { ordered.push(t); placed.add(t); }
+      break;
+    }
+    for (const t of ready) { ordered.push(t); placed.add(t); }
+  }
+
+  const client = await pool.connect();
+  const restoredCounts: Record<string, number> = {};
+  try {
+    await client.query("BEGIN");
+    const truncateList = restorable.map((t) => `altax."${t}"`).join(", ");
+    await client.query(`TRUNCATE ${truncateList} CASCADE`);
+
+    for (const table of ordered) {
+      const rows: any[] = Array.isArray(backup.data[table]) ? backup.data[table] : [];
+      restoredCounts[table] = 0;
+      if (rows.length === 0) continue;
+      // Only columns that still exist — an old backup may carry dropped columns,
+      // and columns added since simply take their defaults.
+      const liveCols = (await client.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'altax' AND table_name = $1`,
+        [table]
+      )).rows.map((r: any) => String(r.column_name));
+      const cols = Object.keys(rows[0]).filter((c) => liveCols.includes(c));
+      if (cols.length === 0) continue;
+      const colSql = cols.map((c) => `"${c}"`).join(", ");
+      const CHUNK = 200;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const params: any[] = [];
+        const tuples = chunk.map((row) => {
+          const placeholders = cols.map((c) => {
+            // Objects that aren't arrays are JSONB payloads; pg needs them as text.
+            const v = row[c];
+            params.push(v !== null && typeof v === "object" && !Array.isArray(v) ? JSON.stringify(v) : v);
+            return `$${params.length}`;
+          });
+          return `(${placeholders.join(", ")})`;
+        });
+        await client.query(`INSERT INTO altax."${table}" (${colSql}) VALUES ${tuples.join(", ")}`, params);
+        restoredCounts[table] += chunk.length;
+      }
+    }
+
+    // Serial columns (like the audit log id) must not hand out ids the restore
+    // just re-inserted.
+    const serials = (await client.query(
+      `SELECT table_name, column_name, pg_get_serial_sequence('altax."' || table_name || '"', column_name) AS seq
+         FROM information_schema.columns
+        WHERE table_schema = 'altax' AND column_default LIKE 'nextval%'`
+    )).rows.filter((r: any) => r.seq && restorable.includes(String(r.table_name)));
+    for (const s of serials) {
+      await client.query(
+        `SELECT setval('${s.seq}', GREATEST((SELECT COALESCE(MAX("${s.column_name}"), 0) FROM altax."${s.table_name}"), 1))`
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const totalRows = Object.values(restoredCounts).reduce((s, n) => s + n, 0);
+  await logAudit("System", "BACKUP_RESTORE", "", "", "", String(totalRows),
+    `Database restored from backup dated ${backup.exportedAt || "unknown"} by ${req.user!.email}: ` +
+    `${Object.keys(restoredCounts).length} tables, ${totalRows} rows.` +
+    (skippedFromBackup.length ? ` Skipped (no longer exist): ${skippedFromBackup.join(", ")}.` : "") +
+    (notInBackup.length ? ` Left untouched (not in backup): ${notInBackup.join(", ")}.` : ""),
+    req.user!.email);
+
+  res.json({
+    ok: true,
+    backupDate: backup.exportedAt || null,
+    tablesRestored: Object.keys(restoredCounts).length,
+    totalRows,
+    skippedFromBackup,
+    notInBackup,
   });
 }));
 
