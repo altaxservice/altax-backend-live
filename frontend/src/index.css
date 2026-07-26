@@ -865,3 +865,21 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   line-height: 1.45;
   opacity: 0.95;
 }
+
+/* Browser-native print/"Save as PDF" for bilingual reports (Client Message, Sales
+   Tax & Payroll Report) — the server-generated PDF can't shape Arabic correctly
+   (no text-shaping engine in pdf-lib), but the browser's own renderer already
+   does, correctly, for the on-screen SummaryTable. Printing that view directly
+   sidesteps the limitation entirely instead of trying to fix it in pdf-lib. */
+@media print {
+  .sidebar, .sidebar-backdrop, .bottom-tab-bar, .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}

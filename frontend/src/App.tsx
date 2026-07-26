@@ -34,6 +34,7 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { SearchResultsPage } from "./pages/SearchResultsPage";
 import { PublicInvoicePage } from "./pages/PublicInvoicePage";
 import { PublicContractPage } from "./pages/PublicContractPage";
+import { PublicMessagePage } from "./pages/PublicMessagePage";
 
 function App() {
   return (
@@ -51,6 +52,7 @@ function App() {
           <Route path="/accept-invite" element={<AcceptInvitePage />} />
           <Route path="/public/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/public/contract/:token" element={<PublicContractPage />} />
+          <Route path="/public/message/:token" element={<PublicMessagePage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<DashboardPage />} />

@@ -327,14 +327,14 @@ export function ReportsPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20 }}>
+      <div className="no-print" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20 }}>
         {visibleTabs.map((t) => (
           <div key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", color: tab === t ? "var(--ink)" : "var(--muted)", borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent" }}>{t}</div>
         ))}
       </div>
 
       <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
             <div className="field" style={{ maxWidth: 320, margin: 0 }}>
               <label htmlFor="rep-client">Client</label>
               <select id="rep-client" value={clientId} onChange={(e) => handleClientChange(e.target.value)}>
@@ -377,13 +377,22 @@ export function ReportsPage() {
                       </button>
                     </div>
                   ) : REPORT_PDF_SEGMENT[tab] && (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("view")}>
-                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Preview / Print"}
+                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Preview / Print (English)"}
                       </button>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("download")}>
-                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF"}
+                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF (English)"}
                       </button>
+                      {/* Browser-native print, not the server PDF — pdf-lib can't shape Arabic
+                          text correctly, but the browser already renders the on-screen bilingual
+                          table correctly, so printing that view (or "Save as PDF" from the print
+                          dialog) is how a real English+Arabic printable/sendable copy is produced. */}
+                      {(tab === "Client Message" || tab === "Sales, Tax & Payroll Report") && (
+                        <button type="button" className="btn btn-primary" onClick={() => window.print()}>
+                          Print (English + Arabic)
+                        </button>
+                      )}
                       {REPORT_CSV_SEGMENT[tab] && (
                         <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleExportCsv}>
                           {reportBusy === "csv" ? "Exporting…" : "Export CSV"}

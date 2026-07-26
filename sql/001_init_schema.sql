@@ -880,6 +880,11 @@ CREATE TABLE IF NOT EXISTS v3_communications (
     status VARCHAR(255),
     source_system VARCHAR(255),
     source_record_id VARCHAR(64),
+    -- Opaque random token (not the sequential communication_id) for the public,
+    -- no-login "view this message online" link — a long report sent by SMS/WhatsApp
+    -- carries this link instead of the full bilingual text (see publicMessage.routes.ts).
+    -- Null for internal/staff/portal-note rows that never went out externally.
+    share_token VARCHAR(64) UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_v3_communications_client_id FOREIGN KEY (client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL,

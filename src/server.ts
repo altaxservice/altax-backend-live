@@ -28,6 +28,7 @@ import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
+import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
 import { haccpRouter } from "./modules/haccp/haccp.routes";
 import cron from "node-cron";
 
@@ -184,6 +185,7 @@ app.use("/reminders", remindersRouter);
 app.use("/firm-settings", firmSettingsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
+app.use("/public/messages", publicMessageRouter);
 app.use("/haccp", haccpRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and

@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -7,7 +8,22 @@ import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from
 import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
+import { publicBaseUrl } from "../../common/publicUrl";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic } from "../templates/templates.routes";
+
+/** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
+function generateShareToken(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+/**
+ * SMS/WhatsApp bodies beyond this are the kind of thing that needs 8+ concatenated
+ * segments even in plain English, and far more once Arabic forces UCS-2 encoding
+ * (measured live: a real bilingual period-summary report ran ~2,500 characters —
+ * 38 segments — well past what carriers reliably deliver in full). Short messages
+ * (reminders, follow-ups) stay well under this and go out unchanged.
+ */
+const SMS_INLINE_MAX_CHARS = 400;
 
 /**
  * Communications module — Phase 6 slice covering the plan's named test scenarios:
@@ -32,6 +48,30 @@ export const communicationsRouter = Router();
 
 export interface SendAttachment { filename: string; contentBase64: string; contentType?: string }
 
+const ARABIC_CHARS = /[؀-ۿݐ-ݿ]/;
+
+/**
+ * Turns a plain-text body into email HTML with correct per-section text direction —
+ * previously every send just wrapped the whole string in one <p> with no dir/align at
+ * all, so an Arabic section (e.g. the "Both" language preference's English-then-"---"
+ * -then-Arabic merge from communicationBodyForPreference) rendered left-to-right, with
+ * embedded dollar amounts scrambling the reading order. Splits on that exact "---"
+ * divider and gives each resulting block its own dir="rtl"/"ltr" based on whether it's
+ * actually Arabic text, rather than guessing from which language came first.
+ */
+function bodyToDirectionalHtml(body: string): string {
+  const blocks = body.split(/\n\n---\n\n/);
+  return blocks
+    .map((block) => {
+      const isArabic = ARABIC_CHARS.test(block);
+      const html = block.trim().replace(/\n/g, "<br>");
+      return isArabic
+        ? `<div dir="rtl" style="direction:rtl; text-align:right; unicode-bidi:embed;">${html}</div>`
+        : `<div dir="ltr" style="direction:ltr; text-align:left;">${html}</div>`;
+    })
+    .join('<hr style="border:none; border-top:1px solid #e5e7eb; margin:14px 0;">');
+}
+
 /**
  * Attempts a real send for Email/SMS/WhatsApp channels; Portal Note and Phone are
  * always log-only. Never throws — a missing provider key or a delivery failure is
@@ -47,19 +87,26 @@ export interface SendAttachment { filename: string; contentBase64: string; conte
  */
 async function sendChannel(
   channel: string, to: string, subject: string, body: string,
-  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment } = {}
+  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string } = {}
 ): Promise<{ sent: boolean; error?: string }> {
   const normalized = normalizeText(channel);
   if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
   try {
     if (normalized === "email") {
-      const html = await wrapEmailHtml(`<p>${body.replace(/\n/g, "<br>")}</p>`, opts.req);
+      const html = await wrapEmailHtml(bodyToDirectionalHtml(body), opts.req);
       const attachments = opts.attachment
         ? [{ filename: opts.attachment.filename, content: Buffer.from(opts.attachment.contentBase64, "base64"), contentType: opts.attachment.contentType }]
         : undefined;
       await sendEmail({ to, subject, html, attachments });
     } else {
-      const prefixed = `${opts.firmName || "AL Tax Service"}: ${body}`;
+      const firmName = opts.firmName || "AL Tax Service";
+      // Long bodies (a full bilingual report) can't fit SMS/WhatsApp in a readable
+      // number of segments — send a short pointer to the public view page instead
+      // of the whole text. Short messages (reminders, follow-ups) are unaffected.
+      const effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
+        ? `${subject}. View / اطّلع على الرسالة: ${opts.viewUrl}`
+        : body;
+      const prefixed = `${firmName}: ${effectiveBody}`;
       if (normalized === "sms") await sendSms({ to, body: prefixed });
       else await sendWhatsApp({ to, body: prefixed });
     }
@@ -153,18 +200,21 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
 
   const firmName = (await getFirmProfile()).firmName;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment }) : { sent: false };
+  const base = publicBaseUrl(req);
+  const shareToken = sendNow && base && ["email", "sms", "whatsapp"].includes(normalizeText(channel)) ? generateShareToken() : null;
+  const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment, viewUrl }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(
     `INSERT INTO altax.v3_communications
        (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13,$1)`,
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13,$1,$14)`,
     [
       communicationId, client.client_id, client.client_name, String(body.relatedTaskId || "").trim() || null,
       direction, channel, subject, messageEnglish, messageArabic, sentTo || null, req.user!.email, status,
-      String(body.sourceSystem || "Node Web App").trim(),
+      String(body.sourceSystem || "Node Web App").trim(), shareToken,
     ]
   );
 
@@ -444,6 +494,7 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
   const attachment: SendAttachment | undefined = body.attachment;
   const firmName = (await getFirmProfile()).firmName;
+  const base = publicBaseUrl(req);
 
   const results: { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }[] = [];
 
@@ -482,6 +533,7 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
       const usesPeriodSummaryAr = [subject, messageEnglish, messageArabic].some((t) => t.includes("{{periodSummaryAr}}"));
       if (periodStart && periodEnd) {
         extra.periodLabel = ` for ${periodStart} - ${periodEnd}`;
+        extra.periodLabelAr = ` للفترة من ${periodStart} إلى ${periodEnd}`;
         // Only queried when the free-typed text actually uses the token — computing it for
         // every recipient regardless would be a wasted sales/payroll query per client on
         // every bulk send that sets a period but doesn't reference it.
@@ -516,15 +568,17 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
         continue;
       }
 
-      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment }) : { sent: false };
-      const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       const communicationId = nextCommunicationId();
+      const shareToken = sendNow && base ? generateShareToken() : null;
+      const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl }) : { sent: false };
+      const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       await query(
         `INSERT INTO altax.v3_communications
            (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-         VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Node Web App Bulk',$1)`,
-        [communicationId, client.client_id, client.client_name, channel, subject, messageEnglish || null, messageArabic || null, sentTo, req.user!.email, status]
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token)
+         VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Node Web App Bulk',$1,$11)`,
+        [communicationId, client.client_id, client.client_name, channel, subject, messageEnglish || null, messageArabic || null, sentTo, req.user!.email, status, shareToken]
       );
       results.push({ clientId, clientName: client.client_name, channel, sent: result.sent, error: result.error });
     }

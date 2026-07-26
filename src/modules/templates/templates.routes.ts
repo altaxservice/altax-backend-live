@@ -28,7 +28,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nنتواصل معكم لمتابعة حسابكم. يرجى إعلامنا إذا كان لديكم أي استفسارات." },
   { name: "Client Tax and Payroll Update", category: "Communications", subject: "Client tax and payroll update{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your tax and payroll update{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم تحديث الضرائب والرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم تحديث الضرائب والرواتب الخاص بكم{{periodLabelAr}}.\n\n{{periodSummaryAr}}" },
   { name: "Direct Deposit Question", category: "Communications", subject: "Direct deposit question",
     english: "We have a question about your direct deposit setup.",
     arabic: "لدينا استفسار بخصوص إعدادات الإيداع المباشر الخاصة بكم." },
@@ -58,7 +58,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nهذا تذكير بأن لديكم رصيداً مستحقاً غير مسدد بقيمة {{balanceDue}}. يرجى ترتيب السداد في أقرب وقت ممكن.\n\nشكراً لكم." },
   { name: "Payroll Summary", category: "Communications", subject: "Payroll summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your payroll summary{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص الرواتب الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص الرواتب الخاص بكم{{periodLabelAr}}.\n\n{{periodSummaryAr}}" },
   { name: "Payroll Tax Question", category: "Communications", subject: "Payroll tax question",
     english: "We have a question about payroll taxes.",
     arabic: "لدينا استفسار بخصوص ضرائب الرواتب." },
@@ -73,7 +73,7 @@ export const BUILT_IN: { name: string; category: string; subject: string; englis
     arabic: "مرحباً {{clientName}}،\n\nنحتاج إلى بعض المعلومات الإضافية منكم للمتابعة. يرجى الرد على هذه الرسالة أو الاتصال بمكتبنا في أقرب وقت ممكن.\n\nشكراً لكم." },
   { name: "Sales Tax Summary", category: "Communications", subject: "Sales tax summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your sales tax summary{{periodLabel}}.\n\n{{periodSummary}}",
-    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabel}}.\n\n{{periodSummaryAr}}" },
+    arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabelAr}}.\n\n{{periodSummaryAr}}" },
   { name: "Signature Required", category: "Communications", subject: "Signature required",
     english: "Hello {{clientName}},\n\nA document is waiting for your signature in your client portal. Please review and sign it at your earliest convenience so we can continue.\n\nThank you.",
     arabic: "مرحباً {{clientName}}،\n\nهناك مستند بانتظار توقيعكم في بوابة العميل الخاصة بكم. يرجى مراجعته وتوقيعه في أقرب وقت ممكن حتى نتمكن من المتابعة.\n\nشكراً لكم." },
@@ -132,10 +132,10 @@ export function substitutePlaceholders(text: string, client: any | null, extra?:
     balanceDue: client?.balance_due !== undefined && client?.balance_due !== null
       ? `$${Number(client.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : "",
-    periodLabel: "", periodSummary: "", periodSummaryAr: "",
+    periodLabel: "", periodLabelAr: "", periodSummary: "", periodSummaryAr: "",
     ...extra,
   };
-  const blankable = new Set(["{{periodLabel}}", "{{periodSummary}}", "{{periodSummaryAr}}"]);
+  const blankable = new Set(["{{periodLabel}}", "{{periodLabelAr}}", "{{periodSummary}}", "{{periodSummaryAr}}"]);
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     const value = values[key];
     return value !== undefined && value !== "" ? value : blankable.has(match) ? "" : match;
@@ -496,6 +496,7 @@ export async function resolveTemplate(
   const extra: Record<string, string> = {};
   if (clientId && periodStart && periodEnd) {
     extra.periodLabel = ` for ${fmtDate(periodStart)} - ${fmtDate(periodEnd)}`;
+    extra.periodLabelAr = ` للفترة من ${fmtDate(periodStart)} إلى ${fmtDate(periodEnd)}`;
     extra.periodSummary = await computeClientPeriodSummary(clientId, periodStart, periodEnd);
     extra.periodSummaryAr = await computeClientPeriodSummaryArabic(clientId, periodStart, periodEnd);
   }
