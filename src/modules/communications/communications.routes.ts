@@ -326,6 +326,92 @@ communicationsRouter.post("/staff", requireAuth, requireRole("admin", "staff"), 
   res.status(201).json({ ok: true, communicationId, status, sentTo: sentTo || recipient.email, sent: result.sent, sendError: result.error });
 }));
 
+/**
+ * Bulk client blast — send/save the same message to many clients in one action, so
+ * staff aren't stuck opening each client one at a time. Each client is still checked
+ * individually: canAccessClient (a staff member can't blast clients outside their
+ * assignment) and, for SMS/WhatsApp, sms_allowed — and for Email, email_allowed — so a
+ * bulk send can never reach someone who hasn't opted in. That consent gate matters
+ * beyond courtesy: the whole point of the A2P 10DLC campaign approval is that Twilio/
+ * carriers trust every SMS this account sends is opt-in, and a bulk tool is exactly
+ * where a real accidental mass-send-to-everyone mistake would happen. Skipped clients
+ * are reported back with a reason, never silently dropped.
+ */
+communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientIds: string[] = Array.isArray(body.clientIds)
+    ? Array.from(new Set(body.clientIds.map((id: any) => String(id).trim()).filter(Boolean)))
+    : [];
+  if (clientIds.length === 0) return res.status(400).json({ error: "Select at least one client." });
+
+  const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
+  if (channels.length === 0) return res.status(400).json({ error: "Choose at least one channel." });
+
+  const subject = String(body.subject || "AL TAX SERVICE").trim();
+  const messageEnglish = String(body.messageEnglish || "").trim();
+  const messageArabic = String(body.messageArabic || "").trim();
+  if (!messageEnglish && !messageArabic) return res.status(400).json({ error: "Enter a message." });
+  const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
+
+  const results: { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }[] = [];
+
+  for (const clientId of clientIds) {
+    if (!(await canAccessClient(req.user!, clientId))) {
+      results.push({ clientId, clientName: clientId, channel: "-", sent: false, skipped: "You do not have access to this client." });
+      continue;
+    }
+    const client = await queryOne<any>(
+      `SELECT client_id, client_name, email, phone, sms_allowed, email_allowed, preferred_language FROM altax.v3_clients WHERE client_id = $1`,
+      [clientId]
+    );
+    if (!client) {
+      results.push({ clientId, clientName: clientId, channel: "-", sent: false, skipped: "Client not found." });
+      continue;
+    }
+
+    const previewBody = communicationBodyForPreference(messageEnglish, messageArabic, subject, body.languagePreference || client.preferred_language);
+
+    for (const channel of channels) {
+      const normalized = normalizeText(channel);
+      let sentTo = "";
+      let skip = "";
+      if (normalized === "email") {
+        sentTo = client.email || "";
+        if (!sentTo) skip = "No email on file.";
+        else if (!client.email_allowed) skip = "Client has not opted in to email.";
+      } else if (normalized === "sms" || normalized === "whatsapp") {
+        sentTo = client.phone || "";
+        if (!sentTo) skip = "No phone on file.";
+        else if (!client.sms_allowed) skip = "Client has not opted in to SMS/WhatsApp.";
+      } else {
+        skip = `"${channel}" isn't supported for bulk send — use Portal Note individually if needed.`;
+      }
+
+      if (skip) {
+        results.push({ clientId, clientName: client.client_name, channel, sent: false, skipped: skip });
+        continue;
+      }
+
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody) : { sent: false };
+      const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
+      const communicationId = nextCommunicationId();
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Node Web App Bulk',$1)`,
+        [communicationId, client.client_id, client.client_name, channel, subject, messageEnglish || null, messageArabic || null, sentTo, req.user!.email, status]
+      );
+      results.push({ clientId, clientName: client.client_name, channel, sent: result.sent, error: result.error });
+    }
+  }
+
+  await logAudit("Communications", "BULK_SEND", "", "", "", `${clientIds.length} client(s)`,
+    `Bulk message sent by ${req.user!.email} to ${clientIds.length} client(s) via ${channels.join(", ")}.`, req.user!.email);
+
+  res.json({ ok: true, results });
+}));
+
 const TEMPLATE_FIELDS: Record<string, string> = {
   templateName: "template_name",
   category: "category",

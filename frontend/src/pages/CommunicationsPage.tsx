@@ -38,12 +38,12 @@ function Panel({ title, note, action, children }: { title: string; note?: string
 }
 
 /** Multi-select channel checkbox grid — replaces a single-select dropdown so a message can go out on more than one channel at once, matching legacy. */
-function ChannelCheckboxes({ selected, onToggle }: { selected: string[]; onToggle: (c: string) => void }) {
+function ChannelCheckboxes({ selected, onToggle, options = CHANNELS }: { selected: string[]; onToggle: (c: string) => void; options?: string[] }) {
   return (
     <div className="field">
       <label>Channels</label>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-        {CHANNELS.map((c) => (
+        {options.map((c) => (
           <label key={c} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <input type="checkbox" checked={selected.includes(c)} onChange={() => onToggle(c)} />
             {c}
@@ -181,6 +181,8 @@ export function CommunicationsPage() {
 
       {canManage && <StaffMessages messages={staffMessages} onSent={load} />}
 
+      {canManage && clients.length > 0 && <BulkClientMessage clients={clients} onSent={load} />}
+
       {canManage && client && <ClientMessages client={client} messages={clientMessages} onSent={load} />}
 
       {!canManage && user && (
@@ -254,12 +256,18 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
       <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
         {error && <ErrorBanner error={error} />}
         <SendResults results={results} />
-        <div className="field">
-          <label>Staff / Manager / Admin</label>
-          <select required value={recipient} onChange={(e) => handleRecipientChange(e.target.value)}>
-            <option value="">Select a recipient…</option>
-            {staff.map((s) => <option key={s.email} value={s.email}>{s.name} ({s.role})</option>)}
-          </select>
+        <div className="form-grid">
+          <div className="field">
+            <label>Staff / Manager / Admin</label>
+            <select required value={recipient} onChange={(e) => handleRecipientChange(e.target.value)}>
+              <option value="">Select a recipient…</option>
+              {staff.map((s) => <option key={s.email} value={s.email}>{s.name} ({s.role})</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>SMS / WhatsApp Phone</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1XXXXXXXXXX — needed only for SMS/WhatsApp" />
+          </div>
         </div>
         <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
         <div className="field"><label>Message</label><textarea rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
@@ -287,6 +295,137 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
       </table>
       </div>
       {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No firm-staff messages saved yet.</p>}
+    </Panel>
+  );
+}
+
+const BULK_CHANNELS = ["Email", "SMS", "WhatsApp"];
+
+interface BulkResult { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }
+
+/**
+ * Send the same message to many clients in one action. SMS/WhatsApp only reaches
+ * clients with sms_allowed set and a phone on file; Email only reaches clients with
+ * email_allowed set and an email on file — the backend (POST /communications/bulk)
+ * enforces this per-client and reports back who was skipped and why, so a bulk send
+ * can never silently blast someone who hasn't opted in.
+ */
+function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () => void }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [subject, setSubject] = useState("AL TAX SERVICE");
+  const [messageEnglish, setMessageEnglish] = useState("");
+  const [messageArabic, setMessageArabic] = useState("");
+  const [channels, setChannels] = useState<string[]>(["Email"]);
+  const [sendNow, setSendNow] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<BulkResult[] | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const filtered = clients.filter((c) => c.client_name.toLowerCase().includes(search.toLowerCase()));
+  const smsOptedIn = clients.filter((c) => c.sms_allowed && c.phone);
+  const emailOptedIn = clients.filter((c) => c.email_allowed && c.email);
+
+  function toggleClient(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleChannel(c: string) {
+    setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (selected.size === 0) { setError("Select at least one client."); return; }
+    if (channels.length === 0) { setError("Choose at least one channel."); return; }
+    if (!messageEnglish.trim() && !messageArabic.trim()) { setError("Enter a message."); return; }
+    setSaving(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await api.post<{ results: BulkResult[] }>("/communications/bulk", {
+        clientIds: Array.from(selected), subject, messageEnglish, messageArabic, channels, sendNow,
+      });
+      setResults(res.results);
+      setMessageEnglish("");
+      setMessageArabic("");
+      onSent();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send this bulk message.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sentCount = results?.filter((r) => r.sent).length || 0;
+  const skippedCount = results?.filter((r) => r.skipped).length || 0;
+  const failedCount = results ? results.length - sentCount - skippedCount : 0;
+
+  return (
+    <Panel title="Bulk Client Message" note="Send one message to many clients at once — SMS/Email only reach clients who've opted in.">
+      <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
+        {error && <ErrorBanner error={error} />}
+        {results && (
+          <div className="card" style={{ marginBottom: 12, fontSize: 12, padding: 10 }}>
+            <div><strong>{sentCount}</strong> sent &middot; <strong>{skippedCount}</strong> skipped (no consent or contact info) &middot; <strong>{failedCount}</strong> failed</div>
+            <button type="button" className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => setShowDetails((s) => !s)}>
+              {showDetails ? "Hide details" : "Show details"}
+            </button>
+            {showDetails && (
+              <div className="table-scroll" style={{ marginTop: 8 }}>
+                <table>
+                  <thead><tr><th>Client</th><th>Channel</th><th>Result</th></tr></thead>
+                  <tbody>
+                    {results.map((r, i) => (
+                      <tr key={i}>
+                        <td data-label="Client">{r.clientName}</td>
+                        <td className="muted" data-label="Channel">{r.channel}</td>
+                        <td className="muted" data-label="Result">{r.sent ? "Sent" : r.skipped || r.error || "Saved"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="field">
+          <label>Recipients ({selected.size} selected)</label>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients…" style={{ marginBottom: 6 }} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+            <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(filtered.map((c) => c.client_id)))}>Select shown ({filtered.length})</button>
+            <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(smsOptedIn.map((c) => c.client_id)))}>SMS opted-in ({smsOptedIn.length})</button>
+            <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(emailOptedIn.map((c) => c.client_id)))}>Email opted-in ({emailOptedIn.length})</button>
+            <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
+            {filtered.map((c) => (
+              <label key={c.client_id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "3px 0" }}>
+                <input type="checkbox" checked={selected.has(c.client_id)} onChange={() => toggleClient(c.client_id)} />
+                {c.client_name}
+                <span className="muted" style={{ fontSize: 11 }}>{c.sms_allowed ? "· SMS ok" : ""}{c.email_allowed ? "· Email ok" : ""}</span>
+              </label>
+            ))}
+            {filtered.length === 0 && <p className="muted" style={{ margin: 0 }}>No clients match.</p>}
+          </div>
+        </div>
+
+        <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+        <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
+        <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+        <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
+          <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
+          Send now (attempts real delivery to every selected, opted-in client)
+        </label>
+        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? `Sending to ${selected.size}…` : `Send to ${selected.size} Client(s)`}</button>
+      </form>
     </Panel>
   );
 }
