@@ -5,6 +5,7 @@ import type { AuthUser, LoginResponse, LoginStepResponse } from "../api/types";
 export type LoginOutcome =
   | { step: "totp"; challenge: string }
   | { step: "enroll"; challenge: string; email: string }
+  | { step: "emailOtp"; challenge: string; email: string }
   | { step: "done" };
 
 interface AuthContextValue {
@@ -12,6 +13,10 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, portal: string, password: string) => Promise<LoginOutcome>;
   completeTotpLogin: (challenge: string, code: string) => Promise<void>;
+  /** Client/Employee portals: verify the 6-digit code that was emailed. */
+  completeEmailOtpLogin: (challenge: string, code: string) => Promise<void>;
+  /** Send a fresh email code for an in-flight sign-in. */
+  resendEmailOtp: (challenge: string) => Promise<void>;
   /** Mandatory-enrollment step 1: fetch a QR + secret for a user with no authenticator yet. */
   startTotpEnrollment: (challenge: string) => Promise<{ secret: string; qrCodeDataUrl: string }>;
   /**
@@ -54,9 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, portal: string, password: string): Promise<LoginOutcome> => {
     const result = await api.post<LoginStepResponse>("/auth/login", { email, portal, password });
     if ("totpRequired" in result) return { step: "totp", challenge: result.challenge };
-    // 2FA is mandatory, so a user with no authenticator gets an enrollment
-    // challenge rather than a session — there is no "skip" branch here.
+    // Portals covered by a second-factor policy never get a session straight
+    // from a password: authenticator portals go to enrollment, email-code
+    // portals go to the code screen. Neither branch can be skipped.
     if ("enrollmentRequired" in result) return { step: "enroll", challenge: result.challenge, email: result.email };
+    if ("emailOtpRequired" in result) return { step: "emailOtp", challenge: result.challenge, email: result.email };
     applySession(result);
     return { step: "done" };
   }, [applySession]);
@@ -64,6 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const completeTotpLogin = useCallback(async (challenge: string, code: string) => {
     applySession(await api.post<LoginResponse>("/auth/login/verify-totp", { challenge, code }));
   }, [applySession]);
+
+  const completeEmailOtpLogin = useCallback(async (challenge: string, code: string) => {
+    applySession(await api.post<LoginResponse>("/auth/login/verify-email-code", { challenge, code }));
+  }, [applySession]);
+
+  const resendEmailOtp = useCallback(async (challenge: string) => {
+    await api.post("/auth/login/resend-email-code", { challenge });
+  }, []);
 
   const startTotpEnrollment = useCallback(async (challenge: string) => {
     return api.post<{ secret: string; qrCodeDataUrl: string }>("/auth/enroll/2fa/start", { challenge });
@@ -92,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, completeTotpLogin, startTotpEnrollment, completeTotpEnrollment, updateUser, logout }}
+      value={{ user, loading, login, completeTotpLogin, completeEmailOtpLogin, resendEmailOtp, startTotpEnrollment, completeTotpEnrollment, updateUser, logout }}
     >
       {children}
     </AuthContext.Provider>

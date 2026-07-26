@@ -26,7 +26,7 @@ const PORTAL_COPY: Record<string, string> = {
  * group only ever sees their own portal. Admin keeps the full picker at /login.
  */
 export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
-  const { login, completeTotpLogin, startTotpEnrollment, completeTotpEnrollment } = useAuth();
+  const { login, completeTotpLogin, completeEmailOtpLogin, resendEmailOtp, startTotpEnrollment, completeTotpEnrollment } = useAuth();
   const navigate = useNavigate();
   const { lang, setLang, t, dir } = useLanguage();
   const [email, setEmail] = useState("");
@@ -42,6 +42,10 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
   // setup (or going back and signing in as someone else).
   const [enrollChallenge, setEnrollChallenge] = useState<string | null>(null);
   const [enrollSetup, setEnrollSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  // Client/Employee portals: a 6-digit code was emailed and we hold here for it.
+  const [emailOtpChallenge, setEmailOtpChallenge] = useState<string | null>(null);
+  const [emailOtpSentTo, setEmailOtpSentTo] = useState("");
+  const [resendNote, setResendNote] = useState<string | null>(null);
   // Shown after enrollment succeeds and before the dashboard — this is the only
   // time these codes are readable, so the user must not be navigated past them.
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
@@ -81,6 +85,9 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
       const outcome = await login(email, portal, password);
       if (outcome.step === "totp") {
         setChallenge(outcome.challenge);
+      } else if (outcome.step === "emailOtp") {
+        setEmailOtpChallenge(outcome.challenge);
+        setEmailOtpSentTo(outcome.email);
       } else if (outcome.step === "enroll") {
         setEnrollChallenge(outcome.challenge);
         const setup = await startTotpEnrollment(outcome.challenge);
@@ -92,6 +99,33 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleVerifyEmailCode(e: FormEvent) {
+    e.preventDefault();
+    if (!emailOtpChallenge) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      await completeEmailOtpLogin(emailOtpChallenge, code);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not reach the server.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleResendEmailCode() {
+    if (!emailOtpChallenge) return;
+    setError(null);
+    setResendNote(null);
+    try {
+      await resendEmailOtp(emailOtpChallenge);
+      setResendNote("A new code is on its way.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send a new code.");
     }
   }
 
@@ -132,6 +166,75 @@ export function LoginPage({ lockedPortal }: { lockedPortal?: string } = {}) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (emailOtpChallenge) {
+    return (
+      <div className="login-screen">
+        <form onSubmit={handleVerifyEmailCode} className="login-panel">
+          <div className="login-brand">
+            <FirmLogo size={40} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>Secure Portal</div>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{APP_NAME}</div>
+            </div>
+          </div>
+
+          <h1>Check Your Email</h1>
+          <p className="login-copy">
+            We sent a 6-digit sign-in code to <strong>{emailOtpSentTo}</strong>. It expires in 10 minutes.
+          </p>
+
+          {error && <div className="error-banner">{error}</div>}
+          {resendNote && <p className="muted" style={{ fontSize: 12.5, margin: "0 0 8px" }}>{resendNote}</p>}
+
+          <div className="field">
+            <label htmlFor="email-otp-code">6-digit code</label>
+            <input
+              id="email-otp-code"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              required
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              autoFocus
+              style={{ letterSpacing: 4, fontSize: 18, textAlign: "center" }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
+            disabled={submitting || code.length !== 6}
+          >
+            {submitting ? "Verifying…" : "Verify & Sign In"}
+          </button>
+
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ border: "none", background: "none", color: "var(--teal)", textDecoration: "underline" }}
+              onClick={handleResendEmailCode}
+            >Send a new code</button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ border: "none", background: "none", color: "var(--muted)", textDecoration: "underline" }}
+              onClick={() => { setEmailOtpChallenge(null); setCode(""); setError(null); setResendNote(null); }}
+            >Back to sign in</button>
+          </div>
+
+          <p className="muted" style={{ fontSize: 11, marginTop: 12 }}>
+            Not seeing it? Check your spam folder. The code only works once.
+          </p>
+        </form>
+      </div>
+    );
   }
 
   if (recoveryCodes) {

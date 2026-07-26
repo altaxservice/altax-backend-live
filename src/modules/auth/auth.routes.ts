@@ -5,13 +5,20 @@ import { authenticateUser, buildAuthSuccess, AuthError, AuthSuccess } from "./au
 import { asyncHandler } from "../../common/asyncHandler";
 import { requireAuth, AuthedRequest } from "../../common/requireAuth";
 import { verifyPassword, createPasswordHashFields } from "./password";
-import { pool } from "../../config/db";
+import { pool, query, queryOne } from "../../config/db";
 import { logAudit } from "../../common/audit";
 import {
   generateTotpSecret, verifyTotpCode, totpQrCodeDataUrl,
   generateBackupCodes, hashBackupCodes, consumeBackupCode,
 } from "./totp";
 import { wrapEmailHtml } from "../../common/emailTemplate";
+import { rateLimit } from "../../common/rateLimit";
+import { sendEmail } from "../../common/notifications";
+import { getFirmProfile } from "../../common/firmProfile";
+import {
+  generateEmailOtp, hashEmailOtp, emailOtpMatches, otpExpiryFromNow, isOtpExpired,
+  loginCodeEmailBody, OTP_TTL_MINUTES, OTP_MAX_ATTEMPTS,
+} from "./emailOtp";
 
 export const authRouter = Router();
 
@@ -42,24 +49,74 @@ function isError(result: AuthSuccess | AuthError): result is AuthError {
 }
 
 /**
- * Which portals must have two-factor authentication.
+ * Rate limits for the unauthenticated auth surface. The existing per-account
+ * lockout only guards one account at a time; these also key on source IP, which
+ * is what a password-spray attack (one password, many accounts) has in common.
+ */
+/**
+ * TWO limiters, because they catch different attacks and one cannot do both:
+ *
+ * - loginIpLimiter keys on the source IP ALONE. This is the one that stops
+ *   password spraying, where a single password is tried against many accounts.
+ *   Keying on the email as well would defeat it entirely — every attempt uses a
+ *   different email, so every attempt would land in its own bucket and nothing
+ *   would ever trip. (Which is exactly what happened the first time this was
+ *   written, and what the spray test caught.)
+ *
+ * - loginAccountLimiter keys on IP + email, catching a sustained brute force
+ *   against one specific account faster than the 5-failure lockout would.
+ */
+const loginIpLimiter = rateLimit({ name: "login-ip", windowMs: 15 * 60 * 1000, max: 30 });
+
+const loginAccountLimiter = rateLimit({
+  name: "login-account",
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyOn: (req) => req.body?.email,
+});
+
+/** Second-factor code submission — tighter, since these are 6-digit secrets. */
+const codeLimiter = rateLimit({ name: "code", windowMs: 15 * 60 * 1000, max: 15 });
+
+/** Re-sending a login code sends real email; throttle harder than verification. */
+const resendLimiter = rateLimit({ name: "resend", windowMs: 15 * 60 * 1000, max: 5 });
+
+/** Password reset also sends real email to an address the caller chose. */
+const forgotLimiter = rateLimit({
+  name: "forgot",
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyOn: (req) => req.body?.email,
+});
+
+function parseRoleList(raw: string | undefined, fallback: string): Set<string> {
+  const value = raw === undefined ? fallback : raw;
+  return new Set(value.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean));
+}
+
+/**
+ * Portals that must use an authenticator app (TOTP) — the stronger factor,
+ * reserved for the accounts that can reach every client's records.
  *
  * Configurable per role so the requirement can be tightened or relaxed without
- * a code change — the office should never have to wait for a deploy to unblock
- * a login. Defaults to all four portals; setting REQUIRE_2FA_ROLES to an empty
- * string makes 2FA optional everywhere, which is the emergency off switch.
+ * a code change. Setting REQUIRE_2FA_ROLES to an empty string removes the
+ * requirement entirely — the emergency off switch.
  *
- * Note this only governs whether an account is FORCED to enroll. An account
- * that already has 2FA on is always challenged for a code regardless of this
- * setting — relaxing the policy must never silently downgrade someone who is
- * already protected.
+ * This only governs who is FORCED to enroll. An account that already has TOTP
+ * on is always challenged for a code regardless of this setting: relaxing the
+ * policy must never silently downgrade someone already protected.
  */
 function rolesRequiring2fa(): Set<string> {
-  const raw = process.env.REQUIRE_2FA_ROLES;
-  const value = raw === undefined ? "admin,staff,client,employee" : raw;
-  return new Set(
-    value.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean)
-  );
+  return parseRoleList(process.env.REQUIRE_2FA_ROLES, "admin,staff");
+}
+
+/**
+ * Portals that get a 6-digit code by email instead. Applies only to accounts
+ * that do not already have an authenticator set up — a client who voluntarily
+ * enabled TOTP keeps using it, since it is the stronger factor.
+ */
+function rolesRequiringEmailOtp(): Set<string> {
+  return parseRoleList(process.env.REQUIRE_EMAIL_OTP_ROLES, "client,employee");
 }
 
 function issueSessionToken(result: AuthSuccess): string {
@@ -87,7 +144,7 @@ function issueSessionToken(result: AuthSuccess): string {
  * purpose=2fa-challenge) that only /auth/login/verify-totp will accept — the
  * real session JWT is only minted after the 6-digit code is verified.
  */
-authRouter.post("/login", asyncHandler(async (req: Request, res: Response) => {
+authRouter.post("/login", loginIpLimiter, loginAccountLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { email, portal, password } = req.body || {};
   const result = await authenticateUser(email, portal, password);
 
@@ -117,10 +174,121 @@ authRouter.post("/login", asyncHandler(async (req: Request, res: Response) => {
     return res.json({ enrollmentRequired: true, challenge: enrollment, email: result.email });
   }
 
-  // Portal not covered by the policy: sign in as normal. Such a user can still
+  // Portals on the email-code policy: mail a 6-digit code and hold the session
+  // until it comes back. Weaker than TOTP but far stronger than a password
+  // alone, and it needs nothing installed — see emailOtp.ts for the reasoning.
+  if (rolesRequiringEmailOtp().has(String(result.role || "").toLowerCase())) {
+    const challenge = jwt.sign(
+      { sub: result.userId, purpose: "email-otp" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: `${OTP_TTL_MINUTES}m` }
+    );
+    const sent = await issueEmailOtp(result.userId, result.email, req);
+    if (!sent) {
+      // Fail CLOSED. Signing the user in anyway would mean a mail outage
+      // silently removes the second factor for every client at once — the
+      // failure mode would be invisible and would look exactly like normal
+      // operation. If email is genuinely broken, the deliberate escape hatch is
+      // clearing REQUIRE_EMAIL_OTP_ROLES, which is a decision someone makes on
+      // purpose rather than one an outage makes for them.
+      await logAudit("Security", "EMAIL_OTP_SEND_FAILED", result.userId, "", "", "",
+        "Could not send the login code; sign-in refused rather than skipping the second factor.", result.email);
+      return res.status(503).json({
+        error: "We could not send your sign-in code right now. Please try again in a few minutes, or contact the office if it keeps happening.",
+      });
+    }
+    return res.json({ emailOtpRequired: true, challenge, email: result.email });
+  }
+
+  // Portal not covered by any policy: sign in as normal. Such a user can still
   // turn 2FA on voluntarily from the header menu.
   const token = issueSessionToken(result);
   return res.json({ token, user: result });
+}));
+
+/**
+ * Generates, stores (hashed) and emails a one-time login code. Returns false
+ * when the email could not be sent, so the caller can decide what to do rather
+ * than silently pretending a code is waiting in an inbox.
+ */
+async function issueEmailOtp(userId: string, email: string, req: Request): Promise<boolean> {
+  const code = generateEmailOtp();
+  await query(
+    `UPDATE altax.v3_users SET login_otp_hash = $2, login_otp_expires = $3, login_otp_attempts = 0 WHERE user_id = $1`,
+    [userId, hashEmailOtp(code), otpExpiryFromNow()]
+  );
+  try {
+    const firm = await getFirmProfile();
+    await sendEmail({
+      to: email,
+      subject: `${code} is your ${firm.firmName} sign-in code`,
+      html: await wrapEmailHtml(loginCodeEmailBody(code, firm.firmName), req),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Second step for the email-code portals. Attempts are capped per issued code,
+ * so a 6-digit secret cannot be walked through inside its 10-minute life.
+ */
+authRouter.post("/login/verify-email-code", codeLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const userId = readChallenge(req.body?.challenge, "email-otp");
+  if (!userId) return res.status(401).json({ error: "That sign-in request expired. Please sign in again." });
+  const code = String(req.body?.code || "").trim();
+  if (!code) return res.status(400).json({ error: "Enter the 6-digit code from your email." });
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(`SELECT * FROM altax.v3_users WHERE user_id = $1`, [userId]);
+    const row = rows[0];
+    if (!row?.login_otp_hash) return res.status(401).json({ error: "That code is no longer valid. Please sign in again." });
+
+    if (isOtpExpired(row.login_otp_expires)) {
+      await client.query(`UPDATE altax.v3_users SET login_otp_hash = NULL, login_otp_expires = NULL WHERE user_id = $1`, [userId]);
+      return res.status(401).json({ error: "That code has expired. Please sign in again to get a new one." });
+    }
+
+    if (Number(row.login_otp_attempts || 0) >= OTP_MAX_ATTEMPTS) {
+      await client.query(`UPDATE altax.v3_users SET login_otp_hash = NULL, login_otp_expires = NULL WHERE user_id = $1`, [userId]);
+      await logAudit("Security", "EMAIL_OTP_ATTEMPTS_EXCEEDED", userId, "", "", "",
+        "Too many wrong login codes; code invalidated.", row.email);
+      return res.status(429).json({ error: "Too many incorrect codes. Please sign in again to get a new one." });
+    }
+
+    if (!emailOtpMatches(row.login_otp_hash, code)) {
+      await client.query(`UPDATE altax.v3_users SET login_otp_attempts = login_otp_attempts + 1 WHERE user_id = $1`, [userId]);
+      return res.status(401).json({ error: "Incorrect code. Check the latest email and try again." });
+    }
+
+    const result = await buildAuthSuccess(client, row);
+    if (isError(result)) return res.status(401).json({ error: result.error });
+
+    // Burn the code in the same update that grants the session.
+    await client.query(
+      `UPDATE altax.v3_users SET last_login = now(), login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0 WHERE user_id = $1`,
+      [userId]
+    );
+    const token = issueSessionToken(result);
+    return res.json({ token, user: result });
+  } finally {
+    client.release();
+  }
+}));
+
+/** Re-send the code for an in-flight sign-in (the first mail can be slow or land in spam). */
+authRouter.post("/login/resend-email-code", resendLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const userId = readChallenge(req.body?.challenge, "email-otp");
+  if (!userId) return res.status(401).json({ error: "That sign-in request expired. Please sign in again." });
+
+  const row = await queryOne<any>(`SELECT user_id, email FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!row) return res.status(404).json({ error: "Account not found." });
+
+  const sent = await issueEmailOtp(row.user_id, row.email, req);
+  if (!sent) return res.status(500).json({ error: "Could not send the code. Please try again shortly." });
+  return res.json({ ok: true });
 }));
 
 /** Resolves a purpose-scoped challenge token to a user id, or null. */
@@ -164,7 +332,7 @@ authRouter.post("/enroll/2fa/start", asyncHandler(async (req: Request, res: Resp
  * only then mint the real session token — so enrollment and sign-in complete in
  * one go rather than bouncing the user back to the login form.
  */
-authRouter.post("/enroll/2fa/confirm", asyncHandler(async (req: Request, res: Response) => {
+authRouter.post("/enroll/2fa/confirm", codeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const userId = readChallenge(req.body?.challenge, "2fa-enroll");
   if (!userId) return res.status(401).json({ error: "Setup session expired. Please sign in again." });
   const code = String(req.body?.code || "").trim();
@@ -206,7 +374,7 @@ authRouter.post("/enroll/2fa/confirm", asyncHandler(async (req: Request, res: Re
  * short-lived challenge from /auth/login plus a 6-digit authenticator code
  * for the real session JWT.
  */
-authRouter.post("/login/verify-totp", asyncHandler(async (req: Request, res: Response) => {
+authRouter.post("/login/verify-totp", codeLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { challenge, code } = req.body || {};
   if (!challenge || !code) return res.status(400).json({ error: "Challenge and code are required." });
 
@@ -442,7 +610,7 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
  * instead of an admin. Always returns the same generic response whether or not the
  * email matches an account, so this can't be used to enumerate real user emails.
  */
-authRouter.post("/forgot-password", asyncHandler(async (req: Request, res: Response) => {
+authRouter.post("/forgot-password", forgotLimiter, asyncHandler(async (req: Request, res: Response) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const generic = { ok: true, message: "If an account exists for that email, a password reset link has been sent." };
   if (!email || !email.includes("@")) return res.json(generic);

@@ -98,6 +98,11 @@ CREATE TABLE IF NOT EXISTS v3_users (
     -- plaintext: the database must not hold anything that can sign in by itself.
     -- Each code is removed from this array the first time it is used.
     totp_backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- One-time email login code (Client/Employee portals). Hashed, short-lived
+    -- and attempt-capped, so the database never holds a usable login code.
+    login_otp_hash VARCHAR(128),
+    login_otp_expires TIMESTAMPTZ,
+    login_otp_attempts INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_v3_users_assigned_client_id FOREIGN KEY (assigned_client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL,

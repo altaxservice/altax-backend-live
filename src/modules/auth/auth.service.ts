@@ -93,18 +93,22 @@ export async function authenticateUser(
         if (check.valid) {
           selectedUser = row;
           if (check.needsUpgrade) {
+            // Transparent re-hash to the current (scrypt) format using the
+            // password the user just proved they know — this is the only moment
+            // it is available in plaintext. Nobody is asked to reset anything;
+            // weak hashes simply disappear as people sign in.
             const upgraded = createPasswordHashFields(password || "");
             await client.query(
               `UPDATE altax.v3_users
-                 SET password_hash = $1, password_salt = $2, password_hash_version = 2,
+                 SET password_hash = $1, password_salt = $2, password_hash_version = 3,
                      last_password_change_at = $3, failed_login_count = NULL, locked_until = NULL
                WHERE user_id = $4`,
               [upgraded.PasswordHash, upgraded.PasswordSalt, upgraded.LastPasswordChangeAt, row.user_id]
             );
             await logAudit(
               "Security", "PASSWORD_HASH_UPGRADED", row.user_id || row.email || "",
-              "PasswordHashVersion", "legacy", "v2",
-              "Legacy portal password hash upgraded after successful login."
+              "PasswordHashVersion", "legacy/v2", "v3 (scrypt)",
+              "Portal password hash upgraded to scrypt after a successful login."
             );
           } else {
             await client.query(

@@ -21,7 +21,8 @@ export interface LoginResponse {
 export type LoginStepResponse =
   | LoginResponse
   | { totpRequired: true; challenge: string }
-  | { enrollmentRequired: true; challenge: string; email: string };
+  | { enrollmentRequired: true; challenge: string; email: string }
+  | { emailOtpRequired: true; challenge: string; email: string };
 
 export interface Client {
   client_id: string;
