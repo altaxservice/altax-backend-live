@@ -48,6 +48,7 @@ app.use(helmet());
 const ALLOWED_ORIGINS = new Set([
   "https://altaxgroup.com",
   "https://www.altaxgroup.com",
+  "https://api.altaxgroup.com",
   "http://localhost:5173",
   "http://localhost:4000",
 ]);
