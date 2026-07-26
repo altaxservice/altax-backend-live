@@ -363,8 +363,16 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
   const profile = await getFirmProfile();
-  const title = data.employeeFilter ? `EMPLOYEE REPORT — ${data.employeeFilter.toUpperCase()}` : "EMPLOYEE REPORT — ALL EMPLOYEES";
-  let y = drawHeader(c, data.client, title, `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+  // Employee name goes in the smaller periodLabel line, not appended to the big bold
+  // title — a real employee name + a real (often long) client name both drawn at
+  // size 16 bold on the same line collided and overlapped illegibly (found live,
+  // via an actual received test email: "AL TAX SEMPLOYEE REPORT..."). periodLabel
+  // is size 10 with far more room, and there's no client-name collision risk there.
+  const title = "EMPLOYEE REPORT";
+  const periodLabel = data.employeeFilter
+    ? `${data.employeeFilter.toUpperCase()} · ${fmtDate(data.from)} – ${fmtDate(data.to)}`
+    : `ALL EMPLOYEES · ${fmtDate(data.from)} – ${fmtDate(data.to)}`;
+  let y = drawHeader(c, data.client, title, periodLabel, profile.firmName);
 
   const tiles: [string, string][] = [
     ["Gross Wages", money(data.totals.grossWages)], ["Checks", String(data.totals.checkCount)],
