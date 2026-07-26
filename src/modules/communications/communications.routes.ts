@@ -5,6 +5,8 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
 import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../common/notifications";
+import { wrapEmailHtml } from "../../common/emailTemplate";
+import { getFirmProfile } from "../../common/firmProfile";
 
 /**
  * Communications module — Phase 6 slice covering the plan's named test scenarios:
@@ -27,22 +29,38 @@ import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../comm
  */
 export const communicationsRouter = Router();
 
+export interface SendAttachment { filename: string; contentBase64: string; contentType?: string }
+
 /**
  * Attempts a real send for Email/SMS/WhatsApp channels; Portal Note and Phone are
  * always log-only. Never throws — a missing provider key or a delivery failure is
  * reported back as { sent: false, error } rather than blocking the communication log
  * write, exactly like sendInviteEmail() in users.routes.ts.
+ *
+ * Email goes out through wrapEmailHtml — the same branded header/footer shell (firm
+ * name + logo, styled body, firm contact info) every other outbound email in the app
+ * already uses — instead of a bare <p> tag, and can carry one attachment. SMS/WhatsApp
+ * have no display-name concept at all (the client just sees a phone number), so the
+ * firm's name is prefixed onto the body itself; attachments are silently dropped for
+ * those two channels since Twilio SMS/WhatsApp here isn't wired for media (MMS).
  */
-async function sendChannel(channel: string, to: string, subject: string, body: string): Promise<{ sent: boolean; error?: string }> {
+async function sendChannel(
+  channel: string, to: string, subject: string, body: string,
+  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment } = {}
+): Promise<{ sent: boolean; error?: string }> {
   const normalized = normalizeText(channel);
   if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
   try {
     if (normalized === "email") {
-      await sendEmail({ to, subject, html: `<p>${body.replace(/\n/g, "<br>")}</p>` });
-    } else if (normalized === "sms") {
-      await sendSms({ to, body });
+      const html = await wrapEmailHtml(`<p>${body.replace(/\n/g, "<br>")}</p>`, opts.req);
+      const attachments = opts.attachment
+        ? [{ filename: opts.attachment.filename, content: Buffer.from(opts.attachment.contentBase64, "base64"), contentType: opts.attachment.contentType }]
+        : undefined;
+      await sendEmail({ to, subject, html, attachments });
     } else {
-      await sendWhatsApp({ to, body });
+      const prefixed = `${opts.firmName || "AL Tax Service"}: ${body}`;
+      if (normalized === "sms") await sendSms({ to, body: prefixed });
+      else await sendWhatsApp({ to, body: prefixed });
     }
     return { sent: true };
   } catch (err: any) {
@@ -133,7 +151,8 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const sentTo = String(body.sentTo || client.email || "").trim();
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
 
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody) : { sent: false };
+  const firmName = (await getFirmProfile()).firmName;
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(
@@ -308,7 +327,8 @@ communicationsRouter.post("/staff", requireAuth, requireRole("admin", "staff"), 
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
   const sentTo = String(body.sentTo || (["sms", "whatsapp"].includes(normalizeText(channel)) ? recipient.phone : recipient.email) || "").trim();
 
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText) : { sent: false };
+  const firmName = (await getFirmProfile()).firmName;
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment: body.attachment }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   const communicationId = nextCommunicationId();
@@ -324,6 +344,72 @@ communicationsRouter.post("/staff", requireAuth, requireRole("admin", "staff"), 
     status, req.user!.email);
 
   res.status(201).json({ ok: true, communicationId, status, sentTo: sentTo || recipient.email, sent: result.sent, sendError: result.error });
+}));
+
+/**
+ * Bulk staff blast — same message to many staff/admin users in one action, mirroring
+ * POST /communications/bulk below for clients. No consent gate here (unlike the client
+ * version): internal team messaging isn't subject to A2P/marketing opt-in rules, so
+ * every active admin/staff recipient with a usable address for the channel is sent to.
+ */
+communicationsRouter.post("/staff/bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const recipientEmails: string[] = Array.isArray(body.recipientEmails)
+    ? Array.from(new Set(body.recipientEmails.map((e: any) => String(e).trim()).filter(Boolean)))
+    : [];
+  if (recipientEmails.length === 0) return res.status(400).json({ error: "Select at least one staff recipient." });
+
+  const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
+  if (channels.length === 0) return res.status(400).json({ error: "Choose at least one channel." });
+
+  const subject = String(body.subject || "Firm staff message").trim();
+  const messageText = String(body.messageEnglish || body.message || subject || "").trim();
+  if (!messageText) return res.status(400).json({ error: "Enter a staff message." });
+  const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
+  const attachment: SendAttachment | undefined = body.attachment;
+  const firmName = (await getFirmProfile()).firmName;
+
+  const results: { email: string; name: string; channel: string; sent: boolean; skipped?: string; error?: string }[] = [];
+
+  for (const email of recipientEmails) {
+    const recipient = await queryOne<any>(
+      `SELECT email, name, phone FROM altax.v3_users WHERE active = true AND lower(role) IN ('admin','staff') AND lower(email) = $1 LIMIT 1`,
+      [normalizeText(email)]
+    );
+    if (!recipient) {
+      results.push({ email, name: email, channel: "-", sent: false, skipped: "Not an active staff/admin user." });
+      continue;
+    }
+
+    for (const channel of channels) {
+      const normalized = normalizeText(channel);
+      const sentTo = String((normalized === "sms" || normalized === "whatsapp") ? recipient.phone : recipient.email) || "";
+      let skip = "";
+      if (!sentTo) skip = normalized === "sms" || normalized === "whatsapp" ? "No phone on file." : "No email on file.";
+
+      if (skip) {
+        results.push({ email, name: recipient.name, channel, sent: false, skipped: skip });
+        continue;
+      }
+
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, messageText, { req, firmName, attachment }) : { sent: false };
+      const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
+      const communicationId = nextCommunicationId();
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,NULL,NULL,NULL,'Staff to Staff',$2,$3,$4,NULL,$5,$6,now(),$7,'Node Web App Bulk Staff',$1)`,
+        [communicationId, channel, subject, messageText, sentTo, req.user!.email, status]
+      );
+      results.push({ email, name: recipient.name, channel, sent: result.sent, error: result.error });
+    }
+  }
+
+  await logAudit("Communications", "BULK_STAFF_MESSAGE", "", "", "", `${recipientEmails.length} staff`,
+    `Bulk staff message sent by ${req.user!.email} to ${recipientEmails.length} recipient(s) via ${channels.join(", ")}.`, req.user!.email);
+
+  res.json({ ok: true, results });
 }));
 
 /**
@@ -352,6 +438,8 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
   const messageArabic = String(body.messageArabic || "").trim();
   if (!messageEnglish && !messageArabic) return res.status(400).json({ error: "Enter a message." });
   const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
+  const attachment: SendAttachment | undefined = body.attachment;
+  const firmName = (await getFirmProfile()).firmName;
 
   const results: { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }[] = [];
 
@@ -392,7 +480,7 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
         continue;
       }
 
-      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody) : { sent: false };
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment }) : { sent: false };
       const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       const communicationId = nextCommunicationId();
       await query(

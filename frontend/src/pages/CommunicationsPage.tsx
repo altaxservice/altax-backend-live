@@ -1,10 +1,18 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
+import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
+import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
+
+/** Reads a File into the { filename, contentBase64, contentType } shape the communications endpoints accept. Email-only — attachments are dropped for SMS/WhatsApp server-side. */
+async function fileToAttachment(file: File): Promise<{ filename: string; contentBase64: string; contentType?: string }> {
+  return { filename: file.name, contentBase64: await fileToBase64(file), contentType: file.type || undefined };
+}
 
 interface StaffDirectoryEntry { name: string; email: string; phone: string | null; role: string }
 interface TemplateRow { templateId: string | null; name: string; category: string; subject: string; source: string }
@@ -204,23 +212,30 @@ export function CommunicationsPage() {
 
 function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent: () => void }) {
   const [staff, setStaff] = useState<StaffDirectoryEntry[]>([]);
-  const [recipient, setRecipient] = useState("");
+  const [recipients, setRecipients] = useState<Set<string>>(new Set());
   const [phone, setPhone] = useState("");
   const [subject, setSubject] = useState("Firm staff message");
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [sendNow, setSendNow] = useState(true);
   const [message, setMessage] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<{ channel: string; sent?: boolean; sendError?: string }[]>([]);
+  const [bulkResults, setBulkResults] = useState<{ name: string; channel: string; sent: boolean; skipped?: string; error?: string }[]>([]);
 
   useEffect(() => {
     api.get<{ staff: StaffDirectoryEntry[] }>("/communications/staff-directory").then((r) => setStaff(r.staff)).catch(() => {});
   }, []);
 
-  function handleRecipientChange(email: string) {
-    setRecipient(email);
-    setPhone(staff.find((s) => s.email === email)?.phone || "");
+  function toggleRecipient(email: string) {
+    setRecipients((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email); else next.add(email);
+      // The manual phone override only makes sense for a single recipient.
+      if (next.size === 1) setPhone(staff.find((s) => next.has(s.email))?.phone || "");
+      return next;
+    });
   }
 
   function toggleChannel(c: string) {
@@ -229,19 +244,34 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (recipients.size === 0) { setError("Select at least one staff recipient."); return; }
     if (channels.length === 0) { setError("Choose at least one channel."); return; }
+    if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
     setSaving(true);
     setError(null);
     setResults([]);
+    setBulkResults([]);
     try {
-      const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
-      for (const channel of channels) {
-        const sentTo = ["SMS", "WhatsApp"].includes(channel) ? phone : undefined;
-        const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications/staff", { recipientEmail: recipient, subject, channel, messageEnglish: message, sendNow, sentTo });
-        outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
+      const attachmentPayload = attachment ? await fileToAttachment(attachment) : undefined;
+      if (recipients.size === 1) {
+        // Single recipient keeps the original route so the manual phone override still works.
+        const recipient = [...recipients][0];
+        const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
+        for (const channel of channels) {
+          const sentTo = ["SMS", "WhatsApp"].includes(channel) ? phone : undefined;
+          const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications/staff", { recipientEmail: recipient, subject, channel, messageEnglish: message, sendNow, sentTo, attachment: attachmentPayload });
+          outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
+        }
+        setResults(outcomes);
+      } else {
+        const res = await api.post<{ results: { name: string; channel: string; sent: boolean; skipped?: string; error?: string }[] }>(
+          "/communications/staff/bulk",
+          { recipientEmails: [...recipients], subject, channels, messageEnglish: message, sendNow, attachment: attachmentPayload }
+        );
+        setBulkResults(res.results || []);
       }
-      setResults(outcomes);
       setMessage("");
+      setAttachment(null);
       onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this message.");
@@ -252,25 +282,55 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
 
   return (
     <Panel title="Firm Staff Messages" note={`${messages.length} staff message(s)`}>
-      <p className="muted" style={{ padding: "0 16px 12px" }}>Internal firm-to-staff messages. Only active Admin/Staff portal users appear here; clients are excluded.</p>
+      <p className="muted" style={{ padding: "0 16px 12px" }}>Internal firm-to-staff messages. Only active Admin/Staff portal users appear here; clients are excluded. Pick one person or several — the same message goes to everyone selected.</p>
       <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
         {error && <ErrorBanner error={error} />}
         <SendResults results={results} />
+        {bulkResults.length > 0 && (
+          <div className="card" style={{ marginBottom: 12, fontSize: 13 }}>
+            <strong>Sent to {bulkResults.filter((r) => r.sent).length} of {bulkResults.length}</strong>
+            <div className="table-scroll" style={{ marginTop: 6 }}>
+              <table>
+                <tbody>
+                  {bulkResults.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.name}</td>
+                      <td className="muted">{r.channel}</td>
+                      <td className="muted">{r.sent ? "Sent" : r.skipped || r.error || "Saved"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <div className="form-grid">
           <div className="field">
-            <label>Staff / Manager / Admin</label>
-            <select required value={recipient} onChange={(e) => handleRecipientChange(e.target.value)}>
-              <option value="">Select a recipient…</option>
-              {staff.map((s) => <option key={s.email} value={s.email}>{s.name} ({s.role})</option>)}
-            </select>
+            <label>Recipients ({recipients.size} selected)</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <button type="button" className="btn btn-sm" onClick={() => setRecipients(new Set(staff.map((s) => s.email)))}>All staff ({staff.length})</button>
+              <button type="button" className="btn btn-sm" onClick={() => setRecipients(new Set())}>Clear</button>
+            </div>
+            <div style={{ border: "1px solid var(--line)", borderRadius: 6, padding: 8, maxHeight: 160, overflowY: "auto" }}>
+              {staff.map((s) => (
+                <label key={s.email} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "3px 0" }}>
+                  <input type="checkbox" checked={recipients.has(s.email)} onChange={() => toggleRecipient(s.email)} />
+                  {s.name} <span className="muted" style={{ fontSize: 11 }}>({s.role})</span>
+                </label>
+              ))}
+              {staff.length === 0 && <p className="muted" style={{ margin: 0 }}>No active staff users.</p>}
+            </div>
           </div>
-          <div className="field">
-            <label>SMS / WhatsApp Phone</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1XXXXXXXXXX — needed only for SMS/WhatsApp" />
-          </div>
+          {recipients.size === 1 && (
+            <div className="field">
+              <label>SMS / WhatsApp Phone</label>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1XXXXXXXXXX — needed only for SMS/WhatsApp" />
+            </div>
+          )}
         </div>
         <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
         <div className="field"><label>Message</label><textarea rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
+        <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
           <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
@@ -313,19 +373,41 @@ interface BulkResult { clientId: string; clientName: string; channel: string; se
 function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Active");
+  const [salesTaxFilter, setSalesTaxFilter] = useState("all");
+  const [payrollFilter, setPayrollFilter] = useState("all");
+  const [payrollProviderFilter, setPayrollProviderFilter] = useState("all");
   const [subject, setSubject] = useState("AL TAX SERVICE");
   const [messageEnglish, setMessageEnglish] = useState("");
   const [messageArabic, setMessageArabic] = useState("");
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [sendNow, setSendNow] = useState(true);
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BulkResult[] | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  const filtered = clients.filter((c) => c.client_name.toLowerCase().includes(search.toLowerCase()));
-  const smsOptedIn = clients.filter((c) => c.sms_allowed && c.phone);
-  const emailOptedIn = clients.filter((c) => c.email_allowed && c.email);
+  // Same group-category filters as Create Batch Tasks (status/sales tax/payroll/payroll
+  // provider) so a bulk message can target "everyone Quarterly on Sales Tax" or "all
+  // Active payroll clients" the same way batch task creation already lets staff group
+  // clients by rule-relevant attributes, instead of hand-picking names one at a time.
+  const salesTaxOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.sales_tax_frequency).filter(Boolean))) as string[], [clients]);
+  const payrollOptions = useMemo(() => Array.from(new Set(clients.map((c) => c.payroll_frequency).filter(Boolean))) as string[], [clients]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return clients.filter((c) => {
+      if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
+      if (salesTaxFilter !== "all" && String(c.sales_tax_frequency || "") !== salesTaxFilter) return false;
+      if (payrollFilter !== "all" && String(c.payroll_frequency || "") !== payrollFilter) return false;
+      if (payrollProviderFilter !== "all" && String(c.payroll_system || "") !== payrollProviderFilter) return false;
+      if (q && !c.client_name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, payrollProviderFilter]);
+  const smsOptedIn = filtered.filter((c) => c.sms_allowed && c.phone);
+  const emailOptedIn = filtered.filter((c) => c.email_allowed && c.email);
 
   function toggleClient(id: string) {
     setSelected((prev) => {
@@ -397,6 +479,24 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
 
         <div className="field">
           <label>Recipients ({selected.size} selected)</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 150 }}>
+              <option value="all">Any status</option>
+              {[...new Set(clients.map((c) => String(c.status || "")).filter(Boolean))].sort().map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={salesTaxFilter} onChange={(e) => { setSalesTaxFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
+              <option value="all">Any sales tax freq.</option>
+              {salesTaxOptions.map((s) => <option key={s} value={s}>Sales tax: {s}</option>)}
+            </select>
+            <select value={payrollFilter} onChange={(e) => { setPayrollFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
+              <option value="all">Any payroll freq.</option>
+              {payrollOptions.map((s) => <option key={s} value={s}>Payroll: {s}</option>)}
+            </select>
+            <select value={payrollProviderFilter} onChange={(e) => { setPayrollProviderFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
+              <option value="all">Any payroll provider</option>
+              {PAYROLL_PROVIDERS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients…" style={{ marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
             <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(filtered.map((c) => c.client_id)))}>Select shown ({filtered.length})</button>

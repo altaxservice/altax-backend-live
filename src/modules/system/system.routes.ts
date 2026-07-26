@@ -547,40 +547,168 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
   const coaRows = await query<any>(`SELECT account_name, account_id FROM altax.v3_coa WHERE active = true`);
   const coaAccounts = coaRows.map((a) => a.account_name || a.account_id).filter((name) => String(name || "").trim());
 
+  const managed: Record<string, string[]> = {};
+  for (const category of Object.keys(MANAGED_DROPDOWN_DEFAULTS)) {
+    managed[category] = await managedList(category);
+  }
+
   res.json({
     clients,
     staff,
-    taskTypes: [
-      "Custom", "Other", "Sales Tax Filing", "Sales Tax Payment", "Payroll Processing", "Payroll Tax Deposit",
-      "EFTPS Deposit", "MD Withholding Filing", "MD Withholding", "MD UI", "MD Annual Report Filing",
-      "MD Annual Report Payment", "Immigration Forms", "Business Formation", "EIN Registration", "Business License",
-      "Health Permit", "Use & Occupancy Permit", "Trader's License", "Tobacco License", "Personal Tax",
-      "Business Tax", "Business Return", "Bookkeeping", "IRS Notice", "State Notice",
-    ],
-    immigrationFormTypes: [
-      "I-130 Petition for Alien Relative", "I-485 Adjustment of Status", "I-765 Employment Authorization",
-      "I-864 Affidavit of Support", "N-400 Naturalization", "I-90 Green Card Renewal", "I-751 Remove Conditions",
-      "I-589 Asylum", "DS-260 Immigrant Visa", "FOIA Request", "Other Immigration Form",
-    ],
-    requestTypes: [
-      "Payroll", "Sales Tax", "Business Return", "Annual Report", "EFTPS", "Document Request", "IRS Notice",
-      "State Notice", "New Employee", "Termination", "General Question", "Other",
-    ],
-    requestedItems: [
-      "Bank Statement", "Prior Year Tax Return", "W-2", "1099", "Profit & Loss Statement", "Balance Sheet",
-      "Payroll Records", "Receipts / Invoices", "ID / EIN Documentation", "Lease Agreement", "Signed Engagement Letter", "Other",
-    ],
+    ...managed,
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    priorities: ["Normal", "Low", "High", "Urgent"],
-    taskStatuses: [
-      "Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation",
-      "Submitted", "In Review", "Inspection Phase", "Additional Information Required", "Fee Due", "Approved",
-      "Completed", "Closed", "Archived", "Void",
-    ],
-    invoiceStatuses: ["Unpaid", "Partial", "Paid", "Void"],
-    documentStatuses: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"],
-    paymentMethods: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"],
-    communicationChannels: ["Email", "Portal Note", "SMS", "WhatsApp", "Phone"],
     coaAccounts,
   });
+}));
+
+/**
+ * Editable dropdown lists — the Settings manager's data layer.
+ *
+ * The lists above used to be literals inside GET /options; the owner asked for
+ * a place to manage every dropdown without a code change. The literals now live
+ * in MANAGED_DROPDOWN_DEFAULTS and act as the factory state: a category with no
+ * rows in v3_dropdown_options serves its defaults unchanged, and the first edit
+ * to a category copies the defaults into the table before applying (so editing
+ * "add one task type" never silently discards the other twenty-five).
+ *
+ * Values are copied into records as plain text at creation time (a task keeps
+ * saying "Sales Tax Filing" even if the option is later renamed), so removing
+ * an option only affects future entries — deactivate hides it from the lists,
+ * delete removes the row. Neither rewrites history.
+ */
+export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: string[] }> = {
+  taskTypes: { label: "Task / Service Types", values: [
+    "Custom", "Other", "Sales Tax Filing", "Sales Tax Payment", "Payroll Processing", "Payroll Tax Deposit",
+    "EFTPS Deposit", "MD Withholding Filing", "MD Withholding", "MD UI", "MD Annual Report Filing",
+    "MD Annual Report Payment", "Immigration Forms", "Business Formation", "EIN Registration", "Business License",
+    "Health Permit", "Use & Occupancy Permit", "Trader's License", "Tobacco License", "Personal Tax",
+    "Business Tax", "Business Return", "Bookkeeping", "IRS Notice", "State Notice",
+  ] },
+  immigrationFormTypes: { label: "Immigration Form Types", values: [
+    "I-130 Petition for Alien Relative", "I-485 Adjustment of Status", "I-765 Employment Authorization",
+    "I-864 Affidavit of Support", "N-400 Naturalization", "I-90 Green Card Renewal", "I-751 Remove Conditions",
+    "I-589 Asylum", "DS-260 Immigrant Visa", "FOIA Request", "Other Immigration Form",
+  ] },
+  requestTypes: { label: "Request Types", values: [
+    "Payroll", "Sales Tax", "Business Return", "Annual Report", "EFTPS", "Document Request", "IRS Notice",
+    "State Notice", "New Employee", "Termination", "General Question", "Other",
+  ] },
+  requestedItems: { label: "Requested Document Items", values: [
+    "Bank Statement", "Prior Year Tax Return", "W-2", "1099", "Profit & Loss Statement", "Balance Sheet",
+    "Payroll Records", "Receipts / Invoices", "ID / EIN Documentation", "Lease Agreement", "Signed Engagement Letter", "Other",
+  ] },
+  priorities: { label: "Task Priorities", values: ["Normal", "Low", "High", "Urgent"] },
+  taskStatuses: { label: "Task Statuses", values: [
+    "Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation",
+    "Submitted", "In Review", "Inspection Phase", "Additional Information Required", "Fee Due", "Approved",
+    "Completed", "Closed", "Archived", "Void",
+  ] },
+  invoiceStatuses: { label: "Invoice Statuses", values: ["Unpaid", "Partial", "Paid", "Void"] },
+  documentStatuses: { label: "Document Request Statuses", values: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"] },
+  paymentMethods: { label: "Payment Methods", values: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"] },
+  communicationChannels: { label: "Communication Channels", values: ["Email", "Portal Note", "SMS", "WhatsApp", "Phone"] },
+};
+
+async function managedList(category: string): Promise<string[]> {
+  const rows = await query<any>(
+    `SELECT value FROM altax.v3_dropdown_options WHERE category = $1 AND active = true ORDER BY sort_order, value`,
+    [category]
+  );
+  return rows.length ? rows.map((r) => String(r.value)) : (MANAGED_DROPDOWN_DEFAULTS[category]?.values || []);
+}
+
+/** Copies a category's factory defaults into the table the first time it is edited. */
+async function ensureDropdownSeeded(category: string): Promise<void> {
+  const existing = await queryOne<any>(`SELECT COUNT(*)::int AS n FROM altax.v3_dropdown_options WHERE category = $1`, [category]);
+  if (existing!.n > 0) return;
+  const defaults = MANAGED_DROPDOWN_DEFAULTS[category]?.values || [];
+  for (let i = 0; i < defaults.length; i++) {
+    await query(
+      `INSERT INTO altax.v3_dropdown_options (option_id, category, value, active, sort_order) VALUES ($1,$2,$3,true,$4)`,
+      [`OPT-${category}-${i + 1}-${Date.now()}`, category, defaults[i], (i + 1) * 10]
+    );
+  }
+}
+
+/** Every managed list with full row detail for the Settings screen (inactive rows included). */
+systemRouter.get("/dropdowns", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query<any>(
+    `SELECT option_id, category, value, active, sort_order FROM altax.v3_dropdown_options ORDER BY category, sort_order, value`
+  );
+  const byCategory = new Map<string, any[]>();
+  for (const r of rows) {
+    if (!byCategory.has(r.category)) byCategory.set(r.category, []);
+    byCategory.get(r.category)!.push({ optionId: r.option_id, value: r.value, active: r.active, sortOrder: r.sort_order });
+  }
+  const categories = Object.entries(MANAGED_DROPDOWN_DEFAULTS).map(([key, def]) => ({
+    category: key,
+    label: def.label,
+    customized: byCategory.has(key),
+    options: byCategory.get(key)
+      || def.values.map((v, i) => ({ optionId: null, value: v, active: true, sortOrder: (i + 1) * 10 })),
+  }));
+  res.json({ categories });
+}));
+
+systemRouter.post("/dropdowns/:category", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { category } = req.params;
+  if (!MANAGED_DROPDOWN_DEFAULTS[category]) return res.status(404).json({ error: "Unknown dropdown list." });
+  const value = String((req.body || {}).value || "").trim();
+  if (!value) return res.status(400).json({ error: "The new option's text is required." });
+  await ensureDropdownSeeded(category);
+  const dup = await queryOne<any>(
+    `SELECT 1 FROM altax.v3_dropdown_options WHERE category = $1 AND lower(value) = lower($2)`, [category, value]
+  );
+  if (dup) return res.status(400).json({ error: `"${value}" already exists in this list.` });
+  const max = await queryOne<any>(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM altax.v3_dropdown_options WHERE category = $1`, [category]);
+  const optionId = `OPT-${category}-${Date.now()}`;
+  await query(
+    `INSERT INTO altax.v3_dropdown_options (option_id, category, value, active, sort_order) VALUES ($1,$2,$3,true,$4)`,
+    [optionId, category, value, Number(max!.m) + 10]
+  );
+  await logAudit("Settings", "DROPDOWN_ADD", optionId, category, "", value, `Added "${value}" to ${category}.`, req.user!.email);
+  res.status(201).json({ ok: true, optionId });
+}));
+
+systemRouter.patch("/dropdowns/option/:optionId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { optionId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_dropdown_options WHERE option_id = $1`, [optionId]);
+  if (!existing) return res.status(404).json({ error: "Option not found." });
+  const body = req.body || {};
+
+  if (body.direction === "up" || body.direction === "down") {
+    // Swap sort_order with the neighbour in that direction.
+    const neighbour = await queryOne<any>(
+      body.direction === "up"
+        ? `SELECT option_id, sort_order FROM altax.v3_dropdown_options WHERE category = $1 AND sort_order < $2 ORDER BY sort_order DESC LIMIT 1`
+        : `SELECT option_id, sort_order FROM altax.v3_dropdown_options WHERE category = $1 AND sort_order > $2 ORDER BY sort_order ASC LIMIT 1`,
+      [existing.category, existing.sort_order]
+    );
+    if (neighbour) {
+      await query(`UPDATE altax.v3_dropdown_options SET sort_order = $2 WHERE option_id = $1`, [optionId, neighbour.sort_order]);
+      await query(`UPDATE altax.v3_dropdown_options SET sort_order = $2 WHERE option_id = $1`, [neighbour.option_id, existing.sort_order]);
+    }
+    return res.json({ ok: true });
+  }
+
+  const value = body.value !== undefined ? String(body.value).trim() : undefined;
+  if (value !== undefined && !value) return res.status(400).json({ error: "The option's text cannot be empty." });
+  const active = body.active !== undefined ? Boolean(body.active) : undefined;
+  await query(
+    `UPDATE altax.v3_dropdown_options SET value = COALESCE($2, value), active = COALESCE($3, active), updated_at = NOW() WHERE option_id = $1`,
+    [optionId, value ?? null, active ?? null]
+  );
+  await logAudit("Settings", "DROPDOWN_EDIT", optionId, existing.category, String(existing.value),
+    value ?? String(existing.value), `Edited "${existing.value}" in ${existing.category}${active !== undefined ? ` (active: ${active})` : ""}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+systemRouter.post("/dropdowns/option/:optionId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { optionId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_dropdown_options WHERE option_id = $1`, [optionId]);
+  if (!existing) return res.status(404).json({ error: "Option not found." });
+  await query(`DELETE FROM altax.v3_dropdown_options WHERE option_id = $1`, [optionId]);
+  await logAudit("Settings", "DROPDOWN_DELETE", optionId, existing.category, String(existing.value), "",
+    `Deleted "${existing.value}" from ${existing.category}. Existing records keep the text they were saved with.`, req.user!.email);
+  res.json({ ok: true });
 }));
