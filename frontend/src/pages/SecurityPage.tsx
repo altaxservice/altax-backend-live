@@ -248,12 +248,19 @@ function BackupSection() {
           <button type="button" className="btn btn-primary" onClick={handleDownload} disabled={downloading}>
             {downloading ? "Preparing backup…" : "Download Full Backup"}
           </button>
+          <EmailBackupNowButton />
           {lastDownload && (
             <span className="muted" style={{ fontSize: 12 }}>
               Last downloaded {new Date(lastDownload).toLocaleString()}
             </span>
           )}
         </div>
+
+        <p className="muted" style={{ fontSize: 11.5, marginTop: 10, marginBottom: 0 }}>
+          <strong>Automatic backup is on:</strong> every Sunday at 6:00 AM an encrypted copy is emailed to each admin.
+          The attachment cannot be read without the server's backup key — to restore one, just upload it below; the
+          server unlocks it automatically.
+        </p>
 
         <p className="muted" style={{ fontSize: 11.5, marginTop: 12, marginBottom: 0 }}>
           The file contains everything, including encrypted vault entries and client tax identifiers — it is only as
@@ -267,6 +274,31 @@ function BackupSection() {
   );
 }
 
+function EmailBackupNowButton() {
+  const [sending, setSending] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  async function handleSend() {
+    setSending(true);
+    setNote(null);
+    try {
+      const res = await api.post<{ sentTo: string[]; totalRows: number; sizeKb: number }>("/system/backup/email-now", {});
+      setNote(`Sent to ${res.sentTo.join(", ")} (${res.totalRows.toLocaleString()} records, ${res.sizeKb} KB encrypted).`);
+    } catch (err) {
+      setNote(err instanceof ApiError ? err.message : "Could not send the backup email.");
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <button type="button" className="btn" onClick={handleSend} disabled={sending}>
+        {sending ? "Sending…" : "Email Me a Backup Now"}
+      </button>
+      {note && <span className="muted" style={{ fontSize: 12 }}>{note}</span>}
+    </span>
+  );
+}
+
 /**
  * Restore is deliberately a multi-step gauntlet: pick the file, read what it
  * actually contains, then type RESTORE. It replaces every record in the
@@ -274,7 +306,7 @@ function BackupSection() {
  */
 function RestoreControls({ onRestored }: { onRestored: () => void }) {
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<{ exportedAt: string | null; tableCount: number; totalRows: number } | null>(null);
+  const [preview, setPreview] = useState<{ encrypted: boolean; exportedAt: string | null; tableCount: number; totalRows: number } | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -287,14 +319,22 @@ function RestoreControls({ onRestored }: { onRestored: () => void }) {
     setError(null);
     setResult(null);
     if (!f) return;
+    const text = await f.text();
+    // Weekly email attachments are encrypted; the browser can't show their
+    // contents, only the server can — the confirm step still applies in full.
+    if (text.startsWith("ALTAXBK1")) {
+      setPreview({ encrypted: true, exportedAt: null, tableCount: 0, totalRows: 0 });
+      return;
+    }
     try {
-      const parsed = JSON.parse(await f.text());
+      const parsed = JSON.parse(text);
       if (parsed?.schema !== "altax" || typeof parsed?.data !== "object") {
         setError("That file is not an AL TAX Nexus backup export. Use a file downloaded from Download Full Backup.");
         setFile(null);
         return;
       }
       setPreview({
+        encrypted: false,
         exportedAt: parsed.exportedAt || null,
         tableCount: Number(parsed.tableCount) || Object.keys(parsed.data).length,
         totalRows: Number(parsed.totalRows) || 0,
@@ -353,15 +393,21 @@ function RestoreControls({ onRestored }: { onRestored: () => void }) {
 
       <input
         type="file"
-        accept="application/json,.json"
+        accept="application/json,.json,.enc"
         onChange={(e) => handlePick(e.target.files?.[0] || null)}
         style={{ fontSize: 12.5, marginBottom: 10 }}
       />
 
       {preview && (
         <div className="card" style={{ marginBottom: 10, fontSize: 13 }}>
-          <div><strong>Backup taken:</strong> {preview.exportedAt ? new Date(preview.exportedAt).toLocaleString() : "unknown"}</div>
-          <div><strong>Contents:</strong> {preview.totalRows.toLocaleString()} records across {preview.tableCount} tables</div>
+          {preview.encrypted ? (
+            <div><strong>Encrypted weekly backup</strong> — the server will unlock and validate it during the restore.</div>
+          ) : (
+            <>
+              <div><strong>Backup taken:</strong> {preview.exportedAt ? new Date(preview.exportedAt).toLocaleString() : "unknown"}</div>
+              <div><strong>Contents:</strong> {preview.totalRows.toLocaleString()} records across {preview.tableCount} tables</div>
+            </>
+          )}
           <div className="field" style={{ marginTop: 10, maxWidth: 320 }}>
             <label>Type RESTORE to confirm replacing all current data</label>
             <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESTORE" />

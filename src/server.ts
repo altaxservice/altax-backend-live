@@ -24,6 +24,7 @@ import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
+import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
@@ -222,6 +223,17 @@ cron.schedule("30 6 * * *", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Daily reminders scheduled for 6:30AM America/New_York.");
+
+// Sundays 6:00AM ET, before the 6:30 digest — the week's encrypted backup
+// lands in the admin inbox without anyone remembering to click Download.
+cron.schedule("0 6 * * 0", () => {
+  runWeeklyBackupEmail("System (Weekly Backup Job)").catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("Weekly backup email failed:", err);
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {

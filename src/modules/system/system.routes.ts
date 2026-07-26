@@ -5,6 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
+import { buildBackupObject, runWeeklyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
 
 export const systemRouter = Router();
 
@@ -38,37 +39,22 @@ const TABLES = [
  * and client tax identifiers. It is only as safe as wherever it is stored.
  */
 systemRouter.get("/backup/export", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const tables = await query<any>(
-    `SELECT tablename FROM pg_tables WHERE schemaname = 'altax' ORDER BY tablename`
-  );
+  const { backup, tableCount, totalRows } = await buildBackupObject(req.user!.email);
 
-  const data: Record<string, any[]> = {};
-  const counts: Record<string, number> = {};
-  for (const t of tables) {
-    const name = String(t.tablename);
-    // Identifier can't be parameterised; it comes from pg_tables, not user input.
-    const rows = await query<any>(`SELECT * FROM altax."${name}"`);
-    data[name] = rows;
-    counts[name] = rows.length;
-  }
-
-  const totalRows = Object.values(counts).reduce((sum, n) => sum + n, 0);
   await logAudit("System", "BACKUP_EXPORT", "", "", "", String(totalRows),
-    `Full data export downloaded by ${req.user!.email}: ${tables.length} tables, ${totalRows} rows.`,
+    `Full data export downloaded by ${req.user!.email}: ${tableCount} tables, ${totalRows} rows.`,
     req.user!.email);
 
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="altax-nexus-backup-${stamp}.json"`);
-  res.send(JSON.stringify({
-    exportedAt: new Date().toISOString(),
-    exportedBy: req.user!.email,
-    schema: "altax",
-    tableCount: tables.length,
-    rowCounts: counts,
-    totalRows,
-    data,
-  }, null, 2));
+  res.send(JSON.stringify(backup, null, 2));
+}));
+
+/** Sends the weekly encrypted backup email right now — for testing the pipeline and for pre-work snapshots. */
+systemRouter.post("/backup/email-now", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const result = await runWeeklyBackupEmail(req.user!.email);
+  res.json({ ok: true, ...result });
 }));
 
 /** Row counts per table without shipping the data — a fast "is the backup worth taking" check. */
@@ -115,9 +101,21 @@ systemRouter.post("/backup/restore", requireAuth, requireRole("admin"), restoreB
     return res.status(400).json({ error: 'Type "RESTORE" to confirm replacing all current data.' });
   }
 
+  // Weekly email attachments (.enc) decrypt transparently — same upload path,
+  // no password step for the admin.
+  let bodyText = String(req.body || "");
+  if (isEncryptedBackup(bodyText)) {
+    try {
+      bodyText = decryptBackup(bodyText);
+    } catch {
+      return res.status(400).json({
+        error: "This encrypted backup could not be unlocked. The server's backup key (BACKUP_PASSPHRASE / VAULT_MASTER_KEY) must be the same one that created it, and the file must be unmodified.",
+      });
+    }
+  }
   let backup: any;
   try {
-    backup = JSON.parse(String(req.body || ""));
+    backup = JSON.parse(bodyText);
   } catch {
     return res.status(400).json({ error: "That file is not a valid backup — it could not be read as JSON." });
   }
