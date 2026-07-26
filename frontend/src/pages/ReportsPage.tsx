@@ -6,12 +6,14 @@ import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 
-const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Sales & Tax", "Payroll", "Client Message"] as const;
+const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Client Message"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
-  "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Client Message": "client-message",
+  // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
+  "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
+  "Sales & Tax": "sales-tax", "Payroll": "payroll", "Client Message": "client-message",
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
 const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll" };
@@ -470,6 +472,8 @@ export function ReportsPage() {
             </div>
           )}
 
+          {tab === "Trial Balance" && <TrialBalanceTab clientId={clientId} from={from} to={to} />}
+
           {tab === "Sales & Tax" && (
             <>
               {salesTaxError && <div className="error-banner">{salesTaxError}</div>}
@@ -640,6 +644,140 @@ function Row({ label, value, bold, accent }: { label: string; value: string; bol
     <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 13, fontWeight: bold ? 800 : 500, color: accent ? "var(--teal)" : "var(--ink)", borderTop: bold ? "1px solid var(--line)" : "none" }}>
       <span>{label}</span>
       <span>{value}</span>
+    </div>
+  );
+}
+
+
+interface TrialBalanceAccount {
+  account: string;
+  debits: number;
+  credits: number;
+  balance: number;
+  lineCount: number;
+}
+interface TrialBalanceData {
+  accounts: TrialBalanceAccount[];
+  totals: { debits: number; credits: number; difference: number };
+  inBalance: boolean;
+  unbalancedEntries: { ref: string; source: string; debits: number; credits: number; difference: number }[];
+}
+
+/**
+ * Trial balance — the check that the books actually balance.
+ *
+ * Nothing previously verified that debits equal credits, so a half-posted entry
+ * would sit in the ledger indefinitely and surface first to a client's
+ * accountant. This makes it a one-click answer, and names the exact source
+ * document when something is off rather than just reporting a total.
+ */
+function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: string; to: string }) {
+  const [data, setData] = useState<TrialBalanceData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [wholeHistory, setWholeHistory] = useState(true);
+
+  useEffect(() => {
+    if (!clientId) return;
+    setLoading(true);
+    setError(null);
+    const qs = wholeHistory ? "" : `?from=${from}&to=${to}`;
+    api.get<TrialBalanceData>(`/reports/trial-balance/${clientId}${qs}`)
+      .then(setData)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the trial balance."))
+      .finally(() => setLoading(false));
+  }, [clientId, from, to, wholeHistory]);
+
+  if (!clientId) return <p className="muted" style={{ padding: 16 }}>Choose a client to run a trial balance.</p>;
+  if (error) return <div className="error-banner">{error}</div>;
+  if (loading || !data) return <div className="spinner-wrap">Loading…</div>;
+
+  return (
+    <div className="command-panel">
+      <div className="command-panel-header">
+        <div>
+          <h2 className="command-panel-title">Trial Balance</h2>
+          <div className="command-panel-note">
+            {wholeHistory ? "All general-ledger activity to date" : `${from} to ${to}`}
+          </div>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+          <input type="checkbox" checked={wholeHistory} onChange={(e) => setWholeHistory(e.target.checked)} />
+          Whole history
+        </label>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            marginBottom: 14,
+            borderLeft: `4px solid ${data.inBalance ? "var(--teal, #2f7d6f)" : "#c0392b"}`,
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
+            {data.inBalance ? "In balance" : `Out of balance by ${fmtMoney(Math.abs(data.totals.difference))}`}
+          </div>
+          <div className="muted" style={{ fontSize: 12.5 }}>
+            Debits {fmtMoney(data.totals.debits)} · Credits {fmtMoney(data.totals.credits)}
+            {data.inBalance
+              ? " — every entry's debits and credits agree."
+              : " — one or more entries posted only part of their lines."}
+          </div>
+        </div>
+
+        {data.unbalancedEntries.length > 0 && (
+          <>
+            <SectionLabel>Entries that do not balance</SectionLabel>
+            <div className="table-scroll" style={{ marginBottom: 16 }}>
+              <table>
+                <thead><tr><th>Reference</th><th>Source</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Difference</th></tr></thead>
+                <tbody>
+                  {data.unbalancedEntries.map((e) => (
+                    <tr key={e.ref}>
+                      <td><code style={{ fontSize: 12 }}>{e.ref}</code></td>
+                      <td className="muted">{e.source}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(e.debits)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(e.credits)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "#c0392b" }}>{fmtMoney(e.difference)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        <SectionLabel>Accounts</SectionLabel>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Balance</th></tr></thead>
+            <tbody>
+              {data.accounts.map((a) => (
+                <tr key={a.account}>
+                  <td>
+                    <div>{a.account}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{a.lineCount} line(s)</div>
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(a.debits)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(a.credits)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(a.balance)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ fontWeight: 800 }}>Total</td>
+                <td style={{ textAlign: "right", fontWeight: 800 }}>{fmtMoney(data.totals.debits)}</td>
+                <td style={{ textAlign: "right", fontWeight: 800 }}>{fmtMoney(data.totals.credits)}</td>
+                <td style={{ textAlign: "right", fontWeight: 800 }}>{fmtMoney(data.totals.difference)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {data.accounts.length === 0 && (
+          <p className="muted" style={{ padding: 16, textAlign: "center" }}>No general-ledger activity for this client.</p>
+        )}
+      </div>
     </div>
   );
 }

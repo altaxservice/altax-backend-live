@@ -356,6 +356,92 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
   };
 }
 
+/**
+ * Trial balance — every account's debit and credit totals, and whether the two
+ * sides agree.
+ *
+ * Nothing in this system previously checked that the ledger balances. Sales,
+ * payroll and journal entries all post GL lines, and the delete paths now
+ * reverse them; if any of those ever wrote a half-entry, the books would be
+ * quietly wrong and the first person to notice would be a client's accountant.
+ * This turns that silent class of bug into something visible on demand.
+ *
+ * The out-of-balance test uses a half-cent tolerance because the amounts are
+ * fixed-point currency accumulated in floating point — an exact === would flag
+ * healthy books over representation noise.
+ */
+reportsRouter.get("/trial-balance/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  // Period is optional here: a trial balance is normally run to date, but being
+  // able to bound it is what makes it useful for closing a quarter.
+  const from = String(req.query.from || "").trim() || null;
+  const to = String(req.query.to || "").trim() || null;
+
+  const rows = await query<any>(
+    `SELECT account,
+            COALESCE(SUM(debit), 0)  AS debits,
+            COALESCE(SUM(credit), 0) AS credits,
+            COUNT(*)::int            AS line_count
+       FROM altax.v3_gl_entries
+      WHERE client_id = $1
+        AND ($2::date IS NULL OR entry_date >= $2::date)
+        AND ($3::date IS NULL OR entry_date <= $3::date)
+      GROUP BY account
+      ORDER BY account`,
+    [client.clientId, from, to]
+  );
+
+  const accounts = rows.map((r) => {
+    const debits = Number(r.debits || 0);
+    const credits = Number(r.credits || 0);
+    return {
+      account: r.account,
+      debits,
+      credits,
+      balance: Number((debits - credits).toFixed(2)),
+      lineCount: Number(r.line_count || 0),
+    };
+  });
+
+  const totalDebits = Number(accounts.reduce((s, a) => s + a.debits, 0).toFixed(2));
+  const totalCredits = Number(accounts.reduce((s, a) => s + a.credits, 0).toFixed(2));
+  const difference = Number((totalDebits - totalCredits).toFixed(2));
+
+  // Entries whose own debits and credits disagree — this points at the exact
+  // source document rather than just saying "something is wrong somewhere".
+  const unbalancedRefs = await query<any>(
+    `SELECT ref, source,
+            COALESCE(SUM(debit), 0)  AS debits,
+            COALESCE(SUM(credit), 0) AS credits
+       FROM altax.v3_gl_entries
+      WHERE client_id = $1
+        AND ($2::date IS NULL OR entry_date >= $2::date)
+        AND ($3::date IS NULL OR entry_date <= $3::date)
+      GROUP BY ref, source
+     HAVING ABS(COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0)) > 0.005
+      ORDER BY ref`,
+    [client.clientId, from, to]
+  );
+
+  res.json({
+    client,
+    from,
+    to,
+    accounts,
+    totals: { debits: totalDebits, credits: totalCredits, difference },
+    inBalance: Math.abs(difference) < 0.005,
+    unbalancedEntries: unbalancedRefs.map((r) => ({
+      ref: r.ref,
+      source: r.source,
+      debits: Number(r.debits || 0),
+      credits: Number(r.credits || 0),
+      difference: Number((Number(r.debits || 0) - Number(r.credits || 0)).toFixed(2)),
+    })),
+  });
+}));
+
 /** JSON for the on-screen Sales & Tax tab (and its Preview). */
 reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
