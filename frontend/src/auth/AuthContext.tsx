@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, setAuthToken, getAuthToken } from "../api/client";
+import { api, setAuthToken, getAuthToken, ApiError } from "../api/client";
 import type { AuthUser, LoginResponse, LoginStepResponse } from "../api/types";
 
 export type LoginOutcome =
@@ -51,6 +51,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applySession = useCallback((result: LoginResponse) => {
+    // Guard against a stale cached bundle meeting a newer backend. When the API
+    // adds a login step this build doesn't know about, the response carries no
+    // token — and silently storing `undefined` used to bounce the user back to
+    // the login screen with no error at all, looking exactly like a wrong
+    // password. (That is precisely what a cached service-worker build did when
+    // mandatory 2FA shipped.) Fail loudly and tell them what to do instead.
+    if (!result?.token || !result?.user) {
+      throw new ApiError(
+        "This page is running an out-of-date version of the app. Please refresh the page and sign in again.",
+        409
+      );
+    }
     setAuthToken(result.token);
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
     setUser(result.user);
