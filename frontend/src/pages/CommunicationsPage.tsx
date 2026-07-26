@@ -735,7 +735,13 @@ function ClientMessages({ client, messages, onSent }: { client: Client; messages
       const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
       for (const channel of targetChannels) {
         const sentTo = ["SMS", "WhatsApp", "Phone"].includes(channel) ? (phone || undefined) : (client.email || undefined);
-        const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", { clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow, attachment: attachmentPayload });
+        const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
+          clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow, attachment: attachmentPayload,
+          // Lets the backend auto-generate and attach the real PDF for the three
+          // report templates when no file was manually chosen — see
+          // generateAutoReportAttachment in communications.routes.ts.
+          templateName: templateName || undefined, periodStart: period.start, periodEnd: period.end,
+        });
         outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
       }
       setResults(outcomes);

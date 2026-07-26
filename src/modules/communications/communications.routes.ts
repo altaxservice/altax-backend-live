@@ -10,7 +10,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
-import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic } from "../templates/templates.routes";
+import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 
 /** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
 function generateShareToken(): string {
@@ -61,6 +61,41 @@ async function saveMessageAttachmentAsDocument(
       "Attached to a message.", !clientId]
   );
   return { fileUrl };
+}
+
+/**
+ * The three built-in templates that pull a client's real sales-tax/payroll figures
+ * for a period ({{periodSummary}}/{{periodSummaryAr}}) — sending one of these is
+ * asking for "the report", so the matching PDF is generated and attached
+ * automatically rather than making staff separately build and attach it by hand.
+ */
+const REPORT_TEMPLATE_NAMES = new Set(["Client Tax and Payroll Update", "Payroll Summary", "Sales Tax Summary"]);
+
+/**
+ * Builds the same PDF as the standalone Sales, Tax & Payroll Report (reportsPdf.ts,
+ * from the same computeClientPeriodSummaryTable data every other bilingual view
+ * uses) and returns it ready to hand to sendChannel as an attachment — a real file
+ * on email, a secure Document + link on SMS/WhatsApp (via the existing attachment
+ * pipeline). Returns null when there's genuinely nothing to report for the period,
+ * rather than attaching an all-empty PDF.
+ */
+async function generateAutoReportAttachment(
+  clientId: string, clientName: string, periodStart: string, periodEnd: string
+): Promise<SendAttachment | null> {
+  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd);
+  if (!table.hasData) return null;
+  const clientRow = await queryOne<any>(`SELECT ein, address FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const { generateSalesTaxPayrollReportPdf } = await import("../accounting/reportsPdf");
+  const pdfBytes = await generateSalesTaxPayrollReportPdf({
+    client: { clientId, clientName, ein: clientRow?.ein || null, address: clientRow?.address || null },
+    from: periodStart, to: periodEnd,
+    sections: table.sections.map((s) => ({ title: s.title, rows: s.rows.map((r) => ({ label: r.label, value: r.value })) })),
+  });
+  return {
+    filename: `SalesTaxPayrollReport_${clientId}_${periodStart}_${periodEnd}.pdf`,
+    contentBase64: Buffer.from(pdfBytes).toString("base64"),
+    contentType: "application/pdf",
+  };
 }
 
 /**
@@ -260,16 +295,29 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const base = publicBaseUrl(req);
   const shareToken = sendNow && base && ["email", "sms", "whatsapp"].includes(normalizeText(channel)) ? generateShareToken() : null;
   const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
+
+  // Sending one of the three report templates ("here is your sales tax/payroll
+  // summary") is asking for the report itself — auto-generate and attach the real
+  // PDF instead of requiring staff to separately build and attach one by hand.
+  // A manually-chosen attachment always wins; this only fills in when none was given.
+  const templateName = String(body.templateName || "").trim();
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  let attachment: SendAttachment | undefined = body.attachment;
+  if (!attachment && REPORT_TEMPLATE_NAMES.has(templateName) && periodStart && periodEnd) {
+    attachment = (await generateAutoReportAttachment(client.client_id, client.client_name, periodStart, periodEnd)) || undefined;
+  }
+
   // SMS/WhatsApp can't carry the real attachment inline — save it as a Document
   // first so the send can point at a real, secure download link instead of
   // silently dropping the file.
   let documentUrl: string | undefined;
-  if (body.attachment && ["sms", "whatsapp"].includes(normalizeText(channel)) && sendNow) {
-    const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, body.attachment, req.user!.email);
+  if (attachment && ["sms", "whatsapp"].includes(normalizeText(channel)) && sendNow) {
+    const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, attachment, req.user!.email);
     if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
   }
   const portalUrl = base ? `${base}/login/client` : undefined;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: body.attachment, viewUrl, documentUrl, portalUrl: documentUrl ? portalUrl : undefined }) : { sent: false };
+  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl: documentUrl ? portalUrl : undefined }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(
@@ -625,6 +673,15 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
 
     const previewBody = communicationBodyForPreference(messageEnglish, messageArabic, subject, body.languagePreference || client.preferred_language);
 
+    // Same auto-attach as the single-client send: a report template with no
+    // manually-chosen attachment gets this client's own real PDF generated and
+    // attached, computed once per client and reused across whichever channels
+    // they're being sent on.
+    let clientAttachment = attachment;
+    if (!clientAttachment && REPORT_TEMPLATE_NAMES.has(templateName) && periodStart && periodEnd) {
+      clientAttachment = (await generateAutoReportAttachment(client.client_id, client.client_name, periodStart, periodEnd)) || undefined;
+    }
+
     for (const channel of channels) {
       const normalized = normalizeText(channel);
       let sentTo = "";
@@ -650,12 +707,12 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
       const shareToken = sendNow && base ? generateShareToken() : null;
       const viewUrl = shareToken ? `${base}/public/message/${shareToken}` : undefined;
       let documentUrl: string | undefined;
-      if (attachment && (normalized === "sms" || normalized === "whatsapp") && sendNow) {
-        const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, attachment, req.user!.email);
+      if (clientAttachment && (normalized === "sms" || normalized === "whatsapp") && sendNow) {
+        const saved = await saveMessageAttachmentAsDocument(client.client_id, client.client_name, clientAttachment, req.user!.email);
         if ("fileUrl" in saved && base) documentUrl = `${base}${saved.fileUrl}`;
       }
       const portalUrl = documentUrl && base ? `${base}/login/client` : undefined;
-      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
+      const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment: clientAttachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
       const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
       await query(
         `INSERT INTO altax.v3_communications

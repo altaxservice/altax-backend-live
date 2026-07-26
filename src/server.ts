@@ -155,6 +155,13 @@ app.get("/news/:slug", (req, res, next) => {
 // deliberately different from these plural API paths — so this carve-out can't shadow them.
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/public/contracts/") || req.path.startsWith("/public/invoices/")) return next();
+  // Same class of bug as those two: /documents/uploads/:id/download is a real binary
+  // download with no file extension in its URL, reached by a client tapping a raw link
+  // in an SMS/WhatsApp message (a genuine browser navigation, sending Accept: text/html)
+  // — without this exclusion it matched this catch-all and silently served the React
+  // app shell instead of the file, which then redirected to a login screen. Confirmed
+  // live: a client's SMS attachment link opened a login page instead of downloading.
+  if (/^\/documents\/uploads\/[^/]+\/download$/.test(req.path)) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);
