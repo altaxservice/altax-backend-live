@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { CreateModal } from "./CreateModal";
 import { Header } from "./Header";
 import { ClientContextPanel } from "./ClientContextPanel";
+import { IdleTimeout } from "./IdleTimeout";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "./FirmLogo";
@@ -171,6 +172,7 @@ export function Layout() {
         </div>
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <IdleTimeout />
         <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} />
         <InstallPrompt />
         <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
