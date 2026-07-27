@@ -355,6 +355,7 @@ const TRANSLATIONS = {
   "contact.phoneLabel": { en: "Office", ar: "المكتب" },
   "contact.faxLabel": { en: "Fax", ar: "الفاكس" },
   "contact.cellLabel": { en: "Cell", ar: "الجوال" },
+  "contact.emailContactLabel": { en: "Email", ar: "البريد الإلكتروني" },
   "contact.whatsappLabel": { en: "WhatsApp", ar: "واتساب" },
   "contact.websiteLabel": { en: "Website", ar: "الموقع الإلكتروني" },
   "contact.officeLabel": { en: "Address", ar: "العنوان" },
