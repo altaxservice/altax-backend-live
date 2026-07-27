@@ -42,7 +42,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
         fileUrl: !fileData ? fileUrl.trim() : undefined,
         notes: note.trim() || undefined,
       });
-      toast(`Uploaded to ${clientName}'s Documents.`);
+      toast(`File shared to ${clientName}'s portal.`);
       onDone();
       onClose();
     } catch (err) {
@@ -56,7 +56,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-panel" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Upload Document — {clientName}</h2>
+          <h2>Send File to {clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         {error && <ErrorBanner error={error} />}

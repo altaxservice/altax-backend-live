@@ -2962,6 +2962,15 @@ function SalesCategoriesSection() {
     await api.post(`/accounting/sales-categories/${categoryId}/activate`, {}).catch((e) => alert(e.message));
     load();
   }
+  async function handleDelete(categoryId: string, categoryName: string) {
+    if (!confirm(`Permanently delete "${categoryName}"? This cannot be undone.`)) return;
+    try {
+      await api.post(`/accounting/sales-categories/${categoryId}/delete`, {});
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this category.");
+    }
+  }
 
   return (
     <div style={{ marginTop: 32 }}>
@@ -3011,6 +3020,7 @@ function SalesCategoriesSection() {
                     <td style={{ display: "flex", gap: 6 }}>
                       <button className="btn btn-sm" onClick={() => startEdit(c)}>Edit</button>
                       {c.active ? <button className="btn btn-sm" onClick={() => handleDeactivate(c.category_id)}>Deactivate</button> : <button className="btn btn-sm" onClick={() => handleActivate(c.category_id)}>Activate</button>}
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(c.category_id, c.category_name)}>Delete</button>
                     </td>
                   </tr>
                 ))}

@@ -18,7 +18,7 @@ const RESULT_LIMIT = 8;
 
 searchRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const q = String(req.query.q || "").trim();
-  if (q.length < 2) return res.json({ clients: [], tasks: [], invoices: [], documents: [] });
+  if (q.length < 2) return res.json({ clients: [], tasks: [], invoices: [], documents: [], employees: [] });
   const like = `%${q}%`;
 
   const isAdmin = req.user!.role === "admin";
@@ -31,7 +31,7 @@ searchRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(a
 
   const params = isAdmin ? [like] : [like, aliases];
 
-  const [clients, tasks, invoices, documents] = await Promise.all([
+  const [clients, tasks, invoices, documents, employees] = await Promise.all([
     query(
       `SELECT client_id, client_name, email, phone, status FROM altax.v3_clients
         WHERE (client_name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1) ${clientScopeSql}
@@ -50,13 +50,28 @@ searchRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(a
         ORDER BY invoice_date DESC NULLS LAST LIMIT ${RESULT_LIMIT}`,
       params
     ),
+    // Document REQUESTS and uploaded file NAMES both count as "documents" here — a
+    // search for a filename someone remembered (e.g. "W2 2025") previously found
+    // nothing at all, since only the request's requested_item was ever indexed.
     query(
-      `SELECT request_id, client_id, client_name, requested_item, status FROM altax.v3_document_requests
-        WHERE (requested_item ILIKE $1 OR client_name ILIKE $1) ${clientScopeSql}
-        ORDER BY request_date DESC NULLS LAST LIMIT ${RESULT_LIMIT}`,
+      `(SELECT request_id, client_id, client_name, requested_item, status, 'request' AS kind FROM altax.v3_document_requests
+         WHERE (requested_item ILIKE $1 OR client_name ILIKE $1) ${clientScopeSql}
+         ORDER BY request_date DESC NULLS LAST LIMIT ${RESULT_LIMIT})
+       UNION ALL
+       (SELECT u.upload_id AS request_id, u.client_id, u.client_name, u.file_name AS requested_item, u.status, 'upload' AS kind FROM altax.v3_document_uploads u
+         WHERE u.file_name ILIKE $1 AND lower(u.status) NOT IN ('removed','replaced') ${isAdmin ? "" : "AND u.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($2::text[]))"}
+         ORDER BY u.uploaded_at DESC NULLS LAST LIMIT ${RESULT_LIMIT})`,
+      params
+    ),
+    // Employees weren't searchable at all before — a staffer looking up someone by
+    // name (e.g. to find their paystub or W-2) had no way to jump there from search.
+    query(
+      `SELECT employee_id, employee_name, client_id, client_name, status FROM altax.v3_employees
+        WHERE (employee_name ILIKE $1 OR client_name ILIKE $1) ${clientScopeSql}
+        ORDER BY employee_name ASC LIMIT ${RESULT_LIMIT}`,
       params
     ),
   ]);
 
-  res.json({ clients, tasks, invoices, documents });
+  res.json({ clients, tasks, invoices, documents, employees });
 }));

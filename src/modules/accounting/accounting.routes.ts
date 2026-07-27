@@ -408,6 +408,37 @@ accountingRouter.post("/sales-categories/:categoryId/activate", requireAuth, req
   res.json({ ok: true });
 }));
 
+/**
+ * Permanently delete a sales tax category — Deactivate (above) already covers the
+ * "stop using this" case, but the user explicitly asked for a real delete option for
+ * categories created by mistake or duplicated. Refuses when the category has ever
+ * been used on a real sale (v3_sales_input_lines), since v3_sales_input_lines.category_id
+ * has no ON DELETE behavior defined and the Sales Input report's JOIN to this table
+ * would silently drop those historical lines — Deactivate is the safe path for a
+ * category with real history. Also removes the dedicated 1:1 tax rate row this
+ * category's own create route auto-manages, so no orphaned rate is left behind.
+ */
+accountingRouter.post("/sales-categories/:categoryId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { categoryId } = req.params;
+  const category = await queryOne<any>(`SELECT * FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
+  if (!category) return res.status(404).json({ error: "Category not found." });
+
+  const inUse = await queryOne<any>(`SELECT COUNT(*)::int AS n FROM altax.v3_sales_input_lines WHERE category_id = $1`, [categoryId]);
+  if ((inUse?.n || 0) > 0) {
+    return res.status(400).json({ error: `This category is used on ${inUse.n} recorded sale(s) and can't be deleted — use Deactivate instead so it stops appearing in Sales Input but past sales stay intact.` });
+  }
+
+  await query(`DELETE FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
+  if (category.default_rate_id) {
+    await query(`DELETE FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '') AND COALESCE(state, '') = $2`,
+      [category.default_rate_id, category.state || ""]);
+  }
+  await logAudit("Accounting", "DELETE_SALES_CATEGORY", categoryId, "CategoryName", category.category_name || "", "",
+    `Sales tax category permanently deleted by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
 interface SalesCategoryLineInput { categoryId: string; taxableAmount: number | string }
 
 /**

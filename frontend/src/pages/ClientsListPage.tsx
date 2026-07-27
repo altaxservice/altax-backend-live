@@ -209,7 +209,7 @@ export function ClientsListPage() {
       { value: "profile", label: "Profile" },
       { value: "create-task", label: "Create Task" },
       { value: "request-document", label: "Request Document" },
-      { value: "upload-document", label: "Upload Document" },
+      { value: "upload-document", label: "Send File to Client" },
       { value: "review-documents", label: "Review Documents" },
     ];
     if (isAdmin) opts.push({ value: "secure-vault", label: "Secure Vault" });

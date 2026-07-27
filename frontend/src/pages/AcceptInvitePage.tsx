@@ -5,10 +5,22 @@ import { APP_NAME } from "../utils/branding";
 import { FirmLogo } from "../components/FirmLogo";
 import { ErrorBanner } from "../components/ErrorBanner";
 
+const PORTAL_LOGIN_PATHS: Record<string, string> = {
+  client: "/login/client",
+  employee: "/login/employee",
+  staff: "/login/staff",
+};
+
 export function AcceptInvitePage() {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState(searchParams.get("email") || "");
   const [token] = useState(searchParams.get("invite") || searchParams.get("token") || "");
+  // The invite link carries ?portal=client/employee/staff/admin so whoever set up
+  // their account lands on THEIR sign-in screen, not the generic /login (which
+  // defaults to the Admin Portal tab and confused a client who had just been
+  // invited — flagged directly by the user). Falls back to the general picker
+  // for admin or an unrecognized/missing value.
+  const signInPath = PORTAL_LOGIN_PATHS[searchParams.get("portal") || ""] || "/login";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +60,7 @@ export function AcceptInvitePage() {
           <>
             <h1>Password Created</h1>
             <p className="login-copy">Your account is ready. You can sign in now.</p>
-            <Link to="/login" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", textDecoration: "none" }}>
+            <Link to={signInPath} className="btn btn-primary" style={{ width: "100%", justifyContent: "center", textDecoration: "none" }}>
               Go to Sign In
             </Link>
           </>
@@ -83,7 +95,7 @@ export function AcceptInvitePage() {
             </button>
 
             <div className="login-help-box">
-              Already set up? <Link to="/login">Sign in here</Link> instead.
+              Already set up? <Link to={signInPath}>Sign in here</Link> instead.
             </div>
           </form>
         )}

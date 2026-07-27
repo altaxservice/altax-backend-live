@@ -7,9 +7,10 @@ import { ErrorBanner } from "../components/ErrorBanner";
 interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null }
 interface TaskHit { task_id: string; task_name: string; client_id: string; client_name: string; status: string; agency_due_date: string | null }
 interface InvoiceHit { invoice_id: string; client_id: string; description: string | null; total_amount: number; status: string }
-interface DocumentHit { request_id: string; client_id: string; client_name: string; requested_item: string; status: string }
+interface DocumentHit { request_id: string; client_id: string; client_name: string; requested_item: string; status: string; kind: "request" | "upload" }
+interface EmployeeHit { employee_id: string; employee_name: string; client_id: string; client_name: string; status: string | null }
 
-interface SearchResults { clients: ClientHit[]; tasks: TaskHit[]; invoices: InvoiceHit[]; documents: DocumentHit[] }
+interface SearchResults { clients: ClientHit[]; tasks: TaskHit[]; invoices: InvoiceHit[]; documents: DocumentHit[]; employees: EmployeeHit[] }
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -26,7 +27,7 @@ export function SearchResultsPage() {
 
   useEffect(() => {
     if (q.trim().length < 2) {
-      setResults({ clients: [], tasks: [], invoices: [], documents: [] });
+      setResults({ clients: [], tasks: [], invoices: [], documents: [], employees: [] });
       return;
     }
     setResults(null);
@@ -35,7 +36,7 @@ export function SearchResultsPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Search failed."));
   }, [q]);
 
-  const totalHits = results ? results.clients.length + results.tasks.length + results.invoices.length + results.documents.length : 0;
+  const totalHits = results ? results.clients.length + results.tasks.length + results.invoices.length + results.documents.length + results.employees.length : 0;
 
   return (
     <div>
@@ -44,7 +45,7 @@ export function SearchResultsPage() {
 
       {error && <ErrorBanner error={error} />}
       {!results && !error && <div className="spinner-wrap">Searching…</div>}
-      {results && q.trim().length >= 2 && totalHits === 0 && <p className="muted">No matches across clients, tasks, invoices, or document requests.</p>}
+      {results && q.trim().length >= 2 && totalHits === 0 && <p className="muted">No matches across clients, tasks, invoices, employees, or documents.</p>}
 
       {results && results.clients.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
@@ -111,16 +112,40 @@ export function SearchResultsPage() {
 
       {results && results.documents.length > 0 && (
         <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
-          <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Document Requests</div>
+          <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Documents</div>
           <div className="table-scroll card-table">
           <table>
             <thead><tr><th>Item</th><th>Client</th><th>Status</th></tr></thead>
             <tbody>
               {results.documents.map((d) => (
-                <tr key={d.request_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/documents/${d.request_id}`)}>
-                  <td>{d.requested_item}</td>
+                <tr
+                  key={`${d.kind}-${d.request_id}`}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => navigate(d.kind === "request" ? `/documents/${d.request_id}` : `/documents?clientId=${d.client_id}`)}
+                >
+                  <td>{d.requested_item}{d.kind === "upload" && <span className="muted"> (file)</span>}</td>
                   <td className="muted" data-label="Client">{d.client_name}</td>
                   <td className="muted" data-label="Status">{d.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      )}
+
+      {results && results.employees.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Employees</div>
+          <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th>Name</th><th>Client</th><th>Status</th></tr></thead>
+            <tbody>
+              {results.employees.map((e) => (
+                <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
+                  <td>{e.employee_name}</td>
+                  <td className="muted" data-label="Client">{e.client_name}</td>
+                  <td className="muted" data-label="Status">{e.status || "—"}</td>
                 </tr>
               ))}
             </tbody>

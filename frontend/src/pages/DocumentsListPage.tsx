@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
+import { UploadToPortalModal } from "../components/UploadToPortalModal";
 import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly } from "../utils/date";
@@ -24,16 +25,23 @@ function isOverdue(r: DocumentRequest): boolean {
   return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
 }
 
-function FilesCell({ request }: { request: DocumentRequest }) {
+function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?: (uploadId: string) => void }) {
   if (!request.first_file_url) return <span className="muted">No file yet</span>;
   const extra = Number(request.file_count || 1) - 1;
   const url = request.first_file_url;
   const name = request.first_file_name || "file";
+  const uploadId = request.first_upload_id as string | undefined;
   return (
     <span onClick={(e) => e.stopPropagation()}>
       <button type="button" className="link-button" onClick={() => openAnyFile(url)}>{name}</button>
       {" "}
       <button type="button" className="link-button" onClick={() => downloadAnyFile(url, name)}>Download</button>
+      {onRemove && uploadId && (
+        <>
+          {" "}
+          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} onClick={() => onRemove(uploadId)}>Remove</button>
+        </>
+      )}
       {extra > 0 && <span className="muted"> (+{extra} more)</span>}
     </span>
   );
@@ -66,6 +74,9 @@ export function DocumentsListPage() {
 
   const canManage = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
+  const isEmployee = user?.role === "employee";
+  const [uploadModalMode, setUploadModalMode] = useState<"client" | "employee" | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   function loadRequests(): Promise<void> {
     return api.get<{ requests: DocumentRequest[] }>("/documents/requests")
@@ -112,6 +123,30 @@ export function DocumentsListPage() {
   const scopedRequests = useMemo(() => (requests || []).filter((r) => !scopedClientId || r.client_id === scopedClientId), [requests, scopedClientId]);
   const scopedUploads = useMemo(() => (uploads || []).filter((u) => !scopedClientId || u.client_id === scopedClientId), [uploads, scopedClientId]);
 
+  // Uploads sent straight to a client's or employee's portal with no document
+  // request behind them — before this section existed, these were invisible
+  // everywhere except the "Sent" metric's raw count (the exact "shared 6, shows 0"
+  // gap flagged by the user), since every other Files table here is built off
+  // document REQUESTS, not off uploads directly.
+  const standaloneUploads = useMemo(
+    () => scopedUploads.filter((u) => !u.request_id && !u.task_id && u.status !== "Removed"),
+    [scopedUploads]
+  );
+
+  async function handleRemoveUpload(uploadId: string) {
+    if (!confirm("Remove this file? It stays in the audit trail but will no longer be visible or listed here.")) return;
+    setRemovingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/remove`, {});
+      toast("File removed.");
+      loadAll();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not remove this file.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
   const filteredRequests = useMemo(() => {
     return scopedRequests.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
@@ -125,7 +160,7 @@ export function DocumentsListPage() {
   const openRequestsAll = useMemo(() => scopedRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [scopedRequests]);
   const overdueAll = useMemo(() => openRequestsAll.filter(isOverdue), [openRequestsAll]);
   const receivedUploadsAll = useMemo(() => scopedUploads.filter((u) => u.direction === "Client to Firm" && u.status !== "Removed"), [scopedUploads]);
-  const sentUploadsAll = useMemo(() => scopedUploads.filter((u) => u.direction === "Firm to Client" && u.status !== "Removed"), [scopedUploads]);
+  const sentUploadsAll = useMemo(() => scopedUploads.filter((u) => (u.direction === "Firm to Client" || u.direction === "Firm to Employee") && u.status !== "Removed"), [scopedUploads]);
 
   const openRequests = useMemo(() => filteredRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [filteredRequests]);
   const receivedRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Client to Firm")), [filteredRequests, uploadsByRequestId]);
@@ -235,6 +270,8 @@ export function DocumentsListPage() {
           <p>Track requests, client uploads, firm-shared files, and request status from one page.</p>
           <div className="quick-actions" style={{ marginTop: 12 }}>
             <button className="action-button" type="button" onClick={() => setShowNewWorkItem(true)}>New Document Request</button>
+            <button className="action-button" type="button" onClick={() => setUploadModalMode("client")}>Upload to Client Portal</button>
+            <button className="action-button" type="button" onClick={() => setUploadModalMode("employee")}>Upload to Employee Portal</button>
           </div>
         </div>
       )}
@@ -270,25 +307,65 @@ export function DocumentsListPage() {
       {!ready && !error && <div className="spinner-wrap">Loading…</div>}
 
       {ready && !canManage && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div className="table-scroll card-table">
-          <table>
-            <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
-            <tbody>
-              {scopedRequests.map((r) => (
-                <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
-                  <td>{r.requested_item}</td>
-                  <td data-label="Status"><StatusBadge status={r.status} /></td>
-                  <td className="muted" data-label="Priority">{r.priority || "—"}</td>
-                  <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
-                  <td data-label="Files"><FilesCell request={r} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <>
+          {!isEmployee && (
+            <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+                <strong style={{ fontSize: 14 }}>Document Requests</strong>
+                <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Items AL TAX has asked you to upload.</p>
+              </div>
+              <div className="table-scroll card-table">
+              <table>
+                <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
+                <tbody>
+                  {scopedRequests.map((r) => (
+                    <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
+                      <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
+                      <td data-label="Status"><StatusBadge status={r.status} /></td>
+                      <td className="muted" data-label="Priority">{r.priority || "—"}</td>
+                      <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
+            </div>
+          )}
+
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+              <strong style={{ fontSize: 14 }}>Files Shared With You</strong>
+              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Documents AL TAX has sent straight to your portal.</p>
+            </div>
+            {standaloneUploads.length === 0 ? (
+              <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files shared yet.</p>
+            ) : (
+              <div className="table-scroll card-table">
+              <table>
+                <thead><tr><th>File</th><th>Note</th><th>Shared</th><th>Action</th></tr></thead>
+                <tbody>
+                  {standaloneUploads.map((u) => (
+                    <tr key={u.upload_id}>
+                      <td><button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button></td>
+                      <td className="muted" data-label="Note">{u.notes || "—"}</td>
+                      <td className="muted" data-label="Shared">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+                      <td data-label="Action">
+                        <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                        {" "}
+                        <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
+                          {removingId === u.upload_id ? "Removing…" : "Remove"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            )}
           </div>
-          {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
-        </div>
+        </>
       )}
 
       {ready && canManage && (
@@ -312,7 +389,7 @@ export function DocumentsListPage() {
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       {canManage && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.request_id)} onChange={() => toggleSelected(r.request_id)} /></td>}
                       <td>{r.client_name}</td>
-                      <td data-label="Request">{r.requested_item}</td>
+                      <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
                       <td className={isOverdue(r) ? "muted" : "muted"} data-label="Due" style={isOverdue(r) ? { color: "var(--danger, #cf222e)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
@@ -323,7 +400,7 @@ export function DocumentsListPage() {
                           </select>
                         ) : <StatusBadge status={r.status} />}
                       </td>
-                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
                       <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
@@ -347,12 +424,12 @@ export function DocumentsListPage() {
                   {receivedRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td data-label="Request">{r.requested_item}</td>
+                      <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
                       <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
-                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
                       <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
@@ -376,12 +453,12 @@ export function DocumentsListPage() {
                   {sentRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td data-label="Request">{r.requested_item}</td>
+                      <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
                       <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
-                      <td data-label="Files"><FilesCell request={r} /></td>
+                      <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
                       <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
                     </tr>
                   ))}
@@ -391,7 +468,56 @@ export function DocumentsListPage() {
             </div>
             {sentRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No documents shared to clients.</p>}
           </div>
+
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+              <div>
+                <strong style={{ fontSize: 14 }}>Files Shared Directly</strong>
+                <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Sent straight to a client or employee portal via "Upload to Client/Employee Portal" — no document request attached, so they don't appear in the tables above.</p>
+              </div>
+              <span className="muted" style={{ fontSize: 12 }}>{standaloneUploads.length} file(s)</span>
+            </div>
+            {standaloneUploads.length === 0 ? (
+              <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files shared directly yet.</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <div className="table-scroll card-table">
+                <table>
+                  <thead><tr><th>Sent To</th><th>File</th><th>Note</th><th>Shared</th><th>By</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {standaloneUploads.map((u) => (
+                      <tr key={u.upload_id}>
+                        <td>
+                          {u.employee_id ? `${u.employee_name || u.employee_id} (Employee)` : `${u.client_name || u.client_id} (Client)`}
+                        </td>
+                        <td data-label="File"><button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button></td>
+                        <td className="muted" data-label="Note">{u.notes || "—"}</td>
+                        <td className="muted" data-label="Shared">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+                        <td className="muted" data-label="By">{u.uploaded_by || "—"}</td>
+                        <td data-label="Action">
+                          <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                          {" "}
+                          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
+                            {removingId === u.upload_id ? "Removing…" : "Remove"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+          </div>
         </>
+      )}
+
+      {uploadModalMode && (
+        <UploadToPortalModal
+          mode={uploadModalMode}
+          onClose={() => setUploadModalMode(null)}
+          onDone={() => loadAll()}
+        />
       )}
 
       {showNewWorkItem && (

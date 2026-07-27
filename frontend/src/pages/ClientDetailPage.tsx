@@ -675,7 +675,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           <strong style={{ fontSize: 14 }}>Files on File</strong>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${uploads.length} file(s)` : "Loading…"}</span>
-            <button type="button" className="btn btn-sm" onClick={() => setUploadOpen(true)}>Upload Document</button>
+            <button type="button" className="btn btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
             <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?new=1&clientId=${clientId}`)}>Request Document</button>
             <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?clientId=${clientId}`)}>Open Documents Page</button>
           </div>

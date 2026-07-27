@@ -72,6 +72,23 @@ function isClientVisibleUpload(row: any, allowedRequestIds: Set<string>): boolea
 }
 
 /**
+ * Employee-portal equivalent of isClientVisibleUpload. Employees have no document
+ * REQUEST concept (only the client/employer relationship gets those — see
+ * canAccessDocumentRequest's own comment), so this is simpler: an upload is visible
+ * to an employee when it's explicitly addressed to them (employee_id match) and not
+ * removed/hidden. Files addressed to the CLIENT (employee_id null) are deliberately
+ * excluded — an employee should not see their employer's general document library.
+ */
+function isEmployeeVisibleUpload(row: any): boolean {
+  const status = normalizeText(row.status || "Uploaded");
+  if (["removed", "replaced", "deleted", "archived", "void"].includes(status)) return false;
+  if (normalizeText(row.hidden_from_client) === "yes" || row.hidden_from_client === true) return false;
+  const direction = normalizeText(row.direction);
+  if (direction.includes("internal") || direction.includes("staff")) return false;
+  return true;
+}
+
+/**
  * Mirrors the clientAllowed || assignedAllowed check used by every document-request
  * mutation in legacy. Employees are explicitly excluded rather than falling through
  * to canAccessClient — that helper matches an employee against their own linked
@@ -190,7 +207,8 @@ documentsRouter.post("/requests", requireAuth, requireRole("admin", "staff"), as
 const REQUEST_FILE_COLUMNS = `
   (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS file_count,
   (SELECT u.file_name FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_name,
-  (SELECT u.file_url FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_url
+  (SELECT u.file_url FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_url,
+  (SELECT u.upload_id FROM altax.v3_document_uploads u WHERE u.request_id = r.request_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_upload_id
 `;
 
 documentsRouter.get("/requests", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -429,8 +447,9 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   const body = req.body || {};
   const requestId = String(body.requestId || "").trim();
   const taskId = String(body.taskId || "").trim();
-  const directClientId = !requestId && !taskId ? String(body.clientId || "").trim() : "";
-  if (!requestId && !taskId && !directClientId) return res.status(400).json({ error: "requestId, taskId, or clientId is required." });
+  const directEmployeeId = !requestId && !taskId ? String(body.employeeId || "").trim() : "";
+  const directClientId = !requestId && !taskId && !directEmployeeId ? String(body.clientId || "").trim() : "";
+  if (!requestId && !taskId && !directClientId && !directEmployeeId) return res.status(400).json({ error: "requestId, taskId, clientId, or employeeId is required." });
 
   const resolved = resolveUploadFile(body);
   if ("error" in resolved) return res.status(400).json({ error: resolved.error });
@@ -489,6 +508,32 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
       [
         uploadId, taskId, task.client_id, task.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
         String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
+      ]
+    );
+  } else if (directEmployeeId) {
+    // Direct employee upload — the employee-portal equivalent of the direct client
+    // upload below (e.g. sharing a W-2, offer letter, or ID copy straight to one
+    // employee, no client-wide document request behind it). Staff/admin only.
+    // client_id is still recorded (from the employee's own profile) purely for
+    // canAccessClient's existing staff-assignment scoping — visibility to the
+    // portal is controlled entirely by employee_id, per isEmployeeVisibleUpload.
+    if (!["admin", "staff"].includes(req.user!.role)) {
+      return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to an employee." });
+    }
+    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name FROM altax.v3_employees WHERE employee_id = $1`, [directEmployeeId]);
+    if (!employee) return res.status(404).json({ error: `Employee not found: ${directEmployeeId}` });
+    if (!(await canAccessClient(req.user!, employee.client_id))) {
+      return res.status(403).json({ error: "You do not have access to this employee." });
+    }
+
+    await query(
+      `INSERT INTO altax.v3_document_uploads
+         (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Firm to Employee',$11,$12,false,'Node Web App',$1)`,
+      [
+        uploadId, employee.client_id, employee.client_name, employee.employee_id, fileName, fileUrl, fileData, mimeType, fileSize,
+        req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
       ]
     );
   } else {
@@ -612,10 +657,16 @@ documentsRouter.get("/uploads/task/:taskId", requireAuth, asyncHandler(async (re
   res.json({ uploads: rows });
 }));
 
+// employee_name isn't a column on v3_document_uploads (only employee_id) — joined in
+// for the admin/staff list views so "Files Shared Directly" can show who an
+// employee-targeted upload actually went to without a second round trip.
+const UPLOAD_EMPLOYEE_NAME_JOIN = `LEFT JOIN altax.v3_employees emp ON emp.employee_id = u.employee_id`;
+
 /**
  * List document uploads — client gets only isClientVisibleUpload rows for their own
- * client (computed against their own client-visible requests); staff/general get
- * uploads tied to accessible requests/clients; admin gets everything; employee none.
+ * client (computed against their own client-visible requests); employee gets only
+ * isEmployeeVisibleUpload rows addressed to them; staff/general get uploads tied to
+ * accessible requests/clients; admin gets everything.
  */
 documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const role = req.user!.role;
@@ -623,7 +674,7 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
   const scoped = (rows: any[]) => (requestIdFilter ? rows.filter((u) => u.request_id === requestIdFilter) : rows);
 
   if (role === "admin") {
-    const rows = await query(`SELECT * FROM altax.v3_document_uploads ORDER BY uploaded_at DESC NULLS LAST`);
+    const rows = await query(`SELECT u.*, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN} ORDER BY u.uploaded_at DESC NULLS LAST`);
     return res.json({ uploads: scoped(rows) });
   }
 
@@ -635,12 +686,14 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
   }
 
   if (role === "employee") {
-    return res.json({ uploads: [] });
+    if (!req.user!.employeeId) return res.json({ uploads: [] });
+    const rows = await query<any>(`SELECT * FROM altax.v3_document_uploads WHERE employee_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.employeeId]);
+    return res.json({ uploads: scoped(rows.filter(isEmployeeVisibleUpload)) });
   }
 
   const aliases = await getUserAliases(req.user!.email);
   const rows = await query(
-    `SELECT u.* FROM altax.v3_document_uploads u
+    `SELECT u.*, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN}
       WHERE lower(u.uploaded_by) = ANY($1::text[])
          OR u.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))
          OR u.request_id IN (SELECT request_id FROM altax.v3_document_requests WHERE lower(assigned_to) = ANY($1::text[]))
@@ -651,17 +704,48 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
 }));
 
 /**
- * Soft-remove an uploaded file — ported from alTaxPortalRemoveDocumentFile. Legacy is
- * already a soft operation (Status=Removed, FileURL cleared, not a row delete), so
- * unlike the hard-delete functions skipped elsewhere, this is safe to port as-is.
- * Client role is blocked ("Client portal cannot delete shared files.").
+ * Remove an uploaded file — ported from alTaxPortalRemoveDocumentFile, extended at the
+ * user's explicit request to let clients/employees remove documents from their own
+ * portal too (legacy, and this app until now, blocked that entirely: "Client portal
+ * cannot delete shared files."). The behavior now depends on who's asking and whose
+ * file it is:
+ *   - admin/staff: full soft-remove (Status=Removed, FileURL cleared) on any file
+ *     they have client access to, same as always.
+ *   - client/employee removing a file THEY uploaded themselves (direction says
+ *     "* to Firm"): same full soft-remove — it's their own content.
+ *   - client/employee removing a file the FIRM sent them: only hides it from their
+ *     own portal view (hidden_from_client=true) rather than touching the firm's
+ *     record of having sent it — preserves the audit trail on the firm's side while
+ *     still giving the portal user a working "Remove" button, same one-click UX
+ *     either way from the frontend's point of view.
  */
-documentsRouter.post("/uploads/:uploadId/remove", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+documentsRouter.post("/uploads/:uploadId/remove", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { uploadId } = req.params;
   const old = await queryOne<any>(`SELECT * FROM altax.v3_document_uploads WHERE upload_id = $1`, [uploadId]);
   if (!old) return res.status(404).json({ error: "Upload not found." });
 
-  if (!(await canAccessClient(req.user!, old.client_id))) {
+  const role = req.user!.role;
+  const isOwnUpload = normalizeText(old.direction).includes("to firm") || String(old.uploaded_by || "").toLowerCase() === req.user!.email.toLowerCase();
+
+  if (role === "admin" || role === "staff") {
+    if (!(await canAccessClient(req.user!, old.client_id))) {
+      return res.status(403).json({ error: "You do not have access to this file." });
+    }
+  } else if (role === "client") {
+    if (old.client_id !== req.user!.clientId || old.employee_id) return res.status(403).json({ error: "You do not have access to this file." });
+    if (!isOwnUpload) {
+      await query(`UPDATE altax.v3_document_uploads SET hidden_from_client = true, updated_at = now() WHERE upload_id = $1`, [uploadId]);
+      await logAudit("Documents", "CLIENT_HIDE_FILE", uploadId, "HiddenFromClient", "", "Yes", "Client removed a firm-shared file from their portal view.", req.user!.email);
+      return res.json({ ok: true, uploadId, hidden: true });
+    }
+  } else if (role === "employee") {
+    if (old.employee_id !== req.user!.employeeId) return res.status(403).json({ error: "You do not have access to this file." });
+    if (!isOwnUpload) {
+      await query(`UPDATE altax.v3_document_uploads SET hidden_from_client = true, updated_at = now() WHERE upload_id = $1`, [uploadId]);
+      await logAudit("Documents", "EMPLOYEE_HIDE_FILE", uploadId, "HiddenFromClient", "", "Yes", "Employee removed a firm-shared file from their portal view.", req.user!.email);
+      return res.json({ ok: true, uploadId, hidden: true });
+    }
+  } else {
     return res.status(403).json({ error: "You do not have access to this file." });
   }
 
@@ -679,7 +763,7 @@ documentsRouter.post("/uploads/:uploadId/remove", requireAuth, requireRole("admi
   }
 
   await logAudit("Documents", "REMOVE_FILE", uploadId, "FileURL", old.file_url || "", "",
-    "Single document file removed from web app.", req.user!.email);
+    `Document file removed by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, uploadId });
 }));

@@ -131,18 +131,25 @@ export interface DocumentRequest {
   file_count?: number;
   first_file_name?: string | null;
   first_file_url?: string | null;
+  first_upload_id?: string | null;
   [key: string]: unknown;
 }
 
 export interface DocumentUpload {
   upload_id: string;
   request_id: string | null;
+  task_id?: string | null;
   client_id: string;
+  client_name?: string;
+  employee_id?: string | null;
+  employee_name?: string | null;
   file_name: string;
   file_url: string;
   direction: string | null;
   status: string;
   uploaded_at: string | null;
+  uploaded_by?: string;
+  notes?: string | null;
   [key: string]: unknown;
 }
 
