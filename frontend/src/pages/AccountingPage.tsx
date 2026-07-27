@@ -10,10 +10,12 @@ import { StatusBadge } from "../components/StatusBadge";
 import { US_STATES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { FileDropInput } from "../components/FileDropInput";
+import { fileToBase64 } from "../utils/file";
 
-const TABS = ["Sales", "Payroll", "Employees", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -91,6 +93,7 @@ export function AccountingPage() {
       {tab === "Sales" && clientId && <SalesTab clientId={clientId} clientState={client?.state} />}
       {tab === "Payroll" && clientId && <PayrollTab clientId={clientId} clientState={client?.state} />}
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
+      {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
       {tab === "GL" && clientId && (
@@ -1105,6 +1108,187 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
         </div>
       </div>
     </div>
+  );
+}
+
+type ImportPreviewRow = Record<string, any> & { action: "create" | "update" | "duplicate" };
+interface ImportPreview { source: "qbo" | "drake"; kind: "employees" | "paychecks"; rows: ImportPreviewRow[] }
+interface ImportResultRow { index: number; employeeName: string; ok: boolean; error?: string; created?: boolean; employeeId?: string; netPay?: number; payDate?: string }
+
+const SOURCE_LABEL: Record<string, string> = { qbo: "QuickBooks Online", drake: "Drake Accounting" };
+const ACTION_LABEL: Record<string, { text: string; color: string }> = {
+  create: { text: "Will create", color: "var(--teal)" },
+  update: { text: "Will update existing", color: "var(--muted)" },
+  duplicate: { text: "Already exists — skip", color: "var(--danger, #b91c1c)" },
+};
+
+/**
+ * Import employees + payroll history from a real QuickBooks Online or Drake
+ * Accounting export — an alternative to typing them in one at a time. Auto-detects
+ * which of the 4 supported report types was uploaded (see payrollImport/parsers.ts
+ * for exactly what each format looks like; reverse-engineered from real sample
+ * exports, not guessed). Employees are matched to existing records by name;
+ * paychecks that would duplicate an existing one (same employee + pay date) are
+ * flagged and skipped rather than silently double-posted.
+ */
+function ImportTab({ clientId }: { clientId: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [results, setResults] = useState<ImportResultRow[] | null>(null);
+
+  function reset() {
+    setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set());
+  }
+
+  async function handlePreview() {
+    if (!file) return;
+    setBusy(true); setError(null);
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const res = await api.post<ImportPreview>("/import/preview", { clientId, fileBase64 });
+      setPreview(res);
+      setSelected(new Set(res.rows.map((_, i) => i).filter((i) => res.rows[i].action !== "duplicate")));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not read this file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleRow(i: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
+
+  async function handleCommit() {
+    if (!preview) return;
+    setBusy(true); setError(null);
+    try {
+      const rows = preview.rows.filter((_, i) => selected.has(i));
+      const res = await api.post<{ results: ImportResultRow[] }>("/import/commit", { clientId, kind: preview.kind, rows });
+      setResults(res.results);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not run this import.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const succeededCount = results ? results.filter((r) => r.ok).length : 0;
+
+  return (
+    <Panel
+      title="Import from QuickBooks Online or Drake Accounting"
+      note="Bring in employees and payroll history from a real export instead of typing them in one at a time."
+    >
+      <div style={{ padding: 16 }}>
+        {error && <ErrorBanner error={error} />}
+
+        {!preview && (
+          <>
+            <FileDropInput file={file} onChange={setFile} accept=".xls,.xlsx" hint="a QBO or Drake export (.xls/.xlsx)" />
+            <p className="muted" style={{ fontSize: 12, margin: "10px 0 16px" }}>
+              Supported reports — <strong>QuickBooks Online</strong>: Employee Details, Payroll Details.{" "}
+              <strong>Drake Accounting</strong>: Employee Listing, Payroll Summary. The file is auto-detected; each import handles one report at a time.
+            </p>
+            <button type="button" className="btn btn-primary" disabled={!file || busy} onClick={handlePreview}>
+              {busy ? "Reading…" : "Preview Import"}
+            </button>
+          </>
+        )}
+
+        {preview && !results && (
+          <>
+            <p style={{ marginBottom: 12 }}>
+              Detected <strong>{SOURCE_LABEL[preview.source]}</strong> — {preview.kind === "employees" ? "Employees" : "Paychecks"} ({preview.rows.length} rows found).
+            </p>
+            <div className="table-scroll" style={{ marginBottom: 14 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    {preview.kind === "employees" ? (
+                      <>
+                        <th>Employee</th><th>Contact</th><th>Address</th><th>Pay Rate</th><th>Status</th>
+                      </>
+                    ) : (
+                      <>
+                        <th>Employee</th><th>Pay Date</th><th>Gross</th><th>Fed WH</th><th>State WH</th><th>Status</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row, i) => (
+                    <tr key={i} style={{ opacity: row.action === "duplicate" ? 0.6 : 1 }}>
+                      <td><input type="checkbox" checked={selected.has(i)} onChange={() => toggleRow(i)} /></td>
+                      {preview.kind === "employees" ? (
+                        <>
+                          <td>{row.employeeName}</td>
+                          <td>{[row.email, row.phone].filter(Boolean).join(" · ") || "—"}</td>
+                          <td>{[row.streetAddress, row.city, row.state].filter(Boolean).join(", ") || "—"}</td>
+                          <td>{row.payRate ? `$${row.payRate}/${row.payType === "Salary" ? "yr" : "hr"}` : "—"}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td>{row.employeeName}</td>
+                          <td>{row.payDate}</td>
+                          <td>{row.grossWages != null ? fmtMoney(row.grossWages) : "—"}</td>
+                          <td>{row.federalWithholding != null ? fmtMoney(row.federalWithholding) : "—"}</td>
+                          <td>{row.stateTax != null ? fmtMoney(row.stateTax) : "—"}</td>
+                        </>
+                      )}
+                      <td style={{ color: ACTION_LABEL[row.action]?.color, fontSize: 12, fontWeight: 600 }}>{ACTION_LABEL[row.action]?.text || row.action}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+              {selected.size} of {preview.rows.length} row(s) selected.
+              {preview.kind === "paychecks" && " Gross wages and Federal/State withholding come from the source file exactly; Social Security, Medicare, FUTA, and SUTA are recalculated using AL TAX Nexus's own rates and this client's year-to-date wages, so annual wage caps stay accurate going forward."}
+              {preview.kind === "employees" && " Only the last 4 digits of SSN are ever present in an export — the full number isn't recoverable from it and will need to be entered separately if needed."}
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn" onClick={reset}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={selected.size === 0 || busy} onClick={handleCommit}>
+                {busy ? "Importing…" : `Import ${selected.size} Row${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {results && (
+          <>
+            <p style={{ fontWeight: 700, marginBottom: 10 }}>{succeededCount} of {results.length} row(s) imported.</p>
+            <div className="table-scroll" style={{ marginBottom: 14 }}>
+              <table>
+                <thead><tr><th>Employee</th><th>Result</th></tr></thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.employeeName}{r.payDate ? ` — ${r.payDate}` : ""}</td>
+                      <td>
+                        {r.ok
+                          ? <span style={{ color: "var(--teal)" }}>{r.created === false ? "Updated" : "Created"}{r.netPay != null ? ` — net ${fmtMoney(r.netPay)}` : ""}</span>
+                          : <span style={{ color: "var(--danger, #b91c1c)" }}>{r.error || "Failed"}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={reset}>Import Another File</button>
+          </>
+        )}
+      </div>
+    </Panel>
   );
 }
 

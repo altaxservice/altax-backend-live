@@ -27,6 +27,7 @@
     "resend": "^6.17.2",
     "stripe": "^22.3.2",
     "twilio": "^6.0.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.23.8"
   },
   "overrides": {

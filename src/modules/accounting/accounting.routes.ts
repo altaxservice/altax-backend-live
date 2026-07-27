@@ -772,20 +772,20 @@ accountingRouter.post("/payroll/preview", requireAuth, requireRole("admin", "sta
   res.json(calc);
 }));
 
-type PaycheckCreationResult =
+export type PaycheckCreationResult =
   | { ok: true; payrollInputId: string; paycheckId: string; gross: number; netPay: number; employeeTaxes: number; employerTaxes: number }
   | { ok: false; error: string };
 
 /**
  * The full validate-calculate-post-atomically flow for one paycheck — shared by the
- * single POST /payroll route and POST /payroll/batch below, so a batch run is
- * literally N calls to the exact same logic a single create already uses (same tax
- * calculation, same GL atomicity, same employee/contractor guards), not a parallel
- * reimplementation. Returns a result object rather than throwing/responding directly,
- * so the batch route can continue past one failed row and report per-row outcomes
- * instead of one bad row aborting an entire payroll run.
+ * single POST /payroll route, POST /payroll/batch below, and the payrollImport
+ * module's paycheck commit, so every caller runs literally N calls to the exact same
+ * logic a single create already uses (same tax calculation, same GL atomicity, same
+ * employee/contractor guards), not a parallel reimplementation. Returns a result
+ * object rather than throwing/responding directly, so callers can continue past one
+ * failed row and report per-row outcomes instead of one bad row aborting the batch.
  */
-async function createSinglePaycheck(
+export async function createSinglePaycheck(
   client: { client_id: string; client_name: string; state: string },
   employeeName: string, body: any, userEmail: string
 ): Promise<PaycheckCreationResult> {
@@ -880,6 +880,85 @@ async function createSinglePaycheck(
   } catch (err: any) {
     return { ok: false, error: err?.message || "Could not create this paycheck." };
   }
+}
+
+export interface EmployeeUpsertInput {
+  clientId: string; clientName: string; employeeName: string;
+  email?: string; phone?: string; payType?: string; payRate?: number; defaultHours?: number;
+  defaultGrossWages?: number; payFrequency?: string; serviceCategory?: string; workerType?: string; formType?: string; status?: string;
+  streetAddress?: string; city?: string; state?: string; zipCode?: string;
+  ssnMasked?: string; federalFilingStatus?: string; stateFilingStatus?: string;
+  /** Free-text lines to add to this employee's Notes — appended to whatever is already there, never overwriting it. */
+  appendNotes?: string[];
+  updatedBy: string;
+}
+
+/**
+ * Separate from the POST /employees route below on purpose: that route is the
+ * manual Employees-tab create/edit flow (matches by employeeId, handles portal-access
+ * provisioning, a well-tested path used every day) — reusing it here would mean either
+ * bolting import-specific behavior onto it or refactoring it and risking that daily
+ * flow for the sake of this one. Import data has no employeeId to match against
+ * anyway; it matches an existing employee by name within the client, same as paycheck
+ * creation already does, and additionally writes the address/SSN/filing-status fields
+ * the basic route leaves to the separate /sensitive endpoint — importing needs both
+ * groups of fields in one pass.
+ */
+export async function upsertEmployeeRecord(input: EmployeeUpsertInput): Promise<{ employeeId: string; created: boolean }> {
+  const existing = await queryOne<any>(
+    `SELECT employee_id, notes FROM altax.v3_employees WHERE client_id = $1 AND lower(employee_name) = lower($2)`,
+    [input.clientId, input.employeeName]
+  );
+  const employeeId = existing?.employee_id || `EMP-${idSuffix()}`;
+
+  const address = (input.streetAddress || input.city || input.state || input.zipCode)
+    ? composeAddress({ street: input.streetAddress, city: input.city, state: input.state, zip: input.zipCode })
+    : null;
+  const mergedNotes = input.appendNotes?.length
+    ? [existing?.notes, ...input.appendNotes].filter(Boolean).join("\n")
+    : null;
+
+  const params = [
+    employeeId, input.clientId, input.clientName, input.employeeName,
+    input.email ?? null, input.phone ?? null,
+    input.payType || "Hourly", input.workerType || "Employee", input.formType ?? null, input.status || "Active",
+    input.defaultGrossWages !== undefined ? money(input.defaultGrossWages) : null,
+    input.payRate !== undefined ? money(input.payRate) : null,
+    input.defaultHours ?? null, input.payFrequency ?? null, input.serviceCategory ?? null,
+    address, input.streetAddress ?? null, input.city ?? null, input.state ?? null, input.zipCode ?? null,
+    input.ssnMasked ? encryptValue(input.ssnMasked) : null,
+    input.federalFilingStatus ?? null, input.stateFilingStatus ?? null, mergedNotes,
+  ];
+
+  if (existing) {
+    await query(
+      `UPDATE altax.v3_employees SET
+         client_id=$2, client_name=$3, employee_name=$4, email=COALESCE($5, email), phone=COALESCE($6, phone),
+         pay_type=$7, worker_type=$8, form_type=COALESCE($9, form_type), status=$10,
+         default_gross_wages=COALESCE($11, default_gross_wages), pay_rate=COALESCE($12, pay_rate),
+         default_hours=COALESCE($13, default_hours), pay_frequency=COALESCE($14, pay_frequency), service_category=COALESCE($15, service_category),
+         address=COALESCE($16, address), street_address=COALESCE($17, street_address), city=COALESCE($18, city),
+         state=COALESCE($19, state), zip_code=COALESCE($20, zip_code),
+         ssn=COALESCE($21, ssn), federal_filing_status=COALESCE($22, federal_filing_status), state_filing_status=COALESCE($23, state_filing_status),
+         notes=COALESCE($24, notes), updated_at = now()
+       WHERE employee_id = $1`,
+      params
+    );
+    await logAudit("Employees", "EDIT", employeeId, "", "", input.employeeName, `Employee updated by ${input.updatedBy} (import).`, input.updatedBy);
+    return { employeeId, created: false };
+  }
+
+  await query(
+    `INSERT INTO altax.v3_employees
+       (employee_id, client_id, client_name, employee_name, email, phone, pay_type, worker_type, form_type,
+        status, default_gross_wages, pay_rate, default_hours, pay_frequency, service_category,
+        address, street_address, city, state, zip_code, ssn, federal_filing_status, state_filing_status, notes,
+        source_system, source_record_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'Node Web App',$1)`,
+    params
+  );
+  await logAudit("Employees", "CREATE", employeeId, "", "", input.employeeName, `Employee created by ${input.updatedBy} (import).`, input.updatedBy);
+  return { employeeId, created: true };
 }
 
 accountingRouter.post("/payroll", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
