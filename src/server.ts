@@ -96,6 +96,13 @@ app.use(express.static("public"));
 const marketingSiteDir = path.join(__dirname, "..", "marketing-site");
 app.use("/css", express.static(path.join(marketingSiteDir, "css")));
 app.use("/js", express.static(path.join(marketingSiteDir, "js")));
+// helmet() defaults Cross-Origin-Resource-Policy to same-origin, which blocks these
+// images from rendering anywhere off this origin — email clients (the signature logo
+// in Gmail/Outlook/Apple Mail) and any external embed. Public brand assets, so allow.
+app.use("/images", (_req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+});
 app.use("/images", express.static(path.join(marketingSiteDir, "images")));
 
 const frontendDist = path.join(__dirname, "..", "frontend", "dist");
