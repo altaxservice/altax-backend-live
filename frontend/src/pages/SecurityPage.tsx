@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, resolveFileUrl } from "../api/client";
+import { api, ApiError, resolveFileUrl, getAuthToken } from "../api/client";
 import { exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
@@ -194,7 +194,7 @@ function BackupSection() {
       // without it this hits the Vite dev server instead of the API and silently
       // returns the HTML shell (which is exactly what it did the first time).
       const res = await fetch(resolveFileUrl("/system/backup/export"), {
-        headers: { Authorization: `Bearer ${localStorage.getItem("altax_token") || ""}` },
+        headers: { Authorization: `Bearer ${getAuthToken() || ""}` },
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Export failed.");
       const blob = await res.blob();

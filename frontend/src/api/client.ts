@@ -19,12 +19,30 @@ export class ApiError extends Error {
   }
 }
 
-let authToken: string | null = localStorage.getItem("altax_token");
+const TOKEN_KEY = "altax_token";
+
+// Session storage is per-TAB; localStorage is shared by every tab on the
+// origin. A tab seeds its own live token from sessionStorage first (which
+// survives a reload of that same tab) and only falls back to localStorage's
+// last-known login for a genuinely fresh tab that has never had a session —
+// found live: an admin working in one tab had their session silently become
+// a client's the moment their tab reloaded, because a second tab had signed
+// into the client portal in between and overwritten the one shared
+// localStorage key everyone was reading from. Every login/logout still
+// writes to both, so a brand-new tab still picks up "last signed in as" —
+// it just never gets silently reassigned mid-session by another tab's login.
+let authToken: string | null = sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+if (authToken) sessionStorage.setItem(TOKEN_KEY, authToken);
 
 export function setAuthToken(token: string | null) {
   authToken = token;
-  if (token) localStorage.setItem("altax_token", token);
-  else localStorage.removeItem("altax_token");
+  if (token) {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+  }
 }
 
 export function getAuthToken(): string | null {

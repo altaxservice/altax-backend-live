@@ -39,10 +39,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = getAuthToken();
-    const storedUser = localStorage.getItem(USER_STORAGE_KEY);
+    // Mirrors the token's own tab-scoped fallback in api/client.ts — this
+    // tab's own prior session (sessionStorage) wins over whatever another
+    // tab most recently wrote to the shared localStorage key. See the note
+    // there for the incident this fixes: an admin's tab silently rendering
+    // as a client because a second tab had logged into the client portal.
+    const storedUser = sessionStorage.getItem(USER_STORAGE_KEY) || localStorage.getItem(USER_STORAGE_KEY);
     if (token && storedUser) {
       try {
         setUser(JSON.parse(storedUser));
+        sessionStorage.setItem(USER_STORAGE_KEY, storedUser);
       } catch {
         setAuthToken(null);
       }
@@ -64,7 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
     }
     setAuthToken(result.token);
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
+    const serialized = JSON.stringify(result.user);
+    localStorage.setItem(USER_STORAGE_KEY, serialized);
+    sessionStorage.setItem(USER_STORAGE_KEY, serialized);
     setUser(result.user);
   }, []);
 
@@ -106,7 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((prev) => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(next));
+      const serialized = JSON.stringify(next);
+      localStorage.setItem(USER_STORAGE_KEY, serialized);
+      sessionStorage.setItem(USER_STORAGE_KEY, serialized);
       return next;
     });
   }, []);
@@ -114,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setAuthToken(null);
     localStorage.removeItem(USER_STORAGE_KEY);
+    sessionStorage.removeItem(USER_STORAGE_KEY);
     setUser(null);
   }, []);
 
