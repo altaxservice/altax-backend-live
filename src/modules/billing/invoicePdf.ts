@@ -47,6 +47,32 @@ function fitText(font: PDFFont, str: string, size: number, maxWidth: number): st
   return s.trimEnd() + "...";
 }
 
+/** Word-wrap into at most maxLines measured lines — long line-item descriptions read in full instead of being chopped with "...". Only the very last permitted line falls back to fitText's ellipsis if the text still doesn't fit. */
+function wrapText(font: PDFFont, str: string, size: number, maxWidth: number, maxLines: number): string[] {
+  const words = pdfSafeText(str).split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const candidate = cur ? `${cur} ${w}` : w;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      cur = candidate;
+    } else if (!cur) {
+      lines.push(fitText(font, w, size, maxWidth)); // single word wider than the column
+    } else {
+      lines.push(cur);
+      cur = w;
+    }
+    if (lines.length === maxLines) {
+      const rest = [cur, ...words.slice(i + 1)].filter(Boolean).join(" ");
+      if (rest) lines[maxLines - 1] = fitText(font, `${lines[maxLines - 1]} ${rest}`, size, maxWidth);
+      return lines;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
+}
+
 export interface InvoiceLineItemPdfData {
   serviceDate: string | null; productName: string | null; productCategory?: string | null; description: string | null;
   quantity: number; rate: number; amount: number; taxable?: boolean;
@@ -134,9 +160,14 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   c.line(L, y, R, y, LINE, 1);
   y += 24;
 
-  const billLines = [data.clientName, ...addressLines(data.billTo || data.clientAddress, 4)];
+  // The stored Bill To/Ship To text usually begins with the client's name, which
+  // is already printed bold as the block's first line — drop the duplicate so the
+  // name doesn't appear twice back to back.
+  const nameNorm = String(data.clientName || "").trim().toLowerCase();
+  const dedup = (lines: string[]) => lines.filter((l) => l.trim().toLowerCase() !== nameNorm);
+  const billLines = [data.clientName, ...dedup(addressLines(data.billTo || data.clientAddress, 5)).slice(0, 4)];
   const shipRaw = data.shipTo && data.shipTo !== data.billTo ? data.shipTo : null;
-  const shipLines = shipRaw ? [data.clientName, ...addressLines(shipRaw, 4)] : [];
+  const shipLines = shipRaw ? [data.clientName, ...dedup(addressLines(shipRaw, 5)).slice(0, 4)] : [];
 
   const blockTop = y;
   c.text(L, blockTop, "Bill To", { size: 8, bold: true, color: MUTED });
@@ -185,12 +216,17 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   const lineItems = data.lineItems || [];
   if (lineItems.length > 0) {
     // Qty/Rate shifted right vs the original layout — the freed space goes to the
-    // description column, whose text is now width-fitted so it can never run into
-    // the Qty digits regardless of how long staff write the line description.
-    const colDate = L + 60, colQty = R - 210, colRate = R - 140, colAmt = R;
-    const descMaxWidth = colQty - colDate - 30; // 30pt reserve for the right-aligned Qty digits
-    c.text(L, y, "Date", { size: 9, bold: true });
-    c.text(colDate, y, "Activity / Description", { size: 9, bold: true });
+    // description column, whose text word-wraps (up to 3 measured lines) so it can
+    // never run into the Qty digits regardless of how long staff write it. The
+    // Date column only renders when at least one line actually has a service date;
+    // otherwise descriptions claim that space too instead of sitting next to an
+    // empty column.
+    const hasServiceDates = lineItems.some((li) => li.serviceDate);
+    const colDesc = hasServiceDates ? L + 60 : L;
+    const colQty = R - 210, colRate = R - 140, colAmt = R;
+    const descMaxWidth = colQty - colDesc - 30; // 30pt reserve for the right-aligned Qty digits
+    if (hasServiceDates) c.text(L, y, "Date", { size: 9, bold: true });
+    c.text(colDesc, y, "Activity / Description", { size: 9, bold: true });
     c.text(colQty, y, "Qty", { size: 9, bold: true, align: "right" });
     c.text(colRate, y, "Rate", { size: 9, bold: true, align: "right" });
     c.text(colAmt, y, "Amount", { size: 9, bold: true, align: "right" });
@@ -200,12 +236,13 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     for (const li of lineItems) {
       const activity = li.productCategory ? `${li.productCategory}:${li.productName || "Service"}` : (li.productName || "Service");
       const label = [activity, li.description].filter(Boolean).join(" — ");
-      c.text(L, y, fmtDate(li.serviceDate), { size: 9, color: MUTED });
-      c.text(colDate, y, fitText(font, label, 10, descMaxWidth), { size: 10 });
+      const labelLines = wrapText(font, label, 10, descMaxWidth, 3);
+      if (hasServiceDates) c.text(L, y, fmtDate(li.serviceDate), { size: 9, color: MUTED });
+      labelLines.forEach((ln, i) => c.text(colDesc, y + i * 13, ln, { size: 10 }));
       c.text(colQty, y, String(li.quantity), { size: 10, align: "right" });
       c.text(colRate, y, `$${money(li.rate)}`, { size: 10, align: "right" });
       c.text(colAmt, y, `$${money(li.amount)}${li.taxable === false ? "" : "T"}`, { size: 10, align: "right" });
-      y += 18;
+      y += 18 + (labelLines.length - 1) * 13;
       if (y > PAGE_H - 220) break; // single-page layout; overflow items are omitted rather than mis-rendered
     }
     y += 6;
