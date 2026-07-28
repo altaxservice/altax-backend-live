@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
@@ -55,6 +55,7 @@ export function InvoicesListPage() {
   const [recurringModal, setRecurringModal] = useState<{ editing?: Partial<RecurringBilling> } | null>(null);
   const [running, setRunning] = useState(false);
 
+  const taxTrackingRef = useRef<HTMLDivElement>(null);
   const [statementClientId, setStatementClientId] = useState("");
   const [statementStart, setStatementStart] = useState("");
   const [statementEnd, setStatementEnd] = useState("");
@@ -329,11 +330,11 @@ export function InvoicesListPage() {
             <div className="metric-value">{fmtMoney(kpis.paidThisPeriod)}</div>
             <div className="metric-note">{kpis.paidCount} firm payment(s)</div>
           </button>
-          <div className="metric">
+          <button type="button" className="metric metric-clickable" onClick={() => taxTrackingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
             <div className="metric-label">Client Tax Due</div>
             <div className="metric-value">{fmtMoney(kpis.clientTaxDue)}</div>
             <div className="metric-note">{kpis.taxCount} tax tracking row(s)</div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -424,7 +425,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Client</th><th>Description</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Due Days</th><th>Auto</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {schedules.map((s) => (
-                <tr key={s.recurring_billing_id}>
+                <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} onClick={() => setRecurringModal({ editing: s })}>
                   <td>{s.client_name as string}</td>
                   <td className="muted">{s.description as string}</td>
                   <td>{fmtMoney(s.amount)}</td>
@@ -497,7 +498,7 @@ export function InvoicesListPage() {
       )}
 
       {canManage && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div ref={taxTrackingRef} className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>Client Tax Payment Tracking</strong>
             <span className="muted" style={{ fontSize: 12 }}>{taxRows?.length ?? 0} tax payment rows</span>

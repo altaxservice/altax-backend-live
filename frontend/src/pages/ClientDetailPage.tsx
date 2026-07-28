@@ -158,7 +158,6 @@ export function ClientDetailPage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -168,8 +167,8 @@ export function ClientDetailPage() {
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
-  const canArchive = user?.role === "admin";
   const isAdmin = user?.role === "admin";
+  const canArchive = user?.role === "admin";
   const canSeeStaffTabs = user?.role === "admin" || user?.role === "staff";
   const visibleTabs = DETAIL_TABS.filter((t) => canSeeStaffTabs || !STAFF_ONLY_TABS.includes(t));
 
@@ -329,19 +328,6 @@ export function ClientDetailPage() {
     }
   }
 
-  async function handleStatement(mode: "view" | "download") {
-    if (!clientId || !client) return;
-    setStatementBusy(mode);
-    try {
-      if (mode === "view") await viewFile(`/billing/clients/${clientId}/statement`);
-      else await downloadFile(`/billing/clients/${clientId}/statement`, `Statement_${client.client_id}.pdf`);
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
-    } finally {
-      setStatementBusy(null);
-    }
-  }
-
   if (error) return <ErrorBanner error={error} />;
   if (!client) return <div className="spinner-wrap">Loading…</div>;
 
@@ -356,31 +342,7 @@ export function ClientDetailPage() {
           <h1 style={{ fontSize: 22, margin: "2px 0 4px" }}>{client.client_name}</h1>
           <StatusBadge status={client.status} />
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn" disabled={statementBusy !== null} onClick={() => handleStatement("view")}>{statementBusy === "view" ? "Opening…" : "View Statement"}</button>
-          <button className="btn" disabled={statementBusy !== null} onClick={() => handleStatement("download")}>{statementBusy === "download" ? "Generating…" : "Print / Download PDF"}</button>
-          {isAdmin && <button className="btn" onClick={handleInvite}>Send Portal Invitation</button>}
-          {canEdit && !editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
-          {canArchive && <button className="btn btn-danger" onClick={handleArchive}>Archive</button>}
-        </div>
       </div>
-
-      {inviteInfo && (
-        <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
-          <strong>Portal invite created for {client.client_name}.</strong>{" "}
-          {inviteInfo.inviteEmailed ? (
-            <>Emailed to {client.email}.</>
-          ) : (
-            <>{inviteInfo.inviteEmailError ? `Email not sent: ${inviteInfo.inviteEmailError}` : "Email not sent."} Copy this link and send it to them yourself:</>
-          )}
-          {!inviteInfo.inviteEmailed && (
-            <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
-              {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
-            </div>
-          )}
-          <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
-        </div>
-      )}
 
       {editing ? (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 960 }}>
@@ -497,8 +459,30 @@ export function ClientDetailPage() {
 
           {tab === "Profile" && (
             <>
+              {inviteInfo && (
+                <div className="card" style={{ maxWidth: 560, marginBottom: 16, borderColor: "var(--teal)" }}>
+                  <strong>Portal invite created for {client.client_name}.</strong>{" "}
+                  {inviteInfo.inviteEmailed ? (
+                    <>Emailed to {client.email}.</>
+                  ) : (
+                    <>{inviteInfo.inviteEmailError ? `Email not sent: ${inviteInfo.inviteEmailError}` : "Email not sent."} Copy this link and send it to them yourself:</>
+                  )}
+                  {!inviteInfo.inviteEmailed && (
+                    <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
+                      {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
+                    </div>
+                  )}
+                  <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
+                </div>
+              )}
               <div className="card" style={{ maxWidth: 560 }}>
-                <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Profile</h2>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h2 style={{ fontSize: 15, margin: 0 }}>Profile</h2>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {isAdmin && <button className="btn btn-sm" onClick={handleInvite}>Send Portal Invitation</button>}
+                    {canEdit && <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit</button>}
+                  </div>
+                </div>
                 <DetailRow label="Client Type" value={client.client_type} />
                 <DetailRow label="Entity Type" value={client.entity_type} />
                 <DetailRow label="State" value={client.state} />
@@ -572,7 +556,12 @@ export function ClientDetailPage() {
 
           {tab === "Account" && (
             <div className="card" style={{ maxWidth: 560 }}>
-              <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h2 style={{ fontSize: 15, margin: 0 }}>Account</h2>
+                {canArchive && String(client.status || "").toLowerCase() !== "archived" && (
+                  <button className="btn btn-sm btn-danger" onClick={handleArchive}>Archive</button>
+                )}
+              </div>
               <DetailRow label="Open Tasks" value={summary ? String(summary.openTasks) : "—"} />
               <DetailRow label="Open Document Requests" value={summary ? String(summary.openRequests) : "—"} />
               <DetailRow label="Open Invoices" value={summary ? String(summary.openInvoices) : "—"} />
@@ -1480,6 +1469,7 @@ function fmtMoney(v: unknown): string {
 function ClientBillingSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+  const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
 
   useEffect(() => {
     api.get<{ invoices: Invoice[] }>("/billing/invoices")
@@ -1487,15 +1477,33 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
       .catch(() => setInvoices([]));
   }, [clientId]);
 
+  async function handleStatement(mode: "view" | "download") {
+    setStatementBusy(mode);
+    try {
+      if (mode === "view") await viewFile(`/billing/clients/${clientId}/statement`);
+      else await downloadFile(`/billing/clients/${clientId}/statement`, `Statement_${clientId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+    } finally {
+      setStatementBusy(null);
+    }
+  }
+
   const openBalance = (invoices || [])
     .filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()))
     .reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
 
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <strong style={{ fontSize: 14 }}>Billing</strong>
-        <span className="muted" style={{ fontSize: 12 }}>{invoices?.length ?? 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <strong style={{ fontSize: 14 }}>Billing</strong>
+          <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{invoices?.length ?? 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("view")}>{statementBusy === "view" ? "Opening…" : "View Statement"}</button>
+          <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("download")}>{statementBusy === "download" ? "Generating…" : "Print / Download PDF"}</button>
+        </div>
       </div>
       {!invoices ? (
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
