@@ -19,6 +19,7 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
   const [showUserMenu, setShowUserMenu] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
   // The dropdown used to stay open until the Admin chip was clicked again —
@@ -40,6 +41,27 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [showUserMenu]);
+
+  // Same fix for the mobile ⋮ tray (search) — it stayed stuck open until the
+  // ⋮ button itself was tapped again; now tapping anywhere else (or Escape)
+  // closes it like any dropdown.
+  useEffect(() => {
+    if (!showMore) return;
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      if (!moreRef.current?.contains(e.target as Node)) setShowMore(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setShowMore(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showMore]);
 
   // Navigating away should never leave the menu (or the ⋮ tray) open behind the new page.
   useEffect(() => {
@@ -94,17 +116,22 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
               {lang === "en" ? "عربي" : "English"}
             </button>
           )}
-          <button type="button" className="topbar-more-btn btn" aria-label={t("header.more")} onClick={() => setShowMore((v) => !v)}>⋮</button>
-          <div className={`topbar-collapsible ${showMore ? "open" : ""}`}>
-            <form onSubmit={handleSearch} className="topbar-search">
-              <div className="topbar-search-label">{t("header.search")}</div>
-              <input
-                placeholder={t("header.searchPlaceholder")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </form>
-            <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
+          {/* display:contents — gives the outside-click effect one node covering the
+              ⋮ button plus its tray without changing the flex layout on desktop,
+              where the tray renders inline instead of as a dropdown. */}
+          <div ref={moreRef} style={{ display: "contents" }}>
+            <button type="button" className="topbar-more-btn btn" aria-label={t("header.more")} onClick={() => setShowMore((v) => !v)}>⋮</button>
+            <div className={`topbar-collapsible ${showMore ? "open" : ""}`}>
+              <form onSubmit={handleSearch} className="topbar-search">
+                <div className="topbar-search-label">{t("header.search")}</div>
+                <input
+                  placeholder={t("header.searchPlaceholder")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </form>
+              <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
+            </div>
           </div>
           <div style={{ position: "relative" }} ref={userMenuRef}>
             <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
