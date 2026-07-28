@@ -38,6 +38,15 @@ function addressLines(v: string | null | undefined, max: number): string[] {
   return String(v || "").split("\n").map((s) => s.trim()).filter(Boolean).slice(0, max);
 }
 
+/** Truncate to a measured pixel width (with "...") instead of a character count — a 50-char cap let long descriptions run into the Qty column, since character count says nothing about rendered width. Uses ASCII "..." because pdfSafeText maps "…" to it anyway, so measuring anything else would lie. */
+function fitText(font: PDFFont, str: string, size: number, maxWidth: number): string {
+  const safe = pdfSafeText(str);
+  if (font.widthOfTextAtSize(safe, size) <= maxWidth) return safe;
+  let s = safe;
+  while (s.length > 1 && font.widthOfTextAtSize(s.trimEnd() + "...", size) > maxWidth) s = s.slice(0, -1);
+  return s.trimEnd() + "...";
+}
+
 export interface InvoiceLineItemPdfData {
   serviceDate: string | null; productName: string | null; productCategory?: string | null; description: string | null;
   quantity: number; rate: number; amount: number; taxable?: boolean;
@@ -175,7 +184,11 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
 
   const lineItems = data.lineItems || [];
   if (lineItems.length > 0) {
-    const colDate = L + 60, colQty = R - 260, colRate = R - 190, colAmt = R;
+    // Qty/Rate shifted right vs the original layout — the freed space goes to the
+    // description column, whose text is now width-fitted so it can never run into
+    // the Qty digits regardless of how long staff write the line description.
+    const colDate = L + 60, colQty = R - 210, colRate = R - 140, colAmt = R;
+    const descMaxWidth = colQty - colDate - 30; // 30pt reserve for the right-aligned Qty digits
     c.text(L, y, "Date", { size: 9, bold: true });
     c.text(colDate, y, "Activity / Description", { size: 9, bold: true });
     c.text(colQty, y, "Qty", { size: 9, bold: true, align: "right" });
@@ -188,7 +201,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
       const activity = li.productCategory ? `${li.productCategory}:${li.productName || "Service"}` : (li.productName || "Service");
       const label = [activity, li.description].filter(Boolean).join(" — ");
       c.text(L, y, fmtDate(li.serviceDate), { size: 9, color: MUTED });
-      c.text(colDate, y, label.slice(0, 50), { size: 10 });
+      c.text(colDate, y, fitText(font, label, 10, descMaxWidth), { size: 10 });
       c.text(colQty, y, String(li.quantity), { size: 10, align: "right" });
       c.text(colRate, y, `$${money(li.rate)}`, { size: 10, align: "right" });
       c.text(colAmt, y, `$${money(li.amount)}${li.taxable === false ? "" : "T"}`, { size: 10, align: "right" });
@@ -204,7 +217,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     y += 8;
     c.line(L, y, R, y, LINE, 0.75);
     y += 20;
-    c.text(L, y, data.description || "Service invoice", { size: 10 });
+    c.text(L, y, fitText(font, data.description || "Service invoice", 10, R - L - 80), { size: 10 });
     c.text(R, y, `$${money(data.subtotalAmount ?? data.totalAmount)}`, { size: 10, align: "right" });
     y += 24;
     c.line(L, y, R, y, LINE, 0.75);
@@ -254,12 +267,14 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
 
   // Zelle "Scan to pay" QR — right column, parallel to the Payment Instructions
   // text below (which stays in the left column), so the two never collide.
+  // 110pt ≈ 1.5" printed: bank-app Zelle QRs are dense, and under ~1" they get
+  // unreliable to scan off paper.
+  const qrSize = 110;
   const qrTopY = y;
-  const qrBottomY = qrTopY + 10 + 70 + 10;
+  const qrBottomY = qrTopY + 12 + qrSize + 12;
   if (zelleQr) {
-    const qrSize = 70;
     c.text(R, qrTopY, "Scan to Pay via Zelle", { size: 8, bold: true, color: MUTED, align: "right" });
-    page.drawImage(zelleQr, { x: R - qrSize, y: PAGE_H - qrTopY - 10 - qrSize, width: qrSize, height: qrSize });
+    page.drawImage(zelleQr, { x: R - qrSize, y: PAGE_H - qrTopY - 12 - qrSize, width: qrSize, height: qrSize });
   }
 
   if (data.paymentInstructions) {

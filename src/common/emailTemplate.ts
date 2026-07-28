@@ -24,7 +24,12 @@ export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<st
   const profile = await getFirmProfile();
   const addressLine = [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim()).join(", ");
   const base = publicBaseUrl(req);
-  const logoImg = profile.logoDataUrl && base
+  // A localhost base (dev-sent test emails) is unreachable from the recipient's
+  // mail client, so the <img> would render as a broken-image icon in the header —
+  // worse than no logo. Skip it and let the text-only header stand in; production
+  // requests carry a public host and get the real logo.
+  const publiclyReachable = base && !/localhost|127\.0\.0\.1/i.test(base);
+  const logoImg = profile.logoDataUrl && publiclyReachable
     ? `<img src="${base}/firm-settings/logo" alt="${profile.firmName}" style="height:28px; display:block; margin-bottom:4px;">`
     : "";
 
