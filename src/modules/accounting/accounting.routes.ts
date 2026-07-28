@@ -1951,6 +1951,40 @@ accountingRouter.get("/gl/:clientId", requireAuth, requireRole("admin", "staff")
 }));
 
 /**
+ * Which years this employee/contractor actually has real payroll/payment history
+ * for — powers the profile's "Tax Documents" tab so it lists real, generatable
+ * years instead of an open-ended year-number box the user has to guess into.
+ * Employees are matched by name (v3_paychecks has no employee_id FK — see the W-2
+ * route right below); contractors by contractor_id, which v3_contractor_payments
+ * does have.
+ */
+accountingRouter.get("/employees/:employeeId/tax-years", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { employeeId } = req.params;
+  const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [employeeId]);
+  if (!employee) return res.status(404).json({ error: "Employee not found." });
+  if (!(await canAccessClient(req.user!, employee.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this employee." });
+  }
+
+  const isContractor = String(employee.worker_type || "").toLowerCase().includes("contractor");
+  const rows = isContractor
+    ? await query<any>(
+        `SELECT DISTINCT EXTRACT(YEAR FROM payment_date)::int AS year FROM altax.v3_contractor_payments
+          WHERE contractor_id = $1 AND client_id = $2 AND lower(status) <> 'void' AND payment_date IS NOT NULL
+          ORDER BY 1 DESC`,
+        [employeeId, employee.client_id]
+      )
+    : await query<any>(
+        `SELECT DISTINCT EXTRACT(YEAR FROM pay_date)::int AS year FROM altax.v3_paychecks
+          WHERE employee = $1 AND client_id = $2 AND lower(status) <> 'void' AND pay_date IS NOT NULL
+          ORDER BY 1 DESC`,
+        [employee.employee_name, employee.client_id]
+      );
+
+  res.json({ years: rows.map((r) => r.year), isContractor });
+}));
+
+/**
  * W-2 employee copies (Copy B / C / 2) for one employee/year — see w2.ts module
  * doc comment for why Copy A/D aren't offered. Sums that employee's paychecks
  * for the calendar year directly from v3_paychecks.

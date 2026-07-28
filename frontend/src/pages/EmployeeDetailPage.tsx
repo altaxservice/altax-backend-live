@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Employee, DocumentUpload } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -35,25 +35,27 @@ const SENSITIVE_FORM_DEFAULTS = {
   paymentBankName: "", paymentRoutingNumber: "", paymentAccountNumber: "", paymentAccountType: "",
 };
 
-const EMPLOYEE_TABS = ["Profile", "Sensitive Info", "Documents"] as const;
+const EMPLOYEE_TABS = ["Profile", "Sensitive Info", "Documents", "Tax Documents"] as const;
 type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 
 export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  // Deep-linked from the Employees & Contractors list's own "Edit" action
+  // (/employees/:id?edit=1) — Edit moved out of this page's header, same move
+  // already made for Archive/Delete, so the list is where every lifecycle
+  // action for an employee now starts.
+  const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [printing, setPrinting] = useState(false);
-  const [viewing, setViewing] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
-  const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
 
   const [sensitive, setSensitive] = useState<SensitiveFields | null>(null);
   const [revealing, setRevealing] = useState(false);
@@ -95,17 +97,6 @@ export function EmployeeDetailPage() {
       setSaveError(err instanceof ApiError ? err.message : "Could not save changes.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleArchive() {
-    if (!employee) return;
-    if (!confirm(`Archive ${employee.employee_name}? Past payroll/1099 history is kept, but they'll drop off active lists.`)) return;
-    try {
-      await api.post(`/accounting/employees/${employee.employee_id}/archive`, {});
-      load();
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this profile.");
     }
   }
 
@@ -168,39 +159,6 @@ export function EmployeeDetailPage() {
     }
   }
 
-  function taxFormPath() {
-    return isContractor
-      ? `/accounting/tax-forms/1099nec/${employee!.employee_id}?year=${taxYear}`
-      : `/accounting/tax-forms/w2/${employee!.employee_id}?year=${taxYear}`;
-  }
-
-  async function handleViewForm() {
-    if (!employee) return;
-    setViewing(true);
-    try {
-      await viewFile(taxFormPath());
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
-    } finally {
-      setViewing(false);
-    }
-  }
-
-  async function handlePrint() {
-    if (!employee) return;
-    setPrinting(true);
-    try {
-      const filename = isContractor
-        ? `1099NEC_${taxYear}_${employee.employee_name.replace(/\s+/g, "_")}.pdf`
-        : `W2_${taxYear}_${employee.employee_name.replace(/\s+/g, "_")}.pdf`;
-      await downloadFile(taxFormPath(), filename);
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
-    } finally {
-      setPrinting(false);
-    }
-  }
-
   if (error) return <ErrorBanner error={error} />;
   if (!employee) return <div className="spinner-wrap">Loading…</div>;
 
@@ -216,38 +174,17 @@ export function EmployeeDetailPage() {
           </div>
         </div>
         {canEdit && (
-          <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
-            {/* Tax forms — grouped and labeled together, since a bare "2026" floating
-                next to unrelated buttons was exactly the "who does this belong to"
-                confusion flagged live. */}
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8 }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label style={{ fontSize: 11 }}>Tax Year</label>
-                <input type="number" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 80 }} />
-              </div>
-              <button className="btn btn-sm" disabled={viewing} onClick={handleViewForm}>
-                {viewing ? "Generating…" : isContractor ? "View 1099-NEC" : "View W-2"}
-              </button>
-              <button className="btn btn-sm" disabled={printing} onClick={handlePrint}>
-                {printing ? "Generating…" : isContractor ? "Download 1099-NEC" : "Download W-2"}
-              </button>
-            </div>
-
-            {/* Profile actions — everyday first, lifecycle/destructive last. Delete
-                moved to the Employees & Contractors list's own Action menu (flagged
-                live as the better home for it, alongside Archive there too). */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
-              {String(employee.status || "").toLowerCase() !== "archived" && (
-                <button className="btn" disabled={statusSaving} onClick={handleToggleStatus}>
-                  {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
-                </button>
-              )}
-              {String(employee.status || "").toLowerCase() !== "archived" && (
-                <button className="btn btn-danger" onClick={handleArchive}>Archive</button>
-              )}
-            </div>
-          </div>
+          // Edit and Archive now live on the Employees & Contractors list's own
+          // Actions menu (same move already made for Delete) — this page only
+          // keeps the one status toggle someone is likely to flip while already
+          // looking at this specific profile. Tax forms moved to their own
+          // "Tax Documents" tab below, listing real years instead of a bare
+          // number box next to unrelated buttons.
+          String(employee.status || "").toLowerCase() !== "archived" && (
+            <button className="btn" disabled={statusSaving} onClick={handleToggleStatus}>
+              {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
+            </button>
+          )
         )}
       </div>
 
@@ -292,6 +229,11 @@ export function EmployeeDetailPage() {
           </form>
         ) : (
           <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
+            {canEdit && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+                <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit</button>
+              </div>
+            )}
             {/* The basics repeat the header on purpose — this card is what gets
                 read (and screenshotted) as "the profile", so it must stand alone. */}
             <DetailRow label="Name" value={employee.employee_name} />
@@ -417,6 +359,94 @@ export function EmployeeDetailPage() {
           employeeId={employee.employee_id} employeeName={employee.employee_name}
           clientId={employee.client_id as string} clientName={employee.client_name as string}
         />
+      )}
+
+      {tab === "Tax Documents" && canEdit && (
+        <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every real tax form this employee/contractor has — one row per year they
+ * actually have payroll/payment history for (via GET .../tax-years), not a bare
+ * year-number box the user has to guess into. Replaces the old header's Tax Year
+ * + View/Download W-2 cluster, which sat unlabeled next to unrelated buttons.
+ */
+function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { employeeId: string; employeeName: string; isContractor: boolean }) {
+  const [years, setYears] = useState<number[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyYear, setBusyYear] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ years: number[] }>(`/accounting/employees/${employeeId}/tax-years`)
+      .then((res) => setYears(res.years))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this employee's tax years."));
+  }
+  useEffect(load, [employeeId]);
+
+  const formLabel = isContractor ? "1099-NEC" : "W-2";
+  function formPath(year: number) {
+    return isContractor
+      ? `/accounting/tax-forms/1099nec/${employeeId}?year=${year}`
+      : `/accounting/tax-forms/w2/${employeeId}?year=${year}`;
+  }
+
+  async function handleView(year: number) {
+    setBusyYear(`view-${year}`);
+    try {
+      await viewFile(formPath(year));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
+    } finally {
+      setBusyYear(null);
+    }
+  }
+  async function handleDownload(year: number) {
+    setBusyYear(`download-${year}`);
+    try {
+      const filename = `${isContractor ? "1099NEC" : "W2"}_${year}_${employeeName.replace(/\s+/g, "_")}.pdf`;
+      await downloadFile(formPath(year), filename);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
+    } finally {
+      setBusyYear(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Tax Documents</strong>
+        <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Every year {employeeName} has real payroll/payment history for — {formLabel} is generated fresh each time from that year's records.</p>
+      </div>
+      {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
+      {!years ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : years.length === 0 ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No {String(new Date().getFullYear())}-or-earlier payroll/payment history yet — nothing to generate a {formLabel} from.</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Year</th><th>Action</th></tr></thead>
+            <tbody>
+              {years.map((year) => (
+                <tr key={year}>
+                  <td>{year}</td>
+                  <td style={{ display: "flex", gap: 8 }}>
+                    <button type="button" className="link-button" disabled={busyYear === `view-${year}`} onClick={() => handleView(year)}>
+                      {busyYear === `view-${year}` ? "Generating…" : `View ${formLabel}`}
+                    </button>
+                    <button type="button" className="link-button" disabled={busyYear === `download-${year}`} onClick={() => handleDownload(year)}>
+                      {busyYear === `download-${year}` ? "Generating…" : "Download"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

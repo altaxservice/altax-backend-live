@@ -1357,7 +1357,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
 
   function employeeActionOptions(emp: Employee): ActionMenuOption[] {
     const isContractor = String(emp.worker_type || "").toLowerCase().includes("contractor");
-    const opts: ActionMenuOption[] = [];
+    const opts: ActionMenuOption[] = [{ value: "edit", label: "Edit" }];
     if (!isContractor) {
       opts.push({ value: "view-w2", label: "View W-2" }, { value: "download-w2", label: "Download W-2" });
     }
@@ -1367,6 +1367,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
   }
 
   async function handleEmployeeAction(emp: Employee, action: string) {
+    if (action === "edit") return navigate(`/employees/${emp.employee_id}?edit=1`);
     if (action === "view-w2") return handleViewW2(emp);
     if (action === "download-w2") return handlePrintW2(emp);
     if (action === "archive") return handleArchive(emp);
