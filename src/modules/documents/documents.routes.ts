@@ -769,6 +769,47 @@ documentsRouter.post("/uploads/:uploadId/remove", requireAuth, asyncHandler(asyn
 }));
 
 /**
+ * Archive a file from the STAFF side only — the client/employee side is completely
+ * unaffected and keeps seeing/downloading it exactly as before. hidden_from_staff
+ * mirrors hidden_from_client's existing pattern (a client/employee can already hide a
+ * firm-sent file from their own view without touching the firm's copy — this is the
+ * same idea, built the other direction). Answers a real gap flagged live: the old
+ * single "Remove" action meant "revoke this entirely," which is right for "wrong
+ * file, take it back" but wrong for "I'm just cleaning up my own dashboard" when the
+ * client still needs the document (a W-2, an EIN letter, etc). Fully reversible via
+ * /unarchive below — this never destroys anything, unlike /remove.
+ */
+documentsRouter.post("/uploads/:uploadId/archive", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { uploadId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_document_uploads WHERE upload_id = $1`, [uploadId]);
+  if (!old) return res.status(404).json({ error: "Upload not found." });
+  if (!(await canAccessClient(req.user!, old.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this file." });
+  }
+
+  await query(`UPDATE altax.v3_document_uploads SET hidden_from_staff = true, updated_at = now() WHERE upload_id = $1`, [uploadId]);
+  await logAudit("Documents", "ARCHIVE_FILE", uploadId, "HiddenFromStaff", "", "Yes",
+    `Archived from staff view by ${req.user!.email} — still visible to the client/employee.`, req.user!.email);
+
+  res.json({ ok: true, uploadId });
+}));
+
+documentsRouter.post("/uploads/:uploadId/unarchive", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { uploadId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_document_uploads WHERE upload_id = $1`, [uploadId]);
+  if (!old) return res.status(404).json({ error: "Upload not found." });
+  if (!(await canAccessClient(req.user!, old.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this file." });
+  }
+
+  await query(`UPDATE altax.v3_document_uploads SET hidden_from_staff = false, updated_at = now() WHERE upload_id = $1`, [uploadId]);
+  await logAudit("Documents", "UNARCHIVE_FILE", uploadId, "HiddenFromStaff", "Yes", "",
+    `Unarchived by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, uploadId });
+}));
+
+/**
  * Client self-hide — ported from alTaxPortalHideClientDocumentUploads. This is a
  * client-only declutter action on their OWN portal view (sets HiddenFromClient=Yes),
  * not a staff-controlled visibility restriction — legacy explicitly rejects any

@@ -143,6 +143,7 @@ export interface DocumentUpload {
   client_name?: string;
   employee_id?: string | null;
   employee_name?: string | null;
+  hidden_from_staff?: boolean;
   file_name: string;
   file_url: string;
   direction: string | null;
