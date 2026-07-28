@@ -486,7 +486,7 @@ export function ClientDetailPage() {
 
           {tab === "Profile" && (
             <>
-              <div className="card">
+              <div className="card" style={{ maxWidth: 560 }}>
                 <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Profile</h2>
                 <DetailRow label="Client Type" value={client.client_type} />
                 <DetailRow label="Entity Type" value={client.entity_type} />
@@ -510,7 +510,7 @@ export function ClientDetailPage() {
                 <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
               </div>
               {String(client.notes || "").trim() && (
-                <div className="card" style={{ marginTop: 20 }}>
+                <div className="card" style={{ maxWidth: 560, marginTop: 20 }}>
                   <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Notes</h2>
                   <p style={{ fontSize: 13, whiteSpace: "pre-wrap", margin: 0 }}>{linkifyNotes(String(client.notes))}</p>
                 </div>
@@ -519,7 +519,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Compliance" && (
-            <div className="card">
+            <div className="card" style={{ maxWidth: 560 }}>
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Compliance &amp; Tax IDs</h2>
               <p className="muted" style={{ marginBottom: 12 }}>
                 {user?.role === "admin" ? "Shown in full — you are signed in as Admin." : "Sensitive fields are masked for your role."}
@@ -545,7 +545,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Responsible Party" && (
-            <div className="card">
+            <div className="card" style={{ maxWidth: 560 }}>
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Responsible Party</h2>
               {isBusinessClient ? (
                 <>
@@ -560,7 +560,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Account" && (
-            <div className="card">
+            <div className="card" style={{ maxWidth: 560 }}>
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account</h2>
               <DetailRow label="Open Tasks" value={summary ? String(summary.openTasks) : "—"} />
               <DetailRow label="Open Document Requests" value={summary ? String(summary.openRequests) : "—"} />

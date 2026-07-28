@@ -244,7 +244,7 @@ export function InvoiceDetailPage() {
       )}
 
       <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
-        <div className="card">
+        <div className="card" style={{ maxWidth: 480 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Details</h2>
           <Row label="Description" value={invoice.description} />
           <Row label="Invoice Date" value={invoice.invoice_date ? fmtDateOnly(invoice.invoice_date) : null} />
@@ -253,7 +253,7 @@ export function InvoiceDetailPage() {
           <Row label="Bill To" value={invoice.bill_to} />
           {invoice.ship_to && invoice.ship_to !== invoice.bill_to && <Row label="Ship To" value={invoice.ship_to} />}
         </div>
-        <div className="card">
+        <div className="card" style={{ maxWidth: 480 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Amounts</h2>
           {lineItems.length > 0 && <Row label="Subtotal" value={fmtMoney(invoice.subtotal_amount)} />}
           {Number(invoice.discount_amount) > 0 && <Row label="Discount" value={`-${fmtMoney(invoice.discount_amount)}`} />}
