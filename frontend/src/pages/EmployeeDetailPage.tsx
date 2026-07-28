@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Employee, DocumentUpload } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -40,7 +40,6 @@ type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 
 export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -54,7 +53,6 @@ export function EmployeeDetailPage() {
   const [printing, setPrinting] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
 
   const [sensitive, setSensitive] = useState<SensitiveFields | null>(null);
@@ -122,21 +120,6 @@ export function EmployeeDetailPage() {
       alert(err instanceof ApiError ? err.message : "Could not change this profile's status.");
     } finally {
       setStatusSaving(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!employee) return;
-    const confirmValue = prompt(`Permanently delete "${employee.employee_name}"? This cannot be undone and only works if they have no payroll/1099 history. Type DELETE EMPLOYEE to confirm.`);
-    if (confirmValue === null) return;
-    setDeleting(true);
-    try {
-      await api.post(`/accounting/employees/${employee.employee_id}/delete`, { confirm: confirmValue });
-      navigate(`/accounting?client=${employee.client_id}&tab=Employees`);
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this profile.");
-    } finally {
-      setDeleting(false);
     }
   }
 
@@ -233,28 +216,37 @@ export function EmployeeDetailPage() {
           </div>
         </div>
         {canEdit && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <div className="field" style={{ margin: 0 }}>
-              <input type="number" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 80 }} />
-            </div>
-            <button className="btn" disabled={viewing} onClick={handleViewForm}>
-              {viewing ? "Generating…" : isContractor ? "View 1099-NEC" : "View W-2"}
-            </button>
-            <button className="btn" disabled={printing} onClick={handlePrint}>
-              {printing ? "Generating…" : isContractor ? "Download 1099-NEC" : "Download W-2"}
-            </button>
-            {String(employee.status || "").toLowerCase() !== "archived" && (
-              <button className="btn" disabled={statusSaving} onClick={handleToggleStatus}>
-                {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+            {/* Tax forms — grouped and labeled together, since a bare "2026" floating
+                next to unrelated buttons was exactly the "who does this belong to"
+                confusion flagged live. */}
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ fontSize: 11 }}>Tax Year</label>
+                <input type="number" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 80 }} />
+              </div>
+              <button className="btn btn-sm" disabled={viewing} onClick={handleViewForm}>
+                {viewing ? "Generating…" : isContractor ? "View 1099-NEC" : "View W-2"}
               </button>
-            )}
-            {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
-            {String(employee.status || "").toLowerCase() !== "archived" && (
-              <button className="btn btn-danger" onClick={handleArchive}>Archive</button>
-            )}
-            {isAdmin && (
-              <button className="btn btn-danger" disabled={deleting} onClick={handleDelete}>{deleting ? "Deleting…" : "Delete"}</button>
-            )}
+              <button className="btn btn-sm" disabled={printing} onClick={handlePrint}>
+                {printing ? "Generating…" : isContractor ? "Download 1099-NEC" : "Download W-2"}
+              </button>
+            </div>
+
+            {/* Profile actions — everyday first, lifecycle/destructive last. Delete
+                moved to the Employees & Contractors list's own Action menu (flagged
+                live as the better home for it, alongside Archive there too). */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
+              {String(employee.status || "").toLowerCase() !== "archived" && (
+                <button className="btn" disabled={statusSaving} onClick={handleToggleStatus}>
+                  {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
+                </button>
+              )}
+              {String(employee.status || "").toLowerCase() !== "archived" && (
+                <button className="btn btn-danger" onClick={handleArchive}>Archive</button>
+              )}
+            </div>
           </div>
         )}
       </div>

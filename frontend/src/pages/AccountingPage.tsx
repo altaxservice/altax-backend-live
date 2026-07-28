@@ -13,6 +13,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64 } from "../utils/file";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
+import { useAuth } from "../auth/AuthContext";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -1295,6 +1296,8 @@ function ImportTab({ clientId }: { clientId: string }) {
 
 function EmployeesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showForm, setShowForm] = useState(false);
   const EMPTY_EMPLOYEE_FORM = { employeeName: "", email: "", phone: "", workerType: "Employee", payType: "Hourly", payRate: "", defaultHours: "", defaultGrossWages: "", payFrequency: "", serviceCategory: "", grantPortalAccess: false, streetAddress: "", city: "", zipCode: "", state: clientState || "" };
@@ -1338,6 +1341,20 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
     }
   }
 
+  // Moved here from the employee's own profile page — flagged live as the better
+  // home for it, right alongside Archive, instead of a lone red button lost among
+  // the profile header's other actions.
+  async function handleDelete(emp: Employee) {
+    const confirmValue = prompt(`Permanently delete "${emp.employee_name}"? This cannot be undone and only works if they have no payroll/1099 history. Type DELETE EMPLOYEE to confirm.`);
+    if (confirmValue === null) return;
+    try {
+      await api.post(`/accounting/employees/${emp.employee_id}/delete`, { confirm: confirmValue });
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this profile.");
+    }
+  }
+
   function employeeActionOptions(emp: Employee): ActionMenuOption[] {
     const isContractor = String(emp.worker_type || "").toLowerCase().includes("contractor");
     const opts: ActionMenuOption[] = [];
@@ -1345,6 +1362,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
       opts.push({ value: "view-w2", label: "View W-2" }, { value: "download-w2", label: "Download W-2" });
     }
     if (String(emp.status || "").toLowerCase() !== "archived") opts.push({ value: "archive", label: "Archive" });
+    if (isAdmin) opts.push({ value: "delete", label: "Delete" });
     return opts;
   }
 
@@ -1352,6 +1370,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
     if (action === "view-w2") return handleViewW2(emp);
     if (action === "download-w2") return handlePrintW2(emp);
     if (action === "archive") return handleArchive(emp);
+    if (action === "delete") return handleDelete(emp);
   }
 
   function load() {
@@ -1470,7 +1489,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
         </table>
         </div>
         {employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees or contractors added yet.</p>}
-        <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile — view/download W-2, send them a file, or archive from the menu.</p>
+        <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile and send them a file. W-2, Archive, and Delete are in the Actions menu.</p>
       </Panel>
     </div>
   );
