@@ -173,19 +173,6 @@ export function EmployeeDetailPage() {
             <Link to={`/clients/${employee.client_id}`} className="muted">{employee.client_name as string}</Link>
           </div>
         </div>
-        {canEdit && (
-          // Edit and Archive now live on the Employees & Contractors list's own
-          // Actions menu (same move already made for Delete) — this page only
-          // keeps the one status toggle someone is likely to flip while already
-          // looking at this specific profile. Tax forms moved to their own
-          // "Tax Documents" tab below, listing real years instead of a bare
-          // number box next to unrelated buttons.
-          String(employee.status || "").toLowerCase() !== "archived" && (
-            <button className="btn" disabled={statusSaving} onClick={handleToggleStatus}>
-              {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
-            </button>
-          )
-        )}
       </div>
 
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
@@ -362,7 +349,10 @@ export function EmployeeDetailPage() {
       )}
 
       {tab === "Tax Documents" && canEdit && (
-        <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
+        <TaxDocumentsSection
+          employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor}
+          status={employee.status} statusSaving={statusSaving} onToggleStatus={handleToggleStatus}
+        />
       )}
     </div>
   );
@@ -374,7 +364,7 @@ export function EmployeeDetailPage() {
  * year-number box the user has to guess into. Replaces the old header's Tax Year
  * + View/Download W-2 cluster, which sat unlabeled next to unrelated buttons.
  */
-function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { employeeId: string; employeeName: string; isContractor: boolean }) {
+function TaxDocumentsSection({ employeeId, employeeName, isContractor, status, statusSaving, onToggleStatus }: { employeeId: string; employeeName: string; isContractor: boolean; status: string; statusSaving: boolean; onToggleStatus: () => void }) {
   const [years, setYears] = useState<number[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyYear, setBusyYear] = useState<string | null>(null);
@@ -417,9 +407,16 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
 
   return (
     <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <strong style={{ fontSize: 14 }}>Tax Documents</strong>
-        <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Every year {employeeName} has real payroll/payment history for — {formLabel} is generated fresh each time from that year's records.</p>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div>
+          <strong style={{ fontSize: 14 }}>Tax Documents</strong>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Every year {employeeName} has real payroll/payment history for — {formLabel} is generated fresh each time from that year's records.</p>
+        </div>
+        {String(status || "").toLowerCase() !== "archived" && (
+          <button className="btn btn-sm" disabled={statusSaving} onClick={onToggleStatus} style={{ flexShrink: 0 }}>
+            {statusSaving ? "Saving…" : String(status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
+          </button>
+        )}
       </div>
       {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
       {!years ? (
