@@ -76,7 +76,6 @@ export function DocumentsListPage() {
 
   const canManage = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
-  const isEmployee = user?.role === "employee";
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   function loadRequests(): Promise<void> {
@@ -164,12 +163,12 @@ export function DocumentsListPage() {
 
   const openRequestsAll = useMemo(() => scopedRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [scopedRequests]);
   const overdueAll = useMemo(() => openRequestsAll.filter(isOverdue), [openRequestsAll]);
-  const receivedUploadsAll = useMemo(() => scopedUploads.filter((u) => u.direction === "Client to Firm" && u.status !== "Removed"), [scopedUploads]);
+  const receivedUploadsAll = useMemo(() => scopedUploads.filter((u) => (u.direction === "Client to Firm" || u.direction === "Employee to Firm") && u.status !== "Removed"), [scopedUploads]);
   const sentUploadsAll = useMemo(() => scopedUploads.filter((u) => (u.direction === "Firm to Client" || u.direction === "Firm to Employee") && u.status !== "Removed"), [scopedUploads]);
 
   const openRequests = useMemo(() => filteredRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [filteredRequests]);
-  const receivedRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Client to Firm")), [filteredRequests, uploadsByRequestId]);
-  const sentRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Firm to Client")), [filteredRequests, uploadsByRequestId]);
+  const receivedRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Client to Firm" || u.direction === "Employee to Firm")), [filteredRequests, uploadsByRequestId]);
+  const sentRequests = useMemo(() => filteredRequests.filter((r) => (uploadsByRequestId.get(r.request_id) || []).some((u) => u.direction === "Firm to Client" || u.direction === "Firm to Employee")), [filteredRequests, uploadsByRequestId]);
 
   function toggleSelected(id: string) {
     setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -311,31 +310,29 @@ export function DocumentsListPage() {
 
       {ready && !canManage && (
         <>
-          {!isEmployee && (
-            <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-                <strong style={{ fontSize: 14 }}>Document Requests</strong>
-                <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Items AL TAX has asked you to upload.</p>
-              </div>
-              <div className="table-scroll card-table">
-              <table>
-                <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
-                <tbody>
-                  {scopedRequests.map((r) => (
-                    <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
-                      <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
-                      <td data-label="Status"><StatusBadge status={r.status} /></td>
-                      <td className="muted" data-label="Priority">{r.priority || "—"}</td>
-                      <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
-                      <td data-label="Files"><FilesCell request={r} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+              <strong style={{ fontSize: 14 }}>Document Requests</strong>
+              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Items AL TAX has asked you to upload.</p>
             </div>
-          )}
+            <div className="table-scroll card-table">
+            <table>
+              <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
+              <tbody>
+                {scopedRequests.map((r) => (
+                  <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
+                    <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
+                    <td data-label="Status"><StatusBadge status={r.status} /></td>
+                    <td className="muted" data-label="Priority">{r.priority || "—"}</td>
+                    <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
+                    <td data-label="Files"><FilesCell request={r} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+            {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
+          </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>

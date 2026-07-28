@@ -56,6 +56,18 @@ function isClientVisibleRequest(row: any): boolean {
   if (["void", "deleted", "archived", "internal"].includes(status)) return false;
   const combined = [row.direction, row.request_type, row.source_system].map(normalizeText).join(" ");
   if (combined.includes("internal") || combined.includes("staff only")) return false;
+  // Same fix as isClientVisibleUpload: a request addressed to one specific
+  // employee isn't the employer's to see.
+  if (String(row.employee_id || "").trim()) return false;
+  return true;
+}
+
+/** Employee-portal equivalent — a request is visible to an employee only when it's addressed to them by name (employee_id match, enforced by the caller's own WHERE clause). */
+function isEmployeeVisibleRequest(row: any): boolean {
+  const status = normalizeText(row.status || "Open");
+  if (["void", "deleted", "archived", "internal"].includes(status)) return false;
+  const combined = [row.direction, row.request_type, row.source_system].map(normalizeText).join(" ");
+  if (combined.includes("internal") || combined.includes("staff only")) return false;
   return true;
 }
 
@@ -98,17 +110,20 @@ function isEmployeeVisibleUpload(row: any): boolean {
 
 /**
  * Mirrors the clientAllowed || assignedAllowed check used by every document-request
- * mutation in legacy. Employees are explicitly excluded rather than falling through
- * to canAccessClient — that helper matches an employee against their own linked
- * clientId (correct for things like their own paystub), but document requests belong
- * to the client/employer relationship, not the employee. Same bug class as
- * billing.routes.ts's canMutateInvoice, found live: an employee who had or guessed a
- * request ID could view (via GET /requests/:requestId) and even change the status of
- * (via POST /requests/:requestId/status) their employer's document requests, despite
- * the request list correctly showing them nothing.
+ * mutation in legacy. Employees are explicitly excluded from the general
+ * canAccessClient fallback rather than falling through to it — that helper matches an
+ * employee against their own linked clientId (correct for things like their own
+ * paystub), but document requests belong to the client/employer relationship by
+ * default, not the employee. Same bug class as billing.routes.ts's canMutateInvoice,
+ * found live: an employee who had or guessed a request ID could view (via
+ * GET /requests/:requestId) and even change the status of (via
+ * POST /requests/:requestId/status) their employer's document requests, despite the
+ * request list correctly showing them nothing. The one exception, added once requests
+ * could be addressed to a specific employee: an employee CAN access a request that's
+ * explicitly theirs (employee_id match) — just never their employer's general ones.
  */
 async function canAccessDocumentRequest(user: NonNullable<AuthedRequest["user"]>, request: any): Promise<boolean> {
-  if (user.role === "employee") return false;
+  if (user.role === "employee") return Boolean(user.employeeId) && request.employee_id === user.employeeId;
   if (await canAccessClient(user, request.client_id)) return true;
   const aliases = await getUserAliases(user.email);
   return isAssignedToUser(request.assigned_to, aliases);
@@ -137,23 +152,24 @@ async function notifyDocumentRequest(
   actorEmail: string,
   actorRole: string,
   client: { client_id: string; client_name: string; email: string | null },
-  data: { requestId: string; taskId: string | null; requestedItem: string; direction: string; dueDate: string | null }
+  data: { requestId: string; taskId: string | null; requestedItem: string; direction: string; dueDate: string | null; employeeName?: string | null }
 ): Promise<void> {
-  const inbound = actorRole === "client" || normalizeText(data.direction).includes("client to firm") || normalizeText(data.direction) === "inbound";
+  const inbound = actorRole === "client" || actorRole === "employee" || normalizeText(data.direction).includes("to firm") || normalizeText(data.direction) === "inbound";
   const sentTo = inbound ? null : (client.email || null);
   const clientName = client.client_name || client.client_id;
+  const forWhom = data.employeeName ? `${data.employeeName} (${clientName})` : clientName;
   const dueText = data.dueDate ? `\nDue: ${data.dueDate}` : "";
   const dueTextAr = data.dueDate ? `\nتاريخ الاستحقاق: ${data.dueDate}` : "";
 
   const subject = inbound
-    ? `${clientName} requested document: ${data.requestedItem} (${data.requestId})`
+    ? `${forWhom} requested document: ${data.requestedItem} (${data.requestId})`
     : `AL TAX requested document: ${data.requestedItem} (${data.requestId})`;
   const messageEnglish = inbound
-    ? `${actorEmail} requested a document from AL TAX for ${clientName}.\n\nRequested item: ${data.requestedItem}${dueText}`
-    : `AL TAX requested ${data.requestedItem} from ${clientName}.\n\nPlease upload it from the Client Portal > Documents.${dueText}`;
+    ? `${actorEmail} requested a document from AL TAX for ${forWhom}.\n\nRequested item: ${data.requestedItem}${dueText}`
+    : `AL TAX requested ${data.requestedItem} from ${forWhom}.\n\nPlease upload it from the Portal > Documents.${dueText}`;
   const messageArabic = inbound
     ? `تم طلب مستند من AL TAX.\n\nالمستند المطلوب: ${data.requestedItem}${dueTextAr}`
-    : `طلبت AL TAX ${data.requestedItem}.\n\nيرجى رفعه من بوابة العميل > المستندات.${dueTextAr}`;
+    : `طلبت AL TAX ${data.requestedItem}.\n\nيرجى رفعه من البوابة > المستندات.${dueTextAr}`;
 
   await query(
     `INSERT INTO altax.v3_communications
@@ -171,11 +187,25 @@ async function notifyDocumentRequest(
  */
 documentsRouter.post("/requests", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
-  const clientId = String(body.clientId || "").trim();
+  const employeeId = String(body.employeeId || "").trim();
+  let clientId = String(body.clientId || "").trim();
+  let employeeName: string | null = null;
+
+  // Employee-targeted requests derive their client from the employee's own
+  // record — mirrors the direct-upload employeeId branch in POST /uploads.
+  if (employeeId) {
+    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id FROM altax.v3_employees WHERE employee_id = $1`, [employeeId]);
+    if (!employee) return res.status(404).json({ error: `Employee not found: ${employeeId}` });
+    clientId = employee.client_id;
+    employeeName = employee.employee_name;
+  }
   if (!clientId) return res.status(400).json({ error: "clientId is required." });
 
   const client = await queryOne<any>(`SELECT client_id, client_name, email, assigned_to FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: `Client not found: ${clientId}` });
+  if (!(await canAccessClient(req.user!, client.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
 
   const requestedItem = String(body.requestedItem || body.notes || "").trim();
   if (!requestedItem) return res.status(400).json({ error: "Requested item / notes is required." });
@@ -187,18 +217,18 @@ documentsRouter.post("/requests", requireAuth, requireRole("admin", "staff"), as
 
   await query(
     `INSERT INTO altax.v3_document_requests
-       (request_id, task_id, client_id, client_name, requested_item, request_date, due_from_client,
+       (request_id, task_id, client_id, client_name, employee_id, requested_item, request_date, due_from_client,
         status, assigned_to, priority, request_type, direction, attachment_link, source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,$10,$11,$12,'Node Web App',$1)`,
+     VALUES ($1,$2,$3,$4,$5,$6,now(),$7,$8,$9,$10,$11,$12,$13,'Node Web App',$1)`,
     [
-      requestId, taskId, client.client_id, client.client_name, requestedItem,
+      requestId, taskId, client.client_id, client.client_name, employeeId || null, requestedItem,
       dueDate, String(body.status || "Requested").trim(),
       String(body.assignedTo || client.assigned_to || "").trim() || null, String(body.priority || "Normal").trim(),
       String(body.requestType || "Document Request").trim(), direction, String(body.attachmentLink || "").trim() || null,
     ]
   );
 
-  await notifyDocumentRequest(req.user!.email, req.user!.role, client, { requestId, taskId, requestedItem, direction, dueDate });
+  await notifyDocumentRequest(req.user!.email, req.user!.role, client, { requestId, taskId, requestedItem, direction, dueDate, employeeName });
 
   await logAudit("Documents", "CREATE", requestId, "", "", "Requested", "Document request created from web app.", req.user!.email);
 
@@ -233,7 +263,9 @@ documentsRouter.get("/requests", requireAuth, asyncHandler(async (req: AuthedReq
   }
 
   if (role === "employee") {
-    return res.json({ requests: [] });
+    if (!req.user!.employeeId) return res.json({ requests: [] });
+    const rows = await query(`SELECT r.*, ${REQUEST_FILE_COLUMNS} FROM altax.v3_document_requests r WHERE r.employee_id = $1 ORDER BY r.request_date DESC NULLS LAST`, [req.user!.employeeId]);
+    return res.json({ requests: rows.filter(isEmployeeVisibleRequest) });
   }
 
   const aliases = await getUserAliases(req.user!.email);
@@ -326,8 +358,8 @@ documentsRouter.post("/requests/:requestId/status", requireAuth, asyncHandler(as
   if (!(await canAccessDocumentRequest(req.user!, old))) {
     return res.status(403).json({ error: "You do not have access to this request." });
   }
-  if (req.user!.role === "client" && !["Received", "Open", "Requested"].includes(newStatus)) {
-    return res.status(400).json({ error: "Client portal can only mark requests as Received, Open, or Requested." });
+  if (["client", "employee"].includes(req.user!.role) && !["Received", "Open", "Requested"].includes(newStatus)) {
+    return res.status(400).json({ error: "The portal can only mark requests as Received, Open, or Requested." });
   }
 
   const stampReceived = ["Received", "Completed", "Closed"].includes(newStatus);
@@ -478,20 +510,22 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
       return res.status(403).json({ error: "You do not have access to this document request." });
     }
 
-    const direction = String(body.direction || (req.user!.role === "client" ? "Client to Firm" : "Firm to Client")).trim();
+    const direction = String(
+      body.direction || (req.user!.role === "client" ? "Client to Firm" : req.user!.role === "employee" ? "Employee to Firm" : "Firm to Client")
+    ).trim();
     await query(
       `INSERT INTO altax.v3_document_uploads
-         (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
+         (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
           uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13,$14,false,'Node Web App',$1)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13,$14,$15,false,'Node Web App',$1)`,
       [
-        uploadId, requestId, request.task_id || null, request.client_id, request.client_name,
+        uploadId, requestId, request.task_id || null, request.client_id, request.client_name, request.employee_id || null,
         fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email, direction, String(body.status || "Uploaded").trim(),
         String(body.notes || "").trim() || null,
       ]
     );
 
-    const shouldMarkReceived = req.user!.role === "client" || direction.toLowerCase() === "client to firm" || String(body.markReceived || "").toLowerCase() === "yes";
+    const shouldMarkReceived = ["client", "employee"].includes(req.user!.role) || direction.toLowerCase() === "client to firm" || direction.toLowerCase() === "employee to firm" || String(body.markReceived || "").toLowerCase() === "yes";
     await query(
       shouldMarkReceived
         ? `UPDATE altax.v3_document_requests SET attachment_link = $2, status = 'Received', received_date = now(), updated_at = now() WHERE request_id = $1`

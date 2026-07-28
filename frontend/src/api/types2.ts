@@ -119,6 +119,7 @@ export interface DocumentRequest {
   task_id: string | null;
   client_id: string;
   client_name: string;
+  employee_id?: string | null;
   requested_item: string;
   request_date: string | null;
   due_from_client: string | null;

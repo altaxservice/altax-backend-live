@@ -12,6 +12,7 @@ import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64 } from "../utils/file";
+import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -1337,6 +1338,22 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
     }
   }
 
+  function employeeActionOptions(emp: Employee): ActionMenuOption[] {
+    const isContractor = String(emp.worker_type || "").toLowerCase().includes("contractor");
+    const opts: ActionMenuOption[] = [];
+    if (!isContractor) {
+      opts.push({ value: "view-w2", label: "View W-2" }, { value: "download-w2", label: "Download W-2" });
+    }
+    if (String(emp.status || "").toLowerCase() !== "archived") opts.push({ value: "archive", label: "Archive" });
+    return opts;
+  }
+
+  async function handleEmployeeAction(emp: Employee, action: string) {
+    if (action === "view-w2") return handleViewW2(emp);
+    if (action === "download-w2") return handlePrintW2(emp);
+    if (action === "archive") return handleArchive(emp);
+  }
+
   function load() {
     api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`).then((r) => setEmployees(r.employees)).catch(() => {});
   }
@@ -1428,43 +1445,32 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
           </div>
         }
       >
-        <div className="table-scroll">
+        <div className="table-scroll card-table">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
-            {employees.map((e) => {
-              const isContractor = String(e.worker_type || "").toLowerCase().includes("contractor");
-              return (
-                <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
-                  <td><Link to={`/employees/${e.employee_id}`}>{e.employee_name}</Link></td>
-                  <td className="muted">{e.worker_type || "Employee"}</td>
-                  <td className="muted">{e.pay_type || "—"}</td>
-                  <td className="muted">{e.state || "—"}</td>
-                  <td>{fmtMoney(e.pay_rate)}</td>
-                  <td className="muted">{e.status}</td>
-                  <td style={{ display: "flex", gap: 6 }} onClick={(ev) => ev.stopPropagation()}>
-                    <Link to={`/employees/${e.employee_id}`} className="btn btn-sm" style={{ textDecoration: "none" }}>Profile</Link>
-                    {!isContractor && (
-                      <>
-                        <button type="button" className="btn btn-sm" disabled={viewingW2 === e.employee_id} onClick={() => handleViewW2(e)}>
-                          {viewingW2 === e.employee_id ? "Generating…" : "View W-2"}
-                        </button>
-                        <button type="button" className="btn btn-sm" disabled={printing === e.employee_id} onClick={() => handlePrintW2(e)}>
-                          {printing === e.employee_id ? "Generating…" : "Download W-2"}
-                        </button>
-                      </>
-                    )}
-                    {String(e.status || "").toLowerCase() !== "archived" && (
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => handleArchive(e)}>Archive</button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {employees.map((e) => (
+              <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
+                <td data-label="Name"><Link to={`/employees/${e.employee_id}`} style={{ fontWeight: 600 }}>{e.employee_name}</Link></td>
+                <td className="muted" data-label="Type">{e.worker_type || "Employee"}</td>
+                <td className="muted" data-label="Pay Type">{e.pay_type || "—"}</td>
+                <td className="muted" data-label="State">{e.state || "—"}</td>
+                <td data-label="Rate">{fmtMoney(e.pay_rate)}</td>
+                <td className="muted" data-label="Status">{e.status}</td>
+                <td data-label="Action" onClick={(ev) => ev.stopPropagation()}>
+                  <ActionMenu
+                    options={employeeActionOptions(e)}
+                    disabled={viewingW2 === e.employee_id || printing === e.employee_id}
+                    onSelect={(action) => handleEmployeeAction(e, action)}
+                  />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
         </div>
         {employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees or contractors added yet.</p>}
+        <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile — view/download W-2, send them a file, or archive from the menu.</p>
       </Panel>
     </div>
   );

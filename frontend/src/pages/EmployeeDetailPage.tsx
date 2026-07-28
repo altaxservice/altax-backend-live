@@ -6,8 +6,11 @@ import { useAuth } from "../auth/AuthContext";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { UploadToPortalModal } from "../components/UploadToPortalModal";
+import { RequestDocumentModal } from "../components/RequestDocumentModal";
+import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
+import type { DocumentRequest } from "../api/types2";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -31,6 +34,9 @@ const SENSITIVE_FORM_DEFAULTS = {
   fixedProjectAmount: "", is1099Eligible: false, paymentMethod: "", directDeposit: false,
   paymentBankName: "", paymentRoutingNumber: "", paymentAccountNumber: "", paymentAccountType: "",
 };
+
+const EMPLOYEE_TABS = ["Profile", "Sensitive Info", "Documents"] as const;
+type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 
 export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
@@ -57,6 +63,7 @@ export function EmployeeDetailPage() {
   const [sensitiveForm, setSensitiveForm] = useState(SENSITIVE_FORM_DEFAULTS);
   const [sensitiveSaving, setSensitiveSaving] = useState(false);
   const [sensitiveError, setSensitiveError] = useState<string | null>(null);
+  const [tab, setTab] = useState<EmployeeTab>("Profile");
 
   function load() {
     if (!employeeId) return;
@@ -252,148 +259,173 @@ export function EmployeeDetailPage() {
         )}
       </div>
 
-      {editing ? (
-        <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
-          {saveError && <ErrorBanner error={saveError} />}
-          <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-          <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
-          <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Pay Rate</label><input type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
-            <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
+      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+        {EMPLOYEE_TABS.map((t) => (
+          <div
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+              color: tab === t ? "var(--ink)" : "var(--muted)",
+              borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
+            }}
+          >
+            {t}
           </div>
-          <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
-          <div className="field"><label>Pay Frequency</label><input value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))} placeholder="e.g. Weekly, Bi-Weekly" /></div>
-          {form.workerType === "Contractor" && (
-            <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} /></div>
+        ))}
+      </div>
+
+      {tab === "Profile" && (
+        editing ? (
+          <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
+            {saveError && <ErrorBanner error={saveError} />}
+            <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
+            <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
+            <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field"><label>Pay Rate</label><input type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
+              <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
+            </div>
+            <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
+            <div className="field"><label>Pay Frequency</label><input value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))} placeholder="e.g. Weekly, Bi-Weekly" /></div>
+            {form.workerType === "Contractor" && (
+              <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} /></div>
+            )}
+            <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
+            <div className="field"><label>Phone</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+              <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
+            </div>
+          </form>
+        ) : (
+          <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
+            {/* The basics repeat the header on purpose — this card is what gets
+                read (and screenshotted) as "the profile", so it must stand alone. */}
+            <DetailRow label="Name" value={employee.employee_name} />
+            <DetailRow label="Worker Type" value={employee.worker_type || "Employee"} />
+            <DetailRow label="Status" value={employee.status} />
+            <DetailRow label="Client" value={employee.client_name as string} />
+            <DetailRow label="Home State (payroll)" value={(employee as any).state} />
+            <DetailRow label="Pay Type" value={employee.pay_type} />
+            <DetailRow label="Pay Rate" value={fmtMoney(employee.pay_rate)} />
+            <DetailRow label="Default Hours" value={employee.default_hours != null ? String(employee.default_hours) : null} />
+            <DetailRow label="Default Gross Wages" value={fmtMoney(employee.default_gross_wages)} />
+            <DetailRow label="Pay Frequency" value={employee.pay_frequency} />
+            {isContractor && <DetailRow label="Service Category" value={employee.service_category} />}
+            <DetailRow label="Email" value={employee.email} />
+            <DetailRow label="Phone" value={employee.phone} />
+          </div>
+        )
+      )}
+
+      {tab === "Sensitive Info" && (
+        <div className="card" style={{ maxWidth: 560 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Sensitive Info (SSN/EIN/TIN, bank, W-9)</h2>
+            {isAdmin && !editingSensitive && <button className="btn btn-sm" onClick={sensitive ? startEditSensitive : handleReveal} disabled={revealing}>{revealing ? "Decrypting…" : sensitive ? "Edit" : "Reveal & Edit"}</button>}
+          </div>
+          <p className="muted" style={{ marginBottom: 12 }}>SSN/EIN/TIN and bank account numbers are encrypted; only admins can reveal or edit them.</p>
+          {!isAdmin && (
+            <>
+              <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
+              <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
+              <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
+            </>
           )}
-          <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
-          <div className="field"><label>Phone</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
-            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
-          </div>
-        </form>
-      ) : (
-        <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
-          {/* The basics repeat the header on purpose — this card is what gets
-              read (and screenshotted) as "the profile", so it must stand alone. */}
-          <DetailRow label="Name" value={employee.employee_name} />
-          <DetailRow label="Worker Type" value={employee.worker_type || "Employee"} />
-          <DetailRow label="Status" value={employee.status} />
-          <DetailRow label="Client" value={employee.client_name as string} />
-          <DetailRow label="Home State (payroll)" value={(employee as any).state} />
-          <DetailRow label="Pay Type" value={employee.pay_type} />
-          <DetailRow label="Pay Rate" value={fmtMoney(employee.pay_rate)} />
-          <DetailRow label="Default Hours" value={employee.default_hours != null ? String(employee.default_hours) : null} />
-          <DetailRow label="Default Gross Wages" value={fmtMoney(employee.default_gross_wages)} />
-          <DetailRow label="Pay Frequency" value={employee.pay_frequency} />
-          {isContractor && <DetailRow label="Service Category" value={employee.service_category} />}
-          <DetailRow label="Email" value={employee.email} />
-          <DetailRow label="Phone" value={employee.phone} />
+          {isAdmin && !sensitive && !editingSensitive && (
+            <>
+              <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
+              <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
+              <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
+            </>
+          )}
+          {isAdmin && sensitive && !editingSensitive && (
+            <>
+              <DetailRow label="SSN" value={sensitive.ssn} />
+              <DetailRow label="EIN" value={sensitive.ein} />
+              <DetailRow label="TIN" value={sensitive.tin} />
+              <DetailRow label="Street Address" value={sensitive.streetAddress || sensitive.address} />
+              <DetailRow label="City" value={sensitive.city} />
+              <DetailRow label="Home State (drives state withholding/SUTA)" value={sensitive.state} />
+              <DetailRow label="ZIP" value={sensitive.zipCode} />
+              <DetailRow label="Federal Filing Status" value={sensitive.federalFilingStatus} />
+              <DetailRow label="State Filing Status" value={sensitive.stateFilingStatus} />
+              <DetailRow label="W-9 Status" value={sensitive.w9Status} />
+              <DetailRow label="TIN Verification" value={sensitive.tinVerificationStatus} />
+              <DetailRow label="Vendor Classification" value={sensitive.vendorClassification} />
+              <DetailRow label="Contractor Payment Type" value={sensitive.contractorPaymentType} />
+              <DetailRow label="Fixed Project Amount" value={sensitive.fixedProjectAmount != null ? fmtMoney(sensitive.fixedProjectAmount) : null} />
+              <DetailRow label="1099 Eligible" value={sensitive.is1099Eligible ? "Yes" : "No"} />
+              <DetailRow label="Payment Method" value={sensitive.paymentMethod} />
+              <DetailRow label="Direct Deposit" value={sensitive.directDeposit ? "Yes" : "No"} />
+              <DetailRow label="Bank Name" value={sensitive.paymentBankName} />
+              <DetailRow label="Routing Number" value={sensitive.paymentRoutingNumber} />
+              <DetailRow label="Account Number" value={sensitive.paymentAccountNumber} />
+              <DetailRow label="Account Type" value={sensitive.paymentAccountType} />
+            </>
+          )}
+          {isAdmin && editingSensitive && (
+            <form onSubmit={handleSaveSensitive}>
+              {sensitiveError && <ErrorBanner error={sensitiveError} />}
+              <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave SSN/EIN/TIN or bank fields blank to keep the values already on file — only fill them in to replace them.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="field"><label>SSN (leave blank to keep current)</label><input value={sensitiveForm.ssn} onChange={(e) => setSensitiveForm((f) => ({ ...f, ssn: e.target.value }))} /></div>
+                <div className="field"><label>EIN (leave blank to keep current)</label><input value={sensitiveForm.ein} onChange={(e) => setSensitiveForm((f) => ({ ...f, ein: e.target.value }))} /></div>
+              </div>
+              <div className="field"><label>TIN (leave blank to keep current)</label><input value={sensitiveForm.tin} onChange={(e) => setSensitiveForm((f) => ({ ...f, tin: e.target.value }))} /></div>
+              <AddressFields
+                idPrefix="emp-detail"
+                value={{ street: sensitiveForm.streetAddress, city: sensitiveForm.city, state: sensitiveForm.state, zip: sensitiveForm.zipCode }}
+                onChange={(patch) => setSensitiveForm((f) => ({
+                  ...f,
+                  streetAddress: patch.street ?? f.streetAddress,
+                  city: patch.city ?? f.city,
+                  zipCode: patch.zip ?? f.zipCode,
+                  state: patch.state ?? f.state,
+                }))}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div className="field"><label>Federal Filing Status</label><input value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))} /></div>
+                <div className="field"><label>State Filing Status</label><input value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))} /></div>
+              </div>
+              <div className="field"><label>W-9 Status</label><input value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>
+              {isContractor && (
+                <>
+                  <div className="field"><label>TIN Verification Status</label><input value={sensitiveForm.tinVerificationStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, tinVerificationStatus: e.target.value }))} /></div>
+                  <div className="field"><label>Vendor Classification</label><input value={sensitiveForm.vendorClassification} onChange={(e) => setSensitiveForm((f) => ({ ...f, vendorClassification: e.target.value }))} /></div>
+                  <div className="field"><label>Contractor Payment Type</label><input value={sensitiveForm.contractorPaymentType} onChange={(e) => setSensitiveForm((f) => ({ ...f, contractorPaymentType: e.target.value }))} /></div>
+                  <div className="field"><label>Fixed Project Amount</label><input type="number" step="0.01" value={sensitiveForm.fixedProjectAmount} onChange={(e) => setSensitiveForm((f) => ({ ...f, fixedProjectAmount: e.target.value }))} /></div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
+                    <input type="checkbox" checked={sensitiveForm.is1099Eligible} onChange={(e) => setSensitiveForm((f) => ({ ...f, is1099Eligible: e.target.checked }))} />
+                    1099 Eligible
+                  </label>
+                </>
+              )}
+              <div className="field"><label>Payment Method</label><input value={sensitiveForm.paymentMethod} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentMethod: e.target.value }))} placeholder="e.g. Direct Deposit, Check" /></div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
+                <input type="checkbox" checked={sensitiveForm.directDeposit} onChange={(e) => setSensitiveForm((f) => ({ ...f, directDeposit: e.target.checked }))} />
+                Direct Deposit
+              </label>
+              <div className="field"><label>Bank Name</label><input value={sensitiveForm.paymentBankName} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentBankName: e.target.value }))} /></div>
+              <div className="field"><label>Routing Number</label><input value={sensitiveForm.paymentRoutingNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentRoutingNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
+              <div className="field"><label>Account Number</label><input value={sensitiveForm.paymentAccountNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
+              <div className="field"><label>Account Type</label><input value={sensitiveForm.paymentAccountType} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountType: e.target.value }))} placeholder="Checking / Savings" /></div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button type="submit" className="btn btn-primary" disabled={sensitiveSaving}>{sensitiveSaving ? "Saving…" : "Save changes"}</button>
+                <button type="button" className="btn" onClick={() => setEditingSensitive(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
-      <div className="card" style={{ maxWidth: 560 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h2 style={{ fontSize: 15, margin: 0 }}>Sensitive Info (SSN/EIN/TIN, bank, W-9)</h2>
-          {isAdmin && !editingSensitive && <button className="btn btn-sm" onClick={sensitive ? startEditSensitive : handleReveal} disabled={revealing}>{revealing ? "Decrypting…" : sensitive ? "Edit" : "Reveal & Edit"}</button>}
-        </div>
-        <p className="muted" style={{ marginBottom: 12 }}>SSN/EIN/TIN and bank account numbers are encrypted; only admins can reveal or edit them.</p>
-        {!isAdmin && (
-          <>
-            <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
-            <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
-            <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
-          </>
-        )}
-        {isAdmin && !sensitive && !editingSensitive && (
-          <>
-            <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
-            <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
-            <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
-          </>
-        )}
-        {isAdmin && sensitive && !editingSensitive && (
-          <>
-            <DetailRow label="SSN" value={sensitive.ssn} />
-            <DetailRow label="EIN" value={sensitive.ein} />
-            <DetailRow label="TIN" value={sensitive.tin} />
-            <DetailRow label="Street Address" value={sensitive.streetAddress || sensitive.address} />
-            <DetailRow label="City" value={sensitive.city} />
-            <DetailRow label="Home State (drives state withholding/SUTA)" value={sensitive.state} />
-            <DetailRow label="ZIP" value={sensitive.zipCode} />
-            <DetailRow label="Federal Filing Status" value={sensitive.federalFilingStatus} />
-            <DetailRow label="State Filing Status" value={sensitive.stateFilingStatus} />
-            <DetailRow label="W-9 Status" value={sensitive.w9Status} />
-            <DetailRow label="TIN Verification" value={sensitive.tinVerificationStatus} />
-            <DetailRow label="Vendor Classification" value={sensitive.vendorClassification} />
-            <DetailRow label="Contractor Payment Type" value={sensitive.contractorPaymentType} />
-            <DetailRow label="Fixed Project Amount" value={sensitive.fixedProjectAmount != null ? fmtMoney(sensitive.fixedProjectAmount) : null} />
-            <DetailRow label="1099 Eligible" value={sensitive.is1099Eligible ? "Yes" : "No"} />
-            <DetailRow label="Payment Method" value={sensitive.paymentMethod} />
-            <DetailRow label="Direct Deposit" value={sensitive.directDeposit ? "Yes" : "No"} />
-            <DetailRow label="Bank Name" value={sensitive.paymentBankName} />
-            <DetailRow label="Routing Number" value={sensitive.paymentRoutingNumber} />
-            <DetailRow label="Account Number" value={sensitive.paymentAccountNumber} />
-            <DetailRow label="Account Type" value={sensitive.paymentAccountType} />
-          </>
-        )}
-        {isAdmin && editingSensitive && (
-          <form onSubmit={handleSaveSensitive}>
-            {sensitiveError && <ErrorBanner error={sensitiveError} />}
-            <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave SSN/EIN/TIN or bank fields blank to keep the values already on file — only fill them in to replace them.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>SSN (leave blank to keep current)</label><input value={sensitiveForm.ssn} onChange={(e) => setSensitiveForm((f) => ({ ...f, ssn: e.target.value }))} /></div>
-              <div className="field"><label>EIN (leave blank to keep current)</label><input value={sensitiveForm.ein} onChange={(e) => setSensitiveForm((f) => ({ ...f, ein: e.target.value }))} /></div>
-            </div>
-            <div className="field"><label>TIN (leave blank to keep current)</label><input value={sensitiveForm.tin} onChange={(e) => setSensitiveForm((f) => ({ ...f, tin: e.target.value }))} /></div>
-            <AddressFields
-              idPrefix="emp-detail"
-              value={{ street: sensitiveForm.streetAddress, city: sensitiveForm.city, state: sensitiveForm.state, zip: sensitiveForm.zipCode }}
-              onChange={(patch) => setSensitiveForm((f) => ({
-                ...f,
-                streetAddress: patch.street ?? f.streetAddress,
-                city: patch.city ?? f.city,
-                zipCode: patch.zip ?? f.zipCode,
-                state: patch.state ?? f.state,
-              }))}
-            />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>Federal Filing Status</label><input value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))} /></div>
-              <div className="field"><label>State Filing Status</label><input value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))} /></div>
-            </div>
-            <div className="field"><label>W-9 Status</label><input value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>
-            {isContractor && (
-              <>
-                <div className="field"><label>TIN Verification Status</label><input value={sensitiveForm.tinVerificationStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, tinVerificationStatus: e.target.value }))} /></div>
-                <div className="field"><label>Vendor Classification</label><input value={sensitiveForm.vendorClassification} onChange={(e) => setSensitiveForm((f) => ({ ...f, vendorClassification: e.target.value }))} /></div>
-                <div className="field"><label>Contractor Payment Type</label><input value={sensitiveForm.contractorPaymentType} onChange={(e) => setSensitiveForm((f) => ({ ...f, contractorPaymentType: e.target.value }))} /></div>
-                <div className="field"><label>Fixed Project Amount</label><input type="number" step="0.01" value={sensitiveForm.fixedProjectAmount} onChange={(e) => setSensitiveForm((f) => ({ ...f, fixedProjectAmount: e.target.value }))} /></div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
-                  <input type="checkbox" checked={sensitiveForm.is1099Eligible} onChange={(e) => setSensitiveForm((f) => ({ ...f, is1099Eligible: e.target.checked }))} />
-                  1099 Eligible
-                </label>
-              </>
-            )}
-            <div className="field"><label>Payment Method</label><input value={sensitiveForm.paymentMethod} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentMethod: e.target.value }))} placeholder="e.g. Direct Deposit, Check" /></div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
-              <input type="checkbox" checked={sensitiveForm.directDeposit} onChange={(e) => setSensitiveForm((f) => ({ ...f, directDeposit: e.target.checked }))} />
-              Direct Deposit
-            </label>
-            <div className="field"><label>Bank Name</label><input value={sensitiveForm.paymentBankName} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentBankName: e.target.value }))} /></div>
-            <div className="field"><label>Routing Number</label><input value={sensitiveForm.paymentRoutingNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentRoutingNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
-            <div className="field"><label>Account Number</label><input value={sensitiveForm.paymentAccountNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
-            <div className="field"><label>Account Type</label><input value={sensitiveForm.paymentAccountType} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountType: e.target.value }))} placeholder="Checking / Savings" /></div>
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button type="submit" className="btn btn-primary" disabled={sensitiveSaving}>{sensitiveSaving ? "Saving…" : "Save changes"}</button>
-              <button type="button" className="btn" onClick={() => setEditingSensitive(false)}>Cancel</button>
-            </div>
-          </form>
-        )}
-      </div>
-
-      {canEdit && <EmployeeDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} />}
+      {tab === "Documents" && canEdit && (
+        <EmployeeDocumentsSection
+          employeeId={employee.employee_id} employeeName={employee.employee_name}
+          clientId={employee.client_id as string} clientName={employee.client_name as string}
+        />
+      )}
     </div>
   );
 }
@@ -406,11 +438,13 @@ export function EmployeeDetailPage() {
  * pick an employee from THAT client, from a page that has nothing to do with either) —
  * here the employee is already fixed, so sending them a file is one button.
  */
-function EmployeeDocumentsSection({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientName }: { employeeId: string; employeeName: string; clientId: string; clientName: string }) {
   const toast = useToast();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
+  const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
 
@@ -418,8 +452,13 @@ function EmployeeDocumentsSection({ employeeId, employeeName }: { employeeId: st
     api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
       .then((r) => setUploads(r.uploads.filter((u) => u.employee_id === employeeId && u.status !== "Removed")))
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load this employee's documents."));
+    api.get<{ requests: DocumentRequest[] }>("/documents/requests")
+      .then((r) => setRequests(r.requests.filter((q) => q.employee_id === employeeId)))
+      .catch(() => setRequests([]));
   }
   useEffect(load, [employeeId]);
+
+  const openRequests = (requests || []).filter((r) => !["closed", "completed", "void", "archived"].includes(String(r.status || "").toLowerCase()));
 
   const active = (uploads || []).filter((u) => !u.hidden_from_staff);
   const archived = (uploads || []).filter((u) => u.hidden_from_staff);
@@ -463,13 +502,17 @@ function EmployeeDocumentsSection({ employeeId, employeeName }: { employeeId: st
   }
 
   return (
-    <div className="card" style={{ maxWidth: 560, marginTop: 20, padding: 0, overflow: "hidden" }}>
+    <>
+    <div className="card" style={{ maxWidth: 560, marginBottom: 20, padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <strong style={{ fontSize: 14 }}>Documents</strong>
+          <strong style={{ fontSize: 14 }}>Files</strong>
           <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Files sent straight to {employeeName}'s own portal (W-2s, ID copies, etc).</p>
         </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Employee</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Employee</button>
+          <button type="button" className="btn btn-sm" onClick={() => setRequestOpen(true)}>Request Document</button>
+        </div>
       </div>
       {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
       {!uploads ? (
@@ -506,10 +549,37 @@ function EmployeeDocumentsSection({ employeeId, employeeName }: { employeeId: st
           ))}
         </div>
       )}
-      {uploadOpen && (
-        <UploadToPortalModal mode="employee" lockedEmployeeId={employeeId} lockedEmployeeName={employeeName} onClose={() => setUploadOpen(false)} onDone={load} />
-      )}
     </div>
+
+    <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Open Requests</strong>
+        <span className="muted" style={{ fontSize: 12 }}>{requests ? `${openRequests.length} open` : "Loading…"}</span>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Requested Item</th><th>Due</th><th>Status</th></tr></thead>
+          <tbody>
+            {openRequests.map((r) => (
+              <tr key={r.request_id}>
+                <td><Link to={`/documents/${r.request_id}`}>{r.requested_item || "—"}</Link></td>
+                <td className="muted">{r.due_from_client ? fmtDateOnly(r.due_from_client) : "—"}</td>
+                <td><StatusBadge status={r.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {requests && openRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing outstanding from this employee.</p>}
+    </div>
+
+    {uploadOpen && (
+      <UploadToPortalModal mode="employee" lockedEmployeeId={employeeId} lockedEmployeeName={employeeName} onClose={() => setUploadOpen(false)} onDone={load} />
+    )}
+    {requestOpen && (
+      <RequestDocumentModal clientId={clientId} clientName={clientName} employeeId={employeeId} employeeName={employeeName} onClose={() => setRequestOpen(false)} onDone={load} />
+    )}
+    </>
   );
 }
 
