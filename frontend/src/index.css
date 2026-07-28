@@ -492,6 +492,17 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .topbar-user-role { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
 .topbar-more-btn { display: none; }
 
+/* Client/employee language switch — always visible (never folded into the ⋮ tray,
+   where nobody found it) and teal-accented so it reads as a real feature. Shows the
+   language it switches TO, so "عربي" is the visible word on the English portal. */
+.lang-switch-btn {
+  border-color: var(--teal);
+  color: var(--teal);
+  font-weight: 800;
+  min-height: 34px;
+  white-space: nowrap;
+}
+
 /* Consolidates the user chip + Change Password + Enable 2FA + Sign Out into one
    click-to-reveal menu, instead of four separate always-visible controls crowding
    the top-right corner. */

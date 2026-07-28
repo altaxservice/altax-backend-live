@@ -81,14 +81,21 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
           </div>
         </div>
         <div className="topbar-actions" style={{ position: "relative" }}>
+          {/* Always visible, never inside the ⋮ tray — buried there, clients never
+              found it. Shows the language you'd switch TO, so an Arabic speaker
+              landing on the English portal immediately sees "عربي" to tap. */}
+          {showLanguageToggle && (
+            <button
+              type="button"
+              className="btn lang-switch-btn"
+              aria-label={t("header.language")}
+              onClick={() => setLang(lang === "en" ? "ar" : "en")}
+            >
+              {lang === "en" ? "عربي" : "English"}
+            </button>
+          )}
           <button type="button" className="topbar-more-btn btn" aria-label={t("header.more")} onClick={() => setShowMore((v) => !v)}>⋮</button>
           <div className={`topbar-collapsible ${showMore ? "open" : ""}`}>
-            {showLanguageToggle && (
-              <div className="topbar-lang-toggle" role="group" aria-label={t("header.language")} style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
-                <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "en" ? 800 : 500, background: lang === "en" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("en")}>EN</button>
-                <button type="button" className="btn btn-sm" style={{ borderRadius: 0, border: "none", fontWeight: lang === "ar" ? 800 : 500, background: lang === "ar" ? "var(--surface-2, #eee)" : "transparent" }} onClick={() => setLang("ar")}>عربي</button>
-              </div>
-            )}
             <form onSubmit={handleSearch} className="topbar-search">
               <div className="topbar-search-label">{t("header.search")}</div>
               <input
