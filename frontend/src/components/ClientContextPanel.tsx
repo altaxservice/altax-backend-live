@@ -109,11 +109,11 @@ export function ClientContextPanel() {
                   ))}
                 </div>
               )}
-              <ClientRow label="Requests" value={String(summary.openRequests)} onClick={() => navigate(`/documents?clientId=${client.client_id}`)} />
+              <ClientRow label="Requests" value={String(summary.openRequests)} onClick={() => navigate(`/clients/${client.client_id}?tab=Documents`)} />
               {/* Documents/Employees were already computed server-side but never
                   shown — "do we have their paperwork" is one of the first things
                   staff check, so it belongs here rather than a page away. */}
-              <ClientRow label="Documents" value={String(summary.documentsCount)} onClick={() => navigate(`/documents?clientId=${client.client_id}`)} />
+              <ClientRow label="Documents" value={String(summary.documentsCount)} onClick={() => navigate(`/clients/${client.client_id}?tab=Documents`)} />
               <ClientRow label="Employees" value={String(summary.employeesCount)} onClick={() => navigate(`/accounting?clientId=${client.client_id}`)} />
               <ClientRow label="Invoices" value={String(summary.openInvoices)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
               <ClientRow label="Balance" value={fmtMoney(summary.balanceDue)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
@@ -123,7 +123,7 @@ export function ClientContextPanel() {
           <div className="client-panel-section">
             <div className="small-label">Open</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?clientId=${client.client_id}`)}>Documents</button>
+              <button type="button" className="btn btn-sm" onClick={() => navigate(`/clients/${client.client_id}?tab=Documents`)}>Documents</button>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/tasks?clientId=${client.client_id}`)}>Tasks</button>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?clientId=${client.client_id}`)}>Accounting</button>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/reports?clientId=${client.client_id}`)}>Reports</button>

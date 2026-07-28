@@ -1,10 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
-import type { Employee } from "../api/types2";
+import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
+import type { Employee, DocumentUpload } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { UploadToPortalModal } from "../components/UploadToPortalModal";
+import { useToast } from "../components/Toast";
+import { fmtDateOnly } from "../utils/date";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -389,6 +392,123 @@ export function EmployeeDetailPage() {
           </form>
         )}
       </div>
+
+      {canEdit && <EmployeeDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} />}
+    </div>
+  );
+}
+
+/**
+ * This employee's own documents — belongs entirely to them, no client picker, no
+ * "which portal" question. Mirrors ClientDocumentsSection on the client profile: the
+ * record you're looking at owns its own file exchange. Answers the exact confusion
+ * flagged live with the old "Upload to Employee Portal" flow (pick a client, then
+ * pick an employee from THAT client, from a page that has nothing to do with either) —
+ * here the employee is already fixed, so sending them a file is one button.
+ */
+function EmployeeDocumentsSection({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+  const toast = useToast();
+  const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
+      .then((r) => setUploads(r.uploads.filter((u) => u.employee_id === employeeId && u.status !== "Removed")))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load this employee's documents."));
+  }
+  useEffect(load, [employeeId]);
+
+  const active = (uploads || []).filter((u) => !u.hidden_from_staff);
+  const archived = (uploads || []).filter((u) => u.hidden_from_staff);
+
+  async function handleRevoke(uploadId: string) {
+    if (!confirm(`Revoke this file? It will disappear from ${employeeName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`)) return;
+    setRemovingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/remove`, {});
+      toast("File revoked.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+  async function handleArchive(uploadId: string) {
+    setArchivingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/archive`, {});
+      toast(`Archived — ${employeeName} still sees this file.`);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not archive this file.");
+    } finally {
+      setArchivingId(null);
+    }
+  }
+  async function handleUnarchive(uploadId: string) {
+    setArchivingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/unarchive`, {});
+      toast("Unarchived.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not unarchive this file.");
+    } finally {
+      setArchivingId(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 560, marginTop: 20, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <strong style={{ fontSize: 14 }}>Documents</strong>
+          <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Files sent straight to {employeeName}'s own portal (W-2s, ID copies, etc).</p>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Employee</button>
+      </div>
+      {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
+      {!uploads ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : active.length === 0 && archived.length === 0 ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files shared with this employee yet.</p>
+      ) : (
+        <div style={{ padding: "4px 16px 12px" }}>
+          {active.map((u) => (
+            <div key={u.upload_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+              <div>
+                <button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"} · {u.uploaded_by || "—"}</div>
+                {u.notes && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{u.notes}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Archive"}</button>
+                <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
+              </div>
+            </div>
+          ))}
+          {archived.map((u) => (
+            <div key={u.upload_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13, opacity: 0.6 }}>
+              <div>
+                <button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Archived — still visible to {employeeName}</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleUnarchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Unarchive"}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {uploadOpen && (
+        <UploadToPortalModal mode="employee" lockedEmployeeId={employeeId} lockedEmployeeName={employeeName} onClose={() => setUploadOpen(false)} onDone={load} />
+      )}
     </div>
   );
 }

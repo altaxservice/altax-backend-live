@@ -7,7 +7,6 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
-import { UploadToPortalModal } from "../components/UploadToPortalModal";
 import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly } from "../utils/date";
@@ -78,9 +77,7 @@ export function DocumentsListPage() {
   const canManage = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
   const isEmployee = user?.role === "employee";
-  const [uploadModalMode, setUploadModalMode] = useState<"client" | "employee" | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   function loadRequests(): Promise<void> {
     return api.get<{ requests: DocumentRequest[] }>("/documents/requests")
@@ -127,24 +124,22 @@ export function DocumentsListPage() {
   const scopedRequests = useMemo(() => (requests || []).filter((r) => !scopedClientId || r.client_id === scopedClientId), [requests, scopedClientId]);
   const scopedUploads = useMemo(() => (uploads || []).filter((u) => !scopedClientId || u.client_id === scopedClientId), [uploads, scopedClientId]);
 
-  // Uploads sent straight to a client's or employee's portal with no document
-  // request behind them — before this section existed, these were invisible
-  // everywhere except the "Sent" metric's raw count (the exact "shared 6, shows 0"
-  // gap flagged by the user), since every other Files table here is built off
-  // document REQUESTS, not off uploads directly.
-  const standaloneUploadsAll = useMemo(
+  // Standalone (no-request) uploads sent straight to THIS logged-in client's/
+  // employee's own portal — still needed for their own "Files Shared With You"
+  // section below. The cross-client admin version of this ("Files Shared
+  // Directly", plus Upload-to-Client/Employee-Portal buttons) was removed:
+  // sending or managing an individual client's/employee's files now happens
+  // from that record's own profile (ClientDetailPage's Documents tab /
+  // EmployeeDetailPage's Documents section), which is also where Archive
+  // lives — Revoke (below) still applies to the triage worklist's own Files
+  // column, since that's the one place action stays on this page.
+  const standaloneUploads = useMemo(
     () => scopedUploads.filter((u) => !u.request_id && !u.task_id && u.status !== "Removed"),
     [scopedUploads]
   );
-  // Split by hidden_from_staff — Archive is a staff-only declutter action (see
-  // handleArchiveUpload below), so archived rows stay out of the default view
-  // but are never truly gone; the client/employee side never sees this split
-  // at all, they keep seeing every one of these regardless of archive state.
-  const standaloneUploads = useMemo(() => standaloneUploadsAll.filter((u) => !u.hidden_from_staff), [standaloneUploadsAll]);
-  const archivedStandaloneUploads = useMemo(() => standaloneUploadsAll.filter((u) => u.hidden_from_staff), [standaloneUploadsAll]);
 
   async function handleRemoveUpload(uploadId: string) {
-    if (!confirm("Revoke this file? It will disappear from the client's/employee's portal too, not just from here. This can't be undone from here — if you meant to just clean up your own list without affecting them, use Archive instead.")) return;
+    if (!confirm("Revoke this file? It will disappear from the client's/employee's portal too, not just from here.")) return;
     setRemovingId(uploadId);
     try {
       await api.post(`/documents/uploads/${uploadId}/remove`, {});
@@ -154,32 +149,6 @@ export function DocumentsListPage() {
       alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
     } finally {
       setRemovingId(null);
-    }
-  }
-
-  async function handleArchiveUpload(uploadId: string) {
-    setArchivingId(uploadId);
-    try {
-      await api.post(`/documents/uploads/${uploadId}/archive`, {});
-      toast("Archived — the client/employee still sees this file, it's just off your list now.");
-      loadAll();
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this file.");
-    } finally {
-      setArchivingId(null);
-    }
-  }
-
-  async function handleUnarchiveUpload(uploadId: string) {
-    setArchivingId(uploadId);
-    try {
-      await api.post(`/documents/uploads/${uploadId}/unarchive`, {});
-      toast("Unarchived — back on your list.");
-      loadAll();
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not unarchive this file.");
-    } finally {
-      setArchivingId(null);
     }
   }
 
@@ -302,12 +271,10 @@ export function DocumentsListPage() {
       {canManage && (
         <div className="portal-banner" style={{ margin: "16px 0" }}>
           <div className="topbar-eyebrow">Document Center</div>
-          <h2>Requests and File Exchange</h2>
-          <p>Track requests, client uploads, firm-shared files, and request status from one page.</p>
+          <h2>Firm-Wide Request Queue</h2>
+          <p>What's outstanding across every client, in one place. To send a file or manage one client's (or employee's) documents, open their own profile — that's where Send File, Request Document, Archive, and Revoke live now.</p>
           <div className="quick-actions" style={{ marginTop: 12 }}>
-            <button className="action-button" type="button" onClick={() => setShowNewWorkItem(true)}>New Document Request</button>
-            <button className="action-button" type="button" onClick={() => setUploadModalMode("client")}>Upload to Client Portal</button>
-            <button className="action-button" type="button" onClick={() => setUploadModalMode("employee")}>Upload to Employee Portal</button>
+            <button className="action-button" type="button" onClick={() => setShowNewWorkItem(true)}>New Document Request (multiple clients)</button>
           </div>
         </div>
       )}
@@ -450,23 +417,22 @@ export function DocumentsListPage() {
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
               <strong style={{ fontSize: 14 }}>Files Received From Client</strong>
-              <span className="muted" style={{ fontSize: 12 }}>{receivedRequests.length} request(s) ready</span>
+              <span className="muted" style={{ fontSize: 12 }}>{receivedRequests.length} request(s) ready — click any row to open it</span>
             </div>
             <div style={{ overflowX: "auto" }}>
               <div className="table-scroll card-table">
               <table>
-                <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
+                <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th></tr></thead>
                 <tbody>
                   {receivedRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
+                      <td data-label="Request">{r.requested_item}</td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
                       <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
-                      <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
-                      <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -479,23 +445,22 @@ export function DocumentsListPage() {
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
               <strong style={{ fontSize: 14 }}>Files Sent To Client</strong>
-              <span className="muted" style={{ fontSize: 12 }}>{sentRequests.length} request(s) shared</span>
+              <span className="muted" style={{ fontSize: 12 }}>{sentRequests.length} request(s) shared — click any row to open it</span>
             </div>
             <div style={{ overflowX: "auto" }}>
               <div className="table-scroll card-table">
               <table>
-                <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th><th>Action</th></tr></thead>
+                <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th></tr></thead>
                 <tbody>
                   {sentRequests.map((r) => (
                     <tr key={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
                       <td>{r.client_name}</td>
-                      <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
+                      <td data-label="Request">{r.requested_item}</td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
                       <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status"><StatusBadge status={r.status} /></td>
-                      <td data-label="Files"><FilesCell request={r} onRemove={handleRemoveUpload} /></td>
-                      <td data-label="Action" onClick={(e) => e.stopPropagation()}>{canManage && <ActionMenu options={documentActionOptions(user?.role)} onSelect={(action) => handleAction(r, action)} />}</td>
+                      <td data-label="Files"><FilesCell request={r} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -504,88 +469,7 @@ export function DocumentsListPage() {
             </div>
             {sentRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No documents shared to clients.</p>}
           </div>
-
-          <div className="card" style={{ padding: 0, overflow: "hidden", marginTop: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-              <div>
-                <strong style={{ fontSize: 14 }}>Files Shared Directly</strong>
-                <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
-                  Sent straight to a client or employee portal via "Upload to Client/Employee Portal" — no document request attached, so they don't appear in the tables above.
-                  {" "}<strong>Archive</strong> clears a file from this list only — the client/employee keeps it. <strong>Revoke</strong> takes it back from them too.
-                </p>
-              </div>
-              <span className="muted" style={{ fontSize: 12 }}>{standaloneUploads.length} file(s){archivedStandaloneUploads.length > 0 ? `, ${archivedStandaloneUploads.length} archived` : ""}</span>
-            </div>
-            {standaloneUploads.length === 0 && archivedStandaloneUploads.length === 0 ? (
-              <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files shared directly yet.</p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <div className="table-scroll card-table">
-                <table>
-                  <thead><tr><th>Sent To</th><th>File</th><th>Note</th><th>Shared</th><th>By</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {standaloneUploads.map((u) => (
-                      <tr key={u.upload_id}>
-                        <td>
-                          {u.employee_id ? `${u.employee_name || u.employee_id} (Employee)` : `${u.client_name || u.client_id} (Client)`}
-                        </td>
-                        <td data-label="File"><button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button></td>
-                        <td className="muted" data-label="Note">{u.notes || "—"}</td>
-                        <td className="muted" data-label="Shared">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
-                        <td className="muted" data-label="By">{u.uploaded_by || "—"}</td>
-                        <td data-label="Action">
-                          <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
-                          {" "}
-                          <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchiveUpload(u.upload_id)}>
-                            {archivingId === u.upload_id ? "Archiving…" : "Archive"}
-                          </button>
-                          {" "}
-                          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
-                            {removingId === u.upload_id ? "Revoking…" : "Revoke"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {archivedStandaloneUploads.map((u) => (
-                      <tr key={u.upload_id} style={{ opacity: 0.6 }}>
-                        <td>
-                          {u.employee_id ? `${u.employee_name || u.employee_id} (Employee)` : `${u.client_name || u.client_id} (Client)`}
-                        </td>
-                        <td data-label="File">
-                          <button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button>
-                          {" "}<span className="muted" style={{ fontSize: 11 }}>(archived — still visible to them)</span>
-                        </td>
-                        <td className="muted" data-label="Note">{u.notes || "—"}</td>
-                        <td className="muted" data-label="Shared">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
-                        <td className="muted" data-label="By">{u.uploaded_by || "—"}</td>
-                        <td data-label="Action">
-                          <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
-                          {" "}
-                          <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleUnarchiveUpload(u.upload_id)}>
-                            {archivingId === u.upload_id ? "Unarchiving…" : "Unarchive"}
-                          </button>
-                          {" "}
-                          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
-                            {removingId === u.upload_id ? "Revoking…" : "Revoke"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              </div>
-            )}
-          </div>
         </>
-      )}
-
-      {uploadModalMode && (
-        <UploadToPortalModal
-          mode={uploadModalMode}
-          onClose={() => setUploadModalMode(null)}
-          onDone={() => loadAll()}
-        />
       )}
 
       {showNewWorkItem && (

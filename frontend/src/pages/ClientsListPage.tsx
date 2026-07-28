@@ -10,6 +10,7 @@ import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { UploadFileModal } from "../components/UploadFileModal";
+import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -99,6 +100,7 @@ export function ClientsListPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
   const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
+  const [requestDocFor, setRequestDocFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   // Free-text escapes for the two fixed lists on this form — the firm keeps hitting
   // engagements that don't map onto a predefined option, and previously the only
@@ -175,9 +177,9 @@ export function ClientsListPage() {
   async function handleAction(c: Client, action: string) {
     if (action === "profile") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); return; }
     if (action === "create-task") { navigate(`/tasks?new=1&clientId=${c.client_id}`); return; }
-    if (action === "request-document") { navigate(`/documents?new=1&clientId=${c.client_id}`); return; }
+    if (action === "request-document") { setRequestDocFor({ clientId: c.client_id, clientName: c.client_name }); return; }
     if (action === "upload-document") { setUploadFor({ clientId: c.client_id, clientName: c.client_name }); return; }
-    if (action === "review-documents") { navigate(`/documents?clientId=${c.client_id}`); return; }
+    if (action === "review-documents") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Documents`); return; }
     if (action === "secure-vault") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}#vault`); return; }
     if (action === "edit") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?edit=1`); return; }
     if (action === "send-invite") {
@@ -332,6 +334,15 @@ export function ClientsListPage() {
           clientId={uploadFor.clientId}
           clientName={uploadFor.clientName}
           onClose={() => setUploadFor(null)}
+          onDone={() => load()}
+        />
+      )}
+
+      {requestDocFor && (
+        <RequestDocumentModal
+          clientId={requestDocFor.clientId}
+          clientName={requestDocFor.clientName}
+          onClose={() => setRequestDocFor(null)}
           onDone={() => load()}
         />
       )}

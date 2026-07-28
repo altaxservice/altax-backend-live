@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } f
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest } from "../api/types2";
 import { UploadFileModal } from "../components/UploadFileModal";
+import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -162,6 +163,7 @@ export function ClientDetailPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("Profile");
+  const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const canArchive = user?.role === "admin";
@@ -228,7 +230,7 @@ export function ClientDetailPage() {
     if (action === "task-note") return navigate(`/tasks/${task.task_id}?open=note`);
     if (action === "edit-task") return navigate(`/tasks/${task.task_id}?open=edit`);
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
-    if (action === "request-doc") return navigate(`/documents?new=1&clientId=${task.client_id}&taskId=${task.task_id}`);
+    if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
       const reason = prompt("Reason for voiding this task?");
       if (reason === null) return;
@@ -623,6 +625,16 @@ export function ClientDetailPage() {
           )}
         </>
       )}
+
+      {requestDocTask && (
+        <RequestDocumentModal
+          clientId={client.client_id}
+          clientName={client.client_name}
+          taskId={requestDocTask.task_id}
+          onClose={() => setRequestDocTask(null)}
+          onDone={loadTasks}
+        />
+      )}
     </div>
   );
 }
@@ -642,21 +654,37 @@ const CONTRACT_STATUS_COLOR: Record<string, string> = {
  * are legal records.
  */
 /**
- * Everything on file for this client, on the client's own profile. Previously the
- * only way to see a client's documents was the separate Documents page — you had
- * to leave the client you were looking at, then filter back down to them. Reads
- * the same endpoints that page does and scopes to this client.
+ * Everything on file for this client, on the client's own profile — this is now the
+ * primary place to manage a single client's documents (request, send, archive,
+ * revoke), not just a read-only mirror of the global Documents page. That global page
+ * used to be the only way to do any of this, meaning every action meant leaving
+ * whichever client you were looking at — flagged directly as confusing, and it's why
+ * the global page is now a firm-wide triage view only (see DocumentsListPage).
+ *
+ * "Files on File" deliberately excludes Internal/task-attached uploads (direction
+ * "Internal", hidden_from_client=true) — those are staff's own working files for a
+ * specific task, not something the client has or the client relationship "owns", and
+ * mixing them in here is exactly the "same file listed twice, once Internal once
+ * Firm to Client" confusion spotted live. Task attachments live on that task's own
+ * page instead.
  */
 function ClientDocumentsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
-  const navigate = useNavigate();
+  const toast = useToast();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   function load() {
     api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
-      .then((r) => setUploads(r.uploads.filter((u) => u.client_id === clientId && !["removed", "replaced"].includes(String(u.status || "").toLowerCase()))))
+      .then((r) => setUploads(r.uploads.filter((u) =>
+        u.client_id === clientId && !u.employee_id
+        && !["removed", "replaced"].includes(String(u.status || "").toLowerCase())
+        && String(u.direction || "").toLowerCase() !== "internal"
+      )))
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load documents."));
     api.get<{ requests: DocumentRequest[] }>("/documents/requests")
       .then((r) => setRequests(r.requests.filter((q) => q.client_id === clientId)))
@@ -665,6 +693,67 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
   useEffect(load, [clientId]);
 
   const openRequests = (requests || []).filter((r) => !["closed", "completed", "void", "archived"].includes(String(r.status || "").toLowerCase()));
+  const activeUploads = (uploads || []).filter((u) => !u.hidden_from_staff);
+  const archivedUploads = (uploads || []).filter((u) => u.hidden_from_staff);
+
+  async function handleRevoke(uploadId: string) {
+    if (!confirm(`Revoke this file? It will disappear from ${clientName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`)) return;
+    setRemovingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/remove`, {});
+      toast("File revoked.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
+  async function handleArchive(uploadId: string) {
+    setArchivingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/archive`, {});
+      toast(`Archived — ${clientName} still sees this file.`);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not archive this file.");
+    } finally {
+      setArchivingId(null);
+    }
+  }
+  async function handleUnarchive(uploadId: string) {
+    setArchivingId(uploadId);
+    try {
+      await api.post(`/documents/uploads/${uploadId}/unarchive`, {});
+      toast("Unarchived.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not unarchive this file.");
+    } finally {
+      setArchivingId(null);
+    }
+  }
+
+  function FileRow({ u, archived }: { u: DocumentUpload; archived: boolean }) {
+    return (
+      <tr style={archived ? { opacity: 0.6 } : undefined}>
+        <td data-label="File">{u.file_name}{archived && <span className="muted" style={{ fontSize: 11 }}> (archived)</span>}</td>
+        <td className="muted" data-label="Direction">{u.direction || "—"}</td>
+        <td className="muted" data-label="Uploaded">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+        <td className="muted" data-label="By">{String((u as any).uploaded_by || "—")}</td>
+        <td data-label="Action" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
+          <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "document")}>Download</button>
+          {archived ? (
+            <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleUnarchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Unarchive"}</button>
+          ) : (
+            <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Archive"}</button>
+          )}
+          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div>
@@ -675,27 +764,16 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           <strong style={{ fontSize: 14 }}>Files on File</strong>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${uploads.length} file(s)` : "Loading…"}</span>
-            <button type="button" className="btn btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?new=1&clientId=${clientId}`)}>Request Document</button>
-            <button type="button" className="btn btn-sm" onClick={() => navigate(`/documents?clientId=${clientId}`)}>Open Documents Page</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
+            <button type="button" className="btn btn-sm" onClick={() => setRequestOpen(true)}>Request Document</button>
           </div>
         </div>
-        <div className="table-scroll">
+        <div className="table-scroll card-table">
           <table>
             <thead><tr><th>File</th><th>Direction</th><th>Uploaded</th><th>By</th><th>Action</th></tr></thead>
             <tbody>
-              {(uploads || []).map((u) => (
-                <tr key={u.upload_id}>
-                  <td>{u.file_name}</td>
-                  <td className="muted">{u.direction || "—"}</td>
-                  <td className="muted">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
-                  <td className="muted">{String((u as any).uploaded_by || "—")}</td>
-                  <td style={{ display: "flex", gap: 8 }}>
-                    <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
-                    <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "document")}>Download</button>
-                  </td>
-                </tr>
-              ))}
+              {activeUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={false} />)}
+              {archivedUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={true} />)}
             </tbody>
           </table>
         </div>
@@ -724,8 +802,15 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
         {requests && openRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing outstanding from this client.</p>}
       </div>
 
+      <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+        Looking for what's outstanding across every client? <Link to="/documents">Open the firm-wide Documents queue →</Link>
+      </p>
+
       {uploadOpen && (
         <UploadFileModal clientId={clientId} clientName={clientName} onClose={() => setUploadOpen(false)} onDone={load} />
+      )}
+      {requestOpen && (
+        <RequestDocumentModal clientId={clientId} clientName={clientName} onClose={() => setRequestOpen(false)} onDone={load} />
       )}
     </div>
   );

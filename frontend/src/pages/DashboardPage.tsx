@@ -10,6 +10,7 @@ import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
+import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 
@@ -37,6 +38,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
   const navigate = useNavigate();
   const { user } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
 
   if (!tasks.length) return <p className="muted" style={{ padding: 16 }}>{empty}</p>;
 
@@ -58,7 +60,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
     if (action === "task-note") return navigate(`/tasks/${task.task_id}?open=note`);
     if (action === "edit-task") return navigate(`/tasks/${task.task_id}?open=edit`);
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
-    if (action === "request-doc") return navigate(`/documents?clientId=${task.client_id}`);
+    if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
       const reason = prompt("Reason for voiding this task?");
       if (reason === null) return;
@@ -116,6 +118,15 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
           </div>
         </article>
       ))}
+      {requestDocTask && (
+        <RequestDocumentModal
+          clientId={requestDocTask.client_id}
+          clientName={requestDocTask.client_name}
+          taskId={requestDocTask.task_id}
+          onClose={() => setRequestDocTask(null)}
+          onDone={() => onChanged?.()}
+        />
+      )}
     </div>
   );
 }

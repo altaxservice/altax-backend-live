@@ -13,6 +13,7 @@ import { fmtDateOnly } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
+import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ErrorBanner } from "../components/ErrorBanner";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
@@ -54,6 +55,7 @@ export function TasksListPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [showBatchModal, setShowBatchModal] = useState(false);
+  const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
   const [showNewWorkItem, setShowNewWorkItem] = useState(searchParams.get("new") === "1");
   const newWorkItemClientId = searchParams.get("clientId") || undefined;
   // Same ?clientId= param doubles as a list filter — the Client panel's "Open
@@ -220,7 +222,7 @@ export function TasksListPage() {
     if (action === "task-note") return navigate(`/tasks/${task.task_id}?open=note`);
     if (action === "edit-task") return navigate(`/tasks/${task.task_id}?open=edit`);
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
-    if (action === "request-doc") return navigate(`/documents?new=1&clientId=${task.client_id}&taskId=${task.task_id}`);
+    if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
       const reason = prompt("Reason for voiding this task?");
       if (reason === null) return;
@@ -489,6 +491,16 @@ export function TasksListPage() {
         <NewWorkItemModal
           initialClientId={newWorkItemClientId}
           onClose={() => { setShowNewWorkItem(false); setSearchParams({}); }}
+          onDone={() => load()}
+        />
+      )}
+
+      {requestDocTask && (
+        <RequestDocumentModal
+          clientId={requestDocTask.client_id}
+          clientName={requestDocTask.client_name}
+          taskId={requestDocTask.task_id}
+          onClose={() => setRequestDocTask(null)}
           onDone={() => load()}
         />
       )}

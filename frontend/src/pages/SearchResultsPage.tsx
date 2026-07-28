@@ -121,7 +121,7 @@ export function SearchResultsPage() {
                 <tr
                   key={`${d.kind}-${d.request_id}`}
                   style={{ cursor: "pointer" }}
-                  onClick={() => navigate(d.kind === "request" ? `/documents/${d.request_id}` : `/documents?clientId=${d.client_id}`)}
+                  onClick={() => navigate(d.kind === "request" ? `/documents/${d.request_id}` : `/clients/${d.client_id}?tab=Documents`)}
                 >
                   <td>{d.requested_item}{d.kind === "upload" && <span className="muted"> (file)</span>}</td>
                   <td className="muted" data-label="Client">{d.client_name}</td>

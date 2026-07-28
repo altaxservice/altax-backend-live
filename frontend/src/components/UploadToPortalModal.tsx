@@ -10,16 +10,22 @@ interface EmployeeOption { employee_id: string; employee_name: string }
 
 /**
  * Sends a file straight to a client's or an employee's portal — no document request
- * needed first. Powers the Documents section's "Upload to Client Portal" / "Upload to
- * Employee Portal" buttons and the Client page's "Send File to Client" action
- * (lockedClientId skips the picker for that entry point). Both targets post to the
- * same POST /documents/uploads route this app already had for direct client uploads;
- * the employee target (employeeId body field) is new.
+ * needed first. Belongs to whichever record it's opened from: the Client page's "Send
+ * File to Client" locks the client (lockedClientId); the Employee page's "Send File to
+ * Employee" locks the employee directly (lockedEmployeeId) and skips the client picker
+ * entirely, since staff are already on that one person's page and picking their own
+ * employer from a client dropdown first was exactly the "same issue as Documents"
+ * confusion flagged live — every action should belong to the record it's on, not force
+ * a trip through a general-purpose picker. Both targets post to the same
+ * POST /documents/uploads route; the employee target (employeeId body field) resolves
+ * its own client_id server-side, so lockedEmployeeId alone is enough here.
  */
-export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, onClose, onDone }: {
+export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lockedEmployeeId, lockedEmployeeName, onClose, onDone }: {
   mode: "client" | "employee";
   lockedClientId?: string;
   lockedClientName?: string;
+  lockedEmployeeId?: string;
+  lockedEmployeeName?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -27,7 +33,7 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, on
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(lockedClientId || "");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [employeeId, setEmployeeId] = useState("");
+  const [employeeId, setEmployeeId] = useState(lockedEmployeeId || "");
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
@@ -36,26 +42,27 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, on
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (lockedClientId) return;
+    if (lockedClientId || lockedEmployeeId) return;
     api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
-  }, [lockedClientId]);
+  }, [lockedClientId, lockedEmployeeId]);
 
   useEffect(() => {
-    if (mode !== "employee" || !clientId) { setEmployees([]); setEmployeeId(""); return; }
+    if (mode !== "employee" || lockedEmployeeId || !clientId) { setEmployees([]); return; }
     setLoadingEmployees(true);
     api.get<{ employees: EmployeeOption[] }>(`/accounting/employees/${clientId}`)
       .then((res) => setEmployees(res.employees))
       .catch(() => setEmployees([]))
       .finally(() => setLoadingEmployees(false));
-  }, [mode, clientId]);
+  }, [mode, clientId, lockedEmployeeId]);
 
   const clientLabel = lockedClientName || clients.find((c) => c.client_id === clientId)?.client_name || "";
+  const employeeLabel = lockedEmployeeName || employees.find((e) => e.employee_id === employeeId)?.employee_name || "";
 
-  const title = mode === "client" ? "Upload to Client Portal" : "Upload to Employee Portal";
+  const title = mode === "client" ? "Send File to Client" : "Send File to Employee";
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!clientId) { setError("Choose a client."); return; }
+    if (mode === "client" && !clientId) { setError("Choose a client."); return; }
     if (mode === "employee" && !employeeId) { setError("Choose an employee."); return; }
     if (!file) { setError("Choose a file to upload."); return; }
     if (file.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Files over 8MB aren't supported by this upload.`); return; }
@@ -91,32 +98,41 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, on
         <form onSubmit={handleSubmit}>
           {error && <ErrorBanner error={error} />}
 
-          {lockedClientId ? (
+          {lockedEmployeeId ? (
             <div className="field">
-              <label>Client</label>
-              <div style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, fontWeight: 700 }}>{clientLabel || lockedClientId}</div>
+              <label>Employee</label>
+              <div style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, fontWeight: 700 }}>{employeeLabel || lockedEmployeeId}</div>
             </div>
           ) : (
-            <div className="field">
-              <label htmlFor="up-client">Client</label>
-              <select id="up-client" required value={clientId} onChange={(e) => { setClientId(e.target.value); setEmployeeId(""); }}>
-                <option value="">Select a client…</option>
-                {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-              </select>
-            </div>
-          )}
-
-          {mode === "employee" && (
-            <div className="field">
-              <label htmlFor="up-employee">Employee</label>
-              <select id="up-employee" required disabled={!clientId || loadingEmployees} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-                <option value="">{loadingEmployees ? "Loading…" : clientId ? "Select an employee…" : "Choose a client first"}</option>
-                {employees.map((e) => <option key={e.employee_id} value={e.employee_id}>{e.employee_name}</option>)}
-              </select>
-              {clientId && !loadingEmployees && employees.length === 0 && (
-                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>This client has no employees on file yet.</p>
+            <>
+              {lockedClientId ? (
+                <div className="field">
+                  <label>Client</label>
+                  <div style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, fontWeight: 700 }}>{clientLabel || lockedClientId}</div>
+                </div>
+              ) : (
+                <div className="field">
+                  <label htmlFor="up-client">Client</label>
+                  <select id="up-client" required value={clientId} onChange={(e) => { setClientId(e.target.value); setEmployeeId(""); }}>
+                    <option value="">Select a client…</option>
+                    {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
+                  </select>
+                </div>
               )}
-            </div>
+
+              {mode === "employee" && (
+                <div className="field">
+                  <label htmlFor="up-employee">Employee</label>
+                  <select id="up-employee" required disabled={!clientId || loadingEmployees} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+                    <option value="">{loadingEmployees ? "Loading…" : clientId ? "Select an employee…" : "Choose a client first"}</option>
+                    {employees.map((e) => <option key={e.employee_id} value={e.employee_id}>{e.employee_name}</option>)}
+                  </select>
+                  {clientId && !loadingEmployees && employees.length === 0 && (
+                    <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>This client has no employees on file yet.</p>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           <div className="field">
