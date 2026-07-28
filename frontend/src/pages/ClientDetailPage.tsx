@@ -2,9 +2,10 @@ import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode }
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Client, Task } from "../api/types";
-import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest } from "../api/types2";
+import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
+import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -124,12 +125,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Documents", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Documents", "Contracts", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -161,6 +162,7 @@ export function ClientDetailPage() {
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [comms, setComms] = useState<Communication[] | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("Profile");
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
@@ -209,6 +211,15 @@ export function ClientDetailPage() {
   }
 
   useEffect(loadTasks, [clientId, user?.role]);
+
+  function loadComms() {
+    if (!clientId || !(user?.role === "admin" || user?.role === "staff")) return;
+    api.get<{ communications: Communication[] }>("/communications")
+      .then((res) => setComms(res.communications.filter((c) => c.client_id === clientId)))
+      .catch(() => setComms([]));
+  }
+
+  useEffect(loadComms, [clientId, user?.role]);
 
   async function handleTaskStatusChange(taskId: string, status: string) {
     setSavingStatusId(taskId);
@@ -607,6 +618,18 @@ export function ClientDetailPage() {
 
           {tab === "Documents" && canSeeStaffTabs && (
             <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
+          )}
+
+          {tab === "Communications" && canSeeStaffTabs && (
+            <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
+          )}
+
+          {tab === "Billing" && canSeeStaffTabs && (
+            <ClientBillingSection clientId={client.client_id} />
+          )}
+
+          {tab === "Tax Payments" && canSeeStaffTabs && (
+            <ClientTaxPaymentsSection clientId={client.client_id} />
           )}
 
           {tab === "Contracts" && canSeeStaffTabs && (
@@ -1438,6 +1461,119 @@ function DetailRow({ label, value, multiline }: { label: string; value: string |
     <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13, gap: 12 }}>
       <span className="muted">{label}</span>
       <span style={{ textAlign: "right", whiteSpace: multiline ? "pre-wrap" : "normal" }}>{value || "—"}</span>
+    </div>
+  );
+}
+
+function fmtMoney(v: unknown): string {
+  const n = Number(v);
+  return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+}
+
+/**
+ * Read-only — this client's own invoices. Creating invoices/sales receipts and
+ * every real action (void, print, record payment) stays on the firm-wide
+ * Billing page and the invoice's own detail page; this tab is purely "what's
+ * on file for this client," same read-only-list-then-drill-in pattern as the
+ * trimmed global Documents/Communications pages.
+ */
+function ClientBillingSection({ clientId }: { clientId: string }) {
+  const navigate = useNavigate();
+  const [invoices, setInvoices] = useState<Invoice[] | null>(null);
+
+  useEffect(() => {
+    api.get<{ invoices: Invoice[] }>("/billing/invoices")
+      .then((res) => setInvoices(res.invoices.filter((i) => i.client_id === clientId)))
+      .catch(() => setInvoices([]));
+  }, [clientId]);
+
+  const openBalance = (invoices || [])
+    .filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()))
+    .reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Billing</strong>
+        <span className="muted" style={{ fontSize: 12 }}>{invoices?.length ?? 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
+      </div>
+      {!invoices ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : (
+        <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th></tr></thead>
+            <tbody>
+              {invoices.map((inv) => (
+                <tr key={inv.invoice_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/billing/${inv.invoice_id}`)}>
+                  <td data-label="Invoice">{inv.invoice_id}</td>
+                  <td className="muted" data-label="Date">{fmtDateOnly(inv.invoice_date)}</td>
+                  <td className="muted" data-label="Due">{fmtDateOnly(inv.due_date)}</td>
+                  <td className="muted" data-label="Description">{inv.description}</td>
+                  <td data-label="Amount">{fmtMoney(inv.total_amount)}</td>
+                  <td data-label="Balance">{fmtMoney(inv.balance_due)}</td>
+                  <td data-label="Status"><StatusBadge status={inv.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {invoices && invoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices for this client yet.</p>}
+      <p className="muted" style={{ fontSize: 12, margin: "10px 16px 12px" }}>
+        Click a row to open the invoice. Looking to create an invoice or sales receipt? Use the firm-wide Billing page.
+      </p>
+    </div>
+  );
+}
+
+interface ClientTaxRow {
+  task_id: string; task_name: string; client_id: string; agency_due_date: string | null; paid_date: string | null;
+  payment_amount: string | number | null; confirmation_number: string | null; status: string;
+}
+
+/** Read-only — same client-owed-tax-obligation data (payment_required tasks) as the firm-wide Billing page's Client Tax Payment Tracking panel, scoped to just this client. */
+function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<ClientTaxRow[] | null>(null);
+
+  useEffect(() => {
+    api.get<{ rows: ClientTaxRow[] }>("/billing/client-tax-payments")
+      .then((res) => setRows(res.rows.filter((r) => r.client_id === clientId)))
+      .catch(() => setRows([]));
+  }, [clientId]);
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Tax Payments</strong>
+        <span className="muted" style={{ fontSize: 12 }}>{rows?.length ?? 0} row(s)</span>
+      </div>
+      <p className="muted" style={{ fontSize: 12, margin: "10px 16px 0" }}>
+        Tax obligations this client owes agencies directly (sales tax, payroll tax deposits, etc.) — tracked from
+        this client's own tasks, separate from AL TAX's own invoices to this client.
+      </p>
+      {!rows ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : (
+        <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th>Payment / Due</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.task_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/tasks/${r.task_id}`)}>
+                  <td data-label="Payment / Due">{r.task_name}</td>
+                  <td className="muted" data-label="Due / Paid">{fmtDateOnly(r.paid_date || r.agency_due_date)}</td>
+                  <td data-label="Expected">{fmtMoney(r.payment_amount)}</td>
+                  <td className="muted" data-label="Paid">{r.paid_date ? "Yes" : "No"}</td>
+                  <td data-label="Status"><StatusBadge status={r.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rows && rows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tax payment tracking rows for this client yet.</p>}
     </div>
   );
 }

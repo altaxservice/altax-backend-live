@@ -3,7 +3,6 @@ import { api, ApiError } from "../api/client";
 import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { useSelectedClient } from "../context/SelectedClientContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -138,20 +137,17 @@ function RunRemindersButton({ onDone }: { onDone: () => void }) {
 
 export function CommunicationsPage() {
   const { user } = useAuth();
-  const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
   const canManage = user?.role === "admin" || user?.role === "staff";
   const roleHeader = ROLE_HEADER[user?.role || ""] || ROLE_HEADER.client;
 
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState(globalClientId || "");
   const [comms, setComms] = useState<Communication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Three big panels (Staff, Individual Client, Bulk Client) used to all stack on one
-  // page, each with its own client-picking mechanism — a lot of scrolling and three
-  // different ways to "pick who to message." Splitting into tabs, one panel visible
-  // at a time, matches the Reports page's own tab pattern and cuts the clutter.
-  const [activeTab, setActiveTab] = useState<"individual" | "bulk" | "staff">("individual");
-  const [clientSearch, setClientSearch] = useState("");
+  // Messaging one specific client now lives on that client's own profile
+  // (Communications tab), same move already made for Documents — this page
+  // is left with only the genuinely firm-wide tools: bulk client blasts and
+  // internal staff notes.
+  const [activeTab, setActiveTab] = useState<"bulk" | "staff">("bulk");
 
   function load() {
     api.get<{ communications: Communication[] }>("/communications")
@@ -164,18 +160,9 @@ export function CommunicationsPage() {
     if (canManage) api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
   }, [canManage]);
 
-  function handleClientChange(id: string) {
-    setClientId(id);
-    setSelectedClient(id || null, clients.find((c) => c.client_id === id)?.client_name);
-  }
-
-  const client = clients.find((c) => c.client_id === clientId);
   const staffMessages = (comms || []).filter((c) => c.direction === "Staff to Staff");
-  const clientMessages = (comms || []).filter((c) => c.client_id === clientId);
-  const filteredClients = clients.filter((c) => c.client_name.toLowerCase().includes(clientSearch.toLowerCase()));
 
   const TABS: { key: typeof activeTab; label: string }[] = [
-    { key: "individual", label: "Individual Client" },
     { key: "bulk", label: "Bulk Client Message" },
     { key: "staff", label: "Staff Messages" },
   ];
@@ -209,45 +196,17 @@ export function CommunicationsPage() {
         </div>
       )}
 
+      {canManage && (
+        <p className="muted" style={{ fontSize: 12, margin: "-8px 0 16px" }}>
+          Looking to message one specific client? Open their profile and use its Communications tab.
+        </p>
+      )}
+
       {error && <ErrorBanner error={error} />}
 
       {canManage && activeTab === "staff" && <StaffMessages messages={staffMessages} onSent={load} />}
 
       {canManage && activeTab === "bulk" && clients.length > 0 && <BulkClientMessage clients={clients} onSent={load} />}
-
-      {canManage && activeTab === "individual" && (
-        <>
-          <Panel title="Choose a Client">
-            <div style={{ padding: "0 16px 16px" }}>
-              <input
-                value={clientSearch}
-                onChange={(e) => setClientSearch(e.target.value)}
-                placeholder="Search clients by name…"
-                style={{ marginBottom: 10 }}
-              />
-              <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 8 }}>
-                {filteredClients.map((c) => (
-                  <div
-                    key={c.client_id}
-                    onClick={() => handleClientChange(c.client_id)}
-                    style={{
-                      padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 13,
-                      background: c.client_id === clientId ? "var(--teal-soft, #d9f4ef)" : "transparent",
-                      fontWeight: c.client_id === clientId ? 700 : 400,
-                    }}
-                  >
-                    {c.client_name}
-                  </div>
-                ))}
-                {filteredClients.length === 0 && <p className="muted" style={{ margin: 0, padding: 4 }}>No clients match.</p>}
-              </div>
-            </div>
-          </Panel>
-          {client
-            ? <ClientMessages client={client} messages={clientMessages} onSent={load} />
-            : <p className="muted">Pick a client above to send them a message.</p>}
-        </>
-      )}
 
       {!canManage && user && (
         <SelfMessages
@@ -669,7 +628,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   );
 }
 
-function ClientMessages({ client, messages, onSent }: { client: Client; messages: Communication[]; onSent: () => void }) {
+export function ClientMessages({ client, messages, onSent }: { client: Client; messages: Communication[]; onSent: () => void }) {
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
   const [templateName, setTemplateName] = useState("");
   const [subject, setSubject] = useState("Client message");

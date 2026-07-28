@@ -439,8 +439,7 @@ export function ReportsPage() {
     sessionStorage.setItem(`${CLIENT_MESSAGE_HANDOFF_KEY}:${clientId}`, JSON.stringify({
       subject: periodMessage.subject, body: periodMessage.body, bodyArabic: periodMessage.bodyArabic, periodStart: from, periodEnd: to,
     }));
-    setSelectedClient(clientId, client.client_name);
-    navigate("/communications");
+    navigate(`/clients/${clientId}?tab=Communications`);
   }
 
   const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Firm Overview");
