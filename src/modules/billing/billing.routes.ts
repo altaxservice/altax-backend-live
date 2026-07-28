@@ -353,6 +353,45 @@ billingRouter.get("/invoices/:invoiceId/print", requireAuth, asyncHandler(async 
  * sends). Requires "view before send": the frontend always shows the same PDF via
  * GET /invoices/:id/print before this route can be reached.
  */
+/**
+ * Branded HTML body for outbound invoice emails — the staff-typed message on top,
+ * a small invoice-summary card, and a "PDF attached" note, all inside the same
+ * wrapEmailHtml shell (dark header + firm footer) the reminder emails use. Built
+ * at the user's request so the email around the invoice looks as professional as
+ * the invoice PDF itself. Shared by the manual send route and recurring auto-send.
+ */
+async function invoiceEmailHtml(opts: {
+  message: string; invoiceId: string; invoiceDate: string | null; dueDate: string | null; balanceDue: number; req?: AuthedRequest;
+}): Promise<string> {
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const fmtDate = (v: string | null) => {
+    if (!v) return "—";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  };
+  const row = (label: string, value: string, boldValue = false) => `
+    <tr>
+      <td style="padding:6px 0; color:#6b7280; font-size:13px;">${label}</td>
+      <td align="right" style="padding:6px 0; font-size:13px; ${boldValue ? "font-weight:700; font-size:15px;" : ""}">${value}</td>
+    </tr>`;
+  const body = `
+    <p style="margin:0 0 18px;">${esc(opts.message).replace(/\n/g, "<br/>")}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Invoice #", esc(opts.invoiceId))}
+          ${row("Invoice Date", fmtDate(opts.invoiceDate))}
+          ${row("Due Date", fmtDate(opts.dueDate))}
+          ${row("Balance Due", `$${Number(opts.balanceDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF.</p>`;
+  return wrapEmailHtml(body, opts.req);
+}
+
 billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [req.params.invoiceId]);
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
@@ -376,7 +415,11 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
         const to = String(body.email || "").trim();
         if (!to) throw new Error("No email address provided.");
         await sendEmail({
-          to, subject, html: `<p>${message.replace(/\n/g, "<br/>")}</p>`,
+          to, subject,
+          html: await invoiceEmailHtml({
+            message, invoiceId: invoice.invoice_id, invoiceDate: invoice.invoice_date,
+            dueDate: invoice.due_date, balanceDue: Number(invoice.balance_due), req,
+          }),
           attachments: [{ filename: `Invoice_${invoice.invoice_id}.pdf`, content: Buffer.from(built!.pdfBytes) }],
         });
       } else if (channel === "sms") {
@@ -1135,7 +1178,10 @@ billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"),
           const built = await buildInvoicePdf(invoiceId);
           await sendEmail({
             to: client.email, subject: `Invoice ${invoiceId} from AL Tax Service`,
-            html: `<p>Please find your recurring invoice attached. Total due: $${amount.toFixed(2)}.</p>`,
+            html: await invoiceEmailHtml({
+              message: `Please find your recurring invoice attached. Total due: $${amount.toFixed(2)}.`,
+              invoiceId, invoiceDate: runDateString, dueDate, balanceDue: amount, req,
+            }),
             attachments: [{ filename: `Invoice_${invoiceId}.pdf`, content: Buffer.from(built!.pdfBytes) }],
           });
           emailSent = true;
