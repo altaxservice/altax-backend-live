@@ -64,6 +64,14 @@ function isClientVisibleUpload(row: any, allowedRequestIds: Set<string>): boolea
   const status = normalizeText(row.status || "Uploaded");
   if (["removed", "replaced", "deleted", "archived", "void"].includes(status)) return false;
   if (normalizeText(row.hidden_from_client) === "yes" || row.hidden_from_client === true) return false;
+  // Found live during a QA pass: an upload addressed to a specific EMPLOYEE
+  // (employee_id set — e.g. a W-2 or ID copy meant to be private to that one
+  // person) was still reaching the CLIENT's own portal view, because this
+  // function only ever checked request_id/task_id, never employee_id. The
+  // employer is not automatically entitled to see a document sent to one of
+  // their employees personally — that's isEmployeeVisibleUpload's job, not
+  // this one's.
+  if (String(row.employee_id || "").trim()) return false;
   const direction = normalizeText(row.direction);
   if (direction.includes("internal") || direction.includes("staff")) return false;
   const requestId = String(row.request_id || "").trim();
