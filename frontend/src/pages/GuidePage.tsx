@@ -120,6 +120,22 @@ const SECTIONS: Section[] = [
     ],
   },
 
+  // Client + employee — how to put the portal on a phone home screen (the install
+  // banner is dismissible, so these steps need a permanent, findable home too).
+  {
+    key: "install-app",
+    label: "Install App",
+    title: "Put the portal on your phone",
+    roles: ["client", "employee"],
+    labelKey: "guide.install.label", titleKey: "guide.install.title",
+    bodyKeys: ["guide.install.body.0", "guide.install.body.1", "guide.install.body.2"],
+    body: [
+      "iPhone (Safari): tap the Share button (the square with an arrow), scroll down, tap \"Add to Home Screen\", then tap \"Add\".",
+      "Android (Chrome): tap the ⋮ menu in the corner, then tap \"Add to Home screen\" or \"Install app\".",
+      "The AL TAX icon appears on your home screen — from then on, open your portal with one tap, full screen like any app.",
+    ],
+  },
+
   // Client role — 4 topics, client-specific wording (legacy: Client Portal, Messages, Task Process, Billing)
   {
     key: "client-portal",

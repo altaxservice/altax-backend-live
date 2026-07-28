@@ -39,8 +39,16 @@ export const translations: Record<string, Record<Lang, string>> = {
   // Install prompt (PWA)
   "install.androidPrompt": { en: "Install AL TAX Nexus on your phone for quick access.", ar: "ثبّت تطبيق AL TAX Nexus على هاتفك للوصول السريع." },
   "install.installButton": { en: "Install", ar: "تثبيت" },
-  "install.iosPrompt": { en: "Install this app: tap Share, then \"Add to Home Screen.\"", ar: "لتثبيت التطبيق: اضغط على مشاركة، ثم \"إضافة إلى الشاشة الرئيسية\"." },
   "install.dismiss": { en: "Dismiss", ar: "إغلاق" },
+  "install.iosBanner": { en: "Add AL TAX Nexus to your home screen like an app.", ar: "أضف AL TAX Nexus إلى شاشتك الرئيسية مثل أي تطبيق." },
+  "install.showHow": { en: "Show me how", ar: "أرني الطريقة" },
+  "install.stepsTitle": { en: "Install the App", ar: "تثبيت التطبيق" },
+  "install.step1": { en: "In Safari, tap the Share button — the square with an arrow at the bottom of the screen.", ar: "في سفاري، اضغط على زر المشاركة — المربع الذي يخرج منه سهم أسفل الشاشة." },
+  "install.step2": { en: "Scroll down and tap \"Add to Home Screen\".", ar: "مرّر للأسفل واضغط على \"إضافة إلى الشاشة الرئيسية\"." },
+  "install.step3": { en: "Tap \"Add\" — the AL TAX icon will appear on your home screen like any other app.", ar: "اضغط على \"إضافة\" — ستظهر أيقونة AL TAX على شاشتك الرئيسية مثل أي تطبيق آخر." },
+  "install.stepsNote": { en: "From then on, open your portal straight from the AL TAX icon — full screen, no browser bars.", ar: "بعد ذلك، افتح بوابتك مباشرة من أيقونة AL TAX — بشاشة كاملة وبدون أشرطة المتصفح." },
+  "install.done": { en: "Done", ar: "تم" },
+  "install.close": { en: "Close", ar: "إغلاق" },
 
   // Login
   "login.securePortal": { en: "Secure Portal", ar: "بوابة آمنة" },
@@ -166,6 +174,12 @@ export const translations: Record<string, Record<Lang, string>> = {
   // Guide — client + employee sections only (admin/staff Guide content is never translated)
   "guide.pageTitle": { en: "Instruction Manual", ar: "دليل الاستخدام" },
   "guide.pageNote": { en: "Built into the portal", ar: "جزء من البوابة" },
+
+  "guide.install.label": { en: "Install App", ar: "تثبيت التطبيق" },
+  "guide.install.title": { en: "Put the portal on your phone", ar: "ضع البوابة على هاتفك" },
+  "guide.install.body.0": { en: "iPhone (Safari): tap the Share button (the square with an arrow), scroll down, tap \"Add to Home Screen\", then tap \"Add\".", ar: "آيفون (سفاري): اضغط على زر المشاركة (المربع الذي يخرج منه سهم)، مرّر للأسفل، اضغط على \"إضافة إلى الشاشة الرئيسية\"، ثم اضغط \"إضافة\"." },
+  "guide.install.body.1": { en: "Android (Chrome): tap the ⋮ menu in the corner, then tap \"Add to Home screen\" or \"Install app\".", ar: "أندرويد (كروم): اضغط على قائمة ⋮ في الزاوية، ثم اضغط على \"إضافة إلى الشاشة الرئيسية\" أو \"تثبيت التطبيق\"." },
+  "guide.install.body.2": { en: "The AL TAX icon appears on your home screen — from then on, open your portal with one tap, full screen like any app.", ar: "ستظهر أيقونة AL TAX على شاشتك الرئيسية — بعدها افتح بوابتك بضغطة واحدة، بشاشة كاملة مثل أي تطبيق." },
 
   "guide.client-portal.label": { en: "Client Portal", ar: "بوابة العميل" },
   "guide.client-portal.title": { en: "Client Portal basics", ar: "أساسيات بوابة العميل" },
