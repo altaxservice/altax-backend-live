@@ -487,7 +487,7 @@ function ClientCommand({ docs, invoices, taxRows }: { docs: DocumentRequest[]; i
         </div>
       </div>
 
-      <div className="metric-grid" style={{ marginBottom: 16 }}>
+      <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>
         <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
           <div className="metric-label">{t("dashboard.client.documentRequests")}</div>
           <div className="metric-value"><Num>{openDocs.length}</Num></div>

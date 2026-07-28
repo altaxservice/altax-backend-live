@@ -282,9 +282,13 @@ export function InvoicesListPage() {
 
   return (
     <div dir={dir}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>{canManage ? "Billing" : t("billing.client.title")}</h1>
-      </div>
+      {/* Clients skip the in-page h1 — the topbar already reads "Billing"/"الفواتير",
+          so the repeat was pure vertical waste on phones. */}
+      {canManage && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>Billing</h1>
+        </div>
+      )}
 
       {canManage && (
         <FilterBar

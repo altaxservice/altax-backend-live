@@ -791,9 +791,9 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
 }
 
 /** Client/employee self-service composer — backend's POST /communications already allows any authenticated role (access enforced per-client), this was purely a missing frontend affordance. Direction is "Inbound" since the portal user is the one initiating contact with the firm. */
-/** Quick-pick topics so a client/employee doesn't have to think of a subject line from scratch — clicking one fills the subject and gives the message a nudge to start from. */
-const CLIENT_TOPICS = ["Document question", "Payment question", "Tax question", "Update my info", "Something else"];
-const EMPLOYEE_TOPICS = ["Paystub question", "Direct deposit", "Update my info", "Something else"];
+/** Quick-pick topics so a client/employee doesn't have to think of a subject line from scratch — clicking one fills the subject and gives the message a nudge to start from. i18n keys, not literals, so the chips follow the Arabic toggle like the rest of the composer. */
+const CLIENT_TOPIC_KEYS = ["communications.topic.document", "communications.topic.payment", "communications.topic.tax", "communications.topic.update", "communications.topic.other"];
+const EMPLOYEE_TOPIC_KEYS = ["communications.topic.paystub", "communications.topic.directDeposit", "communications.topic.update", "communications.topic.other"];
 
 function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role: string; clientId: string; clientEmail: string; messages: Communication[]; onSent: () => void }) {
   const { t } = useLanguage();
@@ -831,7 +831,7 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
     }
   }
 
-  const topics = isEmployee ? EMPLOYEE_TOPICS : CLIENT_TOPICS;
+  const topicKeys = isEmployee ? EMPLOYEE_TOPIC_KEYS : CLIENT_TOPIC_KEYS;
 
   return (
     <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
@@ -842,18 +842,18 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
           <div className="field" style={{ marginBottom: 6 }}>
             <label>{t("communications.self.topicLabel")}</label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {topics.map((topic) => (
+              {topicKeys.map((key) => (
                 <button
-                  key={topic} type="button"
-                  className={`btn btn-sm ${subject === topic ? "btn-primary" : ""}`}
-                  onClick={() => setSubject(topic)}
+                  key={key} type="button"
+                  className={`btn btn-sm ${subject === t(key) ? "btn-primary" : ""}`}
+                  onClick={() => setSubject(t(key))}
                 >
-                  {topic}
+                  {t(key)}
                 </button>
               ))}
             </div>
           </div>
-          <div className="field"><label>{t("communications.self.subjectLabel")}</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={isEmployee ? "Payroll message" : "Message to AL TAX"} /></div>
+          <div className="field"><label>{t("communications.self.subjectLabel")}</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={isEmployee ? t("communications.self.subjectPlaceholderEmployee") : t("communications.self.subjectPlaceholder")} /></div>
           <div className="field"><label>{t("communications.self.messageLabel")}</label><textarea rows={5} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={isEmployee ? t("communications.self.placeholderEmployee") : t("communications.self.placeholderClient")} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t("communications.self.sending") : t("communications.self.send")}</button>
         </form>

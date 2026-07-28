@@ -66,9 +66,18 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
             onClick={onMenuClick}
           >☰</button>
           <div>
-            <div className="topbar-eyebrow">{EYEBROW}</div>
+            {/* Clients/employees get their own portal name here — "OPERATIONS
+                DASHBOARD" and the "client workspace" subline are firm-internal
+                jargon (and the subline mixed English into the Arabic UI). */}
+            <div className="topbar-eyebrow">
+              {showLanguageToggle
+                ? t(user?.role === "employee" ? "dashboard.employee.eyebrow" : "dashboard.client.eyebrow")
+                : EYEBROW}
+            </div>
             <h1 className="topbar-title">{title}</h1>
-            <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} {t("header.workspace")}</div>
+            {!showLanguageToggle && (
+              <div className="topbar-subtitle" style={{ textTransform: "capitalize" }}>{user?.role} {t("header.workspace")}</div>
+            )}
           </div>
         </div>
         <div className="topbar-actions" style={{ position: "relative" }}>

@@ -16,6 +16,13 @@ export const translations: Record<string, Record<Lang, string>> = {
   "nav.guide": { en: "Guide", ar: "الدليل" },
   "brand.by": { en: "by", ar: "من" },
 
+  // Mobile bottom tab bar — deliberately shorter than the sidebar labels
+  "tab.home": { en: "Home", ar: "الرئيسية" },
+  "tab.billing": { en: "Billing", ar: "الفواتير" },
+  "tab.documents": { en: "Documents", ar: "المستندات" },
+  "tab.messages": { en: "Messages", ar: "الرسائل" },
+  "tab.guide": { en: "Guide", ar: "الدليل" },
+
   // Header
   "header.search": { en: "SEARCH", ar: "بحث" },
   "header.searchPlaceholder": { en: "Client, task, invoice", ar: "عميل، مهمة، فاتورة" },
@@ -133,6 +140,15 @@ export const translations: Record<string, Record<Lang, string>> = {
   "communications.self.panelNote": { en: "Usually answered within one business day", ar: "عادةً يتم الرد خلال يوم عمل واحد" },
   "communications.self.topicLabel": { en: "What's this about?", ar: "ما موضوع رسالتك؟" },
   "communications.self.subjectLabel": { en: "Subject", ar: "الموضوع" },
+  "communications.self.subjectPlaceholder": { en: "Message to AL TAX", ar: "رسالة إلى AL TAX" },
+  "communications.self.subjectPlaceholderEmployee": { en: "Payroll message", ar: "رسالة بخصوص الرواتب" },
+  "communications.topic.document": { en: "Document question", ar: "سؤال عن مستند" },
+  "communications.topic.payment": { en: "Payment question", ar: "سؤال عن دفعة" },
+  "communications.topic.tax": { en: "Tax question", ar: "سؤال ضريبي" },
+  "communications.topic.update": { en: "Update my info", ar: "تحديث بياناتي" },
+  "communications.topic.other": { en: "Something else", ar: "موضوع آخر" },
+  "communications.topic.paystub": { en: "Paystub question", ar: "سؤال عن قسيمة الراتب" },
+  "communications.topic.directDeposit": { en: "Direct deposit", ar: "الإيداع المباشر" },
   "communications.self.messageLabel": { en: "Message", ar: "الرسالة" },
   "communications.self.placeholderClient": { en: "Ask about documents, payments, or your account.", ar: "اسأل عن المستندات أو المدفوعات أو حسابك." },
   "communications.self.placeholderEmployee": { en: "Ask about your paystub, direct deposit, or account.", ar: "اسأل عن قسيمة راتبك أو الإيداع المباشر أو حسابك." },
