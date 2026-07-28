@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 
-interface Section { key: string; label: string; title: string; body: string[]; roles: string[] }
+// labelKey/titleKey/bodyKeys are only set on client/employee sections — those are
+// the only roles that can ever see Arabic (useLanguage()'s canUseArabic gate), so
+// admin/staff sections are left as plain English-only label/title/body with no keys.
+interface Section { key: string; label: string; title: string; body: string[]; roles: string[]; labelKey?: string; titleKey?: string; bodyKeys?: string[] }
 
 const ADMIN_STAFF_ROLES = ["admin", "staff"];
 
@@ -122,6 +126,8 @@ const SECTIONS: Section[] = [
     label: "Client Portal",
     title: "Client Portal basics",
     roles: ["client"],
+    labelKey: "guide.client-portal.label", titleKey: "guide.client-portal.title",
+    bodyKeys: ["guide.client-portal.body.0", "guide.client-portal.body.1", "guide.client-portal.body.2"],
     body: [
       "You only see records for your own company.",
       "Use Documents to review what AL TAX has requested and upload files directly.",
@@ -133,9 +139,11 @@ const SECTIONS: Section[] = [
     label: "Messages",
     title: "Messages",
     roles: ["client"],
+    labelKey: "guide.client-messages.label", titleKey: "guide.client-messages.title",
+    bodyKeys: ["guide.client-messages.body.0", "guide.client-messages.body.1", "guide.client-messages.body.2"],
     body: [
       "Send a message to AL TAX any time from Communications.",
-      "Choose Portal Note to save it for staff to review, or Email/SMS/WhatsApp to also notify them directly.",
+      "Every message is saved for staff to review and reply to.",
       "Replies and updates from AL TAX show up in the same message history.",
     ],
   },
@@ -144,6 +152,8 @@ const SECTIONS: Section[] = [
     label: "Task Process",
     title: "How your work gets done",
     roles: ["client"],
+    labelKey: "guide.client-task-process.label", titleKey: "guide.client-task-process.title",
+    bodyKeys: ["guide.client-task-process.body.0", "guide.client-task-process.body.1"],
     body: [
       "AL TAX sets up recurring work — filings, payments, renewals — automatically based on your service settings.",
       "If something is needed from you (a document, a signature, information), you'll see a request appear on your Documents page.",
@@ -154,8 +164,11 @@ const SECTIONS: Section[] = [
     label: "Billing",
     title: "Billing",
     roles: ["client"],
+    labelKey: "guide.client-billing.label", titleKey: "guide.client-billing.title",
+    bodyKeys: ["guide.client-billing.body.0", "guide.client-billing.body.1", "guide.client-billing.body.2"],
     body: [
       "Review your open and paid invoices, payment history, and statements from Billing.",
+      "Your Tax Payments — what you owe agencies directly, separate from AL TAX's invoices — also appears on the Billing page.",
       "Contact AL TAX through Messages if anything on an invoice looks incorrect before a payment is processed.",
     ],
   },
@@ -166,6 +179,8 @@ const SECTIONS: Section[] = [
     label: "Employee",
     title: "Employee portal",
     roles: ["employee"],
+    labelKey: "guide.employee-portal.label", titleKey: "guide.employee-portal.title",
+    bodyKeys: ["guide.employee-portal.body.0", "guide.employee-portal.body.1"],
     body: [
       "View your paystubs shared by payroll, including gross pay, taxes, and net pay for each period.",
       "Contact the firm through Messages if something on a paystub needs review.",
@@ -176,6 +191,8 @@ const SECTIONS: Section[] = [
     label: "Login",
     title: "Signing in",
     roles: ["employee"],
+    labelKey: "guide.employee-login.label", titleKey: "guide.employee-login.title",
+    bodyKeys: ["guide.employee-login.body.0", "guide.employee-login.body.1", "guide.employee-login.body.2"],
     body: [
       "Enter the email on file and your password.",
       "If your account has no password yet, ask an Admin to set a temporary one or send an invite.",
@@ -187,6 +204,8 @@ const SECTIONS: Section[] = [
     label: "Messages",
     title: "Messages",
     roles: ["employee"],
+    labelKey: "guide.employee-messages.label", titleKey: "guide.employee-messages.title",
+    bodyKeys: ["guide.employee-messages.body.0", "guide.employee-messages.body.1"],
     body: [
       "Contact AL TAX through Messages about your paystub, direct deposit, or account questions.",
       "Replies show up in the same message history.",
@@ -197,6 +216,8 @@ const SECTIONS: Section[] = [
     label: "Data Storage",
     title: "Where your data lives",
     roles: ["employee"],
+    labelKey: "guide.employee-data.label", titleKey: "guide.employee-data.title",
+    bodyKeys: ["guide.employee-data.body.0", "guide.employee-data.body.1"],
     body: [
       "Your pay records are stored in PostgreSQL (Neon), not spreadsheets.",
       "Bank account numbers on file are encrypted at rest and only decrypted on individually-audited access.",
@@ -206,18 +227,20 @@ const SECTIONS: Section[] = [
 
 export function GuidePage() {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const role = user?.role || "client";
   const visibleSections = SECTIONS.filter((s) => s.roles.includes(role));
   const fallback = visibleSections[0] || SECTIONS[0];
   const [active, setActive] = useState(fallback.key);
   const section = visibleSections.find((s) => s.key === active) || fallback;
+  const sectionBody = section.bodyKeys ? section.bodyKeys.map((k) => t(k)) : section.body;
 
   return (
-    <div className="command-panel">
+    <div className="command-panel" dir={dir}>
       <div className="command-panel-header">
         <div>
-          <h2 className="command-panel-title">Instruction Manual</h2>
-          <div className="command-panel-note">Built into the portal</div>
+          <h2 className="command-panel-title">{role === "client" || role === "employee" ? t("guide.pageTitle") : "Instruction Manual"}</h2>
+          <div className="command-panel-note">{role === "client" || role === "employee" ? t("guide.pageNote") : "Built into the portal"}</div>
         </div>
       </div>
       <div className="guide-layout">
@@ -230,14 +253,14 @@ export function GuidePage() {
               style={{ color: active === s.key ? "var(--teal)" : "var(--ink)", background: active === s.key ? "var(--teal-soft)" : "var(--surface)", border: "1px solid var(--line)" }}
               onClick={() => setActive(s.key)}
             >
-              {s.label}
+              {s.labelKey ? t(s.labelKey) : s.label}
             </button>
           ))}
         </div>
         <div className="card">
-          <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>{section.title}</h3>
+          <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>{section.titleKey ? t(section.titleKey) : section.title}</h3>
           <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6, fontSize: 13, color: "var(--ink)" }}>
-            {section.body.map((line, i) => <li key={i}>{line}</li>)}
+            {sectionBody.map((line, i) => <li key={i}>{line}</li>)}
           </ol>
         </div>
       </div>

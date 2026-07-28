@@ -19,6 +19,11 @@ function fmtMoney(v: unknown): string {
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
 
+interface ClientTaxRow {
+  task_id: string; task_name: string; agency_due_date: string | null; paid_date: string | null;
+  payment_amount: string | number | null; confirmation_number: string | null; status: string;
+}
+
 function CommandPanel({ title, note, action, children }: { title: React.ReactNode; note: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="command-panel">
@@ -288,6 +293,7 @@ export function DashboardPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [docs, setDocs] = useState<DocumentRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [taxRows, setTaxRows] = useState<ClientTaxRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -297,8 +303,9 @@ export function DashboardPage() {
       api.get<{ clients: Client[] }>("/clients").catch(() => ({ clients: [] })),
       api.get<{ requests: DocumentRequest[] }>("/documents/requests").catch(() => ({ requests: [] })),
       api.get<{ invoices: Invoice[] }>("/billing/invoices").catch(() => ({ invoices: [] })),
+      api.get<{ rows: ClientTaxRow[] }>("/billing/client-tax-payments").catch(() => ({ rows: [] })),
     ])
-      .then(([t, c, d, i]) => { setTasks(t.tasks); setClients(c.clients); setDocs(d.requests); setInvoices(i.invoices); })
+      .then(([t, c, d, i, tx]) => { setTasks(t.tasks); setClients(c.clients); setDocs(d.requests); setInvoices(i.invoices); setTaxRows(tx.rows); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load dashboard data."))
       .finally(() => setLoading(false));
   }
@@ -308,7 +315,7 @@ export function DashboardPage() {
   if (error) return <ErrorBanner error={error} />;
   if (loading) return <div className="spinner-wrap">Loading…</div>;
 
-  if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} />;
+  if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} taxRows={taxRows} />;
   if (user?.role === "staff") return <StaffCommand tasks={tasks} onChanged={load} />;
   if (user?.role === "employee") return <EmployeeCommand />;
   return <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
@@ -454,11 +461,15 @@ function StaffCommand({ tasks, onChanged }: { tasks: Task[]; onChanged: () => vo
   );
 }
 
-function ClientCommand({ docs, invoices }: { docs: DocumentRequest[]; invoices: Invoice[] }) {
+function ClientCommand({ docs, invoices, taxRows }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[] }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { t, dir } = useLanguage();
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
+  const unpaidTaxRows = taxRows.filter((r) => !r.paid_date);
+  const balanceDue = openInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
+  const taxDue = unpaidTaxRows.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
   const clientNames = new Map(user?.clientId ? [[user.clientId, user.clientName || "My Account"]] as [string, string][] : []);
 
   return (
@@ -475,6 +486,25 @@ function ClientCommand({ docs, invoices }: { docs: DocumentRequest[]; invoices: 
           <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
         </div>
       </div>
+
+      <div className="metric-grid" style={{ marginBottom: 16 }}>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
+          <div className="metric-label">{t("dashboard.client.documentRequests")}</div>
+          <div className="metric-value"><Num>{openDocs.length}</Num></div>
+          <div className="metric-note">{t("dashboard.visible")}</div>
+        </button>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
+          <div className="metric-label">{t("dashboard.client.balanceDue")}</div>
+          <div className="metric-value"><Num>{fmtMoney(balanceDue)}</Num></div>
+          <div className="metric-note"><Num>{openInvoices.length}</Num> {t("dashboard.client.openInvoicesLower")}</div>
+        </button>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
+          <div className="metric-label">{t("dashboard.client.taxDue")}</div>
+          <div className="metric-value"><Num>{fmtMoney(taxDue)}</Num></div>
+          <div className="metric-note"><Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</div>
+        </button>
+      </div>
+
       <div className="command-grid-even" style={{ display: "grid", gap: 14 }}>
         <CommandPanel title={t("dashboard.client.documentRequests")} note={<><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>}>
           <DocumentRows docs={openDocs.slice(0, 10)} empty={t("dashboard.client.noDocs")} />

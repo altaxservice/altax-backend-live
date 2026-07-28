@@ -375,24 +375,25 @@ export function ReportsPage() {
   }
 
   /**
-   * "Email Report"/"Text Report" — fetches the exact same PDF Preview/Print
-   * already generates, then hands it to the same /communications send path the
-   * Communications page uses (real file on email, secure Document link on SMS —
-   * see sendChannel in communications.routes.ts). Always sends to the currently
-   * selected CLIENT's own email/phone, not any individual employee, matching
-   * every other report on this page.
+   * "Email Report" — fetches the exact same PDF Preview/Print already generates,
+   * then hands it to the same /communications send path the Communications page
+   * uses. Email-only: SMS/WhatsApp aren't connected (no Twilio credentials), so a
+   * "Text Report" button here would just fail every time — removed rather than
+   * left as a button that silently doesn't work. Always sends to the currently
+   * selected CLIENT's own email, not any individual employee, matching every
+   * other report on this page.
    */
-  async function handleSendReport(channel: "Email" | "SMS") {
+  async function handleSendReport() {
     if (!clientId || !client) return;
     const title = REPORT_TITLES[tab];
     if (!title) return;
-    const sentTo = channel === "Email" ? client.email : client.phone;
+    const sentTo = client.email;
     if (!sentTo) {
-      alert(`This client has no ${channel === "Email" ? "email address" : "phone number"} on file.`);
+      alert("This client has no email address on file.");
       return;
     }
     const isFirmOverview = tab === "Firm Overview";
-    const key = `${isFirmOverview ? "firm" : REPORT_PDF_SEGMENT[tab]}-${channel.toLowerCase()}`;
+    const key = `${isFirmOverview ? "firm" : REPORT_PDF_SEGMENT[tab]}-email`;
     setReportBusy(key);
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
@@ -403,12 +404,12 @@ export function ReportsPage() {
       const periodLabel = isFirmOverview ? "the last 6 months" : `${from} – ${to}`;
       const periodLabelAr = isFirmOverview ? "آخر 6 أشهر" : `الفترة من ${from} إلى ${to}`;
       const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
-        clientId, subject: title.en, channel, sentTo, sendNow: true,
+        clientId, subject: title.en, channel: "Email", sentTo, sendNow: true,
         messageEnglish: `Please find attached your ${title.en} for ${periodLabel}.`,
         messageArabic: `يرجى الاطلاع على ${title.ar} المرفق لـ ${periodLabelAr}.`,
         attachment: { filename: `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`, contentBase64, contentType: "application/pdf" },
       });
-      if (res.sent) alert(`${title.en} ${channel === "Email" ? "emailed" : "texted"} to ${sentTo}.`);
+      if (res.sent) alert(`${title.en} emailed to ${sentTo}.`);
       else alert(res.sendError ? `Could not send: ${res.sendError}` : "Could not send this report.");
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not send this report.");
@@ -494,11 +495,8 @@ export function ReportsPage() {
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
                         {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
                       </button>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("Email")}>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
                         {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
-                      </button>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("SMS")}>
-                        {reportBusy === "firm-sms" ? "Sending…" : "Text Report"}
                       </button>
                     </div>
                   ) : REPORT_PDF_SEGMENT[tab] && (
@@ -527,14 +525,9 @@ export function ReportsPage() {
                           Communications to Send below) — these generic quick-send buttons would
                           just be a second, more generic way to do the same thing on that one tab. */}
                       {tab !== "Client Message" && (
-                        <>
-                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("Email")}>
-                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
-                          </button>
-                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport("SMS")}>
-                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-sms` ? "Sending…" : "Text Report"}
-                          </button>
-                        </>
+                        <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
+                          {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
+                        </button>
                       )}
                     </div>
                   )}
@@ -880,7 +873,7 @@ export function ReportsPage() {
                     </div>
                   )}
                   <p className="muted" style={{ fontSize: 11, marginBottom: 12 }}>
-                    Print Report/Download PDF above renders the English text only — reliable Arabic PDF rendering needs proper right-to-left glyph shaping this app doesn't yet do. Emailed/SMS/WhatsApp sends (via Open Communications to Send) use the full bilingual text.
+                    Print Report/Download PDF above renders the English text only — reliable Arabic PDF rendering needs proper right-to-left glyph shaping this app doesn't yet do. Emailed sends (via Open Communications to Send) use the full bilingual text.
                   </p>
                   {saveStatus && <p className="muted" style={{ fontSize: 12 }}>{saveStatus}</p>}
                   <div style={{ display: "flex", gap: 8 }}>

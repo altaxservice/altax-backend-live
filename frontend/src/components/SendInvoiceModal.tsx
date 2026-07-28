@@ -8,21 +8,19 @@ interface SendResult { channel: string; ok: boolean; error?: string }
 
 /**
  * Send Invoice — Edit/Save/View already exist elsewhere (InvoiceEditorModal,
- * InvoiceDetailPage); this is specifically the "Send Now" step, built at the user's
- * explicit request: pick a channel (email/SMS/WhatsApp), always see the actual PDF
- * before sending (the embedded preview below loads automatically, no extra click
- * needed to satisfy "view every one before we send them"), then send. Each channel
- * is attempted independently server-side — one missing provider (e.g. no Twilio key)
- * doesn't block the others. Also used for Sales Receipts, which are just Paid-status
- * invoices under the hood (see billing.routes.ts POST /sales-receipt).
+ * InvoiceDetailPage); this is specifically the "Send Now" step, always showing the
+ * actual PDF before sending (the embedded preview below loads automatically, no
+ * extra click needed to satisfy "view every one before we send them"), then send.
+ * Email-only — SMS/WhatsApp aren't connected (no Twilio credentials), so those
+ * channel options were removed rather than left as choices that silently fail.
+ * Also used for Sales Receipts, which are just Paid-status invoices under the hood
+ * (see billing.routes.ts POST /sales-receipt).
  */
-export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }: {
-  invoice: Invoice; clientEmail: string | null; clientPhone: string | null; onClose: () => void;
+export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
+  invoice: Invoice; clientEmail: string | null; onClose: () => void;
 }) {
   const toast = useToast();
   const [email, setEmail] = useState(clientEmail || "");
-  const [phone, setPhone] = useState(clientPhone || "");
-  const [channels, setChannels] = useState<{ email: boolean; sms: boolean; whatsapp: boolean }>({ email: Boolean(clientEmail), sms: false, whatsapp: false });
   const [subject, setSubject] = useState(`Invoice ${invoice.invoice_id} from AL Tax Service`);
   const [message, setMessage] = useState(`Please find invoice ${invoice.invoice_id} attached. Total due: $${Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -44,10 +42,7 @@ export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }:
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [invoice.invoice_id]);
 
-  const selectedChannels = Object.entries(channels).filter(([, v]) => v).map(([k]) => k);
-  const canSend = selectedChannels.length > 0
-    && (!channels.email || email.trim())
-    && (!(channels.sms || channels.whatsapp) || phone.trim());
+  const canSend = email.trim().length > 0;
 
   async function handleSend() {
     setSending(true);
@@ -55,7 +50,7 @@ export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }:
     setResults(null);
     try {
       const res = await api.post<{ results: SendResult[] }>(`/billing/invoices/${invoice.invoice_id}/send`, {
-        channels: selectedChannels, email, phone, subject, message,
+        channels: ["email"], email, subject, message,
       });
       setResults(res.results);
       const allOk = res.results.every((r) => r.ok);
@@ -75,23 +70,8 @@ export function SendInvoiceModal({ invoice, clientEmail, clientPhone, onClose }:
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
-            <div className="field">
-              <label>Send via</label>
-              <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
-                  <input type="checkbox" checked={channels.email} onChange={(e) => setChannels((c) => ({ ...c, email: e.target.checked }))} /> Email
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
-                  <input type="checkbox" checked={channels.sms} onChange={(e) => setChannels((c) => ({ ...c, sms: e.target.checked }))} /> SMS
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500 }}>
-                  <input type="checkbox" checked={channels.whatsapp} onChange={(e) => setChannels((c) => ({ ...c, whatsapp: e.target.checked }))} /> WhatsApp
-                </label>
-              </div>
-            </div>
-            {channels.email && <div className="field"><label>Email address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>}
-            {(channels.sms || channels.whatsapp) && <div className="field"><label>Phone number</label><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1..." /></div>}
-            {channels.email && <div className="field"><label>Subject</label><input value={subject} onChange={(e) => setSubject(e.target.value)} /></div>}
+            <div className="field"><label>Email address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
+            <div className="field"><label>Subject</label><input value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
             <div className="field"><label>Message</label><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 
             {results && (

@@ -15,12 +15,15 @@ interface FirmProfile {
   phone: string;
   email: string;
   logoDataUrl: string | null;
+  zelleQrDataUrl: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
 }
 
 const ALLOWED_LOGO_TYPES = ["image/png", "image/jpeg", "image/svg+xml"];
 const MAX_LOGO_BYTES = 1_500_000;
+const ALLOWED_QR_TYPES = ["image/png", "image/jpeg"];
+const MAX_QR_BYTES = 1_500_000;
 
 export function FirmSettingsPage() {
   const toast = useToast();
@@ -28,6 +31,8 @@ export function FirmSettingsPage() {
   const [form, setForm] = useState({ firmName: "", street: "", city: "", state: "", zipCode: "", phone: "", email: "" });
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [pendingLogoDataUrl, setPendingLogoDataUrl] = useState<string | null | undefined>(undefined);
+  const [zelleQrPreview, setZelleQrPreview] = useState<string | null>(null);
+  const [pendingZelleQrDataUrl, setPendingZelleQrDataUrl] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +43,8 @@ export function FirmSettingsPage() {
         setForm({ firmName: res.firmName, street: res.street, city: res.city, state: res.state, zipCode: res.zipCode, phone: formatPhoneInput(res.phone), email: res.email });
         setLogoPreview(res.logoDataUrl);
         setPendingLogoDataUrl(undefined);
+        setZelleQrPreview(res.zelleQrDataUrl);
+        setPendingZelleQrDataUrl(undefined);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load firm settings."));
   }
@@ -68,6 +75,31 @@ export function FirmSettingsPage() {
     setPendingLogoDataUrl(null);
   }
 
+  function handleZelleQrFile(file: File | null) {
+    if (!file) return;
+    if (!ALLOWED_QR_TYPES.includes(file.type)) {
+      setError("Zelle QR code must be a PNG or JPEG image.");
+      return;
+    }
+    if (file.size > MAX_QR_BYTES) {
+      setError("Zelle QR image is too large — please use a file under 1.5MB.");
+      return;
+    }
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      setZelleQrPreview(dataUrl);
+      setPendingZelleQrDataUrl(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleRemoveZelleQr() {
+    setZelleQrPreview(null);
+    setPendingZelleQrDataUrl(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -75,10 +107,13 @@ export function FirmSettingsPage() {
     try {
       const payload: Record<string, unknown> = { ...form };
       if (pendingLogoDataUrl !== undefined) payload.logoDataUrl = pendingLogoDataUrl;
+      if (pendingZelleQrDataUrl !== undefined) payload.zelleQrDataUrl = pendingZelleQrDataUrl;
       const res = await api.patch<FirmProfile>("/firm-settings", payload);
       setProfile(res);
       setLogoPreview(res.logoDataUrl);
       setPendingLogoDataUrl(undefined);
+      setZelleQrPreview(res.zelleQrDataUrl);
+      setPendingZelleQrDataUrl(undefined);
       toast("Firm settings saved.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save firm settings.");
@@ -112,6 +147,26 @@ export function FirmSettingsPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
               <FileDropInput file={null} onChange={handleLogoFile} accept="image/png,image/jpeg,image/svg+xml" hint="PNG, JPEG, or SVG" />
               {logoPreview && <button type="button" className="btn btn-sm" onClick={handleRemoveLogo} style={{ alignSelf: "flex-start" }}>Remove Logo</button>}
+            </div>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Zelle "Scan to Pay" QR Code</label>
+          <p className="muted" style={{ fontSize: 11.5, margin: "0 0 6px" }}>
+            A screenshot of the QR code your bank's Zelle app generates for receiving payments — printed on every invoice PDF next to Payment Instructions so clients can pay by scanning it.
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
+            <div style={{ width: 72, height: 72, borderRadius: 8, border: "1px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", background: "#fafafa" }}>
+              {zelleQrPreview ? (
+                <img src={zelleQrPreview.startsWith("data:") ? zelleQrPreview : resolveFileUrl(zelleQrPreview)} alt="Zelle QR code" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+              ) : (
+                <span className="muted" style={{ fontSize: 11 }}>None on file</span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+              <FileDropInput file={null} onChange={handleZelleQrFile} accept="image/png,image/jpeg" hint="PNG or JPEG" />
+              {zelleQrPreview && <button type="button" className="btn btn-sm" onClick={handleRemoveZelleQr} style={{ alignSelf: "flex-start" }}>Remove QR Code</button>}
             </div>
           </div>
         </div>

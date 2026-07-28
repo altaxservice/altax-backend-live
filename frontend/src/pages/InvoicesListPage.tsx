@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useLanguage, Num } from "../context/LanguageContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
@@ -34,6 +35,7 @@ interface TaxRow {
 
 export function InvoicesListPage() {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const toast = useToast();
   const { setSelectedClient } = useSelectedClient();
@@ -77,8 +79,8 @@ export function InvoicesListPage() {
     return api.get<{ payments: Payment[] }>(`/billing/payments${qs}`).then((r) => setFirmPayments(r.payments)).catch(() => {});
   }
   function loadTaxRows(): Promise<void> {
-    if (!canManage) return Promise.resolve();
-    const qs = `?start=${period.start}&end=${period.end}`;
+    if (user?.role === "employee") return Promise.resolve();
+    const qs = canManage ? `?start=${period.start}&end=${period.end}` : "";
     return api.get<{ rows: TaxRow[] }>(`/billing/client-tax-payments${qs}`).then((r) => setTaxRows(r.rows)).catch(() => {});
   }
   function loadAll(): Promise<void> {
@@ -279,9 +281,9 @@ export function InvoicesListPage() {
   const ready = invoices !== null;
 
   return (
-    <div>
+    <div dir={dir}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Billing</h1>
+        <h1 style={{ fontSize: 22, margin: 0 }}>{canManage ? "Billing" : t("billing.client.title")}</h1>
       </div>
 
       {canManage && (
@@ -363,26 +365,26 @@ export function InvoicesListPage() {
       {ready && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-            <strong style={{ fontSize: 14 }}>Firm Invoices</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{filteredInvoices.length} invoices</span>
+            <strong style={{ fontSize: 14 }}>{canManage ? "Firm Invoices" : t("billing.client.yourInvoices")}</strong>
+            <span className="muted" style={{ fontSize: 12 }}><Num>{filteredInvoices.length}</Num> {canManage ? "invoices" : t("billing.client.invoicesSuffix")}</span>
           </div>
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll card-table">
           <table>
             <thead>
-              <tr><th>Invoice</th><th>Client</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th>{canManage && <th>Action</th>}</tr>
+              <tr><th>{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th>Client</th>}<th>{canManage ? "Date" : t("billing.client.colDate")}</th><th>{canManage ? "Due" : t("billing.client.colDue")}</th><th>{canManage ? "Description" : t("billing.client.colDescription")}</th><th>{canManage ? "Amount" : t("billing.client.colAmount")}</th><th>{canManage ? "Balance" : t("billing.client.colBalance")}</th><th>{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th>Action</th>}</tr>
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => (
                 <tr key={inv.invoice_id} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }}>
                   <td>{inv.invoice_id}</td>
-                  <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>
-                  <td className="muted" data-label="Date">{fmtDate(inv.invoice_date)}</td>
-                  <td className="muted" data-label="Due">{fmtDate(inv.due_date)}</td>
-                  <td className="muted" data-label="Description">{inv.description}</td>
-                  <td data-label="Amount">{fmtMoney(inv.total_amount)}</td>
-                  <td data-label="Balance">{fmtMoney(inv.balance_due)}</td>
-                  <td data-label="Status"><StatusBadge status={inv.status} /></td>
+                  {canManage && <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>}
+                  <td className="muted" data-label={canManage ? "Date" : t("billing.client.colDate")}><Num>{fmtDate(inv.invoice_date)}</Num></td>
+                  <td className="muted" data-label={canManage ? "Due" : t("billing.client.colDue")}><Num>{fmtDate(inv.due_date)}</Num></td>
+                  <td className="muted" data-label={canManage ? "Description" : t("billing.client.colDescription")}>{inv.description}</td>
+                  <td data-label={canManage ? "Amount" : t("billing.client.colAmount")}><Num>{fmtMoney(inv.total_amount)}</Num></td>
+                  <td data-label={canManage ? "Balance" : t("billing.client.colBalance")}><Num>{fmtMoney(inv.balance_due)}</Num></td>
+                  <td data-label={canManage ? "Status" : t("billing.client.colStatus")}><StatusBadge status={inv.status} /></td>
                   {canManage && (
                     <td data-label="" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu
@@ -409,7 +411,40 @@ export function InvoicesListPage() {
           </table>
           </div>
           </div>
-          {filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices match.</p>}
+          {filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{canManage ? "No invoices match." : t("billing.client.noInvoices")}</p>}
+        </div>
+      )}
+
+      {ready && !canManage && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+            <strong style={{ fontSize: 14 }}>{t("billing.client.taxTitle")}</strong>
+            <span className="muted" style={{ fontSize: 12 }}><Num>{taxRows?.length ?? 0}</Num> {t("billing.client.rowsSuffix")}</span>
+          </div>
+          <p className="muted" style={{ fontSize: 12, margin: "10px 16px 0" }}>
+            {t("billing.client.taxIntro")}
+          </p>
+          {!taxRows ? (
+            <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("billing.client.loading")}</p>
+          ) : (
+            <div className="table-scroll card-table">
+              <table>
+                <thead><tr><th>{t("billing.client.colPaymentDue")}</th><th>{t("billing.client.colDuePaid")}</th><th>{t("billing.client.colExpected")}</th><th>{t("billing.client.colPaid")}</th><th>{t("billing.client.colStatus")}</th></tr></thead>
+                <tbody>
+                  {taxRows.map((r) => (
+                    <tr key={r.task_id}>
+                      <td data-label={t("billing.client.colPaymentDue")}>{r.task_name}</td>
+                      <td className="muted" data-label={t("billing.client.colDuePaid")}><Num>{fmtDate(r.paid_date || r.agency_due_date)}</Num></td>
+                      <td data-label={t("billing.client.colExpected")}><Num>{fmtMoney(r.payment_amount)}</Num></td>
+                      <td className="muted" data-label={t("billing.client.colPaid")}>{r.paid_date ? t("billing.client.yes") : t("billing.client.no")}</td>
+                      <td data-label={t("billing.client.colStatus")}><StatusBadge status={r.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {taxRows && taxRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("billing.client.noTaxRows")}</p>}
         </div>
       )}
 

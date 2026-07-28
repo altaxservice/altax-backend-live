@@ -274,8 +274,6 @@ export function UsersPage() {
             <label htmlFor="u-reminder">Reminder Preference</label>
             <select id="u-reminder" value={form.reminderPreference} onChange={(e) => setForm((f) => ({ ...f, reminderPreference: e.target.value }))}>
               <option value="Email">Email</option>
-              <option value="SMS">SMS</option>
-              <option value="Both">Both</option>
               <option value="None">None</option>
             </select>
           </div>

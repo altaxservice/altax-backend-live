@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
@@ -25,7 +26,8 @@ function isOverdue(r: DocumentRequest): boolean {
 }
 
 function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?: (uploadId: string) => void }) {
-  if (!request.first_file_url) return <span className="muted">No file yet</span>;
+  const { t } = useLanguage();
+  if (!request.first_file_url) return <span className="muted">{t("documents.client.noFileYet")}</span>;
   const extra = Number(request.file_count || 1) - 1;
   const url = request.first_file_url;
   const name = request.first_file_name || "file";
@@ -34,7 +36,7 @@ function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?:
     <span onClick={(e) => e.stopPropagation()}>
       <button type="button" className="link-button" onClick={() => openAnyFile(url)}>{name}</button>
       {" "}
-      <button type="button" className="link-button" onClick={() => downloadAnyFile(url, name)}>Download</button>
+      <button type="button" className="link-button" onClick={() => downloadAnyFile(url, name)}>{t("documents.client.download")}</button>
       {onRemove && uploadId && (
         <>
           {" "}
@@ -44,13 +46,14 @@ function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?:
           <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} onClick={() => onRemove(uploadId)}>Revoke</button>
         </>
       )}
-      {extra > 0 && <span className="muted"> (+{extra} more)</span>}
+      {extra > 0 && <span className="muted"> (+{extra} {t("documents.client.more")})</span>}
     </span>
   );
 }
 
 export function DocumentsListPage() {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const { setSelectedClient } = useSelectedClient();
   const toast = useToast();
@@ -240,9 +243,9 @@ export function DocumentsListPage() {
   const ready = requests !== null && uploads !== null;
 
   return (
-    <div>
+    <div dir={dir}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Documents</h1>
+        <h1 style={{ fontSize: 22, margin: 0 }}>{canManage ? "Documents" : t("documents.client.title")}</h1>
       </div>
 
       {scopedClientId && (
@@ -312,50 +315,50 @@ export function DocumentsListPage() {
         <>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-              <strong style={{ fontSize: 14 }}>Document Requests</strong>
-              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Items AL TAX has asked you to upload.</p>
+              <strong style={{ fontSize: 14 }}>{t("documents.client.requestsTitle")}</strong>
+              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>{t("documents.client.requestsNote")}</p>
             </div>
             <div className="table-scroll card-table">
             <table>
-              <thead><tr><th>Requested Item</th><th>Status</th><th>Priority</th><th>Due</th><th>Files</th></tr></thead>
+              <thead><tr><th>{t("documents.client.colItem")}</th><th>{t("documents.client.colStatus")}</th><th>{t("documents.client.colPriority")}</th><th>{t("documents.client.colDue")}</th><th>{t("documents.client.colFiles")}</th></tr></thead>
               <tbody>
                 {scopedRequests.map((r) => (
                   <tr key={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
                     <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
-                    <td data-label="Status"><StatusBadge status={r.status} /></td>
-                    <td className="muted" data-label="Priority">{r.priority || "—"}</td>
-                    <td className="muted" data-label="Due">{r.due_from_client || "—"}</td>
-                    <td data-label="Files"><FilesCell request={r} /></td>
+                    <td data-label={t("documents.client.colStatus")}><StatusBadge status={r.status} /></td>
+                    <td className="muted" data-label={t("documents.client.colPriority")}>{r.priority || "—"}</td>
+                    <td className="muted" data-label={t("documents.client.colDue")}>{r.due_from_client || "—"}</td>
+                    <td data-label={t("documents.client.colFiles")}><FilesCell request={r} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
             </div>
-            {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No document requests.</p>}
+            {scopedRequests.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("documents.client.noRequests")}</p>}
           </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-              <strong style={{ fontSize: 14 }}>Files Shared With You</strong>
-              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Documents AL TAX has sent straight to your portal.</p>
+              <strong style={{ fontSize: 14 }}>{t("documents.client.sharedTitle")}</strong>
+              <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>{t("documents.client.sharedNote")}</p>
             </div>
             {standaloneUploads.length === 0 ? (
-              <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files shared yet.</p>
+              <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("documents.client.noShared")}</p>
             ) : (
               <div className="table-scroll card-table">
               <table>
-                <thead><tr><th>File</th><th>Note</th><th>Shared</th><th>Action</th></tr></thead>
+                <thead><tr><th>{t("documents.client.colFile")}</th><th>{t("documents.client.colNote")}</th><th>{t("documents.client.colShared")}</th><th>{t("documents.client.colAction")}</th></tr></thead>
                 <tbody>
                   {standaloneUploads.map((u) => (
                     <tr key={u.upload_id}>
                       <td><button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button></td>
-                      <td className="muted" data-label="Note">{u.notes || "—"}</td>
-                      <td className="muted" data-label="Shared">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
-                      <td data-label="Action">
-                        <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                      <td className="muted" data-label={t("documents.client.colNote")}>{u.notes || "—"}</td>
+                      <td className="muted" data-label={t("documents.client.colShared")}>{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+                      <td data-label={t("documents.client.colAction")}>
+                        <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>{t("documents.client.download")}</button>
                         {" "}
                         <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
-                          {removingId === u.upload_id ? "Removing…" : "Remove"}
+                          {removingId === u.upload_id ? t("documents.client.removing") : t("documents.client.remove")}
                         </button>
                       </td>
                     </tr>

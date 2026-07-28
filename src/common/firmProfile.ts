@@ -33,6 +33,8 @@ export interface FirmProfile {
   phone: string;
   email: string;
   logoDataUrl: string | null;
+  /** A "Scan to pay" QR image from the firm's own bank/Zelle app — a static image, not a payment-processor integration, so it needs no API keys. Embedded on invoice PDFs when set. */
+  zelleQrDataUrl: string | null;
   updatedBy: string | null;
   updatedAt: string | null;
 }
@@ -58,6 +60,7 @@ export async function getFirmProfile(): Promise<FirmProfile> {
     phone: row?.phone || DEFAULT_FIRM_PROFILE.phone,
     email: row?.email || DEFAULT_FIRM_PROFILE.email,
     logoDataUrl: row?.logo_data && row?.logo_content_type ? `data:${row.logo_content_type};base64,${row.logo_data}` : null,
+    zelleQrDataUrl: row?.zelle_qr_data && row?.zelle_qr_content_type ? `data:${row.zelle_qr_content_type};base64,${row.zelle_qr_data}` : null,
     updatedBy: row?.updated_by ?? null,
     updatedAt: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
   };
@@ -70,9 +73,18 @@ export async function getFirmLogo(): Promise<{ data: Buffer; contentType: string
   return { data: Buffer.from(row.logo_data, "base64"), contentType: row.logo_content_type };
 }
 
+/** Raw Zelle QR bytes + content type — same shape as getFirmLogo, for PDF embedding. */
+export async function getFirmZelleQr(): Promise<{ data: Buffer; contentType: string } | null> {
+  const row = await queryOne<any>(`SELECT zelle_qr_data, zelle_qr_content_type FROM altax.v3_firm_settings WHERE id = 'FIRM-1'`);
+  if (!row?.zelle_qr_data || !row?.zelle_qr_content_type) return null;
+  return { data: Buffer.from(row.zelle_qr_data, "base64"), contentType: row.zelle_qr_content_type };
+}
+
 export async function updateFirmProfile(fields: {
   firmName?: string; street?: string; city?: string; state?: string; zipCode?: string; phone?: string; email?: string;
-  logoData?: string | null; logoContentType?: string | null; updatedBy: string;
+  logoData?: string | null; logoContentType?: string | null;
+  zelleQrData?: string | null; zelleQrContentType?: string | null;
+  updatedBy: string;
 }): Promise<void> {
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_firm_settings WHERE id = 'FIRM-1'`);
   const merged = {
@@ -83,17 +95,19 @@ export async function updateFirmProfile(fields: {
     zip_code: fields.zipCode ?? existing?.zip_code ?? DEFAULT_FIRM_PROFILE.zipCode,
     phone: fields.phone ?? existing?.phone ?? DEFAULT_FIRM_PROFILE.phone,
     email: fields.email ?? existing?.email ?? DEFAULT_FIRM_PROFILE.email,
-    // logoData === null means "remove the logo" (explicit clear); undefined means "leave it as-is".
+    // logoData === null means "remove the logo" (explicit clear); undefined means "leave it as-is". Same convention for zelleQrData.
     logo_data: fields.logoData === undefined ? existing?.logo_data ?? null : fields.logoData,
     logo_content_type: fields.logoContentType === undefined ? existing?.logo_content_type ?? null : fields.logoContentType,
+    zelle_qr_data: fields.zelleQrData === undefined ? existing?.zelle_qr_data ?? null : fields.zelleQrData,
+    zelle_qr_content_type: fields.zelleQrContentType === undefined ? existing?.zelle_qr_content_type ?? null : fields.zelleQrContentType,
   };
   await query(
-    `INSERT INTO altax.v3_firm_settings (id, firm_name, street_address, city, state, zip_code, phone, email, logo_data, logo_content_type, updated_at, updated_by)
-     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+    `INSERT INTO altax.v3_firm_settings (id, firm_name, street_address, city, state, zip_code, phone, email, logo_data, logo_content_type, zelle_qr_data, zelle_qr_content_type, updated_at, updated_by)
+     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
      ON CONFLICT (id) DO UPDATE SET
        firm_name = $1, street_address = $2, city = $3, state = $4, zip_code = $5, phone = $6, email = $7,
-       logo_data = $8, logo_content_type = $9, updated_at = now(), updated_by = $10`,
+       logo_data = $8, logo_content_type = $9, zelle_qr_data = $10, zelle_qr_content_type = $11, updated_at = now(), updated_by = $12`,
     [merged.firm_name, merged.street_address, merged.city, merged.state, merged.zip_code, merged.phone, merged.email,
-      merged.logo_data, merged.logo_content_type, fields.updatedBy]
+      merged.logo_data, merged.logo_content_type, merged.zelle_qr_data, merged.zelle_qr_content_type, fields.updatedBy]
   );
 }

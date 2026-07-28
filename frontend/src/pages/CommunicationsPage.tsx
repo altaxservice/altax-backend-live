@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -20,7 +21,11 @@ interface StaffDirectoryEntry { name: string; email: string; phone: string | nul
 interface TemplateRow { templateId: string | null; name: string; category: string; subject: string; source: string }
 interface TemplateDetail { subject: string; message_english: string | null; message_arabic: string | null }
 
-const CHANNELS = ["Email", "SMS", "WhatsApp", "Phone", "Portal Note"];
+// SMS/WhatsApp are wired end-to-end in the backend but not connected — no Twilio
+// credentials configured — so picking either here would just fail with a "not
+// connected" error every time. Left out of every channel picker below rather than
+// offered as a choice that doesn't actually work; re-add once Twilio is live.
+const CHANNELS = ["Email", "Phone", "Portal Note"];
 
 /** sessionStorage key prefix (suffixed with `:${clientId}`) Reports' Client Message tab uses to hand off a computed period message to this page's composer — see ClientMessages' mount effect below. */
 export const CLIENT_MESSAGE_HANDOFF_KEY = "altax_client_message_handoff";
@@ -32,7 +37,7 @@ const ROLE_HEADER: Record<string, { title: string; note: string }> = {
   employee: { title: "Employee Message Center", note: "Message AL TAX about your pay or account and review your message history." },
 };
 
-function Panel({ title, note, action, children }: { title: string; note?: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Panel({ title, note, action, children }: { title: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="command-panel" style={{ marginBottom: 20 }}>
       <div className="command-panel-header">
@@ -137,8 +142,13 @@ function RunRemindersButton({ onDone }: { onDone: () => void }) {
 
 export function CommunicationsPage() {
   const { user } = useAuth();
+  const { t, dir } = useLanguage();
   const canManage = user?.role === "admin" || user?.role === "staff";
-  const roleHeader = ROLE_HEADER[user?.role || ""] || ROLE_HEADER.client;
+  const roleHeader = user?.role === "employee"
+    ? { title: t("communications.employee.title"), note: t("communications.employee.note") }
+    : user?.role === "client"
+      ? { title: t("communications.client.title"), note: t("communications.client.note") }
+      : (ROLE_HEADER[user?.role || ""] || ROLE_HEADER.client);
 
   const [clients, setClients] = useState<Client[]>([]);
   const [comms, setComms] = useState<Communication[] | null>(null);
@@ -168,9 +178,9 @@ export function CommunicationsPage() {
   ];
 
   return (
-    <div>
+    <div dir={dir}>
       <div className="portal-banner" style={{ marginBottom: 16 }}>
-        <div className="topbar-eyebrow">Communications</div>
+        <div className="topbar-eyebrow">{canManage ? "Communications" : t("communications.eyebrow")}</div>
         <h2>{roleHeader.title}</h2>
         <p>{roleHeader.note}</p>
       </div>
@@ -224,7 +234,6 @@ export function CommunicationsPage() {
 function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent: () => void }) {
   const [staff, setStaff] = useState<StaffDirectoryEntry[]>([]);
   const [recipients, setRecipients] = useState<Set<string>>(new Set());
-  const [phone, setPhone] = useState("");
   const [subject, setSubject] = useState("Firm staff message");
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [sendNow, setSendNow] = useState(true);
@@ -244,8 +253,6 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
     setRecipients((prev) => {
       const next = new Set(prev);
       if (next.has(email)) next.delete(email); else next.add(email);
-      // The manual phone override only makes sense for a single recipient.
-      if (next.size === 1) setPhone(staff.find((s) => next.has(s.email))?.phone || "");
       return next;
     });
   }
@@ -266,12 +273,10 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
     try {
       const attachmentPayload = attachment ? await fileToAttachment(attachment) : undefined;
       if (recipients.size === 1) {
-        // Single recipient keeps the original route so the manual phone override still works.
         const recipient = [...recipients][0];
         const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
         for (const channel of channels) {
-          const sentTo = ["SMS", "WhatsApp"].includes(channel) ? phone : undefined;
-          const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications/staff", { recipientEmail: recipient, subject, channel, messageEnglish: message, sendNow, sentTo, attachment: attachmentPayload });
+          const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications/staff", { recipientEmail: recipient, subject, channel, messageEnglish: message, sendNow, attachment: attachmentPayload });
           outcomes.push({ channel, sent: res.sent, sendError: res.sendError });
         }
         setResults(outcomes);
@@ -333,12 +338,6 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
               {staff.length === 0 && <p className="muted" style={{ margin: 0 }}>No active staff users.</p>}
             </div>
           </div>
-          {recipients.size === 1 && (
-            <div className="field">
-              <label>SMS / WhatsApp Phone</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1XXXXXXXXXX — needed only for SMS/WhatsApp" />
-            </div>
-          )}
         </div>
         <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
         <div className="field"><label>Message</label><textarea rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
@@ -346,7 +345,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
           <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
-          Send now (Email/SMS/WhatsApp attempt real delivery; Portal Note always just saves)
+          Send now (Email attempts real delivery; Phone and Portal Note always just save a log entry)
         </label>
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Staff Message"}</button>
       </form>
@@ -385,7 +384,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
   );
 }
 
-const BULK_CHANNELS = ["Email", "SMS", "WhatsApp"];
+const BULK_CHANNELS = ["Email"];
 
 interface BulkResult { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }
 
@@ -470,7 +469,6 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
     // alphabetical list to confirm who's checked — same pattern as Create Batch Tasks.
     return [...matches].sort((a, b) => Number(selected.has(b.client_id)) - Number(selected.has(a.client_id)));
   }, [clients, search, statusFilter, salesTaxFilter, payrollFilter, payrollProviderFilter, selected]);
-  const smsOptedIn = filtered.filter((c) => c.sms_allowed && c.phone);
   const emailOptedIn = filtered.filter((c) => c.email_allowed && c.email);
 
   function toggleClient(id: string) {
@@ -519,7 +517,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const failedCount = results ? results.length - sentCount - skippedCount : 0;
 
   return (
-    <Panel title="Bulk Client Message" note="Send one message to many clients at once — SMS/Email only reach clients who've opted in.">
+    <Panel title="Bulk Client Message" note="Send one message to many clients at once — Email only reaches clients who've opted in.">
       <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
         {error && <ErrorBanner error={error} />}
         {results && (
@@ -570,7 +568,6 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients…" style={{ marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
             <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(filtered.map((c) => c.client_id)))}>Select shown ({filtered.length})</button>
-            <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(smsOptedIn.map((c) => c.client_id)))}>SMS opted-in ({smsOptedIn.length})</button>
             <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(emailOptedIn.map((c) => c.client_id)))}>Email opted-in ({emailOptedIn.length})</button>
             <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
@@ -579,7 +576,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
               <label key={c.client_id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "3px 0" }}>
                 <input type="checkbox" checked={selected.has(c.client_id)} onChange={() => toggleClient(c.client_id)} />
                 {c.client_name}
-                <span className="muted" style={{ fontSize: 11 }}>{c.sms_allowed ? "· SMS ok" : ""}{c.email_allowed ? "· Email ok" : ""}</span>
+                <span className="muted" style={{ fontSize: 11 }}>{c.email_allowed ? "· Email ok" : ""}</span>
               </label>
             ))}
             {filtered.length === 0 && <p className="muted" style={{ margin: 0 }}>No clients match.</p>}
@@ -760,7 +757,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
           </div>
           <div className="form-grid">
             <div className="field"><label>Send To</label><input value={client.email || ""} readOnly /></div>
-            <div className="field"><label>SMS / WhatsApp Phone</label><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
+            <div className="field"><label>Phone Number <span className="muted">(for the Phone channel's log entry)</span></label><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
           </div>
           <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
           <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
@@ -775,7 +772,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
           <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
             <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
-            Send now (Email/SMS/WhatsApp attempt real delivery; Portal Note always just saves)
+            Send now (Email attempts real delivery; Phone and Portal Note always just save a log entry)
           </label>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Client Message"}</button>
@@ -794,60 +791,75 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
 }
 
 /** Client/employee self-service composer — backend's POST /communications already allows any authenticated role (access enforced per-client), this was purely a missing frontend affordance. Direction is "Inbound" since the portal user is the one initiating contact with the firm. */
+/** Quick-pick topics so a client/employee doesn't have to think of a subject line from scratch — clicking one fills the subject and gives the message a nudge to start from. */
+const CLIENT_TOPICS = ["Document question", "Payment question", "Tax question", "Update my info", "Something else"];
+const EMPLOYEE_TOPICS = ["Paystub question", "Direct deposit", "Update my info", "Something else"];
+
 function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role: string; clientId: string; clientEmail: string; messages: Communication[]; onSent: () => void }) {
-  const [subject, setSubject] = useState(role === "employee" ? "Payroll message" : "Message to AL TAX");
+  const { t } = useLanguage();
+  const isEmployee = role === "employee";
+  const [subject, setSubject] = useState("");
   const [messageEnglish, setMessageEnglish] = useState("");
-  const [channels, setChannels] = useState<string[]>(["Portal Note"]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
-  function toggleChannel(c: string) {
-    setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
-  }
-
-  async function send(channelsOverride?: string[]) {
-    const targetChannels = channelsOverride || channels;
-    if (!messageEnglish.trim()) { setError("Enter a message."); return; }
-    if (targetChannels.length === 0) { setError("Choose at least one channel."); return; }
-    if (!clientId) { setError("Your account isn't linked to a client record — contact AL TAX directly."); return; }
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!messageEnglish.trim()) { setError(t("communications.self.enterMessage")); return; }
+    if (!clientId) { setError(t("communications.self.noClientLink")); return; }
     setSaving(true);
     setError(null);
+    setSent(false);
     try {
-      for (const channel of targetChannels) {
-        // sendNow is always false here — sentTo is the client's own address (for the log), and there is
-        // no real "recipient" to notify: the firm reviews inbound messages from the portal, they aren't emailed to.
-        await api.post("/communications", { clientId, subject, channel, messageEnglish, direction: "Inbound", sentTo: clientEmail, sendNow: false });
-      }
+      // Every self-service message is stored as a Portal Note the firm reviews — there's
+      // no real channel to pick from this side (sendNow is never true here, so a channel
+      // choice would only ever change how the row looks in the firm's log, not who gets
+      // notified), so the picker that used to sit here was pure friction with no effect.
+      await api.post("/communications", {
+        clientId, subject: subject.trim() || (isEmployee ? "Payroll message" : "Message to AL TAX"),
+        channel: "Portal Note", messageEnglish, direction: "Inbound", sentTo: clientEmail, sendNow: false,
+      });
       setMessageEnglish("");
+      setSubject("");
+      setSent(true);
       onSent();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not send this message.");
+      setError(err instanceof ApiError ? err.message : t("communications.self.sendError"));
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    await send();
-  }
+  const topics = isEmployee ? EMPLOYEE_TOPICS : CLIENT_TOPICS;
 
   return (
     <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-      <Panel title="Send Message to AL TAX">
+      <Panel title={isEmployee ? t("communications.self.panelTitleEmployee") : t("communications.self.panelTitle")} note={t("communications.self.panelNote")}>
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
           {error && <ErrorBanner error={error} />}
-          <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-          <div className="field"><label>Message</label><textarea rows={4} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={role === "employee" ? "Ask about your paystub, direct deposit, or account." : "Ask about documents, payments, or your account."} /></div>
-          <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send Message"}</button>
-            <button type="button" className="btn" disabled={saving} onClick={() => send(["Portal Note"])}>Save Portal Note Only</button>
+          {sent && <div className="card" style={{ marginBottom: 12, borderColor: "var(--teal)", padding: 10, fontSize: 13 }}>{t("communications.self.sentConfirm")}</div>}
+          <div className="field" style={{ marginBottom: 6 }}>
+            <label>{t("communications.self.topicLabel")}</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {topics.map((topic) => (
+                <button
+                  key={topic} type="button"
+                  className={`btn btn-sm ${subject === topic ? "btn-primary" : ""}`}
+                  onClick={() => setSubject(topic)}
+                >
+                  {topic}
+                </button>
+              ))}
+            </div>
           </div>
+          <div className="field"><label>{t("communications.self.subjectLabel")}</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={isEmployee ? "Payroll message" : "Message to AL TAX"} /></div>
+          <div className="field"><label>{t("communications.self.messageLabel")}</label><textarea rows={5} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={isEmployee ? t("communications.self.placeholderEmployee") : t("communications.self.placeholderClient")} /></div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t("communications.self.sending") : t("communications.self.send")}</button>
         </form>
       </Panel>
-      <Panel title="History" note={`${messages.length} messages`}>
-        {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No communications yet.</p>}
+      <Panel title={t("communications.self.historyTitle")} note={<><Num>{messages.length}</Num> {t("communications.card.messages")}</>}>
+        {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("communications.self.historyEmpty")}</p>}
         <div className="scroll-list" style={{ padding: messages.length ? "0 16px 16px" : 0 }}>
           {messages.map((m) => <CommunicationCard key={m.communication_id} c={m} />)}
         </div>
@@ -858,6 +870,7 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
 
 /** Shows one communication's date/subject/channel plus its message body, with an English/Arabic toggle when both exist. */
 function CommunicationCard({ c }: { c: Communication }) {
+  const { t } = useLanguage();
   const hasEnglish = !!c.message_english;
   const hasArabic = !!c.message_arabic;
   const [lang, setLang] = useState<"english" | "arabic">(hasEnglish ? "english" : "arabic");
@@ -878,7 +891,7 @@ function CommunicationCard({ c }: { c: Communication }) {
         )}
       </div>
       {body && <div style={{ fontSize: 13, whiteSpace: "pre-wrap", direction: lang === "arabic" ? "rtl" : "ltr", textAlign: lang === "arabic" ? "right" : "left" }}>{body}</div>}
-      {!body && <div className="muted" style={{ fontSize: 13 }}>No message text.</div>}
+      {!body && <div className="muted" style={{ fontSize: 13 }}>{t("communications.card.noText")}</div>}
     </div>
   );
 }

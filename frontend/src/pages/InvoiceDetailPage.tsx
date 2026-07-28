@@ -214,7 +214,6 @@ export function InvoiceDetailPage() {
         <SendInvoiceModal
           invoice={invoice}
           clientEmail={invoiceClient?.email || null}
-          clientPhone={invoiceClient?.phone || null}
           onClose={() => setShowSend(false)}
         />
       )}

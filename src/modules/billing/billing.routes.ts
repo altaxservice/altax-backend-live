@@ -1201,7 +1201,19 @@ billingRouter.get("/payments", requireAuth, asyncHandler(async (req: AuthedReque
  */
 billingRouter.get("/client-tax-payments", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const role = req.user!.role;
-  if (role === "client" || role === "employee") return res.json({ rows: [] });
+  if (role === "employee") return res.json({ rows: [] });
+
+  if (role === "client") {
+    const rows = await query(
+      `SELECT t.task_id, t.task_name, t.client_id, t.client_name, t.agency_due_date, t.paid_date,
+              t.payment_amount, t.confirmation_number, t.status
+         FROM altax.v3_tasks t
+        WHERE t.payment_required = true AND t.client_id = $1
+        ORDER BY t.agency_due_date ASC NULLS LAST`,
+      [req.user!.clientId]
+    );
+    return res.json({ rows });
+  }
 
   const start = String(req.query.start || "").trim();
   const end = String(req.query.end || "").trim();

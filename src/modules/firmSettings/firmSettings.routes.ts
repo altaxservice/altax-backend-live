@@ -38,6 +38,9 @@ firmSettingsRouter.get("/logo", asyncHandler(async (_req: Request, res: Response
  * the whole firm sends). Logo accepted as a base64 data URL from the frontend's file
  * input; logoData: null explicitly clears the logo, omitting it leaves it untouched.
  */
+// Zelle QR is a photo/screenshot from the firm's bank app, not vector art — SVG isn't useful here the way it can be for a logo.
+const ALLOWED_QR_TYPES = ["image/png", "image/jpeg"];
+
 firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   let logoData: string | null | undefined;
@@ -62,6 +65,26 @@ firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(as
     logoContentType = contentType;
   }
 
+  let zelleQrData: string | null | undefined;
+  let zelleQrContentType: string | null | undefined;
+
+  if (body.zelleQrDataUrl === null) {
+    zelleQrData = null;
+    zelleQrContentType = null;
+  } else if (typeof body.zelleQrDataUrl === "string" && body.zelleQrDataUrl.startsWith("data:")) {
+    const match = /^data:([^;]+);base64,(.+)$/.exec(body.zelleQrDataUrl);
+    if (!match) return res.status(400).json({ error: "Invalid Zelle QR image data." });
+    const [, contentType, base64] = match;
+    if (!ALLOWED_QR_TYPES.includes(contentType)) {
+      return res.status(400).json({ error: "Zelle QR code must be a PNG or JPEG image." });
+    }
+    if (base64.length > 2_000_000) {
+      return res.status(400).json({ error: "Zelle QR image is too large — please use a file under 1.5MB." });
+    }
+    zelleQrData = base64;
+    zelleQrContentType = contentType;
+  }
+
   await updateFirmProfile({
     firmName: typeof body.firmName === "string" ? body.firmName.trim() : undefined,
     street: typeof body.street === "string" ? body.street.trim() : undefined,
@@ -71,6 +94,7 @@ firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(as
     phone: typeof body.phone === "string" ? body.phone.trim() : undefined,
     email: typeof body.email === "string" ? body.email.trim() : undefined,
     logoData, logoContentType,
+    zelleQrData, zelleQrContentType,
     updatedBy: req.user!.email,
   });
 

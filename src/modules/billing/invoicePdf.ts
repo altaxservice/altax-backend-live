@@ -6,14 +6,15 @@
  * single description/total layout for older invoices created before this
  * feature existed (no line items on file). Layout matches the firm's real
  * QuickBooks Online invoice screenshots (Bill To/Ship To columns, Activity
- * column formatted as category:name, taxable "T" suffix) — deliberately
- * omits the QR "Scan to pay" code and card-network badges QBO shows, since
- * those link to real online payment collection and no payment processor is
- * connected here; Payment Instructions text remains the only payment guidance.
+ * column formatted as category:name, taxable "T" suffix) — omits the
+ * card-network badges QBO shows (no card processor is connected here), but
+ * does render the firm's own "Scan to pay" Zelle QR (Firm Settings) next to
+ * Payment Instructions when one is on file, since that's just a static image
+ * from the firm's bank app, not a payment-processor integration.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile } from "../../common/firmProfile";
-import { embedFirmLogo } from "../../common/pdfLogo";
+import { embedFirmLogo, embedFirmZelleQr } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
 
 const PAGE_W = 612;
@@ -102,6 +103,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
 
   const profile = await getFirmProfile();
   const logo = await embedFirmLogo(doc, profile);
+  const zelleQr = await embedFirmZelleQr(doc, profile);
 
   c.rect(0, 0, PAGE_W, 8);
 
@@ -250,6 +252,16 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
   c.text(R, y, data.status || "", { size: 9, color: MUTED, align: "right" });
   y += 30;
 
+  // Zelle "Scan to pay" QR — right column, parallel to the Payment Instructions
+  // text below (which stays in the left column), so the two never collide.
+  const qrTopY = y;
+  const qrBottomY = qrTopY + 10 + 70 + 10;
+  if (zelleQr) {
+    const qrSize = 70;
+    c.text(R, qrTopY, "Scan to Pay via Zelle", { size: 8, bold: true, color: MUTED, align: "right" });
+    page.drawImage(zelleQr, { x: R - qrSize, y: PAGE_H - qrTopY - 10 - qrSize, width: qrSize, height: qrSize });
+  }
+
   if (data.paymentInstructions) {
     c.text(L, y, "Payment Instructions", { size: 9, bold: true });
     y += 13;
@@ -260,6 +272,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     c.text(L, y, data.clientNote.slice(0, 140), { size: 9, color: MUTED });
     y += 20;
   }
+  if (zelleQr) y = Math.max(y, qrBottomY);
 
   if (data.payments.length && y < PAGE_H - 120) {
     c.text(L, y, "Payment History", { size: 9, bold: true });
