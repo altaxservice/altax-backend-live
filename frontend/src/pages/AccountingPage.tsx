@@ -96,7 +96,7 @@ export function AccountingPage() {
       {tab === "Payroll" && clientId && <PayrollTab clientId={clientId} clientState={client?.state} />}
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
       {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
-      {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} />}
+      {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} clientState={client?.state} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
       {tab === "GL" && clientId && (
         <GlTab clientId={clientId} initialRef={searchParams.get("ref")} initialAccount={searchParams.get("account")} />
@@ -1294,38 +1294,51 @@ function ImportTab({ clientId }: { clientId: string }) {
   );
 }
 
-function EmployeesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+/**
+ * Shared by the Employees tab and Contractors tab — each renders this locked to
+ * its own worker type instead of one combined table where you couldn't tell
+ * who was who without reading the Type column.
+ */
+function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersChanged }: { clientId: string; clientState?: string | null; workerType: "Employee" | "Contractor"; onWorkersChanged?: () => void }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const isContractorTab = workerType === "Contractor";
+  const [workers, setWorkers] = useState<Employee[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const EMPTY_EMPLOYEE_FORM = { employeeName: "", email: "", phone: "", workerType: "Employee", payType: "Hourly", payRate: "", defaultHours: "", defaultGrossWages: "", payFrequency: "", serviceCategory: "", grantPortalAccess: false, streetAddress: "", city: "", zipCode: "", state: clientState || "" };
-  const [form, setForm] = useState(EMPTY_EMPLOYEE_FORM);
+  const EMPTY_FORM = { employeeName: "", email: "", phone: "", payType: isContractorTab ? "1099" : "Hourly", payRate: "", defaultHours: "", defaultGrossWages: "", payFrequency: "", serviceCategory: "", grantPortalAccess: false, streetAddress: "", city: "", zipCode: "", state: clientState || "" };
+  const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
   const [printing, setPrinting] = useState<string | null>(null);
-  const [viewingW2, setViewingW2] = useState<string | null>(null);
+  const [viewingForm, setViewingForm] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<string | null>(null);
 
-  async function handleViewW2(emp: Employee) {
-    setViewingW2(emp.employee_id);
+  const formLabel = isContractorTab ? "1099-NEC" : "W-2";
+  function taxFormPath(emp: Employee) {
+    return isContractorTab
+      ? `/accounting/tax-forms/1099nec/${emp.employee_id}?year=${taxYear}`
+      : `/accounting/tax-forms/w2/${emp.employee_id}?year=${taxYear}`;
+  }
+
+  async function handleViewForm(emp: Employee) {
+    setViewingForm(emp.employee_id);
     try {
-      await viewFile(`/accounting/tax-forms/w2/${emp.employee_id}?year=${taxYear}`);
+      await viewFile(taxFormPath(emp));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this W-2.");
+      alert(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
     } finally {
-      setViewingW2(null);
+      setViewingForm(null);
     }
   }
 
-  async function handlePrintW2(emp: Employee) {
+  async function handlePrintForm(emp: Employee) {
     setPrinting(emp.employee_id);
     try {
-      await downloadFile(`/accounting/tax-forms/w2/${emp.employee_id}?year=${taxYear}`, `W2_${taxYear}_${emp.employee_name.replace(/\s+/g, "_")}.pdf`);
+      await downloadFile(taxFormPath(emp), `${isContractorTab ? "1099NEC" : "W2"}_${taxYear}_${emp.employee_name.replace(/\s+/g, "_")}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this W-2.");
+      alert(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
     } finally {
       setPrinting(null);
     }
@@ -1336,48 +1349,49 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
     try {
       await api.post(`/accounting/employees/${emp.employee_id}/archive`, {});
       load();
+      onWorkersChanged?.();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not archive this profile.");
     }
   }
 
-  // Moved here from the employee's own profile page — flagged live as the better
-  // home for it, right alongside Archive, instead of a lone red button lost among
-  // the profile header's other actions.
   async function handleDelete(emp: Employee) {
     const confirmValue = prompt(`Permanently delete "${emp.employee_name}"? This cannot be undone and only works if they have no payroll/1099 history. Type DELETE EMPLOYEE to confirm.`);
     if (confirmValue === null) return;
     try {
       await api.post(`/accounting/employees/${emp.employee_id}/delete`, { confirm: confirmValue });
       load();
+      onWorkersChanged?.();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not delete this profile.");
     }
   }
 
-  function employeeActionOptions(emp: Employee): ActionMenuOption[] {
-    const isContractor = String(emp.worker_type || "").toLowerCase().includes("contractor");
-    const opts: ActionMenuOption[] = [{ value: "edit", label: "Edit" }];
-    if (!isContractor) {
-      opts.push({ value: "view-w2", label: "View W-2" }, { value: "download-w2", label: "Download W-2" });
-    }
+  function workerActionOptions(emp: Employee): ActionMenuOption[] {
+    const opts: ActionMenuOption[] = [
+      { value: "edit", label: "Edit" },
+      { value: "view-form", label: `View ${formLabel}` },
+      { value: "download-form", label: `Download ${formLabel}` },
+    ];
     if (String(emp.status || "").toLowerCase() !== "archived") opts.push({ value: "archive", label: "Archive" });
     if (isAdmin) opts.push({ value: "delete", label: "Delete" });
     return opts;
   }
 
-  async function handleEmployeeAction(emp: Employee, action: string) {
+  async function handleWorkerAction(emp: Employee, action: string) {
     if (action === "edit") return navigate(`/employees/${emp.employee_id}?edit=1`);
-    if (action === "view-w2") return handleViewW2(emp);
-    if (action === "download-w2") return handlePrintW2(emp);
+    if (action === "view-form") return handleViewForm(emp);
+    if (action === "download-form") return handlePrintForm(emp);
     if (action === "archive") return handleArchive(emp);
     if (action === "delete") return handleDelete(emp);
   }
 
   function load() {
-    api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`).then((r) => setEmployees(r.employees)).catch(() => {});
+    api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`)
+      .then((r) => setWorkers(r.employees.filter((e) => String(e.worker_type || "").toLowerCase().includes("contractor") === isContractorTab)))
+      .catch(() => {});
   }
-  useEffect(load, [clientId]);
+  useEffect(load, [clientId, workerType]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1385,7 +1399,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
     setError(null);
     setInviteResult(null);
     try {
-      const res = await api.post<{ inviteLink?: string; employeeId: string }>("/accounting/employees", { clientId, ...form, payRate: Number(form.payRate) || 0, defaultHours: Number(form.defaultHours) || undefined, defaultGrossWages: Number(form.defaultGrossWages) || 0 });
+      const res = await api.post<{ inviteLink?: string; employeeId: string }>("/accounting/employees", { clientId, ...form, workerType, payRate: Number(form.payRate) || 0, defaultHours: Number(form.defaultHours) || undefined, defaultGrossWages: Number(form.defaultGrossWages) || 0 });
       if (form.streetAddress.trim() || form.city.trim() || form.zipCode.trim() || form.state.trim()) {
         await api.patch(`/accounting/employees/${res.employeeId}/sensitive`, {
           streetAddress: form.streetAddress.trim(), city: form.city.trim(), zipCode: form.zipCode.trim(), state: form.state.trim(),
@@ -1393,8 +1407,9 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
       }
       if (res.inviteLink) setInviteResult(res.inviteLink);
       setShowForm(false);
-      setForm(EMPTY_EMPLOYEE_FORM);
+      setForm(EMPTY_FORM);
       load();
+      onWorkersChanged?.();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save this profile.");
     } finally {
@@ -1404,7 +1419,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
 
   return (
     <div>
-      <button type="button" className="btn btn-primary" style={{ marginBottom: 16 }} onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Employee"}</button>
+      <button type="button" className="btn btn-primary" style={{ marginBottom: 16 }} onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : `Add ${workerType}`}</button>
       {inviteResult && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
           Portal access granted. Send this invite link to the employee: <code style={{ wordBreak: "break-all" }}>{inviteResult}</code>
@@ -1414,7 +1429,6 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
         <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 460, marginBottom: 20 }}>
           {error && <ErrorBanner error={error} />}
           <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-          <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
           <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Pay Rate</label><input type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
@@ -1422,7 +1436,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
           </div>
           <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
           <div className="field"><label>Pay Frequency</label><input value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))} placeholder="e.g. Weekly, Bi-Weekly" /></div>
-          {form.workerType === "Contractor" && (
+          {isContractorTab && (
             <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
           )}
           <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
@@ -1446,7 +1460,7 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
               {US_STATES.map((s) => <option key={s}>{s}</option>)}
             </select>
           </div>
-          {form.workerType === "Employee" && (
+          {!isContractorTab && (
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0 12px" }}>
               <input type="checkbox" checked={form.grantPortalAccess} onChange={(e) => setForm((f) => ({ ...f, grantPortalAccess: e.target.checked }))} />
               Grant employee portal access (requires an email above)
@@ -1456,8 +1470,8 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
         </form>
       )}
       <Panel
-        title="Employees & Contractors"
-        note={`${employees.length} profiles`}
+        title={isContractorTab ? "Contractors" : "Employees"}
+        note={`${workers.length} profiles`}
         action={
           <div className="field" style={{ margin: 0 }}>
             <label>Tax Year</label>
@@ -1467,21 +1481,20 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
       >
         <div className="table-scroll card-table">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th>Name</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
-            {employees.map((e) => (
+            {workers.map((e) => (
               <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
                 <td data-label="Name"><Link to={`/employees/${e.employee_id}`} style={{ fontWeight: 600 }}>{e.employee_name}</Link></td>
-                <td className="muted" data-label="Type">{e.worker_type || "Employee"}</td>
                 <td className="muted" data-label="Pay Type">{e.pay_type || "—"}</td>
                 <td className="muted" data-label="State">{e.state || "—"}</td>
                 <td data-label="Rate">{fmtMoney(e.pay_rate)}</td>
                 <td className="muted" data-label="Status">{e.status}</td>
                 <td data-label="Action" onClick={(ev) => ev.stopPropagation()}>
                   <ActionMenu
-                    options={employeeActionOptions(e)}
-                    disabled={viewingW2 === e.employee_id || printing === e.employee_id}
-                    onSelect={(action) => handleEmployeeAction(e, action)}
+                    options={workerActionOptions(e)}
+                    disabled={viewingForm === e.employee_id || printing === e.employee_id}
+                    onSelect={(action) => handleWorkerAction(e, action)}
                   />
                 </td>
               </tr>
@@ -1489,11 +1502,15 @@ function EmployeesTab({ clientId, clientState }: { clientId: string; clientState
           </tbody>
         </table>
         </div>
-        {employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees or contractors added yet.</p>}
-        <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile and send them a file. W-2, Archive, and Delete are in the Actions menu.</p>
+        {workers.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No {isContractorTab ? "contractors" : "employees"} added yet.</p>}
+        <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile and send them a file. {formLabel}, Archive, and Delete are in the Actions menu.</p>
       </Panel>
     </div>
   );
+}
+
+function EmployeesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  return <WorkerProfilesSection clientId={clientId} clientState={clientState} workerType="Employee" />;
 }
 
 const EMPTY_CONTRACTOR_PAYMENT_FORM = {
@@ -1502,7 +1519,7 @@ const EMPTY_CONTRACTOR_PAYMENT_FORM = {
 };
 const CONTRACTOR_PAYMENT_METHODS = ["Check", "ACH", "Zelle", "Cash", "Card", "Other"];
 
-function ContractorsTab({ clientId }: { clientId: string }) {
+function ContractorsTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const [contractors, setContractors] = useState<Employee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -1609,6 +1626,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
     // 476 as the right half of a two-column grid, so it was cut off at 100%
     // zoom no matter how few columns it had.
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+      <WorkerProfilesSection clientId={clientId} clientState={clientState} workerType="Contractor" onWorkersChanged={load} />
       <Panel title="Record Contractor Payment">
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <ErrorBanner error={error} />}
@@ -1619,7 +1637,7 @@ function ContractorsTab({ clientId }: { clientId: string }) {
               {contractors.map((c) => <option key={c.employee_id} value={c.employee_id}>{c.employee_name}</option>)}
             </select>
           </div>
-          {contractors.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No contractor profiles yet — add one under the Employees tab (Worker Type: Contractor) first.</p>}
+          {contractors.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No contractor profiles yet — use "Add Contractor" above first.</p>}
           <div className="field"><label>Amount</label><input type="number" step="0.01" required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
           <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

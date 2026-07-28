@@ -164,7 +164,7 @@ export function EmployeeDetailPage() {
 
   return (
     <div>
-      <Link to={`/accounting?client=${employee.client_id}&tab=Employees`} className="muted">← Employees & Contractors</Link>
+      <Link to={`/accounting?client=${employee.client_id}&tab=${isContractor ? "Contractors" : "Employees"}`} className="muted">← {isContractor ? "Contractors" : "Employees"}</Link>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{employee.employee_name}</h1>
@@ -175,7 +175,7 @@ export function EmployeeDetailPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, alignItems: "center", borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {EMPLOYEE_TABS.map((t) => (
           <div
             key={t}
@@ -189,6 +189,11 @@ export function EmployeeDetailPage() {
             {t}
           </div>
         ))}
+        {canEdit && String(employee.status || "").toLowerCase() !== "archived" && (
+          <button className="btn btn-sm" disabled={statusSaving} onClick={handleToggleStatus} style={{ marginLeft: 4 }}>
+            {statusSaving ? "Saving…" : String(employee.status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
+          </button>
+        )}
       </div>
 
       {tab === "Profile" && (
@@ -349,10 +354,7 @@ export function EmployeeDetailPage() {
       )}
 
       {tab === "Tax Documents" && canEdit && (
-        <TaxDocumentsSection
-          employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor}
-          status={employee.status} statusSaving={statusSaving} onToggleStatus={handleToggleStatus}
-        />
+        <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
       )}
     </div>
   );
@@ -364,7 +366,7 @@ export function EmployeeDetailPage() {
  * year-number box the user has to guess into. Replaces the old header's Tax Year
  * + View/Download W-2 cluster, which sat unlabeled next to unrelated buttons.
  */
-function TaxDocumentsSection({ employeeId, employeeName, isContractor, status, statusSaving, onToggleStatus }: { employeeId: string; employeeName: string; isContractor: boolean; status: string; statusSaving: boolean; onToggleStatus: () => void }) {
+function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { employeeId: string; employeeName: string; isContractor: boolean }) {
   const [years, setYears] = useState<number[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyYear, setBusyYear] = useState<string | null>(null);
@@ -407,16 +409,9 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor, status, s
 
   return (
     <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div>
-          <strong style={{ fontSize: 14 }}>Tax Documents</strong>
-          <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Every year {employeeName} has real payroll/payment history for — {formLabel} is generated fresh each time from that year's records.</p>
-        </div>
-        {String(status || "").toLowerCase() !== "archived" && (
-          <button className="btn btn-sm" disabled={statusSaving} onClick={onToggleStatus} style={{ flexShrink: 0 }}>
-            {statusSaving ? "Saving…" : String(status || "").toLowerCase() === "active" ? "Set Inactive" : "Set Active"}
-          </button>
-        )}
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Tax Documents</strong>
+        <p className="muted" style={{ fontSize: 12, margin: "2px 0 0" }}>Every year {employeeName} has real payroll/payment history for — {formLabel} is generated fresh each time from that year's records.</p>
       </div>
       {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
       {!years ? (
