@@ -74,7 +74,8 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
   const rows = await query<any>(
     `SELECT user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
             reminder_preference, active, last_login, must_reset_password, invite_expires,
-            (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite
+            (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite,
+            pending_email, pending_email_expires
        FROM altax.v3_users
       ORDER BY name ASC`
   );
@@ -410,4 +411,153 @@ usersRouter.post("/:userId/temporary-password", requireAuth, requireRole("admin"
     `Temporary password set by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, email: user.email, userId: user.user_id, temporaryPassword: tempPassword });
+}));
+
+/* ------------------------------------------------------------------------- *
+ * Changing a portal sign-in email
+ *
+ * The sign-in email is not just a label: login codes and password resets are
+ * sent to it, so whoever controls that address controls the account. A staff
+ * member therefore REQUESTS the change here, and it only takes effect once
+ * someone at the new address clicks the confirmation link (POST
+ * /auth/confirm-email-change). Two failure modes that motivates:
+ *
+ *  - A typo, likely since these get dictated over the phone, would otherwise
+ *    lock the client out of their own portal permanently AND deliver their
+ *    password resets to a stranger's mailbox.
+ *  - "Please change my login to <attacker>" is exactly the request an attacker
+ *    sends. An address they don't control simply never confirms.
+ *
+ * The old address is always told what is happening, so a change nobody asked
+ * for is visible to the person who would notice.
+ * ------------------------------------------------------------------------- */
+
+const EMAIL_CHANGE_TTL_MS = 48 * 60 * 60 * 1000;
+
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
+}
+
+/** j•••@gmail.com — enough for staff to confirm the right address without printing it in full. */
+function maskEmail(email: string): string {
+  const [local, domain] = String(email || "").split("@");
+  if (!domain) return email;
+  return `${local.slice(0, 1)}${"•".repeat(Math.max(2, local.length - 1))}@${domain}`;
+}
+
+/**
+ * Request a sign-in email change. Admin only, and deliberately does NOT write
+ * v3_users.email — see the block comment above.
+ */
+usersRouter.post("/:userId/request-email-change", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const newEmail = String(req.body?.newEmail || "").trim().toLowerCase();
+  // Clients almost always want both addresses to move together; staff can opt out
+  // when the login belongs to the owner but billing goes to a bookkeeper.
+  const syncContact = req.body?.syncContact !== false;
+
+  if (!looksLikeEmail(newEmail)) return res.status(400).json({ error: "Enter a valid email address." });
+
+  const user = await queryOne<any>(`SELECT * FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+
+  const currentEmail = String(user.email || "").trim().toLowerCase();
+  if (currentEmail === newEmail) return res.status(400).json({ error: "That is already the sign-in email for this account." });
+
+  // Role is stored inconsistently ("Client" and "client" both exist), and the
+  // uq_users_email_role index is over the raw values — so it would happily accept
+  // the same address twice under different casings. Compare normalized.
+  const clash = await queryOne<any>(
+    `SELECT user_id, role FROM altax.v3_users
+      WHERE lower(trim(email)) = $1 AND lower(trim(COALESCE(role, ''))) = $2 AND user_id <> $3`,
+    [newEmail, String(user.role || "").trim().toLowerCase(), userId]
+  );
+  if (clash) return res.status(409).json({ error: "Another portal account already uses that email address." });
+
+  const token = newInviteToken();
+  const expires = new Date(Date.now() + EMAIL_CHANGE_TTL_MS);
+  await query(
+    `UPDATE altax.v3_users
+        SET pending_email = $2, pending_email_token = $3, pending_email_expires = $4,
+            pending_email_sync_contact = $5, updated_at = now()
+      WHERE user_id = $1`,
+    [userId, newEmail, token, expires, syncContact]
+  );
+
+  await logAudit("Security", "REQUEST_EMAIL_CHANGE", user.user_id || user.email, "Email", currentEmail, newEmail,
+    `Sign-in email change requested by ${req.user!.email}; awaiting confirmation at the new address.`, req.user!.email);
+
+  const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+  const link = `${base}/confirm-email-change?token=${encodeURIComponent(token)}`;
+
+  const { sendEmail } = await import("../../common/notifications");
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const name = String(user.name || "").trim();
+
+  // Confirmation to the NEW address — the only message that can complete the change.
+  let confirmSent = false;
+  let confirmError: string | undefined;
+  try {
+    await sendEmail({
+      to: newEmail,
+      subject: "Confirm your new AL TAX portal sign-in email",
+      html: await wrapEmailHtml(
+        `<p>Hello${name ? ` ${name}` : ""},</p>
+         <p>We were asked to change the email you use to sign in to your AL TAX portal to <strong>${newEmail}</strong>.</p>
+         <p>Confirm below and this address becomes your sign-in email. Your password and everything in your portal stay exactly as they are.</p>
+         <p style="margin:26px 0"><a href="${link}" style="background:#0f766e;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600">Confirm This Email</a></p>
+         <p style="color:#64748b;font-size:13px">This link expires in 48 hours. If you weren't expecting this, ignore this email — nothing changes until it is confirmed.</p>`,
+        req
+      ),
+    });
+    confirmSent = true;
+  } catch (err: any) {
+    confirmError = err?.message || "Send failed.";
+  }
+
+  // Heads-up to the OLD address, so an unrequested change reaches the person who
+  // would recognise it as wrong. Never blocks the request.
+  if (currentEmail) {
+    try {
+      await sendEmail({
+        to: currentEmail,
+        subject: "Your AL TAX portal sign-in email is being changed",
+        html: await wrapEmailHtml(
+          `<p>Hello${name ? ` ${name}` : ""},</p>
+           <p>A request was made to change your AL TAX portal sign-in email to <strong>${maskEmail(newEmail)}</strong>.</p>
+           <p>It takes effect only when that new address confirms it. Until then you keep signing in with this address.</p>
+           <p style="color:#b42318"><strong>If you did not ask for this, contact us right away</strong> — do not ignore this message.</p>`,
+          req
+        ),
+      });
+    } catch {
+      // Old address may already be dead — that's often WHY the change is happening.
+    }
+  }
+
+  res.json({
+    ok: true, userId, pendingEmail: newEmail, expires, syncContact,
+    confirmationEmailed: confirmSent, confirmationEmailError: confirmError,
+    // Returned so staff can pass the link on by phone/WhatsApp if email delivery fails.
+    confirmLink: link,
+  });
+}));
+
+/** Abandon a requested change (wrong address typed, client changed their mind). */
+usersRouter.post("/:userId/cancel-email-change", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT * FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+  if (!user.pending_email) return res.status(400).json({ error: "There is no pending email change on this account." });
+
+  await query(
+    `UPDATE altax.v3_users
+        SET pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL, updated_at = now()
+      WHERE user_id = $1`,
+    [userId]
+  );
+  await logAudit("Security", "CANCEL_EMAIL_CHANGE", user.user_id || user.email, "Email", String(user.pending_email), "",
+    `Pending sign-in email change cancelled by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, userId });
 }));

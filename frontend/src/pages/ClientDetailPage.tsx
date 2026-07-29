@@ -5,6 +5,7 @@ import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { BackLink } from "../components/BackLink";
 import { UploadFileModal } from "../components/UploadFileModal";
+import { ChangePortalEmailModal } from "../components/ChangePortalEmailModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
@@ -160,6 +161,7 @@ export function ClientDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
+  const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [comms, setComms] = useState<Communication[] | null>(null);
@@ -481,6 +483,7 @@ export function ClientDetailPage() {
                   <h2 style={{ fontSize: 15, margin: 0 }}>Profile</h2>
                   <div style={{ display: "flex", gap: 8 }}>
                     {isAdmin && <button className="btn btn-sm" onClick={handleInvite}>Send Portal Invitation</button>}
+                    {isAdmin && <button className="btn btn-sm" onClick={() => setEmailChangeOpen(true)}>Change Sign-In Email</button>}
                     {canEdit && <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit</button>}
                   </div>
                 </div>
@@ -646,6 +649,15 @@ export function ClientDetailPage() {
           taskId={requestDocTask.task_id}
           onClose={() => setRequestDocTask(null)}
           onDone={loadTasks}
+        />
+      )}
+      {emailChangeOpen && (
+        <ChangePortalEmailModal
+          clientId={client.client_id}
+          clientName={client.client_name}
+          contactEmail={client.email}
+          onClose={() => setEmailChangeOpen(false)}
+          onDone={load}
         />
       )}
     </div>

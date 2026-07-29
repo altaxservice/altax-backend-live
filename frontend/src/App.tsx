@@ -9,6 +9,7 @@ import { NavigationMemory } from "./components/NavigationMemory";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
+import { ConfirmEmailChangePage } from "./pages/ConfirmEmailChangePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ClientsListPage } from "./pages/ClientsListPage";
 import { ClientDetailPage } from "./pages/ClientDetailPage";
@@ -52,6 +53,7 @@ function App() {
           <Route path="/login/client" element={<LoginPage lockedPortal="client" />} />
           <Route path="/login/employee" element={<LoginPage lockedPortal="employee" />} />
           <Route path="/accept-invite" element={<AcceptInvitePage />} />
+          <Route path="/confirm-email-change" element={<ConfirmEmailChangePage />} />
           <Route path="/public/invoice/:token" element={<PublicInvoicePage />} />
           <Route path="/public/contract/:token" element={<PublicContractPage />} />
           <Route path="/public/message/:token" element={<PublicMessagePage />} />

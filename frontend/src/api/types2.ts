@@ -30,6 +30,9 @@ export interface PortalUser {
   must_reset_password: boolean;
   invite_expires: string | null;
   has_pending_invite: boolean;
+  /** A sign-in email change requested but not yet confirmed at the new address. */
+  pending_email: string | null;
+  pending_email_expires: string | null;
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;

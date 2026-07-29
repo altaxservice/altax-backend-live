@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS v3_users (
     login_otp_hash VARCHAR(128),
     login_otp_expires TIMESTAMPTZ,
     login_otp_attempts INTEGER NOT NULL DEFAULT 0,
+    -- A sign-in email change that has been requested but NOT yet confirmed. The
+    -- address only moves into `email` once the owner of the new address clicks the
+    -- link sent to it, so a typo can never lock a client out of their own portal
+    -- (and can never hand their password resets to a stranger's mailbox).
+    pending_email VARCHAR(255),
+    pending_email_token VARCHAR(255),
+    pending_email_expires TIMESTAMPTZ,
+    -- Whether confirming should also move the client's contact address (invoices,
+    -- reminders, file-share notices), which is stored separately on v3_clients.
+    pending_email_sync_contact BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_v3_users_assigned_client_id FOREIGN KEY (assigned_client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL,

@@ -678,3 +678,97 @@ authRouter.post("/change-password", requireAuth, asyncHandler(async (req: Authed
     client.release();
   }
 }));
+
+/**
+ * Confirm a sign-in email change, from the link mailed to the NEW address (see
+ * POST /users/:userId/request-email-change). Holding this token proves control of
+ * that mailbox, which is exactly what the sign-in email needs to be worth — so
+ * this is the only place v3_users.email actually moves.
+ *
+ * Public by design: the person confirming cannot sign in yet (their address isn't
+ * the account's email until this succeeds). The token is single-use, 48h-lived and
+ * rate limited, and it grants nothing beyond this one change — no session is
+ * issued, so a leaked token can't be used to read anything.
+ */
+authRouter.post("/confirm-email-change", codeLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const token = String(req.body?.token || "").trim();
+  if (!token) return res.status(400).json({ error: "Confirmation token is required." });
+
+  const user = await queryOne<any>(`SELECT * FROM altax.v3_users WHERE pending_email_token = $1`, [token]);
+  // Same generic message for "never existed" and "already used", so the endpoint
+  // can't be probed to learn which tokens were real.
+  if (!user || !user.pending_email) {
+    return res.status(400).json({ error: "This confirmation link is no longer valid. Ask AL TAX to send a new one." });
+  }
+
+  const expires = user.pending_email_expires ? new Date(user.pending_email_expires) : null;
+  if (expires && !Number.isNaN(expires.getTime()) && expires.getTime() < Date.now()) {
+    await query(
+      `UPDATE altax.v3_users SET pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL, updated_at = now() WHERE user_id = $1`,
+      [user.user_id]
+    );
+    return res.status(400).json({ error: "This confirmation link has expired. Ask AL TAX to send a new one." });
+  }
+
+  const oldEmail = String(user.email || "").trim();
+  const newEmail = String(user.pending_email).trim().toLowerCase();
+
+  // Re-check the collision at confirm time: another account could have taken this
+  // address during the 48 hours the request was outstanding.
+  const clash = await queryOne<any>(
+    `SELECT user_id FROM altax.v3_users
+      WHERE lower(trim(email)) = $1 AND lower(trim(COALESCE(role, ''))) = $2 AND user_id <> $3`,
+    [newEmail, String(user.role || "").trim().toLowerCase(), user.user_id]
+  );
+  if (clash) return res.status(409).json({ error: "That email is now used by another portal account. Contact AL TAX." });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // user_id is untouched, so password, 2FA, and every record that points at this
+    // account survive the change — only the address moves.
+    await client.query(
+      `UPDATE altax.v3_users
+          SET email = $2, pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL,
+              login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0, updated_at = now()
+        WHERE user_id = $1`,
+      [user.user_id, newEmail]
+    );
+    if (user.pending_email_sync_contact && user.assigned_client_id) {
+      await client.query(
+        `UPDATE altax.v3_clients SET email = $2, updated_at = now() WHERE client_id = $1`,
+        [user.assigned_client_id, newEmail]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  await logAudit("Security", "CONFIRM_EMAIL_CHANGE", user.user_id || newEmail, "Email", oldEmail, newEmail,
+    "Sign-in email change confirmed from the link sent to the new address.", newEmail);
+
+  // Tell the old address it is done, so a change the account owner didn't want is
+  // still visible to them while it is fresh enough to undo.
+  if (oldEmail) {
+    try {
+      await sendEmail({
+        to: oldEmail,
+        subject: "Your AL TAX portal sign-in email has been changed",
+        html: await wrapEmailHtml(
+          `<p>Your AL TAX portal sign-in email has been changed to <strong>${newEmail}</strong>.</p>
+           <p>Sign in with the new address from now on. Your password has not changed.</p>
+           <p style="color:#b42318"><strong>If you did not ask for this, contact us right away.</strong></p>`,
+          req
+        ),
+      });
+    } catch {
+      // Old mailbox may be gone — commonly the reason for the change.
+    }
+  }
+
+  res.json({ ok: true, email: newEmail, contactEmailUpdated: Boolean(user.pending_email_sync_contact && user.assigned_client_id) });
+}));
