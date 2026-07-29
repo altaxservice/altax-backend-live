@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile } from "../api/client";
+import { api, ApiError, downloadFile, fetchAuthedBlob } from "../api/client";
 import { BackLink } from "../components/BackLink";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
+import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
 import { money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
 
 /**
@@ -29,8 +30,10 @@ export function EstimateDetailPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [addLineOpen, setAddLineOpen] = useState(false);
 
   function load() {
     if (!estimateId) return;
@@ -119,7 +122,32 @@ export function EstimateDetailPage() {
     if (dirty) await saveLines();
   }
 
-  async function handlePrint() {
+  async function handleView() {
+    if (!estimateId) return;
+    // The blank tab has to open on THIS line — the very first thing the handler
+    // does, before any await — or Safari/Chrome no longer count it as tied to
+    // the click and silently block it as a popup. ensureSaved() below awaits a
+    // network save when the lines are dirty, so viewFile's own all-in-one
+    // window.open()-then-fetch can't be used here; opening the tab first and
+    // filling it in once the (possibly two-step) fetch resolves preserves the
+    // same guarantee.
+    const win = window.open("", "_blank");
+    setViewing(true);
+    try {
+      await ensureSaved();
+      const blob = await fetchAuthedBlob(`/estimates/${estimateId}/print`);
+      const url = URL.createObjectURL(blob);
+      if (win) win.location.href = url;
+      else window.open(url, "_blank");
+    } catch (err) {
+      win?.close();
+      alert(err instanceof ApiError ? err.message : "Could not generate the PDF.");
+    } finally {
+      setViewing(false);
+    }
+  }
+
+  async function handleDownload() {
     if (!estimateId) return;
     setPrinting(true);
     try {
@@ -137,12 +165,10 @@ export function EstimateDetailPage() {
     setSendOpen(true);
   }
 
-  function addCustomLine() {
-    setLines((prev) => [...prev, {
-      description: "", category: "Service", qty: 1, unit_cost: 0, unit_price: 0,
-      amount_kind: "fixed", percent_rate: 0, included: false, payer: "Firm",
-    }]);
+  function handleLineAdded(newLines: EstimateLine[]) {
+    setLines((prev) => [...prev, ...newLines]);
     setDirty(true);
+    setAddLineOpen(false);
   }
 
   if (error) return <ErrorBanner error={error} />;
@@ -167,7 +193,8 @@ export function EstimateDetailPage() {
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {dirty && <button className="btn btn-primary" disabled={saving} onClick={() => saveLines()}>{saving ? "Saving…" : "Save Changes"}</button>}
-          <button className="btn" disabled={printing} onClick={handlePrint}>{printing ? "Generating…" : "Preview / Download PDF"}</button>
+          <button className="btn" disabled={viewing} onClick={handleView}>{viewing ? "Generating…" : "Preview PDF"}</button>
+          <button className="btn" disabled={printing} onClick={handleDownload}>{printing ? "Generating…" : "Download PDF"}</button>
           <button className="btn" onClick={handleOpenSend}>Send to Client</button>
           {!locked && <button className="btn" disabled={busy} onClick={handleRebuild}>Rebuild from Fee Schedule</button>}
           {estimate.status !== "Approved" && <button className="btn" disabled={busy} onClick={handleApprove}>Mark Approved</button>}
@@ -197,8 +224,16 @@ export function EstimateDetailPage() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Estimate Lines</h2>
-          {!locked && <button className="btn btn-sm" onClick={addCustomLine}>Add Line</button>}
+          {!locked && <button className="btn btn-sm" onClick={() => setAddLineOpen(true)}>Add Line</button>}
         </div>
+
+        {addLineOpen && (
+          <AddEstimateLineModal
+            jurisdiction={estimate.jurisdiction}
+            onClose={() => setAddLineOpen(false)}
+            onAdd={handleLineAdded}
+          />
+        )}
 
         <div className="table-wrap">
           <table className="data-table">
