@@ -182,6 +182,66 @@ async function notifyDocumentRequest(
 }
 
 /**
+ * Real branded email (plus a communications-history row) telling a client or
+ * employee that AL TAX just shared file(s) into their portal — staff's "Send File
+ * to Client/Employee" was previously completely silent, so recipients only found
+ * files if they happened to log in and look. A missing address or a provider
+ * error degrades to log-only rather than failing the upload; multi-file batches
+ * send ONE email listing every file, not one email per file.
+ */
+async function notifyPortalFileShared(opts: {
+  req: AuthedRequest;
+  clientId: string; clientName: string; recipientEmail: string | null;
+  fileNames: string[]; notes: string | null;
+  employeeName?: string | null; portalPath: "client" | "employee";
+}): Promise<void> {
+  const forWhom = opts.employeeName ? `${opts.employeeName} (${opts.clientName})` : opts.clientName;
+  const many = opts.fileNames.length > 1;
+  const fileList = opts.fileNames.join(", ");
+  const subject = many
+    ? `AL TAX shared ${opts.fileNames.length} files with you`
+    : `AL TAX shared a file with you: ${opts.fileNames[0]}`;
+  const noteText = opts.notes ? `\nNote from AL TAX: ${opts.notes}` : "";
+  const messageEnglish = `AL TAX shared ${many ? `${opts.fileNames.length} files` : `"${opts.fileNames[0]}"`} with ${forWhom}: ${fileList}.\n\nSign in to your portal and open Documents to view or download.${noteText}`;
+  const messageArabic = `شارك AL TAX ${many ? `${opts.fileNames.length} ملفات` : "ملفاً"} معك: ${fileList}.\n\nسجّل الدخول إلى بوابتك وافتح المستندات لعرضها أو تحميلها.`;
+
+  let status = "Saved";
+  if (opts.recipientEmail) {
+    try {
+      const { sendEmail } = await import("../../common/notifications");
+      const { wrapEmailHtml } = await import("../../common/emailTemplate");
+      const { publicBaseUrl } = await import("../../common/publicUrl");
+      const base = publicBaseUrl(opts.req);
+      const loginUrl = base && !/localhost|127\.0\.0\.1/i.test(base) ? `${base}/login/${opts.portalPath}` : null;
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const html = await wrapEmailHtml(`
+        <p style="margin:0 0 14px;">Hello ${esc(forWhom)},</p>
+        <p style="margin:0 0 10px;">AL TAX has shared ${many ? "new documents" : "a new document"} with you:</p>
+        <ul style="margin:0 0 14px; padding-left:20px;">
+          ${opts.fileNames.map((f) => `<li style="margin:2px 0; font-weight:700;">${esc(f)}</li>`).join("")}
+        </ul>
+        ${opts.notes ? `<p style="margin:0 0 14px; color:#6b7280;">${esc(opts.notes)}</p>` : ""}
+        <p style="margin:0 0 18px;">Sign in to your portal and open <strong>Documents</strong> to view or download ${many ? "them" : "it"}.</p>
+        ${loginUrl ? `<p style="margin:0;"><a href="${loginUrl}" style="display:inline-block; background:#0f766e; color:#ffffff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">Open My Portal</a></p>` : ""}
+      `, opts.req);
+      await sendEmail({ to: opts.recipientEmail, subject, html });
+      status = "Saved + Sent";
+    } catch (err: any) {
+      status = `Saved — ${err?.message || "email failed"}`;
+    }
+  }
+
+  await query(
+    `INSERT INTO altax.v3_communications
+       (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+     VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Document Share',$1)`,
+    [nextCommunicationId(), opts.clientId, opts.clientName, subject, messageEnglish, messageArabic,
+      opts.recipientEmail, opts.req.user!.email, status]
+  );
+}
+
+/**
  * Create a document request — ported from alTaxV3CreateDocumentRequest_. Admin/staff
  * only: this is the "firm requests a document from the client" direction.
  */
@@ -562,7 +622,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     if (!["admin", "staff"].includes(req.user!.role)) {
       return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to an employee." });
     }
-    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name FROM altax.v3_employees WHERE employee_id = $1`, [directEmployeeId]);
+    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name, email FROM altax.v3_employees WHERE employee_id = $1`, [directEmployeeId]);
     if (!employee) return res.status(404).json({ error: `Employee not found: ${directEmployeeId}` });
     if (!(await canAccessClient(req.user!, employee.client_id))) {
       return res.status(403).json({ error: "You do not have access to this employee." });
@@ -578,6 +638,18 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
       ]
     );
+
+    // notify:false lets a multi-file batch stay silent on all but its last file,
+    // which then carries batchFileNames so the recipient gets ONE email listing
+    // everything instead of an email per file.
+    if (body.notify !== false) {
+      await notifyPortalFileShared({
+        req, clientId: employee.client_id, clientName: employee.client_name, recipientEmail: employee.email || null,
+        fileNames: Array.isArray(body.batchFileNames) && body.batchFileNames.length ? body.batchFileNames.map(String) : [fileName],
+        notes: String(body.notes || "").trim() || null,
+        employeeName: employee.employee_name, portalPath: "employee",
+      });
+    }
   } else {
     // Direct client upload — no request or task behind it (e.g. the Clients page's
     // "Upload Document" row action, which just needs to drop a file into a client's
@@ -588,7 +660,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     if (!["admin", "staff"].includes(req.user!.role)) {
       return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to a client." });
     }
-    const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [directClientId]);
+    const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [directClientId]);
     if (!client) return res.status(404).json({ error: `Client not found: ${directClientId}` });
     if (!(await canAccessClient(req.user!, client.client_id))) {
       return res.status(403).json({ error: "You do not have access to this client." });
@@ -604,6 +676,17 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient),
       ]
     );
+
+    // Never notify about a file the client can't see (hiddenFromClient); notify:false
+    // is the multi-file batch's way of holding the single combined email for last.
+    if (!body.hiddenFromClient && body.notify !== false) {
+      await notifyPortalFileShared({
+        req, clientId: client.client_id, clientName: client.client_name, recipientEmail: client.email || null,
+        fileNames: Array.isArray(body.batchFileNames) && body.batchFileNames.length ? body.batchFileNames.map(String) : [fileName],
+        notes: String(body.notes || "").trim() || null,
+        portalPath: "client",
+      });
+    }
   }
 
   await logAudit("Documents", "UPLOAD", uploadId, "FileURL", "", fileUrl, "Document uploaded/linked from web app.", req.user!.email);

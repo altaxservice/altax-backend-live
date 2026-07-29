@@ -17,7 +17,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
 }) {
   const toast = useToast();
   const [mode, setMode] = useState<"browse" | "link">("browse");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [fileUrl, setFileUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [note, setNote] = useState("");
@@ -26,23 +26,42 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (mode === "browse" && !file) { setError("Choose a file."); return; }
+    if (mode === "browse" && files.length === 0) { setError("Choose at least one file."); return; }
     if (mode === "link" && !fileUrl.trim()) { setError("Paste a file link."); return; }
-    if (file && file.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB).`); return; }
+    const tooBig = files.find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig) { setError(`"${tooBig.name}" is too large (${(tooBig.size / 1024 / 1024).toFixed(1)}MB).`); return; }
 
     setSaving(true);
     setError(null);
     try {
-      const fileData = file ? await fileToBase64(file) : null;
-      await api.post("/documents/uploads", {
-        clientId,
-        fileName: fileName || file?.name || undefined,
-        fileData: fileData || undefined,
-        mimeType: file?.type || undefined,
-        fileUrl: !fileData ? fileUrl.trim() : undefined,
-        notes: note.trim() || undefined,
-      });
-      toast(`File shared to ${clientName}'s portal.`);
+      if (mode === "link") {
+        await api.post("/documents/uploads", {
+          clientId,
+          fileName: fileName || undefined,
+          fileUrl: fileUrl.trim(),
+          notes: note.trim() || undefined,
+        });
+      } else {
+        // Sequential uploads; only the LAST one triggers the client's notification
+        // email, carrying every filename so a batch arrives as one message.
+        const allNames = files.map((f) => f.name);
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i];
+          const isLast = i === files.length - 1;
+          await api.post("/documents/uploads", {
+            clientId,
+            fileName: files.length === 1 && fileName ? fileName : f.name,
+            fileData: await fileToBase64(f),
+            mimeType: f.type || undefined,
+            notes: note.trim() || undefined,
+            notify: isLast,
+            batchFileNames: isLast && files.length > 1 ? allNames : undefined,
+          });
+        }
+      }
+      toast(mode === "browse" && files.length > 1
+        ? `${files.length} files shared to ${clientName}'s portal — they've been emailed.`
+        : `File shared to ${clientName}'s portal — they've been emailed.`);
       onDone();
       onClose();
     } catch (err) {
@@ -67,8 +86,8 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
           </div>
           {mode === "browse" ? (
             <div className="field">
-              <label>Choose File</label>
-              <FileDropInput file={file} onChange={setFile} />
+              <label>Choose Files</label>
+              <FileDropInput files={files} onFilesChange={setFiles} />
             </div>
           ) : (
             <div className="field">
@@ -76,17 +95,24 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
               <input type="url" required placeholder="https://…" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} />
             </div>
           )}
+          {(mode === "link" || files.length <= 1) && (
+            <div className="field">
+              <label>File Name {mode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
+              <input required={mode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+            </div>
+          )}
           <div className="field">
-            <label>File Name {mode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
-            <input required={mode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Note <span className="muted">(optional)</span></label>
+            <label>Note <span className="muted">(optional — included in the notification email)</span></label>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Signed engagement letter" />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+            {clientName} gets one email letting them know the file{files.length > 1 ? "s are" : " is"} waiting in their portal.
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
             <button type="button" className="btn" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Uploading…" : "Upload"}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? "Uploading…" : mode === "browse" && files.length > 1 ? `Upload ${files.length} Files` : "Upload"}
+            </button>
           </div>
         </form>
       </div>

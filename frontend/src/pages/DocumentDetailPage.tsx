@@ -33,7 +33,7 @@ export function DocumentDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showUploadForm, setShowUploadForm] = useState(searchParams.get("open") === "upload");
   const [uploadMode, setUploadMode] = useState<"browse" | "link">("browse");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [fileUrl, setFileUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [note, setNote] = useState("");
@@ -104,19 +104,24 @@ export function DocumentDetailPage() {
     setSaveError(null);
     try {
       if (uploadMode === "browse") {
-        if (!file) throw new ApiError("Choose a file to upload.", 400);
-        if (file.size > MAX_UPLOAD_BYTES) throw new ApiError(`That file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Files over 8MB need to be shared as a link instead.`, 400);
-        const fileData = await fileToBase64(file);
-        await api.post("/documents/uploads", { requestId, fileName: fileName || file.name, fileData, mimeType: file.type, notes: note || undefined });
+        if (files.length === 0) throw new ApiError("Choose at least one file to upload.", 400);
+        const tooBig = files.find((f) => f.size > MAX_UPLOAD_BYTES);
+        if (tooBig) throw new ApiError(`"${tooBig.name}" is too large (${(tooBig.size / 1024 / 1024).toFixed(1)}MB). Files over 8MB need to be shared as a link instead.`, 400);
+        for (const f of files) {
+          const fileData = await fileToBase64(f);
+          // The File Name override only makes sense for a single file — batches keep their own names.
+          const name = files.length === 1 && fileName ? fileName : f.name;
+          await api.post("/documents/uploads", { requestId, fileName: name, fileData, mimeType: f.type, notes: note || undefined });
+        }
       } else {
         await api.post("/documents/uploads", { requestId, fileUrl, fileName, notes: note || undefined });
       }
       setShowUploadForm(false);
-      setFile(null);
+      setFiles([]);
       setFileUrl("");
       setFileName("");
       setNote("");
-      toast("File uploaded.");
+      toast(uploadMode === "browse" && files.length > 1 ? `${files.length} files uploaded.` : "File uploaded.");
       load();
       loadUploads();
     } catch (err) {
@@ -208,8 +213,8 @@ export function DocumentDetailPage() {
           </div>
           {uploadMode === "browse" ? (
             <div className="field">
-              <label htmlFor="f-file">Choose File</label>
-              <FileDropInput file={file} onChange={setFile} />
+              <label htmlFor="f-file">Choose Files</label>
+              <FileDropInput files={files} onFilesChange={setFiles} />
             </div>
           ) : (
             <div className="field">
@@ -217,15 +222,19 @@ export function DocumentDetailPage() {
               <input id="f-url" type="url" required placeholder="https://…" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} />
             </div>
           )}
-          <div className="field">
-            <label htmlFor="f-name">File Name {uploadMode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
-            <input id="f-name" required={uploadMode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
-          </div>
+          {(uploadMode === "link" || files.length <= 1) && (
+            <div className="field">
+              <label htmlFor="f-name">File Name {uploadMode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
+              <input id="f-name" required={uploadMode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+            </div>
+          )}
           <div className="field">
             <label htmlFor="f-note">Note <span className="muted">(optional)</span></label>
             <input id="f-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Q2 statement, pages 1-3 only" />
           </div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Uploading…" : uploadMode === "browse" ? "Upload File" : "Link File"}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? "Uploading…" : uploadMode === "link" ? "Link File" : files.length > 1 ? `Upload ${files.length} Files` : "Upload File"}
+          </button>
         </form>
       )}
 

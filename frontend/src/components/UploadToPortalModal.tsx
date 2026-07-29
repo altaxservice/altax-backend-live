@@ -35,8 +35,7 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeId, setEmployeeId] = useState(lockedEmployeeId || "");
   const [loadingEmployees, setLoadingEmployees] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,25 +63,37 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
     e.preventDefault();
     if (mode === "client" && !clientId) { setError("Choose a client."); return; }
     if (mode === "employee" && !employeeId) { setError("Choose an employee."); return; }
-    if (!file) { setError("Choose a file to upload."); return; }
-    if (file.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Files over 8MB aren't supported by this upload.`); return; }
+    if (files.length === 0) { setError("Choose at least one file to upload."); return; }
+    const tooBig = files.find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig) { setError(`"${tooBig.name}" is too large (${(tooBig.size / 1024 / 1024).toFixed(1)}MB). Files over 8MB aren't supported by this upload.`); return; }
 
     setSaving(true);
     setError(null);
     try {
-      const fileData = await fileToBase64(file);
-      await api.post("/documents/uploads", {
-        clientId: mode === "client" ? clientId : undefined,
-        employeeId: mode === "employee" ? employeeId : undefined,
-        fileName: fileName || file.name,
-        fileData, mimeType: file.type,
-        notes: notes || undefined,
-      });
-      toast(mode === "client" ? "File shared to the client's portal." : "File shared to the employee's portal.");
+      // Sequential uploads; only the LAST file triggers the recipient's email,
+      // carrying every filename in the batch so they get one combined
+      // "AL TAX shared N files with you" notification instead of N emails.
+      const allNames = files.map((f) => f.name);
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const isLast = i === files.length - 1;
+        const fileData = await fileToBase64(f);
+        await api.post("/documents/uploads", {
+          clientId: mode === "client" ? clientId : undefined,
+          employeeId: mode === "employee" ? employeeId : undefined,
+          fileName: f.name,
+          fileData, mimeType: f.type,
+          notes: notes || undefined,
+          notify: isLast,
+          batchFileNames: isLast && files.length > 1 ? allNames : undefined,
+        });
+      }
+      const who = mode === "client" ? "client's" : "employee's";
+      toast(files.length > 1 ? `${files.length} files shared to the ${who} portal — they've been emailed.` : `File shared to the ${who} portal — they've been emailed.`);
       onDone();
       onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not upload this file.");
+      setError(err instanceof ApiError ? err.message : "Could not upload. Some files may have gone through — check the Documents tab before retrying.");
     } finally {
       setSaving(false);
     }
@@ -136,21 +147,23 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
           )}
 
           <div className="field">
-            <label>File</label>
-            <FileDropInput file={file} onChange={setFile} />
+            <label>Files</label>
+            <FileDropInput files={files} onFilesChange={setFiles} />
           </div>
           <div className="field">
-            <label htmlFor="up-name">File Name <span className="muted">(optional — uses the file's own name)</span></label>
-            <input id="up-name" value={fileName} onChange={(e) => setFileName(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="up-notes">Note <span className="muted">(optional)</span></label>
+            <label htmlFor="up-notes">Note <span className="muted">(optional — included in the notification email)</span></label>
             <input id="up-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Your W-2 for 2025" />
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+            The {mode === "client" ? "client" : "employee"} gets one email letting them know the file{files.length > 1 ? "s are" : " is"} waiting in their portal.
+          </p>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
             <button type="button" className="btn" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Uploading…" : "Share to Portal"}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? "Uploading…" : files.length > 1 ? `Share ${files.length} Files to Portal` : "Share to Portal"}
+            </button>
           </div>
         </form>
       </div>
