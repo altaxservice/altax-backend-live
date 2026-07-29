@@ -33,6 +33,9 @@ import { ListSettingsPage } from "./pages/ListSettingsPage";
 import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
+import { EstimatesListPage } from "./pages/EstimatesListPage";
+import { EstimateDetailPage } from "./pages/EstimateDetailPage";
+import { FeeSchedulePage } from "./pages/FeeSchedulePage";
 import { SearchResultsPage } from "./pages/SearchResultsPage";
 import { PublicInvoicePage } from "./pages/PublicInvoicePage";
 import { PublicContractPage } from "./pages/PublicContractPage";
@@ -90,6 +93,9 @@ function App() {
                 <Route path="/haccp" element={<HaccpGeneratorPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
+                <Route path="/estimates" element={<EstimatesListPage />} />
+                <Route path="/estimates/:estimateId" element={<EstimateDetailPage />} />
+                <Route path="/fee-schedule" element={<FeeSchedulePage />} />
               </Route>
             </Route>
           </Route>

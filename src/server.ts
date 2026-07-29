@@ -6,6 +6,7 @@ import path from "path";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter } from "./modules/clients/clients.routes";
 import { usersRouter } from "./modules/users/users.routes";
+import { estimatesRouter } from "./modules/estimates/estimates.routes";
 import { tasksRouter } from "./modules/tasks/tasks.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { billingRouter } from "./modules/billing/billing.routes";
@@ -179,6 +180,7 @@ app.get("*", (req, res, next) => {
 app.use("/auth", authRouter);
 app.use("/clients", clientsRouter);
 app.use("/users", usersRouter);
+app.use("/estimates", estimatesRouter);
 app.use("/tasks", tasksRouter);
 app.use("/documents", documentsRouter);
 app.use("/billing", billingRouter);
