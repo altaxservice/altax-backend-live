@@ -5,7 +5,7 @@ import { SelectedClientProvider } from "./context/SelectedClientContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
 import { IdleLogout } from "./components/IdleLogout";
-import { ScrollMemory } from "./components/ScrollMemory";
+import { NavigationMemory } from "./components/NavigationMemory";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
@@ -45,7 +45,7 @@ function App() {
         <SelectedClientProvider>
         <ToastProvider>
         <IdleLogout />
-        <ScrollMemory />
+        <NavigationMemory />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/login/staff" element={<LoginPage lockedPortal="staff" />} />

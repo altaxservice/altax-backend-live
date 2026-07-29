@@ -10,6 +10,7 @@ import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { UploadFileModal } from "../components/UploadFileModal";
+import { useStickyState } from "../utils/listState";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
@@ -81,18 +82,22 @@ export function ClientsListPage() {
   const [clients, setClients] = useState<Client[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState(searchParams.get("search") || "");
+  // How the list is arranged sticks for the session (useStickyState), so opening a
+  // client and pressing Back returns you to the list you left — same filters, same
+  // sort, with the row you were working on still in it — instead of a default list
+  // where that row may not appear at all.
+  const [search, setSearch] = useStickyState("clients.search", searchParams.get("search") || "");
   // Inactive/Archived clients are noise on the page every staff member opens dozens of
   // times a day — default to Active only. Still fully reachable: the Status dropdown
   // includes every real status value, so switching back to "all"/"Inactive"/"Archived"
   // is one click away, nothing is hidden permanently.
-  const [statusFilter, setStatusFilter] = useState("Active");
-  const [ownerFilter, setOwnerFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [serviceFilter, setServiceFilter] = useState("all");
-  const [quickTab, setQuickTab] = useState("all");
-  const [sortKey, setSortKey] = useState<SortKey>("client_name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [statusFilter, setStatusFilter] = useStickyState("clients.status", "Active");
+  const [ownerFilter, setOwnerFilter] = useStickyState("clients.owner", "all");
+  const [typeFilter, setTypeFilter] = useStickyState("clients.type", "all");
+  const [serviceFilter, setServiceFilter] = useStickyState("clients.service", "all");
+  const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
+  const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
+  const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
   const [form, setForm] = useState(EMPTY_CLIENT_FORM);
   const [createPortalNow, setCreatePortalNow] = useState(false);
@@ -676,7 +681,7 @@ export function ClientsListPage() {
               {filtered.map((c) => {
                 const resp = responsibleCell(c);
                 return (
-                  <tr key={c.client_id} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
+                  <tr key={c.client_id} data-row-id={c.client_id} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
                     <td>
                       <div className="cell-primary">{c.client_name}</div>
                       <div className="cell-sub">

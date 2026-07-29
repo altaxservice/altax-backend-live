@@ -10,6 +10,7 @@ import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
+import { useStickyState } from "../utils/listState";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
@@ -40,19 +41,21 @@ export function TasksListPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [search, setSearch] = useState("");
-  const [quickTab, setQuickTab] = useState<QuickTab>("Active");
-  const [staffFilter, setStaffFilter] = useState("all");
-  const [serviceFilter, setServiceFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
+  // Sticky for the session so opening a task and pressing Back returns you to the
+  // same filtered, sorted list — with the task you were working on still in it.
+  const [search, setSearch] = useStickyState("tasks.search", "");
+  const [quickTab, setQuickTab] = useStickyState<QuickTab>("tasks.tab", "Active");
+  const [staffFilter, setStaffFilter] = useStickyState("tasks.staff", "all");
+  const [serviceFilter, setServiceFilter] = useStickyState("tasks.service", "all");
+  const [statusFilter, setStatusFilter] = useStickyState("tasks.status", searchParams.get("status") || "all");
   const [period, setPeriod] = useState(activeViewDates());
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("agency_due_date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [sortKey, setSortKey] = useStickyState<SortKey>("tasks.sortKey", "agency_due_date");
+  const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("tasks.sortDir", "asc");
 
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
@@ -420,7 +423,7 @@ export function TasksListPage() {
             </thead>
             <tbody>
               {filtered.map((t) => (
-                <tr key={t.task_id} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }}>
+                <tr key={t.task_id} data-row-id={t.task_id} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }}>
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}

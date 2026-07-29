@@ -380,7 +380,7 @@ export function InvoicesListPage() {
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => (
-                <tr key={inv.invoice_id} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }}>
+                <tr key={inv.invoice_id} data-row-id={inv.invoice_id} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }}>
                   <td>{inv.invoice_id}</td>
                   {canManage && <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>}
                   <td className="muted" data-label={canManage ? "Date" : t("billing.client.colDate")}><Num>{fmtDate(inv.invoice_date)}</Num></td>
@@ -436,7 +436,7 @@ export function InvoicesListPage() {
                 <thead><tr><th>{t("billing.client.colPaymentDue")}</th><th>{t("billing.client.colDuePaid")}</th><th>{t("billing.client.colExpected")}</th><th>{t("billing.client.colPaid")}</th><th>{t("billing.client.colStatus")}</th></tr></thead>
                 <tbody>
                   {taxRows.map((r) => (
-                    <tr key={r.task_id}>
+                    <tr key={r.task_id} data-row-id={r.task_id}>
                       <td data-label={t("billing.client.colPaymentDue")}>{r.task_name}</td>
                       <td className="muted" data-label={t("billing.client.colDuePaid")}><Num>{fmtDate(r.paid_date || r.agency_due_date)}</Num></td>
                       <td data-label={t("billing.client.colExpected")}><Num>{fmtMoney(r.payment_amount)}</Num></td>
@@ -518,7 +518,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Payment</th><th>Invoice</th><th>Client</th><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
             <tbody>
               {(firmPayments || []).map((p) => (
-                <tr key={p.payment_id} onClick={() => navigate(`/billing/${p.invoice_id}`)}>
+                <tr key={p.payment_id} data-row-id={p.payment_id} onClick={() => navigate(`/billing/${p.invoice_id}`)}>
                   <td>{p.payment_id}</td>
                   <td className="muted">{p.invoice_id}</td>
                   <td className="muted">{clientName(p.client_id as string) }</td>
@@ -548,7 +548,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Payment / Due</th><th>Client</th><th>Related Task</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
             <tbody>
               {(taxRows || []).map((r) => (
-                <tr key={r.task_id} onClick={() => navigate(`/tasks/${r.task_id}`)}>
+                <tr key={r.task_id} data-row-id={r.task_id} onClick={() => navigate(`/tasks/${r.task_id}`)}>
                   <td>{r.task_name}</td>
                   <td className="muted">{r.client_name}</td>
                   <td className="muted">{r.task_name}</td>
