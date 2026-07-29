@@ -922,15 +922,16 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 
 /* The row you were working on, when you come back to a list. NavigationMemory
    scrolls it to the middle of the screen and adds this class: a teal wash that
-   fades out over ~2.5s, so the eye finds the right row instantly without the page
-   looking permanently "selected". Reduced-motion users get a static tint that
-   still marks the row. */
+   holds long enough to actually find your place on a dense list, then fades so the
+   page doesn't look permanently "selected". Timed at 8s (6s solid, 2s fade) —
+   2.5s tested too short to catch the eye. Reduced-motion users get a static tint
+   that still marks the row. Keep in sync with HIGHLIGHT_MS in NavigationMemory. */
 tr.row-returned > td,
 .row-returned {
-  animation: rowReturned 2.5s ease-out 1;
+  animation: rowReturned 8s ease-out 1;
 }
 @keyframes rowReturned {
-  0%, 45% { background-color: var(--teal-soft); }
+  0%, 75% { background-color: var(--teal-soft); }
   100% { background-color: transparent; }
 }
 @media (prefers-reduced-motion: reduce) {

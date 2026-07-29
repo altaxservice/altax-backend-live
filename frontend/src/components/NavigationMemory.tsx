@@ -24,6 +24,10 @@ const scrollKey = (navKey: string) => `altax_scroll:${navKey}`;
 const RETRY_MS = 100;
 const MAX_RETRIES = 40;
 
+/** How long the returned-to row stays marked. Keep in sync with the
+ *  .row-returned animation in index.css. */
+const HIGHLIGHT_MS = 8000;
+
 export function NavigationMemory() {
   const location = useLocation();
   const navType = useNavigationType();
@@ -63,7 +67,7 @@ export function NavigationMemory() {
         if (row) {
           row.scrollIntoView({ block: "center" });
           row.classList.add("row-returned");
-          window.setTimeout(() => row.classList.remove("row-returned"), 2600);
+          window.setTimeout(() => row.classList.remove("row-returned"), HIGHLIGHT_MS + 100);
           return;
         }
 
