@@ -3,7 +3,8 @@ import { pool, query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
-import { computeTotals, feeItemsFor, lineAmounts, linesFromFeeItems, type EstimateLine } from "./estimates.service";
+import { computeTotals, feeItemsFor, linesFromFeeItems, resolveLineAmounts, type EstimateLine } from "./estimates.service";
+import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
 
 /**
  * Tools → Fee Schedule + Estimates.
@@ -155,6 +156,122 @@ estimatesRouter.get("/:estimateId", requireAuth, requireRole("admin", "staff"), 
     lines,
     totals: computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount }),
   });
+}));
+
+/** Builds the exact PDF payload from a stored estimate — shared by the preview/download route and the manual email send, so both always render the identical document. */
+async function buildEstimatePdfBytes(est: any, lines: EstimateLine[]) {
+  const totals = computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount });
+  const pdfLines: EstimatePdfLine[] = resolveLineAmounts(lines).map((l) => ({
+    description: l.description,
+    category: l.category as "Government" | "Service",
+    agency: l.agency,
+    qty: l.qty,
+    amount: l.resolvedAmount,
+    included: Boolean(l.included),
+    payer: (l.payer || "Firm") as "Firm" | "Client",
+  }));
+  const address = [est.street, [est.city, est.state, est.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ") || null;
+  const bytes = await generateEstimatePdf({
+    estimateId: est.estimate_id,
+    estimateNumber: est.estimate_number,
+    status: est.status,
+    estimateDate: est.estimate_date,
+    validUntil: est.valid_until,
+    businessName: est.business_name,
+    contactName: est.contact_name,
+    address,
+    entityType: est.entity_type,
+    businessType: est.business_type,
+    jurisdiction: est.jurisdiction,
+    speed: est.speed,
+    lines: pdfLines,
+    serviceTotal: totals.serviceTotal,
+    governmentTotal: totals.governmentTotal,
+    clientDirectTotal: totals.clientDirectTotal,
+    discount: totals.discount,
+    taxRate: totals.taxRate,
+    tax: totals.tax,
+    total: totals.total,
+    deposit: totals.deposit,
+    balanceDue: totals.balanceDue,
+    terms: est.terms,
+    preparedBy: est.prepared_by,
+  });
+  return { bytes, totals };
+}
+
+/** Preview/download the estimate as a PDF — always available regardless of status, so staff can check it before ever sending anything. */
+estimatesRouter.get("/:estimateId/print", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
+  if (!est) return res.status(404).json({ error: "Estimate not found." });
+  const lines = await loadLines(est.estimate_id);
+  const { bytes } = await buildEstimatePdfBytes(est, lines);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="Estimate_${est.estimate_number}.pdf"`);
+  res.send(Buffer.from(bytes));
+}));
+
+/**
+ * Email the estimate to the client — ALWAYS a deliberate staff action, never
+ * triggered by approving, converting, or any other step. Mirrors billing's
+ * invoice /send route exactly (same PDF-attached-to-a-branded-email pattern,
+ * same manual-only philosophy) so staff already familiar with sending an
+ * invoice need to learn nothing new here. Email only, matching every other
+ * send path in this app — SMS/WhatsApp have no provider configured.
+ */
+estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
+  if (!est) return res.status(404).json({ error: "Estimate not found." });
+
+  const to = String(req.body?.email || "").trim();
+  if (!to) return res.status(400).json({ error: "Enter the email address to send to." });
+
+  const lines = await loadLines(est.estimate_id);
+  const { bytes, totals } = await buildEstimatePdfBytes(est, lines);
+
+  const subject = String(req.body?.subject || `Estimate ${est.estimate_number} from AL Tax Service`).trim();
+  const message = String(req.body?.message
+    || `Please find your estimate attached for ${est.business_name}. Total estimated: $${totals.total.toFixed(2)}.`).trim();
+
+  const { sendEmail } = await import("../../common/notifications");
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  let sent = false;
+  let error: string | undefined;
+  try {
+    await sendEmail({
+      to, subject,
+      html: await wrapEmailHtml(
+        `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
+         <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF.</p>`,
+        req
+      ),
+      attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],
+    });
+    sent = true;
+  } catch (err: any) {
+    error = err?.message || "Send failed.";
+  }
+
+  if (sent) {
+    // Sent moves a Draft estimate off the "still being built" bucket; it never
+    // downgrades an estimate already Approved or further along.
+    if (est.status === "Draft") {
+      await query(`UPDATE altax.v3_estimates SET status = 'Sent', updated_at = now() WHERE estimate_id = $1`, [est.estimate_id]);
+    }
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, direction, channel, subject, message_english, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+       VALUES ($1,$2,$3,'Outbound','Email',$4,$5,$6,$7, now(), 'Sent','Estimate',$8)`,
+      [`COM-${idSuffix()}`, est.client_id, est.business_name, subject, message, to, req.user!.email, est.estimate_id]
+    );
+  }
+
+  await logAudit("Tools", "SEND_ESTIMATE", est.estimate_id, "", "", sent ? `Sent to ${to}` : `Failed: ${error}`,
+    `Estimate ${sent ? "sent" : "send attempted"} by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: sent, error });
 }));
 
 /**
@@ -420,29 +537,20 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
           estimateId, est.business_name,
         ]
       );
-      // Lines carry across so the invoice itemizes exactly what was quoted —
-      // no re-keying, and the client sees the same breakdown twice.
-      // Percentage lines (the state's technology fee) have no unit price of
-      // their own, so their amount has to come from the same engine that built
-      // the estimate totals — otherwise the invoice's lines silently fail to
-      // add up to its own total.
-      const govBase = lines
-        .filter((l) => l.payer !== "Client" && l.category === "Government" && l.amount_kind !== "percent")
-        .reduce((acc, l) => {
-          const a = lineAmounts(l, { cost: 0, price: 0 });
-          return { cost: acc.cost + a.cost, price: acc.price + a.price };
-        }, { cost: 0, price: 0 });
-
+      // Lines carry across so the invoice itemizes exactly what was quoted — no
+      // re-keying, and the client sees the same breakdown twice. resolveLineAmounts
+      // is the same helper the PDF and manual send use, so a percentage line (the
+      // state's technology fee) always shows the identical dollar figure everywhere.
+      const resolved = resolveLineAmounts(lines);
       let i = 0;
-      for (const line of lines) {
+      for (const line of resolved) {
         if (line.payer === "Client") continue;
-        const amount = lineAmounts(line, govBase).price;
         await db.query(
           `INSERT INTO altax.v3_invoice_line_items
              (line_item_id, invoice_id, line_no, description, quantity, rate, amount, taxable, created_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())`,
           [`ILI-${idSuffix()}`, invoiceId, ++i, line.description, line.qty,
-           line.amount_kind === "percent" ? amount : line.unit_price, amount, false]
+           line.amount_kind === "percent" ? line.resolvedAmount : line.unit_price, line.resolvedAmount, false]
         );
       }
     }

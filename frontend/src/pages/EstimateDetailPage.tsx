@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, downloadFile } from "../api/client";
 import { BackLink } from "../components/BackLink";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
+import { SendEstimateModal } from "../components/SendEstimateModal";
 import { money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
 
 /**
@@ -28,6 +29,8 @@ export function EstimateDetailPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
 
   function load() {
     if (!estimateId) return;
@@ -110,6 +113,30 @@ export function EstimateDetailPage() {
     }
   }
 
+  // The PDF/send routes read the SAVED lines, so an unsaved edit would print or
+  // email a stale version — save first rather than let that happen silently.
+  async function ensureSaved() {
+    if (dirty) await saveLines();
+  }
+
+  async function handlePrint() {
+    if (!estimateId) return;
+    setPrinting(true);
+    try {
+      await ensureSaved();
+      await downloadFile(`/estimates/${estimateId}/print`, `Estimate_${estimate?.estimate_number || estimateId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate the PDF.");
+    } finally {
+      setPrinting(false);
+    }
+  }
+
+  async function handleOpenSend() {
+    await ensureSaved();
+    setSendOpen(true);
+  }
+
   function addCustomLine() {
     setLines((prev) => [...prev, {
       description: "", category: "Service", qty: 1, unit_cost: 0, unit_price: 0,
@@ -140,6 +167,8 @@ export function EstimateDetailPage() {
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {dirty && <button className="btn btn-primary" disabled={saving} onClick={() => saveLines()}>{saving ? "Saving…" : "Save Changes"}</button>}
+          <button className="btn" disabled={printing} onClick={handlePrint}>{printing ? "Generating…" : "Preview / Download PDF"}</button>
+          <button className="btn" onClick={handleOpenSend}>Send to Client</button>
           {!locked && <button className="btn" disabled={busy} onClick={handleRebuild}>Rebuild from Fee Schedule</button>}
           {estimate.status !== "Approved" && <button className="btn" disabled={busy} onClick={handleApprove}>Mark Approved</button>}
           {estimate.status === "Approved" && !estimate.client_id && (
@@ -147,6 +176,15 @@ export function EstimateDetailPage() {
           )}
         </div>
       </div>
+
+      {sendOpen && (
+        <SendEstimateModal
+          estimate={estimate}
+          totals={totals}
+          onClose={() => setSendOpen(false)}
+          onSent={load}
+        />
+      )}
 
       {estimate.approved_at && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>

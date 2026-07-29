@@ -155,6 +155,26 @@ export function lineAmounts(line: EstimateLine, governmentBase: { cost: number; 
 }
 
 /**
+ * Resolves every line to its actual dollar amount (percentage lines included),
+ * against the same government-fixed-fee base computeTotals uses. Shared by the
+ * PDF, the manual send, and estimate→invoice conversion so all three always
+ * show the exact same number for a given line — a technology-fee line that
+ * silently priced differently on the PDF than on the invoice would be the kind
+ * of mismatch a client actually notices.
+ */
+export function resolveLineAmounts(lines: EstimateLine[]): Array<EstimateLine & { resolvedAmount: number }> {
+  const fixedGov = lines.filter((l) => (l.payer || "Firm") !== "Client" && l.category === "Government" && l.amount_kind !== "percent");
+  const base = fixedGov.reduce(
+    (acc, l) => {
+      const a = lineAmounts(l, { cost: 0, price: 0 });
+      return { cost: acc.cost + a.cost, price: acc.price + a.price };
+    },
+    { cost: 0, price: 0 }
+  );
+  return lines.map((l) => ({ ...l, resolvedAmount: lineAmounts(l, base).price }));
+}
+
+/**
  * Totals for an estimate.
  *
  * Two passes, because the technology fee is a percentage OF the other government
