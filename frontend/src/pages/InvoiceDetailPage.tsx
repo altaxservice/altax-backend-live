@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Client } from "../api/types";
 import type { Invoice, Payment } from "../api/types2";
@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { SendInvoiceModal } from "../components/SendInvoiceModal";
 import { StatusBadge } from "../components/StatusBadge";
+import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
@@ -178,7 +179,7 @@ export function InvoiceDetailPage() {
 
   return (
     <div>
-      <Link to="/billing" className="muted">← All invoices</Link>
+      <BackLink fallback="/billing" fallbackLabel="All invoices" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{invoice.invoice_id}</h1>

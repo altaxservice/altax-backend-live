@@ -5,6 +5,7 @@ import type { Task } from "../api/types";
 import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { BackLink } from "../components/BackLink";
 import { TASK_STATUSES } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -59,7 +60,7 @@ function toDateInput(value: unknown): string {
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const openParam = searchParams.get("open");
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +70,13 @@ export function TaskDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
-  const [tab, setTab] = useState<DetailTab>(() => initialTabFor(openParam));
+  // ?tab= (written on tab click below) wins over the older ?open= deep-link param,
+  // so BackLink's history-back restores the exact tab the user left from.
+  const [tab, setTab] = useState<DetailTab>(() => {
+    const tabParam = searchParams.get("tab");
+    if ((DETAIL_TABS as readonly string[]).includes(tabParam || "")) return tabParam as DetailTab;
+    return initialTabFor(openParam);
+  });
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
 
@@ -146,7 +153,7 @@ export function TaskDetailPage() {
 
   return (
     <div>
-      <Link to="/tasks" className="muted">← All tasks</Link>
+      <BackLink fallback="/tasks" fallbackLabel="All tasks" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{task.task_name}</h1>
@@ -176,7 +183,7 @@ export function TaskDetailPage() {
         {DETAIL_TABS.map((t) => (
           <div
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
             style={{
               padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
               color: tab === t ? "var(--ink)" : "var(--muted)",

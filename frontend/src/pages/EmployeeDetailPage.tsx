@@ -8,6 +8,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { UploadToPortalModal } from "../components/UploadToPortalModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { StatusBadge } from "../components/StatusBadge";
+import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import type { DocumentRequest } from "../api/types2";
@@ -40,7 +41,7 @@ type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 
 export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -63,7 +64,12 @@ export function EmployeeDetailPage() {
   const [sensitiveForm, setSensitiveForm] = useState(SENSITIVE_FORM_DEFAULTS);
   const [sensitiveSaving, setSensitiveSaving] = useState(false);
   const [sensitiveError, setSensitiveError] = useState<string | null>(null);
-  const [tab, setTab] = useState<EmployeeTab>("Profile");
+  // Init from ?tab= so BackLink's history-back (and deep links) land on the same
+  // tab the user was on, not always Profile.
+  const [tab, setTab] = useState<EmployeeTab>(() => {
+    const param = searchParams.get("tab");
+    return (EMPLOYEE_TABS as readonly string[]).includes(param || "") ? (param as EmployeeTab) : "Profile";
+  });
 
   function load() {
     if (!employeeId) return;
@@ -164,7 +170,10 @@ export function EmployeeDetailPage() {
 
   return (
     <div>
-      <Link to={`/accounting?client=${employee.client_id}&tab=${isContractor ? "Contractors" : "Employees"}`} className="muted">← {isContractor ? "Contractors" : "Employees"}</Link>
+      <BackLink
+        fallback={`/accounting?client=${employee.client_id}&tab=${isContractor ? "Contractors" : "Employees"}`}
+        fallbackLabel={isContractor ? "Contractors" : "Employees"}
+      />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{employee.employee_name}</h1>
@@ -179,7 +188,7 @@ export function EmployeeDetailPage() {
         {EMPLOYEE_TABS.map((t) => (
           <div
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
             style={{
               padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
               color: tab === t ? "var(--ink)" : "var(--muted)",

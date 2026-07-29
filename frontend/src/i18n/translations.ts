@@ -251,6 +251,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "dashboard.employee.opening": { en: "Opening…", ar: "جاري الفتح…" },
   "dashboard.employee.downloading": { en: "Downloading…", ar: "جاري التحميل…" },
   "common.loading": { en: "Loading…", ar: "جارٍ التحميل…" },
+  "common.back": { en: "Back", ar: "رجوع" },
 };
 
 export function translate(lang: Lang, key: string): string {

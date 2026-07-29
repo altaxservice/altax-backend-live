@@ -4,6 +4,7 @@ import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
@@ -173,7 +174,7 @@ export function DocumentDetailPage() {
 
   return (
     <div>
-      <Link to="/documents" className="muted">← All documents</Link>
+      <BackLink fallback="/documents" fallbackLabel="All documents" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{request.requested_item}</h1>

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
+import { BackLink } from "../components/BackLink";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ClientMessages } from "./CommunicationsPage";
@@ -335,7 +336,7 @@ export function ClientDetailPage() {
 
   return (
     <div>
-      <Link to="/clients" className="muted">← All clients</Link>
+      <BackLink fallback="/clients" fallbackLabel="All clients" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <div className="muted" style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em" }}>{client.client_id}</div>
@@ -445,7 +446,7 @@ export function ClientDetailPage() {
             {visibleTabs.map((t) => (
               <div
                 key={t}
-                onClick={() => setTab(t)}
+                onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
                 style={{
                   padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
                   color: tab === t ? "var(--ink)" : "var(--muted)",
