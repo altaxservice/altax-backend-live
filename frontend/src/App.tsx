@@ -36,6 +36,7 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { EstimatesListPage } from "./pages/EstimatesListPage";
 import { EstimateDetailPage } from "./pages/EstimateDetailPage";
 import { FeeSchedulePage } from "./pages/FeeSchedulePage";
+import { CalculatorsPage } from "./pages/CalculatorsPage";
 import { SearchResultsPage } from "./pages/SearchResultsPage";
 import { PublicInvoicePage } from "./pages/PublicInvoicePage";
 import { PublicContractPage } from "./pages/PublicContractPage";
@@ -96,6 +97,7 @@ function App() {
                 <Route path="/estimates" element={<EstimatesListPage />} />
                 <Route path="/estimates/:estimateId" element={<EstimateDetailPage />} />
                 <Route path="/fee-schedule" element={<FeeSchedulePage />} />
+                <Route path="/calculators" element={<CalculatorsPage />} />
               </Route>
             </Route>
           </Route>

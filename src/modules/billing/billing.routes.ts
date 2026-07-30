@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { resolvePaymentMethod } from "../../common/accountingHelpers";
 import { composeAddress } from "../../common/address";
+import { lookupSalesTaxRate } from "../../common/taxRates";
 
 /**
  * Billing module — Phase 5. Covers invoices, payments, and recurring billing. Ported
@@ -89,26 +90,9 @@ interface LineItemInput {
   quantity?: number; rate?: number; taxable?: boolean;
 }
 
-/**
- * Best-effort automatic sales-tax-rate lookup for the "Automatic Calculation" option
- * on the line-item invoice editor. New in this app (legacy invoices had no tax
- * engine) — reuses v3_tax_rates, matching an active row whose rate_type mentions
- * "sales" for the client's state, falling back to a state-less/national row, else 0.
- * Not a full multi-jurisdiction tax engine; a manual rate override always wins.
- *
- * v3_tax_rates.rate is stored as a fraction (e.g. 0.06 for 6%, per the Sales Input
- * convention `amount * rate`), but this invoicing feature's salesTaxRate is a
- * percentage number (e.g. 6), matching the "Tax Rate %" manual-entry field and
- * computeInvoiceTotals' `/ 100` — so the fraction is scaled up by 100 here.
- */
-async function lookupSalesTaxRate(state: string | null): Promise<number> {
-  const stateRow = state
-    ? await queryOne<any>(`SELECT rate FROM altax.v3_tax_rates WHERE active = true AND rate_type ILIKE '%sales%' AND state = $1 ORDER BY updated_at DESC LIMIT 1`, [state])
-    : null;
-  if (stateRow) return (Number(stateRow.rate) || 0) * 100;
-  const nationalRow = await queryOne<any>(`SELECT rate FROM altax.v3_tax_rates WHERE active = true AND rate_type ILIKE '%sales%' AND (state IS NULL OR state = '') ORDER BY updated_at DESC LIMIT 1`);
-  return nationalRow ? (Number(nationalRow.rate) || 0) * 100 : 0;
-}
+// lookupSalesTaxRate (best-effort rate for the "Automatic Calculation" option on the
+// line-item invoice editor) now lives in ../../common/taxRates — shared with the
+// standalone sales tax calculator so both draw from the exact same v3_tax_rates lookup.
 
 /** Shared subtotal/tax/total math for both create and edit — one line-item invoice contract. */
 function computeInvoiceTotals(lineItems: LineItemInput[], opts: { discountPercent: number; discountAmount: number; salesTaxRate: number; shippingAmount: number }) {
