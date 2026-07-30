@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import type { SalesTaxResult } from "../api/calculators";
+import type { SalesTaxCategory, SalesTaxResult } from "../api/calculators";
 import { US_STATES } from "../utils/clientOptions";
 
 const money = (n: number | null | undefined): string =>
@@ -32,31 +32,45 @@ export function CalculatorsPage() {
 
 function SalesTaxCalculator() {
   const [state, setState] = useState("MD");
+  const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
+  const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<SalesTaxResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Fee Schedule sales tax categories are per-state (General, Vape, Alcohol,
+  // a local jurisdiction add-on, etc.) — reload the list whenever the state
+  // changes, and default back to "the firm's default for this state" so
+  // switching states doesn't carry over a category that may not exist there.
+  useEffect(() => {
+    setCategoryId("");
+    api.get<{ categories: SalesTaxCategory[] }>(`/calculators/sales-tax-categories?state=${encodeURIComponent(state)}`)
+      .then((res) => setCategories(res.categories))
+      .catch(() => setCategories([]));
+  }, [state]);
 
   useEffect(() => {
     const amt = Number(amount);
     if (!state || !amount || !Number.isFinite(amt) || amt < 0) { setResult(null); return; }
     setLoading(true);
     const t = setTimeout(() => {
-      api.get<SalesTaxResult>(`/calculators/sales-tax?state=${encodeURIComponent(state)}&amount=${amt}`)
+      const categoryParam = categoryId ? `&categoryId=${encodeURIComponent(categoryId)}` : "";
+      api.get<SalesTaxResult>(`/calculators/sales-tax?state=${encodeURIComponent(state)}&amount=${amt}${categoryParam}`)
         .then((res) => { setResult(res); setError(null); })
         .catch((err) => setError(err instanceof ApiError ? err.message : "Could not look up this rate."))
         .finally(() => setLoading(false));
     }, 250);
     return () => clearTimeout(t);
-  }, [state, amount]);
+  }, [state, categoryId, amount]);
 
   return (
     <div className="card">
       <h2 style={{ fontSize: 15, marginTop: 0 }}>Sales Tax</h2>
       <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 12 }}>
-        Uses a Fee Schedule rate if the firm has set one for this state (the same rate an
-        invoice's "Automatic Calculation" would use); otherwise falls back to that state's
-        published general sales tax rate.
+        Uses the firm's Fee Schedule sales tax categories for this state (same list as
+        Accounting → Sales Input) — General, Vape, Alcohol, a local jurisdiction add-on, etc.;
+        otherwise falls back to that state's published general sales tax rate.
       </p>
 
       {error && <ErrorBanner error={error} />}
@@ -75,16 +89,32 @@ function SalesTaxCalculator() {
         </div>
       </div>
 
+      {categories.length > 0 && (
+        <div className="field">
+          <label htmlFor="stc-category">Category</label>
+          <select id="stc-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <option value="">{categories[0].categoryName} (default)</option>
+            {categories.slice(1).map((c) => (
+              <option key={c.categoryId} value={c.categoryId}>{c.categoryName}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
         {loading ? (
           <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
         ) : result ? (
           <>
-            <Row label={`Rate for ${result.state}`} value={`${result.rate}%`} />
+            <Row label={result.categoryName ? `Rate — ${result.categoryName}` : `Rate for ${result.state}`} value={`${result.rate}%`} />
             <Row label="Sale amount" value={money(result.amount)} />
             <Row label="Sales tax" value={money(result.taxAmount)} />
             <Row label="Total" value={money(result.total)} bold />
-            {result.source === "firm" ? (
+            {result.source === "category" ? (
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+                Firm category rate from Fee Schedule &amp; Tax Rates.
+              </p>
+            ) : result.source === "firm" ? (
               <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
                 Firm rate from Fee Schedule &amp; Tax Rates.
               </p>
@@ -94,9 +124,9 @@ function SalesTaxCalculator() {
               </p>
             ) : (
               <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                {result.state}'s published general state rate — no Fee Schedule entry is on file
-                for this state, and this doesn't include county/city surtaxes. Add a Fee Schedule
-                rate for exact jurisdiction pricing.
+                {result.state}'s published general state rate — no Fee Schedule category is on
+                file for this state, and this doesn't include county/city surtaxes. Add one under
+                Accounting → Sales Input categories for exact jurisdiction pricing.
               </p>
             )}
           </>

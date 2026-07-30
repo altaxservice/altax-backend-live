@@ -1,4 +1,4 @@
-import { queryOne } from "../config/db";
+import { query, queryOne } from "../config/db";
 
 /**
  * Sales tax rate lookup shared by invoicing (billing.routes.ts) and the sales
@@ -33,13 +33,12 @@ export async function lookupSalesTaxRate(state: string | null): Promise<number> 
 
 /**
  * Each state's published general/statewide sales tax rate (percentage
- * points), for states where the firm hasn't set up its own Fee Schedule
- * entry. This is the base state-level rate only — it does not include
- * county/city/district surtaxes (e.g. actual rates in CA or AL commonly run
- * several points higher locally), so it's a starting point, not a quote.
- * AK/DE/MT/NH/OR genuinely have no statewide general sales tax (0 here is
- * real, not missing data). Firm-entered Fee Schedule rates always win over
- * this table — see lookupSalesTaxRateWithSource below.
+ * points), used only as a last-resort fallback when the state has neither a
+ * Fee Schedule sales tax category (see listSalesTaxCategories below) nor a
+ * legacy ILIKE '%sales%' rate row. This is the base state-level rate only —
+ * it does not include county/city/district surtaxes, so it's a starting
+ * point, not a quote. AK/DE/MT/NH/OR genuinely have no statewide general
+ * sales tax (0 here is real, not missing data).
  */
 export const STATE_BASE_SALES_TAX_RATES: Record<string, number> = {
   AL: 4, AK: 0, AZ: 5.6, AR: 6.5, CA: 7.25, CO: 2.9, CT: 6.35, DE: 0, DC: 6,
@@ -50,21 +49,96 @@ export const STATE_BASE_SALES_TAX_RATES: Record<string, number> = {
   VT: 6, VA: 4.3, WA: 6.5, WV: 6, WI: 5, WY: 4,
 };
 
-export interface SalesTaxLookupResult {
+export interface SalesTaxCategory {
+  categoryId: string;
+  categoryName: string;
+  /** Percentage points (e.g. 6 for 6%). */
   rate: number;
-  /** "firm" = a Fee Schedule row the firm configured; "published" = this table's fallback. */
-  source: "firm" | "published";
+  filingBoxLabel: string | null;
 }
 
 /**
- * Same lookup as lookupSalesTaxRate, but falls back to
- * STATE_BASE_SALES_TAX_RATES when the firm hasn't configured a rate for this
- * state, and reports which one was used. Used only by the Calculators tool —
- * billing.routes.ts intentionally keeps using the DB-only lookupSalesTaxRate
- * above so invoices never silently pick up a rate the firm didn't set.
+ * The firm's own Fee Schedule sales tax categories for a state — e.g.
+ * Maryland has General (6%), Special/Alcohol (12%), Vape (20%), a 60% Rate
+ * Category, and Prepared Food, all as distinct v3_sales_tax_categories rows
+ * each linked 1:1 to their own v3_tax_rates row via default_rate_id. This is
+ * the real source of truth for "what does this firm actually charge in this
+ * state" — a single flat per-state rate (the old approach here) hides all of
+ * this, which is exactly what a firm employee flagged when the Calculators
+ * tool only ever showed one number per state.
+ *
+ * The rate JOIN below deliberately does NOT require r.scope = 'Global' —
+ * Maryland's General (ST6) and Special/Alcohol (ST12) rows predate the scope
+ * column and have scope IS NULL, so requiring 'Global' silently dropped both
+ * of them from every category list. client_id IS NULL is the correct,
+ * scope-column-independent way to mean "firm-wide, not one client's
+ * override" (see lookupSalesTaxRate's comment above for the original case
+ * this was learned from).
  */
-export async function lookupSalesTaxRateWithSource(state: string | null): Promise<SalesTaxLookupResult> {
+export async function listSalesTaxCategories(state: string | null): Promise<SalesTaxCategory[]> {
+  if (!state) return [];
+  const rows = await query<any>(
+    `SELECT c.category_id, c.category_name, c.filing_box_label, r.rate
+     FROM altax.v3_sales_tax_categories c
+     JOIN altax.v3_tax_rates r ON r.rate_id = c.default_rate_id AND (r.client_id IS NULL OR r.client_id = '')
+     WHERE c.active = true AND c.state = $1
+     ORDER BY c.display_order ASC, c.category_name ASC`,
+    [state.toUpperCase()]
+  );
+  return rows.map((r) => ({
+    categoryId: r.category_id,
+    categoryName: r.category_name,
+    rate: (Number(r.rate) || 0) * 100,
+    filingBoxLabel: r.filing_box_label || null,
+  }));
+}
+
+export interface SalesTaxLookupResult {
+  rate: number;
+  /**
+   * "category" = a specific Fee Schedule sales tax category (General, Vape,
+   * Alcohol, a local jurisdiction add-on, etc.); "firm" = an older-style
+   * rate_type ILIKE '%sales%' row with no formal category; "published" =
+   * STATE_BASE_SALES_TAX_RATES.
+   */
+  source: "category" | "firm" | "published";
+  categoryName?: string;
+}
+
+/**
+ * Resolves the rate to use for a state (and optionally a specific Fee
+ * Schedule category within it): an explicit categoryId wins if it belongs to
+ * this state; otherwise the state's lowest-display_order category (its
+ * "General" rate, by Fee Schedule convention) is used as the default;
+ * otherwise falls back to the legacy ILIKE '%sales%' row, then to
+ * STATE_BASE_SALES_TAX_RATES. Used only by the Calculators tool —
+ * billing.routes.ts intentionally keeps using the DB-only, category-blind
+ * lookupSalesTaxRate above so invoices never silently pick up a rate the
+ * firm didn't explicitly wire up for that purpose.
+ */
+export async function resolveSalesTaxRate(state: string | null, categoryId?: string | null): Promise<SalesTaxLookupResult> {
   const upper = state ? state.toUpperCase() : null;
+  if (upper && categoryId) {
+    const row = await queryOne<any>(
+      `SELECT c.category_name, r.rate
+       FROM altax.v3_sales_tax_categories c
+       JOIN altax.v3_tax_rates r ON r.rate_id = c.default_rate_id AND (r.client_id IS NULL OR r.client_id = '')
+       WHERE c.active = true AND c.state = $1 AND c.category_id = $2`,
+      [upper, categoryId]
+    );
+    if (row) return { rate: (Number(row.rate) || 0) * 100, source: "category", categoryName: row.category_name };
+  }
+  if (upper) {
+    const defaultCategory = await queryOne<any>(
+      `SELECT c.category_name, r.rate
+       FROM altax.v3_sales_tax_categories c
+       JOIN altax.v3_tax_rates r ON r.rate_id = c.default_rate_id AND (r.client_id IS NULL OR r.client_id = '')
+       WHERE c.active = true AND c.state = $1
+       ORDER BY c.display_order ASC, c.category_name ASC LIMIT 1`,
+      [upper]
+    );
+    if (defaultCategory) return { rate: (Number(defaultCategory.rate) || 0) * 100, source: "category", categoryName: defaultCategory.category_name };
+  }
   const stateRow = upper
     ? await queryOne<any>(`SELECT rate FROM altax.v3_tax_rates WHERE active = true AND (client_id IS NULL OR client_id = '') AND rate_type ILIKE '%sales%' AND state = $1 ORDER BY updated_at DESC LIMIT 1`, [upper])
     : null;
