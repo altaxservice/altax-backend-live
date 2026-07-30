@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
 import type { Employee, DocumentUpload } from "../api/types2";
@@ -12,6 +12,9 @@ import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import type { DocumentRequest } from "../api/types2";
+import type { GovFormFiling } from "../api/govForms";
+import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
+import { GenerateW4Modal } from "../components/GenerateW4Modal";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -363,7 +366,12 @@ export function EmployeeDetailPage() {
       )}
 
       {tab === "Tax Documents" && canEdit && (
-        <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
+        <>
+          <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
+          <div style={{ marginTop: 16 }}>
+            <W4Section employeeId={employee.employee_id} />
+          </div>
+        </>
       )}
     </div>
   );
@@ -448,6 +456,217 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Form W-4 — the employee's own withholding certificate, filled and kept on
+ * file with their employer. Never sent to the IRS (unlike W-2/1099 above,
+ * which report to the agency), so "Mark Submitted" here just means "filed
+ * away," not "mailed somewhere" — the option list still lets staff record
+ * that distinction rather than pretending every government form ships the
+ * same way.
+ */
+function W4Section({ employeeId }: { employeeId: string }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
+  const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
+  const [submitFor, setSubmitFor] = useState<string | null>(null);
+  const [submitForm, setSubmitForm] = useState({ submittedVia: GOV_SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+
+  function load() {
+    api.get<{ filings: GovFormFiling[] }>(`/gov-forms/employee/${employeeId}`)
+      .then((res) => setFilings(res.filings))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load W-4 filings."));
+  }
+  useEffect(load, [employeeId]);
+
+  async function handlePdf(filingId: string, mode: "view" | "download") {
+    setBusy(`pdf-${filingId}`);
+    try {
+      if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
+      else await downloadFile(`/gov-forms/${filingId}/pdf`, `Form_W4_${filingId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSignInPerson(f: GovFormFiling) {
+    setSignInPersonForm({ signerName: "", signerTitle: "" });
+    setSignInPersonFor(signInPersonFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSignInPerson(f: GovFormFiling) {
+    setBusy(`signip-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/sign`, signInPersonForm);
+      toast("Recorded as signed.");
+      setSignInPersonFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSubmit(f: GovFormFiling) {
+    setSubmitForm({ submittedVia: GOV_SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+    setSubmitFor(submitFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSubmitted(f: GovFormFiling) {
+    setBusy(`submit-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/submit`, submitForm);
+      toast("Marked submitted.");
+      setSubmitFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleVoid(f: GovFormFiling) {
+    const reason = prompt(`Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?`);
+    if (reason === null) return;
+    setBusy(`void-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/void`, { reason });
+      toast("Filing voided.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete(f: GovFormFiling) {
+    if (!confirm("Delete this draft W-4? This can't be undone.")) return;
+    setBusy(`delete-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/delete`, {});
+      toast("Draft filing deleted.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Form W-4</strong>
+        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate W-4</button>
+      </div>
+
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
+
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <tbody>
+            {(filings || []).map((f) => (
+              <Fragment key={f.filing_id}>
+                <tr>
+                  <td><span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
+                  <td className="muted">
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td className="muted">
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view")}>View PDF</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download")}>Download</button>
+                      {f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now</button>
+                      )}
+                      {f.status === "Signed" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Filed</button>
+                      )}
+                      {isAdmin && f.status !== "Void" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>
+                      )}
+                      {isAdmin && f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `delete-${f.filing_id}`} onClick={() => handleDelete(f)}>Delete</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {signInPersonFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={4} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 220 }}>
+                          <label>Signer's Full Legal Name</label>
+                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                        </div>
+                        <div className="field" style={{ maxWidth: 160 }}>
+                          <label>Title (optional)</label>
+                          <input value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                        </div>
+                        <button
+                          type="button" className="btn btn-primary btn-sm"
+                          disabled={busy === `signip-${f.filing_id}` || !signInPersonForm.signerName.trim()}
+                          onClick={() => handleSignInPerson(f)}
+                        >
+                          {busy === `signip-${f.filing_id}` ? "Recording…" : "Confirm Signed"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSignInPersonFor(null)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {submitFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={4} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 200 }}>
+                          <label>Status</label>
+                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                            {GOV_SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                        <div className="field" style={{ maxWidth: 260 }}>
+                          <label>Note (optional)</label>
+                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
+                          {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSubmitFor(null)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {filings && filings.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No W-4 on file yet.</p>
+      )}
+
+      {generating && (
+        <GenerateW4Modal employeeId={employeeId} onClose={() => setGenerating(false)} onDone={load} />
       )}
     </div>
   );

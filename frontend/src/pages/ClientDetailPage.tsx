@@ -22,6 +22,9 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import type { PoaFiling } from "../api/poaForms";
 import { FORM_LABELS, SUBMIT_VIA_OPTIONS, STATUS_COLOR } from "../api/poaForms";
 import { GeneratePoaFormModal } from "../components/GeneratePoaFormModal";
+import type { GovFormFiling } from "../api/govForms";
+import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
+import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -633,6 +636,9 @@ export function ClientDetailPage() {
               <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
               <div style={{ marginTop: 16 }}>
                 <PoaFilingsSection clientId={client.client_id} />
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <GovFormsSection clientId={client.client_id} />
               </div>
             </Fragment>
           )}
@@ -1402,6 +1408,223 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
 
       {generating && (
         <GeneratePoaFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Form 2553 (S-Corp election), Form W-9 (TIN request), and Form 8332
+ * (release of dependency exemption) — same physical-signature-only lifecycle
+ * as PoaFilingsSection just above (Draft → Signed → Submitted, or Void/
+ * Delete while still Draft), just three forms that don't share a common data
+ * shape with each other or with the POA forms, so they get their own section
+ * and their own filing table rather than being folded into PoaFilingsSection.
+ */
+function GovFormsSection({ clientId }: { clientId: string }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
+  const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
+  const [submitFor, setSubmitFor] = useState<string | null>(null);
+  const [submitForm, setSubmitForm] = useState({ submittedVia: GOV_SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+
+  function load() {
+    api.get<{ filings: GovFormFiling[] }>(`/gov-forms/client/${clientId}`)
+      .then((res) => setFilings(res.filings))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load government forms."));
+  }
+  useEffect(load, [clientId]);
+
+  async function handlePdf(filingId: string, mode: "view" | "download", formType: string) {
+    setBusy(`pdf-${filingId}`);
+    try {
+      if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
+      else await downloadFile(`/gov-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSignInPerson(f: GovFormFiling) {
+    setSignInPersonForm({ signerName: "", signerTitle: "" });
+    setSignInPersonFor(signInPersonFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSignInPerson(f: GovFormFiling) {
+    setBusy(`signip-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/sign`, signInPersonForm);
+      toast("Recorded as signed in person.");
+      setSignInPersonFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSubmit(f: GovFormFiling) {
+    setSubmitForm({ submittedVia: GOV_SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+    setSubmitFor(submitFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSubmitted(f: GovFormFiling) {
+    setBusy(`submit-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/submit`, submitForm);
+      toast("Marked submitted.");
+      setSubmitFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleVoid(f: GovFormFiling) {
+    const reason = prompt(`Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?`);
+    if (reason === null) return;
+    setBusy(`void-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/void`, { reason });
+      toast("Filing voided.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete(f: GovFormFiling) {
+    if (!confirm(`Delete this draft ${GOV_FORM_LABELS[f.form_type]}? This can't be undone.`)) return;
+    setBusy(`delete-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/delete`, {});
+      toast("Draft filing deleted.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Government Forms (2553 / W-9 / 8332)</strong>
+        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Government Form</button>
+      </div>
+
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
+
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Form</th><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <tbody>
+            {(filings || []).map((f) => (
+              <Fragment key={f.filing_id}>
+                <tr>
+                  <td>{GOV_FORM_LABELS[f.form_type] || f.form_type}</td>
+                  <td><span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
+                  <td className="muted">
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td className="muted">
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
+                      {f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now (In Person)</button>
+                      )}
+                      {f.status === "Signed" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Submitted</button>
+                      )}
+                      {isAdmin && f.status !== "Void" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>
+                      )}
+                      {isAdmin && f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `delete-${f.filing_id}`} onClick={() => handleDelete(f)}>Delete</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {signInPersonFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 220 }}>
+                          <label>Signer's Full Legal Name</label>
+                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                        </div>
+                        <div className="field" style={{ maxWidth: 160 }}>
+                          <label>Title (optional)</label>
+                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                        </div>
+                        <button
+                          type="button" className="btn btn-primary btn-sm"
+                          disabled={busy === `signip-${f.filing_id}` || !signInPersonForm.signerName.trim()}
+                          onClick={() => handleSignInPerson(f)}
+                        >
+                          {busy === `signip-${f.filing_id}` ? "Recording…" : "Confirm Signed In Person"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSignInPersonFor(null)}>Cancel</button>
+                      </div>
+                      <p className="muted" style={{ fontSize: 11.5, padding: "0 12px 12px" }}>
+                        Use this only after the client physically signed a printed copy — there's no electronic signature option for this form.
+                      </p>
+                    </td>
+                  </tr>
+                )}
+                {submitFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={5} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 200 }}>
+                          <label>Sent Via</label>
+                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                            {GOV_SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                        <div className="field" style={{ maxWidth: 260 }}>
+                          <label>Note (optional)</label>
+                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
+                          {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm Submitted"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSubmitFor(null)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {filings && filings.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+          No government forms on file yet — generate Form 2553, Form W-9, or Form 8332 as needed.
+        </p>
+      )}
+
+      {generating && (
+        <GenerateGovFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
       )}
     </div>
   );
