@@ -851,6 +851,8 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
 
 function ContractsSection({ clientId, clientServices }: { clientId: string; clientServices: string[] }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [contracts, setContracts] = useState<ClientContract[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
@@ -950,6 +952,20 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not void this contract.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete(c: ClientContract) {
+    if (!confirm(`Delete the draft "${c.title}"? This can't be undone.`)) return;
+    setBusy(`delete-${c.contract_id}`);
+    try {
+      await api.post(`/contracts/${c.contract_id}/delete`, {});
+      toast("Draft contract deleted.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this contract.");
     } finally {
       setBusy(null);
     }
@@ -1109,6 +1125,9 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                       {c.status !== "Void" && c.status !== "Signed" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${c.contract_id}`} onClick={() => handleVoid(c)}>Void</button>
                       )}
+                      {isAdmin && c.status === "Draft" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `delete-${c.contract_id}`} onClick={() => handleDelete(c)}>Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1263,6 +1282,20 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
     }
   }
 
+  async function handleDelete(f: PoaFiling) {
+    if (!confirm(`Delete this draft ${FORM_LABELS[f.form_type]}? This can't be undone.`)) return;
+    setBusy(`delete-${f.filing_id}`);
+    try {
+      await api.post(`/poa-forms/${f.filing_id}/delete`, {});
+      toast("Draft filing deleted.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
@@ -1300,6 +1333,9 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
                       )}
                       {isAdmin && f.status !== "Void" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>
+                      )}
+                      {isAdmin && f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `delete-${f.filing_id}`} onClick={() => handleDelete(f)}>Delete</button>
                       )}
                     </div>
                   </td>

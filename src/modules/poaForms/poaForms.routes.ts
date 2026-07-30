@@ -231,3 +231,23 @@ poaFormsRouter.post("/:filingId/void", requireAuth, requireRole("admin"), asyncH
     `Voided by ${req.user!.email}: ${reason}`, req.user!.email);
   res.json({ ok: true });
 }));
+
+/**
+ * Hard delete — admin only, and only while still a Draft, same rule as
+ * contracts.routes.ts's delete route: once a filing has been physically
+ * signed it's a record of a real signature, not a mistake to erase — Void
+ * (above) is how that gets retracted.
+ */
+poaFormsRouter.post("/:filingId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await loadFiling(req, req.params.filingId);
+  if (filing === null) return res.status(404).json({ error: "Filing not found." });
+  if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  if (filing.status !== "Draft") {
+    return res.status(400).json({ error: "Only a Draft filing can be deleted — this one has been signed, so void it instead." });
+  }
+
+  await query(`DELETE FROM altax.v3_poa_filings WHERE filing_id = $1`, [filing.filing_id]);
+  await logAudit("Tools", "DELETE_POA_FILING", filing.filing_id, "", filing.form_type, "",
+    `Draft filing deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));

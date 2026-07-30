@@ -406,3 +406,24 @@ contractsRouter.post("/:contractId/void", requireAuth, requireRole("admin", "sta
     `Contract voided by ${req.user!.email}: ${reason}`, req.user!.email);
   res.json({ ok: true });
 }));
+
+/**
+ * Hard delete — admin only, and only while still a Draft. Anything the client
+ * has already been sent or signed is a record of what actually happened;
+ * Void (above) is the correct way to retract one of those, same reasoning as
+ * every other financial/legal record in this app that gets voided rather than
+ * deleted. A Draft nobody has seen yet is just a mistake worth erasing.
+ */
+contractsRouter.post("/:contractId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const contract = await queryOne<any>(`SELECT * FROM altax.v3_client_contracts WHERE contract_id = $1`, [req.params.contractId]);
+  if (!contract) return res.status(404).json({ error: "Contract not found." });
+  if (!(await canAccessClient(req.user!, contract.client_id))) return res.status(403).json({ error: "You do not have access to this contract." });
+  if (contract.status !== "Draft") {
+    return res.status(400).json({ error: "Only a Draft contract can be deleted — this one has been sent or signed, so void it instead." });
+  }
+
+  await query(`DELETE FROM altax.v3_client_contracts WHERE contract_id = $1`, [contract.contract_id]);
+  await logAudit("Contracts", "DELETE", contract.contract_id, "", contract.title, "",
+    `Draft contract deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
