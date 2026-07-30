@@ -75,7 +75,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     `SELECT user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
             reminder_preference, active, last_login, must_reset_password, invite_expires,
             (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite,
-            pending_email, pending_email_expires
+            pending_email, pending_email_expires, ptin, caf_number
        FROM altax.v3_users
       ORDER BY name ASC`
   );
@@ -560,4 +560,26 @@ usersRouter.post("/:userId/cancel-email-change", requireAuth, requireRole("admin
     `Pending sign-in email change cancelled by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, userId });
+}));
+
+/**
+ * Admin oversight for another staff member's PTIN/CAF number — narrow and
+ * separate from the general staff-user upsert above on purpose. That upsert
+ * always writes every field in its params array; folding ptin/cafNumber into
+ * it would mean editing someone's phone number could silently null out a
+ * PTIN they'd already entered themselves via /auth/preparer-info, any time
+ * the admin's edit form didn't happen to carry the current values along.
+ * This route touches only these two columns, so it can never do that.
+ */
+usersRouter.post("/:userId/preparer-info", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+
+  const ptin = String(req.body?.ptin || "").trim() || null;
+  const cafNumber = String(req.body?.cafNumber || "").trim() || null;
+  await query(`UPDATE altax.v3_users SET ptin = $2, caf_number = $3, updated_at = now() WHERE user_id = $1`, [userId, ptin, cafNumber]);
+  await logAudit("Staff", "EDIT_PREPARER_INFO", userId, "", "", "", `PTIN/CAF number updated by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
 }));

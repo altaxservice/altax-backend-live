@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { authenticateUser, buildAuthSuccess, AuthError, AuthSuccess } from "./auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
-import { requireAuth, AuthedRequest } from "../../common/requireAuth";
+import { requireAuth, requireRole, AuthedRequest } from "../../common/requireAuth";
 import { verifyPassword, createPasswordHashFields } from "./password";
 import { pool, query, queryOne } from "../../config/db";
 import { logAudit } from "../../common/audit";
@@ -771,4 +771,25 @@ authRouter.post("/confirm-email-change", codeLimiter, asyncHandler(async (req: R
   }
 
   res.json({ ok: true, email: newEmail, contactEmailUpdated: Boolean(user.pending_email_sync_contact && user.assigned_client_id) });
+}));
+
+/**
+ * Preparer credentials (PTIN / CAF number) — self-service for admin AND
+ * staff, unlike the rest of Users & Access which is admin-only. These are
+ * the individual staff member's own IRS-issued numbers (Form 2848 requires
+ * each named representative's PTIN and CAF number), so whoever holds them
+ * should be able to enter their own without asking an admin to do it for
+ * them. An admin can still view/edit anyone's from Users & Access, for the
+ * case where a staff member hasn't filled theirs in yet.
+ */
+authRouter.get("/preparer-info", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT ptin, caf_number FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
+  res.json({ ptin: row?.ptin || "", cafNumber: row?.caf_number || "" });
+}));
+
+authRouter.post("/preparer-info", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ptin = String(req.body?.ptin || "").trim() || null;
+  const cafNumber = String(req.body?.cafNumber || "").trim() || null;
+  await query(`UPDATE altax.v3_users SET ptin = $2, caf_number = $3 WHERE user_id = $1`, [req.user!.sub, ptin, cafNumber]);
+  res.json({ ok: true });
 }));

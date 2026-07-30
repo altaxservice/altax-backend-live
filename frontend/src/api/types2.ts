@@ -33,6 +33,9 @@ export interface PortalUser {
   /** A sign-in email change requested but not yet confirmed at the new address. */
   pending_email: string | null;
   pending_email_expires: string | null;
+  /** Self-editable by the admin/staff user themselves (see /auth/preparer-info) — used on IRS Form 2848. */
+  ptin: string | null;
+  caf_number: string | null;
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;

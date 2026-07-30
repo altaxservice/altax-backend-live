@@ -92,6 +92,12 @@ CREATE TABLE IF NOT EXISTS v3_users (
     last_password_change_at TIMESTAMPTZ,
     must_reset_password BOOLEAN DEFAULT FALSE,
     assigned_employee_id VARCHAR(64),
+    -- IRS preparer credentials, self-editable by admin/staff (see POST
+    -- /auth/preparer-info) — Form 2848 requires each named representative's
+    -- PTIN and CAF number. Nullable: a staff member may not be a preparer
+    -- listed on any POA, or may not have filled this in yet.
+    ptin VARCHAR(20),
+    caf_number VARCHAR(20),
     totp_secret VARCHAR(255),
     totp_enabled BOOLEAN DEFAULT FALSE,
     -- SHA-256 hashes of the user's unused one-time recovery codes. Hashed, never

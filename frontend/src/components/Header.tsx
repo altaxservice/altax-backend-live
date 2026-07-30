@@ -15,6 +15,8 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
   const [search, setSearch] = useState("");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showTotpModal, setShowTotpModal] = useState(false);
+  const [showPreparerModal, setShowPreparerModal] = useState(false);
+  const isPreparer = user?.role === "admin" || user?.role === "staff";
   const [showMore, setShowMore] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
@@ -147,6 +149,11 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
                 <button type="button" onClick={() => { setShowUserMenu(false); setShowTotpModal(true); }}>
                   {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}
                 </button>
+                {isPreparer && (
+                  <button type="button" onClick={() => { setShowUserMenu(false); setShowPreparerModal(true); }}>
+                    Preparer Info (PTIN / CAF)
+                  </button>
+                )}
                 <button type="button" className="topbar-user-dropdown-signout" onClick={logout}>{t("header.signOut")}</button>
               </div>
             )}
@@ -155,7 +162,77 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
       </header>
       {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
       {showTotpModal && <TwoFactorModal onClose={() => setShowTotpModal(false)} />}
+      {showPreparerModal && <PreparerInfoModal onClose={() => setShowPreparerModal(false)} />}
     </>
+  );
+}
+
+/**
+ * Self-service PTIN / CAF number — every admin/staff account can fill in
+ * their own, same as changing their own password, rather than needing an
+ * admin to enter it for them. Form 2848 requires each named representative's
+ * PTIN and CAF number; nothing captured this before. An admin can still
+ * enter it on someone else's behalf from Users & Access if that person
+ * hasn't done it themselves yet.
+ */
+function PreparerInfoModal({ onClose }: { onClose: () => void }) {
+  const [ptin, setPtin] = useState("");
+  const [cafNumber, setCafNumber] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get<{ ptin: string; cafNumber: string }>("/auth/preparer-info")
+      .then((res) => { setPtin(res.ptin); setCafNumber(res.cafNumber); })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your preparer info."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post("/auth/preparer-info", { ptin, cafNumber });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save your preparer info.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-panel" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Preparer Info</h2>
+          <button className="btn btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+          Used on IRS Form 2848 when you're named as a representative. Only visible to you and admins.
+        </p>
+        {loading ? (
+          <p className="muted" style={{ padding: "8px 0" }}>Loading…</p>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {error && <ErrorBanner error={error} />}
+            {saved && <p style={{ color: "var(--good, #1a7f37)", fontSize: 13, margin: "0 0 10px" }}>Saved.</p>}
+            <div className="field">
+              <label htmlFor="prep-ptin">PTIN</label>
+              <input id="prep-ptin" placeholder="P12345678" value={ptin} onChange={(e) => { setPtin(e.target.value); setSaved(false); }} />
+            </div>
+            <div className="field">
+              <label htmlFor="prep-caf">CAF Number</label>
+              <input id="prep-caf" placeholder="Leave blank if you don't have one yet — the IRS assigns one" value={cafNumber} onChange={(e) => { setCafNumber(e.target.value); setSaved(false); }} />
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 

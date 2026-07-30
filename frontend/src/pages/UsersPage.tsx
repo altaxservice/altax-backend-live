@@ -42,6 +42,9 @@ export function UsersPage() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [inviteInfo, setInviteInfo] = useState<{ userId: string; inviteLink?: string; inviteToken?: string; temporaryPassword?: string; note?: string; inviteEmailed?: boolean; inviteEmailError?: string; email?: string } | null>(null);
+  const [preparerEdit, setPreparerEdit] = useState<{ userId: string; name: string; ptin: string; cafNumber: string } | null>(null);
+  const [preparerSaving, setPreparerSaving] = useState(false);
+  const [preparerError, setPreparerError] = useState<string | null>(null);
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -113,6 +116,22 @@ export function UsersPage() {
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not deactivate this user.");
+    }
+  }
+
+  async function handleSavePreparerInfo(e: FormEvent) {
+    e.preventDefault();
+    if (!preparerEdit) return;
+    setPreparerSaving(true);
+    setPreparerError(null);
+    try {
+      await api.post(`/users/${preparerEdit.userId}/preparer-info`, { ptin: preparerEdit.ptin, cafNumber: preparerEdit.cafNumber });
+      setPreparerEdit(null);
+      load();
+    } catch (err) {
+      setPreparerError(err instanceof ApiError ? err.message : "Could not save this preparer info.");
+    } finally {
+      setPreparerSaving(false);
     }
   }
 
@@ -223,6 +242,33 @@ export function UsersPage() {
         </div>
       )}
 
+      {preparerEdit && (
+        <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
+          <div className="modal-panel" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>PTIN / CAF — {preparerEdit.name}</h2>
+              <button className="btn btn-sm" onClick={() => setPreparerEdit(null)}>Close</button>
+            </div>
+            <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+              {preparerEdit.name} can also set this themselves from their own account menu — use this only if they
+              haven't yet.
+            </p>
+            <form onSubmit={handleSavePreparerInfo}>
+              {preparerError && <ErrorBanner error={preparerError} />}
+              <div className="field">
+                <label htmlFor="pi-ptin">PTIN</label>
+                <input id="pi-ptin" placeholder="P12345678" value={preparerEdit.ptin} onChange={(e) => setPreparerEdit((p) => p && { ...p, ptin: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="pi-caf">CAF Number</label>
+                <input id="pi-caf" value={preparerEdit.cafNumber} onChange={(e) => setPreparerEdit((p) => p && { ...p, cafNumber: e.target.value })} />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={preparerSaving}>{preparerSaving ? "Saving…" : "Save"}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 480, marginBottom: 24 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.userId ? "Edit User" : "New User"}</h2>
@@ -293,7 +339,11 @@ export function UsersPage() {
 
       {users && (
         <div style={{ display: "grid", gap: 16 }}>
-          <UserGroup title="Firm Users" users={filteredUsers.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase()))} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
+          <UserGroup
+            title="Firm Users" users={filteredUsers.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase()))}
+            onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete}
+            onEditPreparer={(u) => setPreparerEdit({ userId: u.user_id, name: u.name, ptin: u.ptin || "", cafNumber: u.caf_number || "" })}
+          />
           <UserGroup title="Client Users" users={filteredUsers.filter((u) => u.role.toLowerCase() === "client")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
           <UserGroup title="Employee Users" users={filteredUsers.filter((u) => u.role.toLowerCase() === "employee")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
         </div>
@@ -302,7 +352,7 @@ export function UsersPage() {
   );
 }
 
-function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void }) {
+function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void }) {
   if (users.length === 0) return null;
   return (
     <div className="command-panel">
@@ -349,6 +399,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
                         const v = e.target.value;
                         e.target.value = "";
                         if (v === "delete-user") onDelete(u.user_id, u.name);
+                        else if (v === "preparer-info") onEditPreparer?.(u);
                         else onAction(u.user_id, v);
                       }}
                       style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", fontSize: 12 }}
@@ -358,6 +409,12 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete }: {
                       <option value="reset-invite">Reset Invite</option>
                       <option value="temp-password">Set Temporary Password</option>
                       <option value="reset-2fa">Reset 2FA (lost phone)</option>
+                      {/* Firm users only (this action isn't offered on the Client/Employee
+                          groups, which don't pass onEditPreparer) — PTIN/CAF are IRS
+                          preparer credentials, meaningless for a client or employee portal
+                          account. Each admin/staff can also set their own from the account
+                          menu (top right) without needing this admin path at all. */}
+                      {onEditPreparer && <option value="preparer-info">Edit PTIN / CAF Number</option>}
                       <option value="delete-user">Delete User</option>
                     </select>
                     {u.active && <button className="btn btn-sm btn-danger" onClick={() => onDeactivate(u.user_id)}>Deactivate</button>}
