@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
+import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY } from "../contracts/contractContent";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -14,6 +15,16 @@ import { generateContractForService } from "../contracts/contracts.routes";
  * generateContractForService already no-ops safely if a contract for this
  * client+service exists, and any other failure here (e.g. a bad template)
  * shouldn't block the client save that triggered it.
+ *
+ * Also the trigger point for the Authorization to Act and Release of
+ * Information: the moment a client is checked for formation, permits &
+ * licenses, or the SNAP retailer application, this generates BOTH the
+ * ordinary engagement letter AND the authorization together, in the same
+ * save — "so when the client signed for the service, he need to sign all
+ * the document" in one sitting rather than a separate trip back for the
+ * authorization later. generateContractForService's own no-op-if-exists
+ * check keeps this safe to call on every save that touches a covered
+ * service, not just the first one.
  */
 async function autoGenerateContracts(clientId: string, serviceKeys: string[], createdBy: string): Promise<void> {
   for (const serviceKey of serviceKeys) {
@@ -21,6 +32,13 @@ async function autoGenerateContracts(clientId: string, serviceKeys: string[], cr
       await generateContractForService({ clientId, serviceKey, createdBy });
     } catch {
       // best-effort — client save already succeeded, don't surface this as an error
+    }
+  }
+  if (serviceKeys.some((k) => POA_COVERED_SERVICE_KEYS.includes(k))) {
+    try {
+      await generateContractForService({ clientId, serviceKey: POA_RELEASE_SERVICE_KEY, createdBy });
+    } catch {
+      // best-effort, same as above
     }
   }
 }

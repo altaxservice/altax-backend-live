@@ -11,7 +11,7 @@ import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
@@ -367,7 +367,7 @@ export function ClientDetailPage() {
                     {!isBusiness(form) && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
                   </p>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
-                    {servicesForClientType(form.clientType).map((s) => (
+                    {servicesForClientType(form.clientType, form.services as string[] || []).map((s) => (
                       <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                         <input
                           type="checkbox"
@@ -862,6 +862,16 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
 
   const activeServiceKeys = new Set((contracts || []).filter((c) => c.status !== "Void").map((c) => c.service_key));
   const suggested = clientServices.filter((k) => !activeServiceKeys.has(k));
+  // poa_release isn't a FIRM_SERVICES entry (never manually checked), so it
+  // can't come from clientServices — added here whenever the client has any
+  // covered service and doesn't already have one on file. Normally this
+  // generates automatically the moment the covered service is checked (see
+  // autoGenerateContracts); this manual fallback covers a client who had the
+  // service checked before this feature existed.
+  if (clientServices.some((k) => POA_COVERED_SERVICE_KEYS.includes(k)) && !activeServiceKeys.has(POA_RELEASE_SERVICE_KEY)) {
+    suggested.push(POA_RELEASE_SERVICE_KEY);
+  }
+  const pendingSignature = (contracts || []).filter((c) => c.status === "Draft" || c.status === "Sent");
 
   async function handleGenerate(serviceKey: string) {
     setBusy(`gen-${serviceKey}`);
@@ -950,6 +960,25 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   }
 
   /**
+   * The "sign everything in one sitting" packet — every document still
+   * awaiting a signature (engagement letter + Authorization to Act/Release,
+   * generated together for these services) merged into one PDF, so staff
+   * print or hand over one file instead of chasing the client through
+   * separate documents across separate visits.
+   */
+  async function handlePacket(mode: "view" | "download") {
+    setBusy("packet");
+    try {
+      if (mode === "view") await viewFile(`/contracts/client/${clientId}/packet`);
+      else await downloadFile(`/contracts/client/${clientId}/packet`, `Signing_Packet_${clientId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not combine these documents.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /**
    * Shows the actual contract text inline rather than just the PDF — the PDF
    * can't render Arabic (standard PDF fonts can't encode it; see contractPdf.ts),
    * so for the immigration template specifically this is the only way staff can
@@ -981,7 +1010,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
         <div style={{ padding: 16, borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
           <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Suggested — no contract on file yet</div>
           {suggested.map((key) => {
-            const label = FIRM_SERVICES.find((s) => s.key === key)?.label || key;
+            const label = key === POA_RELEASE_SERVICE_KEY ? POA_RELEASE_LABEL : FIRM_SERVICES.find((s) => s.key === key)?.label || key;
             return (
               <div key={key} style={{ marginBottom: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1015,6 +1044,18 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
         </div>
       )}
 
+      {pendingSignature.length > 1 && (
+        <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {pendingSignature.length} documents still need a signature — combine them so the client only has to sign once.
+          </span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" className="btn btn-sm" disabled={busy === "packet"} onClick={() => handlePacket("view")}>Preview Packet</button>
+            <button type="button" className="btn btn-sm" disabled={busy === "packet"} onClick={() => handlePacket("download")}>Download Packet</button>
+          </div>
+        </div>
+      )}
+
       <div className="table-scroll">
         <table>
           <thead><tr><th>Contract</th><th>Status</th><th>Effective</th><th>Signed</th><th>Action</th></tr></thead>
@@ -1035,17 +1076,21 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                       <button type="button" className="btn btn-sm" onClick={() => handlePreview(c.contract_id)}>{previewId === c.contract_id ? "Hide Text" : "Preview"}</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
-                      {c.status === "Draft" && (
+                      {/* poa_release must be signed by hand (several of the agencies it covers
+                          don't accept an e-signed version — see contractContent.ts) — no
+                          electronic send/link option is offered for it, only Preview/PDF/
+                          Sign In Person below, same as every other physically-signed document. */}
+                      {c.service_key !== POA_RELEASE_SERVICE_KEY && c.status === "Draft" && (
                         <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
                           {busy === `send-${c.contract_id}` ? "Sending…" : "Send to Client"}
                         </button>
                       )}
-                      {c.status === "Sent" && (
+                      {c.service_key !== POA_RELEASE_SERVICE_KEY && c.status === "Sent" && (
                         <button type="button" className="btn btn-sm" disabled={busy === `send-${c.contract_id}`} onClick={() => handleSend(c)}>
                           {busy === `send-${c.contract_id}` ? "Sending…" : "Resend Email"}
                         </button>
                       )}
-                      {(c.status === "Sent" || c.status === "Signed") && c.share_token && (
+                      {c.service_key !== POA_RELEASE_SERVICE_KEY && (c.status === "Sent" || c.status === "Signed") && c.share_token && (
                         <button type="button" className="btn btn-sm" onClick={() => handleCopyLink(c)}>Copy Link</button>
                       )}
                       {(c.status === "Draft" || c.status === "Sent") && (

@@ -1,5 +1,6 @@
 import { Router, Response } from "express";
 import { randomBytes } from "crypto";
+import { PDFDocument } from "pdf-lib";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -12,7 +13,7 @@ import { substitutePlaceholders } from "../templates/templates.routes";
 import { generateContractPdf } from "./contractPdf";
 import {
   FIRM_SERVICES, SERVICE_LABEL, GENERAL_TERMS_KEY, GENERAL_TERMS_TITLE, GENERAL_TERMS_BODY,
-  BUILT_IN_CONTRACT_TEMPLATES,
+  BUILT_IN_CONTRACT_TEMPLATES, POA_RELEASE_SERVICE_KEY, buildAuthorizedFilingsList,
 } from "./contractContent";
 
 export const contractsRouter = Router();
@@ -45,7 +46,12 @@ function fmtDate(v: unknown): string {
 }
 
 /** All service keys, including the always-appended general_terms entry, for the template-admin list. */
-const ALL_TEMPLATE_KEYS = [...FIRM_SERVICES.map((s) => s.key), GENERAL_TERMS_KEY];
+const ALL_TEMPLATE_KEYS = [...FIRM_SERVICES.map((s) => s.key), POA_RELEASE_SERVICE_KEY, GENERAL_TERMS_KEY];
+
+/** poa_release is a real, generatable contract service key but deliberately not a FIRM_SERVICES entry (see contractContent.ts) — this is the one place that distinction has to be bridged. */
+function isKnownServiceKey(key: string): boolean {
+  return FIRM_SERVICES.some((s) => s.key === key) || key === POA_RELEASE_SERVICE_KEY;
+}
 
 interface ResolvedContractTemplate { serviceKey: string; title: string; body: string; active: boolean; source: "Custom override" | "Built-in default" }
 
@@ -137,7 +143,7 @@ export interface GenerateContractResult { contractId: string; skipped: boolean; 
  */
 export async function generateContractForService(params: GenerateContractParams): Promise<GenerateContractResult> {
   const { clientId, serviceKey, createdBy } = params;
-  if (!FIRM_SERVICES.some((s) => s.key === serviceKey)) return { contractId: "", skipped: true, reason: "Unknown service." };
+  if (!isKnownServiceKey(serviceKey)) return { contractId: "", skipped: true, reason: "Unknown service." };
 
   const existing = await queryOne<any>(
     `SELECT contract_id FROM altax.v3_client_contracts WHERE client_id = $1 AND service_key = $2 AND status <> 'Void' LIMIT 1`,
@@ -145,8 +151,19 @@ export async function generateContractForService(params: GenerateContractParams)
   );
   if (existing) return { contractId: existing.contract_id, skipped: true, reason: "A contract for this service already exists." };
 
-  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, services FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { contractId: "", skipped: true, reason: "Client not found." };
+
+  // poa_release's body needs a per-client {{authorizedFilings}} checklist —
+  // built from whichever of the covered services this client actually has,
+  // never a blanket grant. No covered service selected means there is
+  // nothing for this document to authorize, so generation is skipped rather
+  // than producing an authorization that grants nothing.
+  let authorizedFilings: string | null = null;
+  if (serviceKey === POA_RELEASE_SERVICE_KEY) {
+    authorizedFilings = buildAuthorizedFilingsList(Array.isArray(client.services) ? client.services : []);
+    if (!authorizedFilings) return { contractId: "", skipped: true, reason: "No covered service selected for this client." };
+  }
 
   const [scope, general] = await Promise.all([resolveContractTemplate(serviceKey), resolveContractTemplate(GENERAL_TERMS_KEY)]);
   if (!scope) return { contractId: "", skipped: true, reason: "No contract template for this service." };
@@ -160,9 +177,18 @@ export async function generateContractForService(params: GenerateContractParams)
     firmName: profile.firmName,
     effectiveDate: fmtDate(effectiveDate),
     feeAmount: money(feeAmount, feeDescription),
+    ...(authorizedFilings ? { authorizedFilings } : {}),
   };
   const scopeText = substitutePlaceholders(scope.body, client, extra);
-  const generalText = general ? substitutePlaceholders(general.body, client, extra) : "";
+  // General Terms carries an "electronic signature consent" clause (fees,
+  // liability, e-sign) written for a paid services engagement — appending it
+  // to poa_release would directly contradict that document's own clause 6
+  // ("must be signed by hand... an electronic or typed signature does not
+  // satisfy this requirement"). poa_release's body is already
+  // self-contained (scope, release, termination, governing law, signature
+  // requirement), so it skips the shared block entirely rather than getting
+  // a self-contradicting document.
+  const generalText = general && serviceKey !== POA_RELEASE_SERVICE_KEY ? substitutePlaceholders(general.body, client, extra) : "";
   const renderedBody = [scopeText, generalText].filter(Boolean).join("\n\n\n");
 
   // template_id isn't stored: built-in templates have no DB row, and rendered_body
@@ -189,7 +215,7 @@ contractsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "sta
 
   const body = req.body || {};
   const serviceKey = String(body.serviceKey || "").trim();
-  if (!serviceKey || !FIRM_SERVICES.some((s) => s.key === serviceKey)) return res.status(400).json({ error: "Unknown or missing service." });
+  if (!serviceKey || !isKnownServiceKey(serviceKey)) return res.status(400).json({ error: "Unknown or missing service." });
 
   const result = await generateContractForService({
     clientId, serviceKey, createdBy: req.user!.email,
@@ -217,21 +243,67 @@ contractsRouter.get("/:contractId", requireAuth, asyncHandler(async (req: Authed
   res.json({ contract });
 }));
 
-contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const contract = await loadContractForUser(req, req.params.contractId);
-  if (contract === null) return res.status(404).json({ error: "Contract not found." });
-  if (contract === "forbidden") return res.status(403).json({ error: "You do not have access to this contract." });
-
+/** Shared by the single-contract PDF route and the combined signing-packet route below. */
+async function buildOneContractPdf(contract: any): Promise<Uint8Array> {
   const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
-  const bytes = await generateContractPdf({
+  return generateContractPdf({
     contractId: contract.contract_id, title: contract.title, clientName: client?.client_name || "", clientId: contract.client_id,
     renderedBody: contract.rendered_body, effectiveDate: contract.effective_date, status: contract.status,
     signerName: contract.signer_name, signerTitle: contract.signer_title, signedAt: contract.signed_at, signerIp: contract.signer_ip,
     signatureMethod: contract.signature_method, recordedBy: contract.recorded_by,
   });
+}
+
+contractsRouter.get("/:contractId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const contract = await loadContractForUser(req, req.params.contractId);
+  if (contract === null) return res.status(404).json({ error: "Contract not found." });
+  if (contract === "forbidden") return res.status(403).json({ error: "You do not have access to this contract." });
+
+  const bytes = await buildOneContractPdf(contract);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${contract.contract_id}.pdf"`);
   res.send(Buffer.from(bytes));
+}));
+
+/**
+ * The "sign everything in one sitting" packet — merges every document a
+ * client still needs to sign for one engagement (the ordinary engagement
+ * letter AND the Authorization to Act/Release of Information, generated
+ * together at the same trigger point) into a single PDF, so staff print or
+ * hand over ONE file instead of chasing the client through several separate
+ * documents across several visits. Defaults to every Draft/Sent (i.e., not
+ * yet Signed, not Void) contract for the client; an explicit `ids` query
+ * param narrows it to a specific set when staff only want some of them.
+ */
+contractsRouter.get("/client/:clientId/packet", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to these contracts." });
+
+  const requestedIds = String(req.query.ids || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const contracts = requestedIds.length
+    ? await query<any>(
+        `SELECT * FROM altax.v3_client_contracts WHERE client_id = $1 AND contract_id = ANY($2) ORDER BY created_at ASC`,
+        [clientId, requestedIds]
+      )
+    : await query<any>(
+        `SELECT * FROM altax.v3_client_contracts WHERE client_id = $1 AND status IN ('Draft','Sent') ORDER BY created_at ASC`,
+        [clientId]
+      );
+  if (!contracts.length) return res.status(404).json({ error: "No documents to combine." });
+
+  const combined = await PDFDocument.create();
+  for (const contract of contracts) {
+    const bytes = await buildOneContractPdf(contract);
+    const source = await PDFDocument.load(bytes);
+    const pages = await combined.copyPages(source, source.getPageIndices());
+    pages.forEach((p) => combined.addPage(p));
+  }
+  const merged = await combined.save();
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="Signing_Packet_${clientId}.pdf"`);
+  res.send(Buffer.from(merged));
 }));
 
 /** Marks a Draft contract Sent, mints a share token if needed, and emails the client a signing link. */

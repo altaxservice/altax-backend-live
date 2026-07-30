@@ -28,13 +28,22 @@ export const CONTACT_PREFS = ["Email", "Phone", "SMS", "Portal"];
 // FIRM_SERVICES in src/modules/contracts/contractContent.ts (backend), since
 // these keys drive which contract template gets suggested on the client
 // profile. Independent of the legacy single-select SERVICE_TYPES above.
-export const FIRM_SERVICES: { key: string; label: string }[] = [
-  { key: "tax_prep", label: "Tax Preparation" },
+//
+// `legacy: true` keeps a key's label resolvable for clients who already have
+// it (so their profile doesn't fall back to showing the bare key), while
+// hiding it from the "check a new service" list going forward — see
+// servicesForClientType below. Never remove or repoint a key once clients
+// have data against it.
+export const FIRM_SERVICES: { key: string; label: string; legacy?: boolean }[] = [
+  { key: "tax_prep", label: "Tax Preparation", legacy: true },
+  { key: "personal_tax_prep", label: "Personal Tax Preparation" },
+  { key: "business_tax_prep", label: "Business Tax Preparation" },
   { key: "bookkeeping", label: "Bookkeeping & Accounting" },
   { key: "payroll", label: "Payroll Services" },
   { key: "sales_tax", label: "Sales Tax & Business Compliance" },
   { key: "formation", label: "Business Formation & Registered Agent" },
   { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
+  { key: "snap_retailer_application", label: "SNAP Retailer Application" },
   { key: "immigration", label: "Immigration Document Preparation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
@@ -44,7 +53,25 @@ export const FIRM_SERVICES: { key: string; label: string }[] = [
 // ever needs personal tax prep, immigration help, or general consulting.
 // Used to filter the Services Provided checklist by Client Type so the form
 // only shows options that could actually apply.
-export const INDIVIDUAL_SERVICE_KEYS = ["tax_prep", "immigration", "consulting"];
-export function servicesForClientType(clientType: string): { key: string; label: string }[] {
-  return clientType === "Individual" ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key)) : FIRM_SERVICES;
+export const INDIVIDUAL_SERVICE_KEYS = ["personal_tax_prep", "immigration", "consulting"];
+
+/**
+ * The checkbox list for "check a new service" — excludes legacy keys, EXCEPT
+ * a legacy key a given client already has checked stays visible for that
+ * client (so it can still be seen/unchecked; nobody has to lose or
+ * re-classify data just because the option was retired going forward).
+ */
+export function servicesForClientType(clientType: string, alreadySelected: string[] = []): { key: string; label: string; legacy?: boolean }[] {
+  const byType = clientType === "Individual" ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key)) : FIRM_SERVICES;
+  return byType.filter((s) => !s.legacy || alreadySelected.includes(s.key));
 }
+
+// Mirrors contractContent.ts on the backend — the services where checking the
+// box also auto-generates the Authorization to Act and Release of
+// Information alongside the ordinary engagement letter (see
+// autoGenerateContracts in clients.routes.ts). poa_release itself is not a
+// FIRM_SERVICES entry (never manually checked), which is why ContractsSection
+// has to compute its "suggested" state separately from clientServices.
+export const POA_COVERED_SERVICE_KEYS = ["formation", "permits_licenses", "snap_retailer_application"];
+export const POA_RELEASE_SERVICE_KEY = "poa_release";
+export const POA_RELEASE_LABEL = "Authorization to Act and Release of Information";

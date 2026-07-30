@@ -21,20 +21,62 @@
 export interface FirmService {
   key: string;
   label: string;
+  /**
+   * Kept for label lookups (existing clients/contracts still reference this
+   * key) but no longer offered when checking NEW services on a client — split
+   * into personal_tax_prep/business_tax_prep instead. Never remove a key or
+   * repoint it once clients have data against it; just stop offering it.
+   */
+  legacy?: boolean;
 }
 
 export const FIRM_SERVICES: FirmService[] = [
-  { key: "tax_prep", label: "Tax Preparation" },
+  { key: "tax_prep", label: "Tax Preparation", legacy: true },
+  { key: "personal_tax_prep", label: "Personal Tax Preparation" },
+  { key: "business_tax_prep", label: "Business Tax Preparation" },
   { key: "bookkeeping", label: "Bookkeeping & Accounting" },
   { key: "payroll", label: "Payroll Services" },
   { key: "sales_tax", label: "Sales Tax & Business Compliance" },
   { key: "formation", label: "Business Formation & Registered Agent" },
   { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
+  { key: "snap_retailer_application", label: "SNAP Retailer Application" },
   { key: "immigration", label: "Immigration Document Preparation" },
   { key: "consulting", label: "Other Consulting & Administrative Services" },
 ];
 
 export const SERVICE_LABEL: Record<string, string> = Object.fromEntries(FIRM_SERVICES.map((s) => [s.key, s.label]));
+
+/**
+ * Services that involve applying to a government agency on the client's
+ * behalf — formation filings, permits/licenses, and SNAP retailer
+ * authorization. Checking any of these auto-generates the Authorization to
+ * Act and Release of Information alongside the ordinary engagement letter
+ * (see POA_RELEASE_SERVICE_KEY below), because these are exactly the
+ * agencies that won't discuss an application with anyone but the owner
+ * unless the owner has put it in writing that AL TAX is authorized to act
+ * and to receive that information.
+ */
+export const POA_COVERED_SERVICE_KEYS = ["formation", "permits_licenses", "snap_retailer_application"];
+
+/** What each covered service authorizes, in the plain language the actual agency deals in — used to build the per-client checklist in the POA body. */
+const POA_FILING_DESCRIPTIONS: Record<string, string> = {
+  formation: "Articles of Incorporation/Organization and related state formation filings (e.g., EIN application)",
+  permits_licenses: "Health Department permit, Certificate of Occupancy/Use & Occupancy Permit, Trader's License, and related business licenses/permits",
+  snap_retailer_application: "SNAP (EBT) Retailer Authorization Application with the U.S. Department of Agriculture, Food and Nutrition Service",
+};
+
+/**
+ * Builds the numbered checklist substituted into {{authorizedFilings}} on the
+ * POA — only the filings this specific client actually checked, never a
+ * blanket grant for work that isn't happening. Returns null (skip
+ * generation entirely) if the client has none of the covered services.
+ */
+export function buildAuthorizedFilingsList(clientServiceKeys: string[]): string | null {
+  const lines = POA_COVERED_SERVICE_KEYS
+    .filter((k) => clientServiceKeys.includes(k))
+    .map((k, i) => `   ${i + 1}. ${POA_FILING_DESCRIPTIONS[k]}`);
+  return lines.length ? lines.join("\n") : null;
+}
 
 /**
  * Appended to every generated contract after the service-specific scope section.
@@ -43,6 +85,19 @@ export const SERVICE_LABEL: Record<string, string> = Object.fromEntries(FIRM_SER
  */
 export const GENERAL_TERMS_KEY = "general_terms";
 export const GENERAL_TERMS_TITLE = "General Terms & Conditions";
+
+/**
+ * Not a FIRM_SERVICES entry — never appears in the "Services Provided"
+ * checklist a client is engaged for, and is never picked manually. It's a
+ * supporting document, auto-generated alongside the engagement letter the
+ * moment a client is checked for one of POA_COVERED_SERVICE_KEYS above (see
+ * autoGenerateContracts in clients.routes.ts). Kept as its own named
+ * constant, not folded into FIRM_SERVICES, so the two concepts — "what the
+ * client is engaged for" vs. "documents the system generates on its own" —
+ * can't get confused with each other later.
+ */
+export const POA_RELEASE_SERVICE_KEY = "poa_release";
+export const POA_RELEASE_TITLE = "Authorization to Act and Release of Information";
 // Bilingual for the same reason as the immigration template: this block is
 // appended to every contract, and most of the firm's clients read Arabic more
 // comfortably than English — a liability/fees/e-sign-consent section they
@@ -135,6 +190,38 @@ NO GUARANTEE OF REFUND OR AUDIT OUTCOME. Firm does not guarantee any specific re
 RECORD RETENTION. Client is responsible for retaining copies of all documents supporting items reported on the return, consistent with applicable record-retention requirements.`,
   },
   {
+    serviceKey: "personal_tax_prep",
+    title: "Personal Tax Preparation Engagement Letter",
+    body: `PERSONAL TAX PREPARATION ENGAGEMENT LETTER
+
+This letter confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for personal income tax preparation services, effective {{effectiveDate}}.
+
+SCOPE OF SERVICES. Firm will prepare Client's individual federal and applicable state income tax return(s) (Form 1040 and related schedules) for the period specified, based on information and documents Client provides. Firm's preparer will sign the return as paid preparer where required by law.
+
+CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy and completeness of the information provided, including income, filing status, dependents, deductions, and credits claimed. Client remains ultimately responsible for the contents of the filed return, even though Firm prepared it. Client should review the completed return carefully before signing or authorizing e-file.
+
+NO GUARANTEE OF REFUND OR AUDIT OUTCOME. Firm does not guarantee any specific refund amount, tax liability, or outcome if the return is selected for examination or audit by a taxing authority. Representation before the IRS or a state agency in connection with an audit, notice, or examination is a separate engagement with a separate fee unless otherwise agreed in writing.
+
+RECORD RETENTION. Client is responsible for retaining copies of all documents supporting items reported on the return, consistent with applicable record-retention requirements.`,
+  },
+  {
+    serviceKey: "business_tax_prep",
+    title: "Business Tax Preparation Engagement Letter",
+    body: `BUSINESS TAX PREPARATION ENGAGEMENT LETTER
+
+This letter confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for business income tax preparation services, effective {{effectiveDate}}.
+
+SCOPE OF SERVICES. Firm will prepare Client's federal and applicable state business income tax return(s) (such as Form 1120, 1120-S, 1065, or 990, as applicable to Client's entity type) for the period specified, based on financial records and information Client provides. Firm's preparer will sign the return as paid preparer where required by law.
+
+CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy and completeness of the financial information provided, including income, expenses, and any owner/shareholder allocations. Client remains ultimately responsible for the contents of the filed return, even though Firm prepared it, and for distributing any resulting Schedule K-1s to owners or partners. Client should review the completed return carefully before signing or authorizing e-file.
+
+RELIANCE ON CLIENT'S BOOKS. Unless Firm is separately engaged for bookkeeping services, Firm relies on the financial records Client provides (or Client's own bookkeeping system) as accurate and complete, and does not audit or independently verify those records.
+
+NO GUARANTEE OF REFUND OR AUDIT OUTCOME. Firm does not guarantee any specific refund amount, tax liability, or outcome if the return is selected for examination or audit by a taxing authority. Representation before the IRS or a state agency in connection with an audit, notice, or examination is a separate engagement with a separate fee unless otherwise agreed in writing.
+
+RECORD RETENTION. Client is responsible for retaining copies of all documents supporting items reported on the return, consistent with applicable record-retention requirements.`,
+  },
+  {
     serviceKey: "bookkeeping",
     title: "Bookkeeping & Accounting Services Agreement",
     body: `BOOKKEEPING & ACCOUNTING SERVICES AGREEMENT
@@ -204,6 +291,65 @@ CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accurac
 NO GUARANTEE OF ISSUANCE OR TIMING. Firm does not guarantee that any license or permit will be approved, and is not responsible for a licensing agency's review time, inspection scheduling, additional-information requests, or fee assessments, all of which are outside Firm's control. Government filing fees and inspection fees are separate from Firm's service fee and are Client's responsibility.
 
 RENEWAL IS A SEPARATE ENGAGEMENT UNLESS AGREED OTHERWISE. Unless the parties agree in writing to an ongoing renewal engagement, each license or permit application is a one-time engagement; Firm is not responsible for tracking or renewing a license or permit after it is issued unless separately engaged to do so.`,
+  },
+  {
+    serviceKey: "snap_retailer_application",
+    title: "SNAP Retailer Application Services Agreement",
+    body: `SNAP RETAILER APPLICATION SERVICES AGREEMENT
+
+This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for SNAP (Supplemental Nutrition Assistance Program) retailer authorization application services, effective {{effectiveDate}}.
+
+SCOPE OF SERVICES. Firm will prepare and submit Client's application to the U.S. Department of Agriculture, Food and Nutrition Service ("FNS"), to be authorized as a SNAP-accepting retailer, using the business information Client provides, and will handle related correspondence with FNS during the application process where authorized to do so.
+
+CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy and completeness of the business, ownership, and inventory information submitted with the application, and for confirming the resulting authorization before relying on it.
+
+NO GUARANTEE OF AUTHORIZATION. Firm does not guarantee that FNS will approve Client's application. FNS eligibility criteria (such as stocking requirements and staple-food inventory) are determined solely by FNS, and Firm is not responsible for FNS's review time, site-visit scheduling, additional-information requests, or a denial of authorization.
+
+EBT EQUIPMENT AND PROCESSOR SEPARATE. Obtaining and maintaining EBT point-of-sale equipment and a third-party payment processor relationship is Client's responsibility and is separate from this engagement unless otherwise agreed in writing.
+
+ONGOING COMPLIANCE IS CLIENT'S RESPONSIBILITY. Once authorized, Client is solely responsible for complying with SNAP program rules on an ongoing basis, including accurate transaction records; Firm's engagement under this agreement ends once the application is submitted and a determination is received, unless separately engaged for renewal or compliance support.`,
+  },
+  {
+    serviceKey: POA_RELEASE_SERVICE_KEY,
+    title: POA_RELEASE_TITLE,
+    // Generalized from the firm's own paper POA (a specific client's signed
+    // Big Boys Carryout authorization) — tokenized so it works for any
+    // client, and improved in two ways over that original: (1) the list of
+    // what's authorized is a per-client CHECKLIST built from
+    // buildAuthorizedFilingsList() below, from the client's own selected
+    // services, rather than one fixed paragraph naming every filing type
+    // whether or not that client actually needs it; (2) the release-of-
+    // information clause (agencies may discuss the application and disclose
+    // records to the Firm) is its own numbered clause instead of folded into
+    // "handle all related communications," since that's the specific
+    // language these agencies actually rely on before they'll talk to a
+    // third party. Deliberately does NOT name individual staff as
+    // attorneys-in-fact (the original named two people); the grant runs to
+    // the Firm, exercised through whichever staff member is handling the
+    // client, matching how every other engagement letter in this file is
+    // written. Physical-signature-only — clause 6 below and the app itself
+    // (no electronic e-sign option is offered for this document) both say so,
+    // because several of the agencies this covers do not accept an
+    // electronically signed version.
+    body: `AUTHORIZATION TO ACT AND RELEASE OF INFORMATION
+
+BE IT ACKNOWLEDGED that on {{effectiveDate}}, {{clientName}} ("Principal") does hereby grant a limited and specific power of attorney and authorization to {{firmName}} ("Attorney-in-Fact") to act on Principal's behalf as follows:
+
+1. AUTHORITY TO ACT. Attorney-in-Fact is authorized to prepare, sign, submit, and follow up on the following application(s) and filing(s) on Principal's behalf, and to handle related communications with the issuing agency for that purpose:
+
+{{authorizedFilings}}
+
+2. RELEASE OF INFORMATION. Principal authorizes each agency named or described above, and any other agency processing the filing(s) listed above, to discuss Principal's application, account, and filing status with Attorney-in-Fact, and to release related records and information to Attorney-in-Fact, to the same extent Principal could obtain that information directly.
+
+3. SCOPE LIMITED TO THE ABOVE. This authorization is limited to the filing(s) listed above and such incidental acts as are reasonably required to complete them. It does not authorize Attorney-in-Fact to act on any other matter, and does not authorize Attorney-in-Fact to receive funds on Principal's behalf.
+
+4. TERMINATION. This authorization remains in effect until the filing(s) listed above are completed or Principal revokes it in writing, whichever occurs first. Principal may revoke this authorization at any time by written notice to {{firmName}}; upon receipt, Attorney-in-Fact will cease all activity under this authorization and, upon request, will promptly return any of Principal's documents in its possession.
+
+5. GOVERNING LAW. This authorization is governed by the laws of the State of Maryland.
+
+6. PHYSICAL SIGNATURE REQUIRED. This authorization must be signed by hand, in ink, by Principal. Several of the agencies named above do not accept an electronically signed version of this document; an electronic or typed signature does not satisfy this requirement.
+
+By signing below, Principal confirms having read and understood this authorization and grants it as stated above.`,
   },
   {
     serviceKey: "immigration",
