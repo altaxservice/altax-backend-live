@@ -7,7 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
-import { money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
+import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
 
 /**
  * The estimate builder.
@@ -34,6 +34,10 @@ export function EstimateDetailPage() {
   const [printing, setPrinting] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [addLineOpen, setAddLineOpen] = useState(false);
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [infoForm, setInfoForm] = useState<Record<string, string>>({});
+  const [infoSaving, setInfoSaving] = useState(false);
+  const [jurisdictions, setJurisdictions] = useState<string[]>([]);
 
   function load() {
     if (!estimateId) return;
@@ -42,6 +46,49 @@ export function EstimateDetailPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this estimate."));
   }
   useEffect(load, [estimateId]);
+  useEffect(() => {
+    api.get<{ jurisdictions: string[] }>("/estimates/fee-items")
+      .then((res) => setJurisdictions(res.jurisdictions))
+      .catch(() => {});
+  }, []);
+
+  function openEditInfo() {
+    if (!estimate) return;
+    setInfoForm({
+      businessName: estimate.business_name || "",
+      contactName: estimate.contact_name || "",
+      email: estimate.email || "",
+      phone: estimate.phone || "",
+      street: estimate.street || "",
+      city: estimate.city || "",
+      state: estimate.state || "",
+      zip: estimate.zip || "",
+      entityType: estimate.entity_type || "",
+      businessType: estimate.business_type || "",
+      jurisdiction: estimate.jurisdiction || "",
+      speed: estimate.speed || "Standard",
+      // valid_until comes back as a full ISO timestamp; a date input only accepts
+      // the YYYY-MM-DD portion and silently blanks itself on anything longer.
+      validUntil: (estimate.valid_until || "").slice(0, 10),
+    });
+    setEditingInfo(true);
+  }
+
+  async function saveInfo() {
+    if (!estimateId) return;
+    if (!infoForm.businessName.trim()) { alert("Business name is required."); return; }
+    setInfoSaving(true);
+    try {
+      await api.patch(`/estimates/${estimateId}`, infoForm);
+      setEditingInfo(false);
+      load();
+      toast("Client information updated.");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not save this information.");
+    } finally {
+      setInfoSaving(false);
+    }
+  }
 
   function patchLine(index: number, patch: Partial<EstimateLine>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -350,15 +397,101 @@ export function EstimateDetailPage() {
         </div>
 
         <div className="card">
-          <h2 style={{ fontSize: 15, marginTop: 0 }}>Job &amp; Client</h2>
-          <Row label="Entity" value={estimate.entity_type || "—"} />
-          <Row label="Business type" value={estimate.business_type || "—"} />
-          <Row label="Jurisdiction" value={estimate.jurisdiction || "—"} />
-          <Row label="Filing speed" value={estimate.speed} />
-          <Row label="Contact" value={estimate.contact_name || "—"} />
-          <Row label="Email" value={estimate.email || "—"} />
-          <Row label="Phone" value={estimate.phone || "—"} />
-          <Row label="Valid until" value={estimate.valid_until || "—"} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 0, marginBottom: 10 }}>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Job &amp; Client</h2>
+            {!locked && !editingInfo && <button className="btn btn-sm" onClick={openEditInfo}>Edit</button>}
+          </div>
+
+          {editingInfo ? (
+            <div>
+              <div className="field">
+                <label htmlFor="ei-name">Business name</label>
+                <input id="ei-name" value={infoForm.businessName} onChange={(e) => setInfoForm({ ...infoForm, businessName: e.target.value })} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="field">
+                  <label htmlFor="ei-contact">Contact name</label>
+                  <input id="ei-contact" value={infoForm.contactName} onChange={(e) => setInfoForm({ ...infoForm, contactName: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-phone">Phone</label>
+                  <input id="ei-phone" value={infoForm.phone} onChange={(e) => setInfoForm({ ...infoForm, phone: e.target.value })} />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="ei-email">Email</label>
+                <input id="ei-email" type="email" value={infoForm.email} onChange={(e) => setInfoForm({ ...infoForm, email: e.target.value })} />
+              </div>
+              <div className="field">
+                <label htmlFor="ei-street">Street</label>
+                <input id="ei-street" value={infoForm.street} onChange={(e) => setInfoForm({ ...infoForm, street: e.target.value })} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+                <div className="field">
+                  <label htmlFor="ei-city">City</label>
+                  <input id="ei-city" value={infoForm.city} onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-state">State</label>
+                  <input id="ei-state" value={infoForm.state} onChange={(e) => setInfoForm({ ...infoForm, state: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-zip">ZIP</label>
+                  <input id="ei-zip" value={infoForm.zip} onChange={(e) => setInfoForm({ ...infoForm, zip: e.target.value })} />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="field">
+                  <label htmlFor="ei-entity">Entity type</label>
+                  <select id="ei-entity" value={infoForm.entityType} onChange={(e) => setInfoForm({ ...infoForm, entityType: e.target.value })}>
+                    <option value="">—</option>
+                    {ENTITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-biz">Business type</label>
+                  <select id="ei-biz" value={infoForm.businessType} onChange={(e) => setInfoForm({ ...infoForm, businessType: e.target.value })}>
+                    <option value="">—</option>
+                    {BUSINESS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-jur">Jurisdiction</label>
+                  <select id="ei-jur" value={infoForm.jurisdiction} onChange={(e) => setInfoForm({ ...infoForm, jurisdiction: e.target.value })}>
+                    <option value="">—</option>
+                    {jurisdictions.map((j) => <option key={j} value={j}>{j}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="ei-speed">Filing speed</label>
+                  <select id="ei-speed" value={infoForm.speed} onChange={(e) => setInfoForm({ ...infoForm, speed: e.target.value })}>
+                    {SPEEDS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="ei-valid">Valid until</label>
+                <input id="ei-valid" type="date" value={infoForm.validUntil} onChange={(e) => setInfoForm({ ...infoForm, validUntil: e.target.value })} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                <button className="btn btn-sm" onClick={() => setEditingInfo(false)} disabled={infoSaving}>Cancel</button>
+                <button className="btn btn-sm btn-primary" onClick={saveInfo} disabled={infoSaving}>{infoSaving ? "Saving…" : "Save"}</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <Row label="Entity" value={estimate.entity_type || "—"} />
+              <Row label="Business type" value={estimate.business_type || "—"} />
+              <Row label="Jurisdiction" value={estimate.jurisdiction || "—"} />
+              <Row label="Filing speed" value={estimate.speed} />
+              <Row label="Contact" value={estimate.contact_name || "—"} />
+              <Row label="Email" value={estimate.email || "—"} />
+              <Row label="Phone" value={estimate.phone || "—"} />
+              <Row label="Address" value={[estimate.street, [estimate.city, estimate.state, estimate.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ") || "—"} />
+              <Row label="Valid until" value={estimate.valid_until ? new Date(estimate.valid_until).toLocaleDateString() : "—"} />
+            </>
+          )}
+
           <div className="field" style={{ marginTop: 12 }}>
             <label htmlFor="est-deposit">Deposit received</label>
             <input id="est-deposit" type="number" step="0.01" defaultValue={estimate.deposit_amount}
