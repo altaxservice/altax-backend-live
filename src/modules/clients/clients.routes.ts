@@ -222,6 +222,12 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean }> = 
   companyContactName: { column: "company_contact_name" },
   companyContactTitle: { column: "company_contact_title" },
   companyContactSsn: { column: "company_contact_ssn" },
+  // Separate from the client's own email/phone above — those are the company's
+  // main line, this is how to reach the actual responsible-party person (who
+  // may not be the one answering the main number), same distinction already
+  // drawn for name/title/SSN.
+  companyContactEmail: { column: "company_contact_email" },
+  companyContactPhone: { column: "company_contact_phone" },
   clientType: { column: "client_type" },
   serviceType: { column: "service_type" },
   // Granular, multi-select firm service lines (tax_prep, bookkeeping, payroll,

@@ -127,6 +127,8 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "company_contact_name", apiKey: "companyContactName", label: "Responsible Party / Company Contact", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_title", apiKey: "companyContactTitle", label: "Contact Title", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Contact SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_email", apiKey: "companyContactEmail", label: "Contact Email", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_phone", apiKey: "companyContactPhone", label: "Contact Phone", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "notes", apiKey: "notes", label: "Notes", kind: "textarea" },
     ],
   },
@@ -557,6 +559,8 @@ export function ClientDetailPage() {
                   <DetailRow label="Company Contact" value={client.company_contact_name as string | null} />
                   <DetailRow label="Title" value={client.company_contact_title as string | null} />
                   <DetailRow label="SS No." value={client.company_contact_ssn as string | null} />
+                  <DetailRow label="Contact Email" value={client.company_contact_email as string | null} />
+                  <DetailRow label="Contact Phone" value={client.company_contact_phone as string | null} />
                 </>
               ) : (
                 <p className="muted">Not applicable for individual clients.</p>

@@ -22,7 +22,8 @@ const EMPTY_CLIENT_FORM = {
   mdWithholdingFrequency: "", mduiEnabled: false, mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
   preferredLanguage: "English", smsAllowed: false, emailAllowed: true, preferredContact: "Email",
-  ein: "", stateTaxId: "", secretaryOfStateId: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "", individualSsn: "", notes: "",
+  ein: "", stateTaxId: "", secretaryOfStateId: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
+  companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "",
 };
 
 const QUICK_TABS: { key: string; label: string; test: (c: Client) => boolean }[] = [
@@ -639,6 +640,14 @@ export function ClientsListPage() {
                 <div className="field"><label htmlFor="nc-cc">Responsible Party / Company Contact</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
                 <div className="field"><label htmlFor="nc-cct">Contact Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
                 <div className="field"><label htmlFor="nc-ccs">Contact SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
+                <div className="field">
+                  <label htmlFor="nc-cce">Contact Email <span className="muted">(if different from company email)</span></label>
+                  <input id="nc-cce" type="email" value={form.companyContactEmail} onChange={(e) => setForm((f) => ({ ...f, companyContactEmail: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="nc-ccp">Contact Phone <span className="muted">(if different from company phone)</span></label>
+                  <input id="nc-ccp" value={form.companyContactPhone} onChange={(e) => setForm((f) => ({ ...f, companyContactPhone: e.target.value }))} />
+                </div>
               </>
             )}
           </div>
