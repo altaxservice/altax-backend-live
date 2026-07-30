@@ -140,7 +140,7 @@ estimatesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandle
     const lines = await loadLines(est.estimate_id);
     withTotals.push({
       ...est,
-      totals: computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount }),
+      totals: computeTotals(lines, { discount: est.discount_amount, discountPercent: est.discount_percent, taxRate: est.tax_rate, deposit: est.deposit_amount }),
       line_count: lines.length,
     });
   }
@@ -154,13 +154,13 @@ estimatesRouter.get("/:estimateId", requireAuth, requireRole("admin", "staff"), 
   res.json({
     estimate: est,
     lines,
-    totals: computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount }),
+    totals: computeTotals(lines, { discount: est.discount_amount, discountPercent: est.discount_percent, taxRate: est.tax_rate, deposit: est.deposit_amount }),
   });
 }));
 
 /** Builds the exact PDF payload from a stored estimate — shared by the preview/download route and the manual email send, so both always render the identical document. */
 async function buildEstimatePdfBytes(est: any, lines: EstimateLine[]) {
-  const totals = computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount });
+  const totals = computeTotals(lines, { discount: est.discount_amount, discountPercent: est.discount_percent, taxRate: est.tax_rate, deposit: est.deposit_amount });
   const pdfLines: EstimatePdfLine[] = resolveLineAmounts(lines).map((l) => ({
     description: l.description,
     category: l.category as "Government" | "Service",
@@ -189,6 +189,7 @@ async function buildEstimatePdfBytes(est: any, lines: EstimateLine[]) {
     governmentTotal: totals.governmentTotal,
     clientDirectTotal: totals.clientDirectTotal,
     discount: totals.discount,
+    discountPercent: totals.discountPercent || undefined,
     taxRate: totals.taxRate,
     tax: totals.tax,
     total: totals.total,
@@ -347,7 +348,7 @@ estimatesRouter.patch("/:estimateId", requireAuth, requireRole("admin", "staff")
     street: "street", city: "city", state: "state", zip: "zip",
     entityType: "entity_type", businessType: "business_type", jurisdiction: "jurisdiction", speed: "speed",
     estimateDate: "estimate_date", validUntil: "valid_until", preparedBy: "prepared_by",
-    discountAmount: "discount_amount", taxRate: "tax_rate", depositAmount: "deposit_amount",
+    discountAmount: "discount_amount", discountPercent: "discount_percent", taxRate: "tax_rate", depositAmount: "deposit_amount",
     depositDate: "deposit_date", terms: "terms", internalNote: "internal_note", status: "status",
   };
   const sets: string[] = [];
@@ -403,7 +404,7 @@ estimatesRouter.put("/:estimateId/lines", requireAuth, requireRole("admin", "sta
 
   const saved = await loadLines(estimateId);
   const e = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
-  res.json({ ok: true, lines: saved, totals: computeTotals(saved, { discount: e.discount_amount, taxRate: e.tax_rate, deposit: e.deposit_amount }) });
+  res.json({ ok: true, lines: saved, totals: computeTotals(saved, { discount: e.discount_amount, discountPercent: e.discount_percent, taxRate: e.tax_rate, deposit: e.deposit_amount }) });
 }));
 
 /** Rebuild lines from the catalog after the job details change. */
@@ -441,7 +442,7 @@ estimatesRouter.post("/:estimateId/rebuild", requireAuth, requireRole("admin", "
   }
 
   const saved = await loadLines(est.estimate_id);
-  res.json({ ok: true, lines: saved, totals: computeTotals(saved, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount }) });
+  res.json({ ok: true, lines: saved, totals: computeTotals(saved, { discount: est.discount_amount, discountPercent: est.discount_percent, taxRate: est.tax_rate, deposit: est.deposit_amount }) });
 }));
 
 /** Staff/admin record the client's decision — approval happens by phone or in person. */
@@ -497,7 +498,7 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
   if (est.status !== "Approved") return res.status(400).json({ error: "Approve the estimate before converting it." });
 
   const lines = await loadLines(estimateId);
-  const totals = computeTotals(lines, { discount: est.discount_amount, taxRate: est.tax_rate, deposit: est.deposit_amount });
+  const totals = computeTotals(lines, { discount: est.discount_amount, discountPercent: est.discount_percent, taxRate: est.tax_rate, deposit: est.deposit_amount });
 
   const createTasks = req.body?.createTasks !== false;
   const createInvoice = req.body?.createInvoice !== false;

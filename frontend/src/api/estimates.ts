@@ -48,6 +48,7 @@ export interface EstimateTotals {
   clientDirectTotal: number;
   subtotal: number;
   discount: number;
+  discountPercent: number;
   taxRate: number;
   tax: number;
   total: number;
@@ -78,6 +79,7 @@ export interface Estimate {
   valid_until: string | null;
   prepared_by: string | null;
   discount_amount: string;
+  discount_percent: string;
   tax_rate: string;
   deposit_amount: string;
   deposit_date: string | null;

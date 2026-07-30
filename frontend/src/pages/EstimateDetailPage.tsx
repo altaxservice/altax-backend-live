@@ -38,11 +38,15 @@ export function EstimateDetailPage() {
   const [infoForm, setInfoForm] = useState<Record<string, string>>({});
   const [infoSaving, setInfoSaving] = useState(false);
   const [jurisdictions, setJurisdictions] = useState<string[]>([]);
+  const [discountType, setDiscountType] = useState<"fixed" | "percent">("fixed");
 
   function load() {
     if (!estimateId) return;
     api.get<{ estimate: Estimate; lines: EstimateLine[]; totals: EstimateTotals }>(`/estimates/${estimateId}`)
-      .then((res) => { setEstimate(res.estimate); setLines(res.lines); setTotals(res.totals); setDirty(false); })
+      .then((res) => {
+        setEstimate(res.estimate); setLines(res.lines); setTotals(res.totals); setDirty(false);
+        setDiscountType(Number(res.estimate.discount_percent) > 0 ? "percent" : "fixed");
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this estimate."));
   }
   useEffect(load, [estimateId]);
@@ -375,7 +379,9 @@ export function EstimateDetailPage() {
             <Row label="Client pays agencies directly" value={money(totals.clientDirectTotal)} muted />
           )}
           <Row label="Subtotal" value={money(totals.subtotal)} bold />
-          <Row label="Discount" value={`− ${money(totals.discount)}`} />
+          {totals.discount > 0 && (
+            <Row label={totals.discountPercent > 0 ? `Discount (${totals.discountPercent}%)` : "Discount"} value={`− ${money(totals.discount)}`} />
+          )}
           {totals.taxRate > 0 && <Row label={`Tax (${totals.taxRate}%)`} value={money(totals.tax)} />}
           <Row label="Total" value={money(totals.total)} bold />
           <Row label="Deposit received" value={`− ${money(totals.deposit)}`} />
@@ -499,8 +505,29 @@ export function EstimateDetailPage() {
           </div>
           <div className="field">
             <label htmlFor="est-discount">Discount</label>
-            <input id="est-discount" type="number" step="0.01" defaultValue={estimate.discount_amount}
-              onBlur={(e) => patchEstimate({ discountAmount: Number(e.target.value) })} disabled={locked} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <select
+                id="est-discount-type" value={discountType} disabled={locked}
+                style={{ maxWidth: 90 }}
+                onChange={(e) => setDiscountType(e.target.value as "fixed" | "percent")}
+              >
+                <option value="fixed">$</option>
+                <option value="percent">%</option>
+              </select>
+              {discountType === "percent" ? (
+                <input
+                  id="est-discount" type="number" step="0.01" min="0" max="100"
+                  defaultValue={estimate.discount_percent} disabled={locked}
+                  onBlur={(e) => patchEstimate({ discountPercent: Number(e.target.value), discountAmount: 0 })}
+                />
+              ) : (
+                <input
+                  id="est-discount" type="number" step="0.01" min="0"
+                  defaultValue={estimate.discount_amount} disabled={locked}
+                  onBlur={(e) => patchEstimate({ discountAmount: Number(e.target.value), discountPercent: 0 })}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>

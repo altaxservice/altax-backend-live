@@ -95,6 +95,7 @@ export interface EstimatePdfData {
   governmentTotal: number;
   clientDirectTotal: number;
   discount: number;
+  discountPercent?: number;
   taxRate: number;
   tax: number;
   total: number;
@@ -237,7 +238,8 @@ export async function generateEstimatePdf(data: EstimatePdfData): Promise<Uint8A
   ctx.c.text(R, ctx.y, `$${money(data.governmentTotal)}`, { size: 10, align: "right", color: MUTED });
   ctx.y += 15;
   if (data.discount) {
-    ctx.c.text(summaryX, ctx.y, "Discount", { size: 10, color: MUTED });
+    const label = data.discountPercent ? `Discount (${data.discountPercent}%)` : "Discount";
+    ctx.c.text(summaryX, ctx.y, label, { size: 10, color: MUTED });
     ctx.c.text(R, ctx.y, `-$${money(data.discount)}`, { size: 10, align: "right", color: MUTED });
     ctx.y += 15;
   }

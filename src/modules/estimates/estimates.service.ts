@@ -65,6 +65,7 @@ export interface EstimateTotals {
   clientDirectTotal: number;
   subtotal: number;
   discount: number;
+  discountPercent: number;
   taxRate: number;
   tax: number;
   total: number;
@@ -183,7 +184,7 @@ export function resolveLineAmounts(lines: EstimateLine[]): Array<EstimateLine & 
  */
 export function computeTotals(
   lines: EstimateLine[],
-  opts: { discount?: number; taxRate?: number; deposit?: number }
+  opts: { discount?: number; discountPercent?: number; taxRate?: number; deposit?: number }
 ): EstimateTotals {
   const billable = lines.filter((l) => (l.payer || "Firm") !== "Client");
   const clientDirect = lines.filter((l) => (l.payer || "Firm") === "Client");
@@ -216,7 +217,12 @@ export function computeTotals(
   const clientDirectTotal = clientDirect.reduce((sum, l) => sum + lineAmounts(l, base).price, 0);
 
   const subtotal = round2(serviceTotal + governmentTotal);
-  const discount = round2(num(opts.discount));
+  // A percent discount, when set, wins over a flat dollar figure — same
+  // precedence as the invoice module's computeInvoiceTotals, so a discount
+  // entered as "10%" always means 10% of THIS estimate's own subtotal rather
+  // than whatever dollar amount was left over from an earlier edit.
+  const discountPercent = num(opts.discountPercent);
+  const discount = discountPercent > 0 ? round2(subtotal * (discountPercent / 100)) : round2(num(opts.discount));
   const taxRate = num(opts.taxRate);
   const taxed = Math.max(subtotal - discount, 0);
   const tax = round2(taxed * (taxRate / 100));
@@ -229,6 +235,7 @@ export function computeTotals(
     clientDirectTotal: round2(clientDirectTotal),
     subtotal,
     discount,
+    discountPercent,
     taxRate,
     tax,
     total,
