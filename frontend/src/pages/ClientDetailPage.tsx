@@ -19,6 +19,9 @@ import { fmtDateOnly } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
 import { ErrorBanner } from "../components/ErrorBanner";
+import type { PoaFiling } from "../api/poaForms";
+import { FORM_LABELS, SUBMIT_VIA_OPTIONS, STATUS_COLOR } from "../api/poaForms";
+import { GeneratePoaFormModal } from "../components/GeneratePoaFormModal";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -626,7 +629,12 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Contracts" && canSeeStaffTabs && (
-            <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+            <Fragment>
+              <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+              <div style={{ marginTop: 16 }}>
+                <PoaFilingsSection clientId={client.client_id} />
+              </div>
+            </Fragment>
           )}
 
           {tab === "Vault & Payment Methods" && canSeeStaffTabs && (
@@ -1156,6 +1164,208 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>
           No services selected yet — edit this client and check off Services Provided to see suggested contracts.
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Government-form filings (IRS Form 2848, IRS Form 8821, MD Form 548) — each
+ * row is a real fillable PDF generated from stored data, same physical-
+ * signature-only model as ContractsSection above (see poaForms.service.ts):
+ * no e-sign link is ever offered, only Preview/PDF/Sign In Person, plus a
+ * Mark Submitted step recording how staff actually got it to the agency
+ * (mail/fax/hand-delivered/IRS online portal) since this app has no live
+ * filing integration with the IRS or Comptroller.
+ */
+function PoaFilingsSection({ clientId }: { clientId: string }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [filings, setFilings] = useState<PoaFiling[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
+  const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
+  const [submitFor, setSubmitFor] = useState<string | null>(null);
+  const [submitForm, setSubmitForm] = useState({ submittedVia: SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+
+  function load() {
+    api.get<{ filings: PoaFiling[] }>(`/poa-forms/client/${clientId}`)
+      .then((res) => setFilings(res.filings))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load authorization forms."));
+  }
+  useEffect(load, [clientId]);
+
+  async function handlePdf(filingId: string, mode: "view" | "download", formType: string) {
+    setBusy(`pdf-${filingId}`);
+    try {
+      if (mode === "view") await viewFile(`/poa-forms/${filingId}/pdf`);
+      else await downloadFile(`/poa-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSignInPerson(f: PoaFiling) {
+    setSignInPersonForm({ signerName: "", signerTitle: "" });
+    setSignInPersonFor(signInPersonFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSignInPerson(f: PoaFiling) {
+    setBusy(`signip-${f.filing_id}`);
+    try {
+      await api.post(`/poa-forms/${f.filing_id}/sign`, signInPersonForm);
+      toast("Recorded as signed in person.");
+      setSignInPersonFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openSubmit(f: PoaFiling) {
+    setSubmitForm({ submittedVia: SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+    setSubmitFor(submitFor === f.filing_id ? null : f.filing_id);
+  }
+
+  async function handleSubmitted(f: PoaFiling) {
+    setBusy(`submit-${f.filing_id}`);
+    try {
+      await api.post(`/poa-forms/${f.filing_id}/submit`, submitForm);
+      toast("Marked submitted.");
+      setSubmitFor(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleVoid(f: PoaFiling) {
+    const reason = prompt(`Reason for voiding ${FORM_LABELS[f.form_type]}?`);
+    if (reason === null) return;
+    setBusy(`void-${f.filing_id}`);
+    try {
+      await api.post(`/poa-forms/${f.filing_id}/void`, { reason });
+      toast("Filing voided.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Authorization Forms (IRS / MD POA)</strong>
+        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Authorization Form</button>
+      </div>
+
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
+
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>Form</th><th>Representative(s)</th><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <tbody>
+            {(filings || []).map((f) => (
+              <Fragment key={f.filing_id}>
+                <tr>
+                  <td>{FORM_LABELS[f.form_type] || f.form_type}</td>
+                  <td className="muted">{f.representatives.map((r) => r.name).join(", ") || "—"}</td>
+                  <td><span style={{ color: STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
+                  <td className="muted">
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td className="muted">
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
+                      {f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now (In Person)</button>
+                      )}
+                      {f.status === "Signed" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Submitted</button>
+                      )}
+                      {isAdmin && f.status !== "Void" && (
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {signInPersonFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 220 }}>
+                          <label>Signer's Full Legal Name</label>
+                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                        </div>
+                        <div className="field" style={{ maxWidth: 160 }}>
+                          <label>Title (optional)</label>
+                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                        </div>
+                        <button
+                          type="button" className="btn btn-primary btn-sm"
+                          disabled={busy === `signip-${f.filing_id}` || !signInPersonForm.signerName.trim()}
+                          onClick={() => handleSignInPerson(f)}
+                        >
+                          {busy === `signip-${f.filing_id}` ? "Recording…" : "Confirm Signed In Person"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSignInPersonFor(null)}>Cancel</button>
+                      </div>
+                      <p className="muted" style={{ fontSize: 11.5, padding: "0 12px 12px" }}>
+                        Use this only after the client physically signed a printed copy — there's no electronic signature option for this form.
+                      </p>
+                    </td>
+                  </tr>
+                )}
+                {submitFor === f.filing_id && (
+                  <tr>
+                    <td colSpan={6} style={{ background: "var(--surface)" }}>
+                      <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div className="field" style={{ maxWidth: 200 }}>
+                          <label>Sent Via</label>
+                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                            {SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                        <div className="field" style={{ maxWidth: 260 }}>
+                          <label>Note (optional)</label>
+                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
+                          {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm Submitted"}
+                        </button>
+                        <button type="button" className="btn btn-sm" onClick={() => setSubmitFor(null)}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {filings && filings.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+          No authorization forms on file yet — generate Form 2848, Form 8821, or MD Form 548 as needed.
+        </p>
+      )}
+
+      {generating && (
+        <GeneratePoaFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
       )}
     </div>
   );
