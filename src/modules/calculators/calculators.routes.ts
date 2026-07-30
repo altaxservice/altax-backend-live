@@ -1,17 +1,19 @@
 import { Router, Response } from "express";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
-import { lookupSalesTaxRate } from "../../common/taxRates";
+import { lookupSalesTaxRateWithSource } from "../../common/taxRates";
 
 /**
  * Tools → Calculators.
  *
  * Quick one-off math staff reach for without opening a real invoice or
  * payroll record — the sale amount goes in, the answer comes out. The sales
- * tax calculator draws its rate from the exact same v3_tax_rates lookup the
- * invoice editor's "Automatic Calculation" option uses (see
- * ../../common/taxRates), so a rate change the firm makes there is
- * immediately reflected here too, with no second place to keep in sync.
+ * tax calculator prefers the firm's own v3_tax_rates entry for a state (the
+ * exact same lookup the invoice editor's "Automatic Calculation" option
+ * uses, so a rate change the firm makes there is immediately reflected here
+ * too), and falls back to each state's published general rate when the firm
+ * hasn't configured one — see lookupSalesTaxRateWithSource in
+ * ../../common/taxRates.
  *
  * The quarterly-estimate (safe harbor) calculator needs no server data at
  * all — it's pure arithmetic on numbers the user types in — so it lives
@@ -27,8 +29,8 @@ const num = (v: unknown): number => {
 calculatorsRouter.get("/sales-tax", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const state = String(req.query.state || "").trim() || null;
   const amount = num(req.query.amount);
-  const rate = await lookupSalesTaxRate(state);
+  const { rate, source } = await lookupSalesTaxRateWithSource(state);
   const taxAmount = Math.round(amount * (rate / 100) * 100) / 100;
   const total = Math.round((amount + taxAmount) * 100) / 100;
-  res.json({ state, amount, rate, taxAmount, total });
+  res.json({ state, amount, rate, source, taxAmount, total });
 }));

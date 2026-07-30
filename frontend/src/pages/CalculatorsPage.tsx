@@ -54,8 +54,9 @@ function SalesTaxCalculator() {
     <div className="card">
       <h2 style={{ fontSize: 15, marginTop: 0 }}>Sales Tax</h2>
       <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 12 }}>
-        Rate comes straight from Fee Schedule &amp; Tax Rates — the same rate an invoice's
-        "Automatic Calculation" would use for this state.
+        Uses a Fee Schedule rate if the firm has set one for this state (the same rate an
+        invoice's "Automatic Calculation" would use); otherwise falls back to that state's
+        published general sales tax rate.
       </p>
 
       {error && <ErrorBanner error={error} />}
@@ -83,9 +84,19 @@ function SalesTaxCalculator() {
             <Row label="Sale amount" value={money(result.amount)} />
             <Row label="Sales tax" value={money(result.taxAmount)} />
             <Row label="Total" value={money(result.total)} bold />
-            {result.rate === 0 && (
+            {result.source === "firm" ? (
               <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                No active sales tax rate is on file for {result.state} — add one under Fee Schedule if this state should have one.
+                Firm rate from Fee Schedule &amp; Tax Rates.
+              </p>
+            ) : result.rate === 0 ? (
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+                {result.state} has no general state sales tax.
+              </p>
+            ) : (
+              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+                {result.state}'s published general state rate — no Fee Schedule entry is on file
+                for this state, and this doesn't include county/city surtaxes. Add a Fee Schedule
+                rate for exact jurisdiction pricing.
               </p>
             )}
           </>
