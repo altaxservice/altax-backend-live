@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import type { SalesTaxCategory, SalesTaxResult } from "../api/calculators";
+import type { SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
 import { US_STATES } from "../utils/clientOptions";
 
 const money = (n: number | null | undefined): string =>
@@ -30,108 +30,114 @@ export function CalculatorsPage() {
   );
 }
 
+interface SalesTaxLine { id: number; categoryId: string; taxableAmount: string }
+let salesTaxLineSeq = 0;
+const emptySalesTaxLine = (): SalesTaxLine => ({ id: ++salesTaxLineSeq, categoryId: "", taxableAmount: "" });
+
+/**
+ * Adopts the exact same "Sales by Category" process as Accounting → Sales
+ * Input: pick a state, then a repeatable list of category + taxable-amount
+ * lines (e.g. $500 General + $200 Vape + $50 Alcohol, each its own line),
+ * computed via the same lookupRate precedence Sales Input itself uses — see
+ * computeSalesTaxLines in ../../src/common/taxRates.ts.
+ */
 function SalesTaxCalculator() {
   const [state, setState] = useState("MD");
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
-  const [categoryId, setCategoryId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [result, setResult] = useState<SalesTaxResult | null>(null);
+  const [lines, setLines] = useState<SalesTaxLine[]>([emptySalesTaxLine()]);
+  const [result, setResult] = useState<SalesTaxPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fee Schedule sales tax categories are per-state (General, Vape, Alcohol,
-  // a local jurisdiction add-on, etc.) — reload the list whenever the state
-  // changes, and default back to "the firm's default for this state" so
-  // switching states doesn't carry over a category that may not exist there.
+  // Categories are per-state (General, Vape, Alcohol, a local jurisdiction
+  // add-on, etc.) — reload whenever the state changes, and reset the lines
+  // so switching states doesn't carry over a category that may not exist
+  // there.
   useEffect(() => {
-    setCategoryId("");
     api.get<{ categories: SalesTaxCategory[] }>(`/calculators/sales-tax-categories?state=${encodeURIComponent(state)}`)
       .then((res) => setCategories(res.categories))
       .catch(() => setCategories([]));
+    setLines([emptySalesTaxLine()]);
   }, [state]);
 
+  function updateLine(id: number, patch: Partial<SalesTaxLine>) {
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+  function removeLine(id: number) {
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  }
+
   useEffect(() => {
-    const amt = Number(amount);
-    if (!state || !amount || !Number.isFinite(amt) || amt < 0) { setResult(null); return; }
+    const payloadLines = lines
+      .filter((l) => l.categoryId && Number(l.taxableAmount) > 0)
+      .map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) }));
+    if (payloadLines.length === 0) { setResult(null); return; }
     setLoading(true);
     const t = setTimeout(() => {
-      const categoryParam = categoryId ? `&categoryId=${encodeURIComponent(categoryId)}` : "";
-      api.get<SalesTaxResult>(`/calculators/sales-tax?state=${encodeURIComponent(state)}&amount=${amt}${categoryParam}`)
+      api.post<SalesTaxPreviewResult>("/calculators/sales-tax-preview", { state, lines: payloadLines })
         .then((res) => { setResult(res); setError(null); })
-        .catch((err) => setError(err instanceof ApiError ? err.message : "Could not look up this rate."))
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Could not calculate tax."))
         .finally(() => setLoading(false));
-    }, 250);
+    }, 300);
     return () => clearTimeout(t);
-  }, [state, categoryId, amount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, JSON.stringify(lines)]);
 
   return (
     <div className="card">
       <h2 style={{ fontSize: 15, marginTop: 0 }}>Sales Tax</h2>
       <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 12 }}>
-        Uses the firm's Fee Schedule sales tax categories for this state (same list as
-        Accounting → Sales Input) — General, Vape, Alcohol, a local jurisdiction add-on, etc.;
-        otherwise falls back to that state's published general sales tax rate.
+        Same process as Accounting → Sales Input: pick a state, then add a category and taxable
+        amount for each type of sale — General, Vape, Alcohol, a local jurisdiction add-on, etc.
       </p>
 
       {error && <ErrorBanner error={error} />}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="stc-state">State</label>
-          <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
-            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="stc-amount">Sale amount</label>
-          <input id="stc-amount" type="number" step="0.01" min="0" placeholder="0.00"
-            value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </div>
+      <div className="field" style={{ margin: 0 }}>
+        <label htmlFor="stc-state">State</label>
+        <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
+          {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
 
-      {categories.length > 0 && (
-        <div className="field">
-          <label htmlFor="stc-category">Category</label>
-          <select id="stc-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">{categories[0].categoryName} (default)</option>
-            {categories.slice(1).map((c) => (
-              <option key={c.categoryId} value={c.categoryId}>{c.categoryName}</option>
-            ))}
-          </select>
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
+          Sales by Category
         </div>
-      )}
+        {lines.map((line, i) => (
+          <div key={line.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+            <div className="field" style={{ margin: 0 }}>
+              {i === 0 && <label>Category</label>}
+              <select value={line.categoryId} onChange={(e) => updateLine(line.id, { categoryId: e.target.value })}>
+                <option value="">Select a category…</option>
+                {categories.map((c) => <option key={c.categoryId} value={c.categoryId}>{c.categoryName}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              {i === 0 && <label>Taxable Amount</label>}
+              <input type="number" step="0.01" min="0" placeholder="0.00" value={line.taxableAmount}
+                onChange={(e) => updateLine(line.id, { taxableAmount: e.target.value })} />
+            </div>
+            <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(line.id)}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>
+      </div>
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
         {loading ? (
           <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
-        ) : result ? (
+        ) : result && result.lines.length > 0 ? (
           <>
-            <Row label={result.categoryName ? `Rate — ${result.categoryName}` : `Rate for ${result.state}`} value={`${result.rate}%`} />
-            <Row label="Sale amount" value={money(result.amount)} />
-            <Row label="Sales tax" value={money(result.taxAmount)} />
-            <Row label="Total" value={money(result.total)} bold />
-            {result.source === "category" ? (
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                Firm category rate from Fee Schedule &amp; Tax Rates.
-              </p>
-            ) : result.source === "firm" ? (
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                Firm rate from Fee Schedule &amp; Tax Rates.
-              </p>
-            ) : result.rate === 0 ? (
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                {result.state} has no general state sales tax.
-              </p>
-            ) : (
-              <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
-                {result.state}'s published general state rate — no Fee Schedule category is on
-                file for this state, and this doesn't include county/city surtaxes. Add one under
-                Accounting → Sales Input categories for exact jurisdiction pricing.
-              </p>
-            )}
+            {result.lines.map((l) => (
+              <Row key={l.categoryId} label={`${l.categoryName} — ${money(l.taxableAmount)} @ ${l.rate}%`} value={money(l.taxAmount)} />
+            ))}
+            <Row label="Taxable amount" value={money(result.totalTaxableAmount)} />
+            <Row label="Total tax" value={money(result.totalTax)} bold />
+            <Row label="Grand total" value={money(result.grandTotal)} bold />
           </>
         ) : (
-          <p className="muted" style={{ fontSize: 13 }}>Enter a state and amount.</p>
+          <p className="muted" style={{ fontSize: 13 }}>Pick a category and enter an amount for at least one line.</p>
         )}
       </div>
     </div>
