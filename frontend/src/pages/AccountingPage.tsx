@@ -175,6 +175,14 @@ function CategoryLinesEditor({ lines, setLines, categories, clientState }: {
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/** Maryland sales tax returns are due the 20th of the month following the reporting period — the 20th of this month if we haven't passed it yet, otherwise next month's 20th. A sensible default "next due date," not just today's date. */
+const nextMdDueDate = () => {
+  const now = new Date();
+  const due = new Date(now.getFullYear(), now.getMonth(), 20);
+  if (now.getDate() > 20) due.setMonth(due.getMonth() + 1);
+  return isoDate(due);
+};
+
 /**
  * Sales-tax filing periods staff actually work in. "All time" is deliberately
  * included so an empty period is never mistaken for missing data.
@@ -208,7 +216,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
-  const [mdDueDate, setMdDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mdDueDate, setMdDueDate] = useState(nextMdDueDate);
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
 
@@ -416,7 +424,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         {clientState === "MD" && periodTax > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginBottom: 4 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label>Return due date</label>
                 <input type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} style={{ padding: "4px 6px" }} />
@@ -426,6 +434,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                 <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
               </div>
             </div>
+            <p className="muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
+              MD sales tax returns are due the 20th of the month following the reporting period —
+              paying on or before that date is on time, no penalty or interest.
+            </p>
             {mdFiling && (
               <div className="card" style={{ padding: "8px 12px", fontSize: 12 }}>
                 {mdFiling.onTime ? (

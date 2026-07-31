@@ -36,6 +36,13 @@ interface SalesTaxLine { id: number; categoryId: string; taxableAmount: string }
 let salesTaxLineSeq = 0;
 const emptySalesTaxLine = (): SalesTaxLine => ({ id: ++salesTaxLineSeq, categoryId: "", taxableAmount: "" });
 const todayIso = () => new Date().toISOString().slice(0, 10);
+/** Maryland sales tax returns are due the 20th of the month following the reporting period — the 20th of this month if we haven't passed it yet, otherwise next month's 20th. A sensible default "next due date," not just today's date. */
+const nextMdDueDate = () => {
+  const now = new Date();
+  const due = new Date(now.getFullYear(), now.getMonth(), 20);
+  if (now.getDate() > 20) due.setMonth(due.getMonth() + 1);
+  return due.toISOString().slice(0, 10);
+};
 
 /**
  * Adopts the exact same "Sales by Category" process as Accounting → Sales
@@ -52,13 +59,14 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
  */
 function SalesTaxCalculator() {
   const [state, setState] = useState("MD");
+  const [grossSales, setGrossSales] = useState("");
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [lines, setLines] = useState<SalesTaxLine[]>([emptySalesTaxLine()]);
   const [result, setResult] = useState<SalesTaxPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const [mdDueDate, setMdDueDate] = useState(todayIso());
+  const [mdDueDate, setMdDueDate] = useState(nextMdDueDate());
   const [mdPaidDate, setMdPaidDate] = useState(todayIso());
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [mdFilingLoading, setMdFilingLoading] = useState(false);
@@ -122,12 +130,24 @@ function SalesTaxCalculator() {
 
       {error && <ErrorBanner error={error} />}
 
-      <div className="field" style={{ margin: 0 }}>
-        <label htmlFor="stc-state">State</label>
-        <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
-          {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="stc-state">State</label>
+          <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
+            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="stc-gross-sales">Gross sales (Line 3)</label>
+          <input id="stc-gross-sales" type="number" step="0.01" min="0" placeholder="0.00"
+            value={grossSales} onChange={(e) => setGrossSales(e.target.value)} />
+        </div>
       </div>
+      <p className="muted" style={{ fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+        Total sales including non-taxable items (SNAP/EBT, exempt sales, etc.) — this can be
+        larger than the taxable amount below. Doesn't affect the tax math, just recorded for the
+        return like Form 202 Line 3.
+      </p>
 
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
@@ -158,6 +178,7 @@ function SalesTaxCalculator() {
           <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
         ) : result && result.lines.length > 0 ? (
           <>
+            {Number(grossSales) > 0 && <Row label="Gross sales (Line 3)" value={money(Number(grossSales))} />}
             {result.lines.map((l) => (
               <Row key={l.categoryId} label={`${l.categoryName} — ${money(l.taxableAmount)} @ ${l.rate}%`} value={money(l.taxAmount)} />
             ))}
@@ -175,7 +196,7 @@ function SalesTaxCalculator() {
           <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
             Filing Discount / Late Penalty (Form 202)
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="stc-md-due-date">Return due date</label>
               <input id="stc-md-due-date" type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} />
@@ -185,6 +206,10 @@ function SalesTaxCalculator() {
               <input id="stc-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
             </div>
           </div>
+          <p className="muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+            MD sales tax returns are due the 20th of the month following the reporting period —
+            paying on or before that date is on time, no penalty or interest.
+          </p>
           {mdFilingLoading ? (
             <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
           ) : mdFiling ? (
