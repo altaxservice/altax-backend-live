@@ -28,6 +28,7 @@ export interface Client {
   client_id: string;
   client_name: string;
   entity_type: string | null;
+  date_of_formation: string | null;
   status: string | null;
   state: string | null;
   email: string | null;

@@ -39,6 +39,7 @@ export function EstimateDetailPage() {
   const [infoSaving, setInfoSaving] = useState(false);
   const [jurisdictions, setJurisdictions] = useState<string[]>([]);
   const [discountType, setDiscountType] = useState<"fixed" | "percent">("fixed");
+  const [selectedLines, setSelectedLines] = useState<Set<string>>(new Set());
 
   function load() {
     if (!estimateId) return;
@@ -96,6 +97,28 @@ export function EstimateDetailPage() {
 
   function patchLine(index: number, patch: Partial<EstimateLine>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+    setDirty(true);
+  }
+
+  // New (not-yet-saved) lines have no line_id yet, same fallback the row's
+  // React `key` already uses — keeps selection stable across re-renders
+  // without needing a persisted id for lines that don't have one yet.
+  function lineKey(line: EstimateLine, i: number): string {
+    return line.line_id || `new-${i}`;
+  }
+  function toggleLineSelected(key: string) {
+    setSelectedLines((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+  function toggleSelectAllLines() {
+    setSelectedLines((prev) => (prev.size === lines.length ? new Set() : new Set(lines.map(lineKey))));
+  }
+  function removeSelectedLines() {
+    setLines((prev) => prev.filter((line, i) => !selectedLines.has(lineKey(line, i))));
+    setSelectedLines(new Set());
     setDirty(true);
   }
 
@@ -247,6 +270,7 @@ export function EstimateDetailPage() {
           <button className="btn" disabled={viewing} onClick={handleView}>{viewing ? "Generating…" : "Preview PDF"}</button>
           <button className="btn" disabled={printing} onClick={handleDownload}>{printing ? "Generating…" : "Download PDF"}</button>
           <button className="btn" onClick={handleOpenSend}>Send to Client</button>
+          <button className="btn btn-sm" onClick={() => navigate("/estimates")}>Close</button>
           {!locked && <button className="btn" disabled={busy} onClick={handleRebuild}>Rebuild from Fee Schedule</button>}
           {estimate.status !== "Approved" && <button className="btn" disabled={busy} onClick={handleApprove}>Mark Approved</button>}
           {estimate.status === "Approved" && !estimate.client_id && (
@@ -275,7 +299,14 @@ export function EstimateDetailPage() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <h2 style={{ fontSize: 15, margin: 0 }}>Estimate Lines</h2>
-          {!locked && <button className="btn btn-sm" onClick={() => setAddLineOpen(true)}>Add Line</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            {!locked && selectedLines.size > 0 && (
+              <button className="btn btn-sm" style={{ color: "var(--danger, #cf222e)" }} onClick={removeSelectedLines}>
+                Remove Selected ({selectedLines.size})
+              </button>
+            )}
+            {!locked && <button className="btn btn-sm" onClick={() => setAddLineOpen(true)}>Add Line</button>}
+          </div>
         </div>
 
         {addLineOpen && (
@@ -290,6 +321,11 @@ export function EstimateDetailPage() {
           <table className="data-table">
             <thead>
               <tr>
+                {!locked && (
+                  <th style={{ width: 32 }}>
+                    <input type="checkbox" checked={lines.length > 0 && selectedLines.size === lines.length} onChange={toggleSelectAllLines} />
+                  </th>
+                )}
                 <th>Description</th>
                 <th>Type</th>
                 <th style={{ width: 70 }}>Qty</th>
@@ -306,8 +342,14 @@ export function EstimateDetailPage() {
                 const amount = line.included ? 0 : isPercent
                   ? Math.round(totals.governmentTotal * ((line.percent_rate || 0) / 100) * 100) / 100
                   : Math.round(line.qty * line.unit_price * 100) / 100;
+                const key = lineKey(line, i);
                 return (
-                  <tr key={line.line_id || `new-${i}`} data-row-id={line.line_id}>
+                  <tr key={key} data-row-id={line.line_id}>
+                    {!locked && (
+                      <td>
+                        <input type="checkbox" checked={selectedLines.has(key)} onChange={() => toggleLineSelected(key)} />
+                      </td>
+                    )}
                     <td data-label="Description">
                       {locked ? line.description : (
                         <input value={line.description} style={{ width: "100%", minWidth: 180 }}

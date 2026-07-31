@@ -44,7 +44,22 @@ const app = express();
 // address) behind the platform's reverse proxy — used as part of the contract
 // e-signature audit trail (see publicContract.routes.ts POST /:token/sign).
 app.set("trust proxy", true);
-app.use(helmet());
+// helmet()'s default CSP has no frame-src directive, so it falls back to
+// default-src 'self' — which blocks blob: URLs from loading inside an
+// <iframe>. That's exactly how SendEstimateModal/SendInvoiceModal preview a
+// generated PDF (fetch as blob, URL.createObjectURL, iframe src), so without
+// this override the preview panel silently shows a broken-file icon instead
+// of the PDF, in production where this same server serves the page hosting
+// that iframe (dev's separate Vite server doesn't apply this CSP, which is
+// why the bug didn't surface there).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "frame-src": ["'self'", "blob:"],
+    },
+  },
+}));
 
 // The app is same-origin in production (marketing site, portals, and API all served
 // from altaxgroup.com by this one process) — cross-origin requests should only ever

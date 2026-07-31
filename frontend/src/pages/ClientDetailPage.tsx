@@ -26,7 +26,7 @@ import type { GovFormFiling } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 
-type FieldKind = "text" | "select" | "checkbox" | "textarea";
+type FieldKind = "text" | "select" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
 interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean }
 
@@ -65,6 +65,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "client_type", apiKey: "clientType", label: "Client Type", kind: "select", options: ["Business", "Individual"] },
       { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
       { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !showEntityType(f) },
+      { key: "date_of_formation", apiKey: "dateOfFormation", label: "Date of Formation", kind: "date", hidden: (f) => !isBusiness(f) },
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
       { key: "service_type", apiKey: "serviceType", label: "Service Type", kind: "select", options: SERVICE_TYPES },
     ],
@@ -197,7 +198,11 @@ export function ClientDetailPage() {
       .then((res) => {
         setClient(res.client);
         const initial: Record<string, any> = {};
-        for (const f of ALL_FIELDS) initial[f.apiKey] = f.kind === "checkbox" ? Boolean(res.client[f.key]) : String(res.client[f.key] ?? "");
+        for (const f of ALL_FIELDS) {
+          initial[f.apiKey] = f.kind === "checkbox" ? Boolean(res.client[f.key])
+            : f.kind === "date" ? String(res.client[f.key] ?? "").slice(0, 10)
+            : String(res.client[f.key] ?? "");
+        }
         initial.services = Array.isArray(res.client.services) ? res.client.services : [];
         // Not in EDIT_SECTIONS (no visible checkbox — kept in sync with the
         // "Payroll Services" entry in Services Provided instead, see below).
@@ -420,6 +425,11 @@ export function ClientDetailPage() {
                       <label htmlFor={f.apiKey}>{f.label}</label>
                       <textarea id={f.apiKey} rows={f.key === "notes" ? 3 : 2} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
                     </div>
+                  ) : f.kind === "date" ? (
+                    <div className="field" key={f.apiKey}>
+                      <label htmlFor={f.apiKey}>{f.label}</label>
+                      <input id={f.apiKey} type="date" value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                    </div>
                   ) : (
                     <div className="field" key={f.apiKey}>
                       <label htmlFor={f.apiKey}>{f.label}</label>
@@ -497,6 +507,7 @@ export function ClientDetailPage() {
                 </div>
                 <DetailRow label="Client Type" value={client.client_type} />
                 <DetailRow label="Entity Type" value={client.entity_type} />
+                <DetailRow label="Date of Formation" value={client.date_of_formation ? fmtDateOnly(client.date_of_formation) : null} />
                 <DetailRow label="State" value={client.state} />
                 <DetailRow label="Service Type" value={client.service_type} />
                 <DetailRow

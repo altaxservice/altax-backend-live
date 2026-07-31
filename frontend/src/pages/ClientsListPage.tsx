@@ -17,7 +17,7 @@ import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 
 const EMPTY_CLIENT_FORM = {
-  clientName: "", status: "Active", clientType: "Business", entityType: "", state: "", serviceType: "", services: [] as string[],
+  clientName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
   mdWithholdingFrequency: "", mduiEnabled: false, mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
@@ -390,6 +390,12 @@ export function ClientsListPage() {
                   <option value="">Select…</option>
                   {ENTITY_TYPES.map((o) => <option key={o}>{o}</option>)}
                 </select>
+              </div>
+            )}
+            {form.clientType === "Business" && (
+              <div className="field">
+                <label htmlFor="nc-formation-date">Date of Formation</label>
+                <input id="nc-formation-date" type="date" value={form.dateOfFormation} onChange={(e) => setForm((f) => ({ ...f, dateOfFormation: e.target.value }))} />
               </div>
             )}
             <div className="field">

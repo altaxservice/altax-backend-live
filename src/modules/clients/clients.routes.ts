@@ -189,9 +189,14 @@ async function nextClientId(): Promise<string> {
 }
 
 /** camelCase API field -> [db column, isBoolean]. Allow-list ported 1:1 from alTaxV3UpdateClientProfile. */
-const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean }> = {
+const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean }> = {
   clientName: { column: "client_name" },
   entityType: { column: "entity_type" },
+  // date_of_formation is a DATE column — an empty string (an optional field
+  // left blank on Add Client) is not valid input for it, unlike every other
+  // UPDATABLE_FIELDS entry so far, which are all text/boolean columns that
+  // happily accept "". The `date` flag below coerces "" to null instead.
+  dateOfFormation: { column: "date_of_formation", date: true },
   status: { column: "status" },
   state: { column: "state" },
   email: { column: "email" },
@@ -263,15 +268,35 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     return res.status(409).json({ error: `A client named "${body.clientName}" already exists (${dupe.client_id}).` });
   }
 
+  // Name matching alone misses the same legal entity re-entered under a
+  // slightly different name (punctuation, "Inc" vs "Inc.", a typo) — this
+  // firm also has many genuinely distinct clients with near-identical names
+  // (franchise-style naming: "BIG BOYS CARRYOUT INC" / "BIG BOYS CARRYOUT 1
+  // INC"), so fuzzy name matching would false-positive on those. EIN is the
+  // one field that's actually unique per legal entity, so check it too
+  // whenever one was entered, normalized to digits only so "12-3456789" and
+  // "123456789" are recognized as the same EIN.
+  const einDigits = String(body.ein || "").replace(/\D/g, "");
+  if (einDigits) {
+    const einDupe = await queryOne<any>(
+      `SELECT client_id, client_name FROM altax.v3_clients
+       WHERE regexp_replace(COALESCE(ein, ''), '\\D', '', 'g') = $1 AND status <> 'Archived'`,
+      [einDigits]
+    );
+    if (einDupe) {
+      return res.status(409).json({ error: `A client with EIN ${body.ein} already exists: "${einDupe.client_name}" (${einDupe.client_id}).` });
+    }
+  }
+
   const clientId = String(body.clientId || "").trim() || await nextClientId();
 
   const columns = ["client_id"];
   const placeholders = ["$1"];
   const values: any[] = [clientId];
-  for (const [key, { column, boolean }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       columns.push(column);
-      values.push(boolean ? Boolean(body[key]) : body[key]);
+      values.push(boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key]);
       placeholders.push(`$${values.length}`);
     }
   }
@@ -325,9 +350,9 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   const body = req.body || {};
 
   const fields: Record<string, any> = {};
-  for (const [key, { column, boolean }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
-      fields[column] = boolean ? Boolean(body[key]) : body[key];
+      fields[column] = boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key];
     }
   }
 
