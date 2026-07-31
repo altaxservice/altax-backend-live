@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, viewFilePost } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { MdFilingResult, SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
 import { US_STATES } from "../utils/clientOptions";
@@ -59,7 +59,6 @@ const nextMdDueDate = () => {
  */
 function SalesTaxCalculator() {
   const [state, setState] = useState("MD");
-  const [grossSales, setGrossSales] = useState("");
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [lines, setLines] = useState<SalesTaxLine[]>([emptySalesTaxLine()]);
   const [result, setResult] = useState<SalesTaxPreviewResult | null>(null);
@@ -70,6 +69,11 @@ function SalesTaxCalculator() {
   const [mdPaidDate, setMdPaidDate] = useState(todayIso());
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [mdFilingLoading, setMdFilingLoading] = useState(false);
+
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
 
   // Categories are per-state (General, Vape, Alcohol, a local jurisdiction
   // add-on, etc.) — reload whenever the state changes, and reset the lines
@@ -120,34 +124,65 @@ function SalesTaxCalculator() {
     return () => clearTimeout(t);
   }, [state, result, mdDueDate, mdPaidDate]);
 
+  // Taxable amount excludes 0%-rate lines (the Non-Taxable category, or any
+  // exempt category like PA's Grocery) — Gross sales (Line 3), by contrast,
+  // is every line's amount added together, taxed or not, matching Form
+  // 202's own definition. Both are derived from the same computed lines, so
+  // adding a Non-Taxable line automatically raises gross without touching
+  // the tax due — no separate manual "Gross Sales" figure to keep in sync.
+  const taxableOnlyAmount = result ? result.lines.filter((l) => l.rate > 0).reduce((sum, l) => sum + l.taxableAmount, 0) : 0;
+
+  function buildPayload() {
+    return {
+      state,
+      lines: lines.filter((l) => l.categoryId && Number(l.taxableAmount) > 0).map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) })),
+      mdDueDate: state === "MD" ? mdDueDate : undefined,
+      mdPaidDate: state === "MD" ? mdPaidDate : undefined,
+    };
+  }
+
+  async function handlePreviewPdf() {
+    setPdfBusy(true);
+    try {
+      await viewFilePost("/calculators/sales-tax-pdf", buildPayload());
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not generate this PDF.");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  async function handleEmail() {
+    if (!emailTo.trim()) return;
+    setEmailBusy(true);
+    setEmailStatus(null);
+    try {
+      await api.post("/calculators/sales-tax-email", { ...buildPayload(), to: emailTo.trim() });
+      setEmailStatus(`Emailed to ${emailTo.trim()}.`);
+    } catch (err) {
+      setEmailStatus(err instanceof ApiError ? err.message : "Could not send this email.");
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
   return (
     <div className="card">
       <h2 style={{ fontSize: 15, marginTop: 0 }}>Sales Tax</h2>
       <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 12 }}>
         Same process as Accounting → Sales Input: pick a state, then add a category and taxable
-        amount for each type of sale — General, Vape, Alcohol, a local jurisdiction add-on, etc.
+        amount for each type of sale — General, Vape, Alcohol, a local jurisdiction add-on, or
+        Non-Taxable Sales (SNAP/EBT, exempt items — still counts toward gross sales, just not taxed).
       </p>
 
       {error && <ErrorBanner error={error} />}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="stc-state">State</label>
-          <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
-            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="field" style={{ margin: 0 }}>
-          <label htmlFor="stc-gross-sales">Gross sales (Line 3)</label>
-          <input id="stc-gross-sales" type="number" step="0.01" min="0" placeholder="0.00"
-            value={grossSales} onChange={(e) => setGrossSales(e.target.value)} />
-        </div>
+      <div className="field" style={{ margin: 0 }}>
+        <label htmlFor="stc-state">State</label>
+        <select id="stc-state" value={state} onChange={(e) => setState(e.target.value)}>
+          {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
       </div>
-      <p className="muted" style={{ fontSize: 11, marginTop: 4, marginBottom: 0 }}>
-        Total sales including non-taxable items (SNAP/EBT, exempt sales, etc.) — this can be
-        larger than the taxable amount below. Doesn't affect the tax math, just recorded for the
-        return like Form 202 Line 3.
-      </p>
 
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
@@ -178,11 +213,11 @@ function SalesTaxCalculator() {
           <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
         ) : result && result.lines.length > 0 ? (
           <>
-            {Number(grossSales) > 0 && <Row label="Gross sales (Line 3)" value={money(Number(grossSales))} />}
             {result.lines.map((l) => (
               <Row key={l.categoryId} label={`${l.categoryName} — ${money(l.taxableAmount)} @ ${l.rate}%`} value={money(l.taxAmount)} />
             ))}
-            <Row label="Taxable amount" value={money(result.totalTaxableAmount)} />
+            <Row label="Gross sales (Line 3)" value={money(result.totalTaxableAmount)} />
+            <Row label="Taxable amount" value={money(taxableOnlyAmount)} />
             <Row label="Total tax" value={money(result.totalTax)} bold />
             <Row label="Grand total" value={money(result.grandTotal)} bold />
           </>
@@ -190,6 +225,26 @@ function SalesTaxCalculator() {
           <p className="muted" style={{ fontSize: 13 }}>Pick a category and enter an amount for at least one line.</p>
         )}
       </div>
+
+      {result && result.lines.length > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <button type="button" className="btn btn-sm" disabled={pdfBusy} onClick={handlePreviewPdf}>
+              {pdfBusy ? "Opening…" : "Preview PDF"}
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+            <div className="field" style={{ margin: 0, flex: 1, minWidth: 180 }}>
+              <label htmlFor="stc-email-to">Email to</label>
+              <input id="stc-email-to" type="email" placeholder="name@example.com" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} />
+            </div>
+            <button type="button" className="btn btn-sm" disabled={emailBusy || !emailTo.trim()} onClick={handleEmail}>
+              {emailBusy ? "Sending…" : "Email"}
+            </button>
+          </div>
+          {emailStatus && <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>{emailStatus}</p>}
+        </div>
+      )}
 
       {state === "MD" && result && result.totalTax > 0 && (
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>

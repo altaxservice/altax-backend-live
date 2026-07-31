@@ -126,6 +126,8 @@ function Panel({ title, note, action, children }: { title: string; note?: string
 
 interface SalesTaxCategory { category_id: string; category_name: string; state: string | null; default_rate_id: string | null; display_order: number }
 interface SalesCategoryLine { categoryId: string; taxableAmount: string }
+interface SalesPreviewLine { categoryId: string; categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
+interface SalesPreview { totalTaxDue: number; lines: SalesPreviewLine[] }
 const EMPTY_SALES_LINE: SalesCategoryLine = { categoryId: "", taxableAmount: "" };
 
 /** Category dropdown sorted so the client's own state's categories appear first — advisory ordering only, every active category is always selectable. */
@@ -209,7 +211,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [estimatedTax, setEstimatedTax] = useState<number | null>(null);
+  const [salesPreview, setSalesPreview] = useState<SalesPreview | null>(null);
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -231,13 +233,21 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
 
   const linesForPreview = (ls: SalesCategoryLine[]) => ls.filter((l) => l.categoryId && Number(l.taxableAmount) > 0).map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) }));
 
+  // Gross Sales (Line 3) is derived from these same lines — including a
+  // Non-Taxable line, since its amount still counts toward gross without
+  // being taxed — instead of a separately typed figure that could drift out
+  // of sync with what was actually entered below.
   useEffect(() => {
     const payloadLines = linesForPreview(lines);
-    if (payloadLines.length === 0 && !Number(form.adjustments)) { setEstimatedTax(null); return; }
+    if (payloadLines.length === 0 && !Number(form.adjustments)) { setSalesPreview(null); setForm((f) => ({ ...f, grossSales: "" })); return; }
     const handle = setTimeout(() => {
-      api.post<{ totalTaxDue: number }>("/accounting/sales/preview", {
+      api.post<SalesPreview>("/accounting/sales/preview", {
         clientId, categoryLines: payloadLines, adjustments: Number(form.adjustments) || 0,
-      }).then((r) => setEstimatedTax(r.totalTaxDue)).catch(() => setEstimatedTax(null));
+      }).then((r) => {
+        setSalesPreview(r);
+        const gross = r.lines.reduce((sum, l) => sum + l.taxableAmount, 0);
+        setForm((f) => ({ ...f, grossSales: gross ? String(Math.round(gross * 100) / 100) : f.grossSales }));
+      }).catch(() => setSalesPreview(null));
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -366,15 +376,27 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           {error && <ErrorBanner error={error} />}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Date</label><input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
-            <div className="field"><label>Gross Sales</label><input type="number" step="0.01" value={form.grossSales} onChange={(e) => setForm((f) => ({ ...f, grossSales: e.target.value }))} /></div>
+            <div className="field">
+              <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
+              <input type="number" step="0.01" value={form.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
+            </div>
           </div>
           <CategoryLinesEditor lines={lines} setLines={setLines} categories={categories} clientState={clientState} />
+          {salesPreview && salesPreview.lines.length > 0 && (
+            <div style={{ marginTop: 8, marginBottom: 12, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+              {salesPreview.lines.map((l) => (
+                <SalesRow key={l.categoryId} label={`${l.categoryName} — ${fmtMoney(l.taxableAmount)} @ ${(l.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%`} value={fmtMoney(l.taxAmount)} />
+              ))}
+              <SalesRow label="Gross sales (Line 3)" value={fmtMoney(Number(form.grossSales) || 0)} />
+              <SalesRow label="Taxable amount" value={fmtMoney(salesPreview.lines.filter((l) => l.rate > 0).reduce((s, l) => s + l.taxableAmount, 0))} />
+              <SalesRow label="Total tax" value={fmtMoney(salesPreview.totalTaxDue)} bold />
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
             <div className="field"><label>Adjustments</label><input type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
             <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           </div>
           <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
-          {estimatedTax !== null && <p className="muted" style={{ fontSize: 13, margin: "0 0 12px" }}>Estimated Tax: <strong>{fmtMoney(estimatedTax)}</strong></p>}
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Sales Input"}</button>
         </form>
       </Panel>
@@ -551,6 +573,19 @@ const EMPTY_PAYROLL_FORM = {
 
 function SubLabel({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "14px 0 6px" }}>{children}</div>;
+}
+
+/** Same label-left/value-right row the Calculators tool uses, so Sales Input's live breakdown looks and reads the same way. */
+function SalesRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", gap: 16, padding: "6px 0",
+      borderBottom: "1px solid var(--line)", fontWeight: bold ? 700 : 400,
+    }}>
+      <span style={{ fontSize: 13 }}>{label}</span>
+      <span style={{ fontSize: 13 }}>{value}</span>
+    </div>
+  );
 }
 
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {

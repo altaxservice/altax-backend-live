@@ -732,6 +732,69 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
   return doc.save();
 }
 
+export interface CalculatorSalesTaxLine { categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
+export interface CalculatorSalesTaxMdFiling {
+  dueDate: string; paidDate: string; onTime: boolean;
+  discount: number; penalty: number; interest: number; interestRateMonthly: number; monthsLate: number; balanceDue: number;
+}
+export interface CalculatorSalesTaxPdfData {
+  state: string;
+  lines: CalculatorSalesTaxLine[];
+  totalTaxableAmount: number;
+  taxableOnlyAmount: number;
+  totalTax: number;
+  grandTotal: number;
+  mdFiling?: CalculatorSalesTaxMdFiling | null;
+}
+
+/**
+ * Tools → Calculators' Sales Tax card, as a PDF — the calculator has no
+ * client or saved record behind it (see calculators.routes.ts), so this
+ * uses the firm letterhead (drawFirmHeader) rather than a client's, the same
+ * choice generateFirmOverviewPdf makes for the same reason. Unlike that one
+ * this IS meant to be sent onward (Preview PDF / Email on the calculator
+ * card), so the footer omits the "internal analytics" disclaimer.
+ */
+export async function generateCalculatorSalesTaxPdf(data: CalculatorSalesTaxPdfData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  let y = drawFirmHeader(page, c, "SALES TAX CALCULATION", `${data.state} · ${fmtDate(new Date())}`, profile, logo);
+
+  y = sectionLabel(c, y, "Sales by Category");
+  for (const l of data.lines) {
+    y = row(c, y, `${l.categoryName} — ${money(l.taxableAmount)} @ ${l.rate}%`, money(l.taxAmount));
+  }
+  y += 4;
+  c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
+  y += 12;
+  y = row(c, y, "Gross sales (Line 3)", money(data.totalTaxableAmount));
+  y = row(c, y, "Taxable amount", money(data.taxableOnlyAmount));
+  y = row(c, y, "Total tax", money(data.totalTax), { bold: true });
+  y = row(c, y, "Grand total", money(data.grandTotal), { bold: true, accent: true });
+
+  if (data.mdFiling) {
+    y += 10;
+    y = sectionLabel(c, y, "Filing Discount / Late Penalty (Form 202)");
+    y = row(c, y, "Return due date", fmtDate(data.mdFiling.dueDate));
+    y = row(c, y, "Filing / payment date", fmtDate(data.mdFiling.paidDate));
+    if (data.mdFiling.onTime) {
+      y = row(c, y, "Timely discount (Line 18)", `− ${money(data.mdFiling.discount)}`);
+      y = row(c, y, "Balance due (Line 20)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
+    } else {
+      y = row(c, y, "Penalty — 10% (Line 37a)", money(data.mdFiling.penalty));
+      y = row(c, y, `Interest — ${(data.mdFiling.interestRateMonthly * 100).toFixed(4)}% × ${data.mdFiling.monthsLate} mo (Line 37b)`, money(data.mdFiling.interest));
+      y = row(c, y, "Balance due (Line 38)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
+    }
+  }
+
+  drawFooter(c, profile.firmName, "Prepared for reference — not a substitute for the filed return.");
+  return doc.save();
+}
+
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   // Sanitize before measuring: widthOfTextAtSize throws on characters WinAnsi
   // can't encode, so an unsanitized string would crash here even though the

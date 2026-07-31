@@ -91,6 +91,20 @@ export async function fetchAuthedBlob(path: string): Promise<Blob> {
   return res.blob();
 }
 
+/** Same as fetchAuthedBlob, but POSTs a JSON body — for PDFs built from data the caller hasn't saved anywhere (e.g. the Calculators tool's in-memory line items), where a GET query string won't carry a whole line-item array. */
+export async function fetchAuthedBlobPost(path: string, body: unknown): Promise<Blob> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const isJson = res.headers.get("content-type")?.includes("application/json");
+    const data = isJson ? await res.json() : null;
+    throw new ApiError(data?.error || res.statusText || "Request failed", res.status);
+  }
+  return res.blob();
+}
+
 /** Downloads a file (PDF, etc.) that requires auth — plain <a href> can't carry the JWT, so this fetches as a blob and triggers a save via a temporary object URL. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const blob = await fetchAuthedBlob(path);
@@ -115,6 +129,20 @@ export async function viewFile(path: string): Promise<void> {
   const win = window.open("", "_blank");
   try {
     const blob = await fetchAuthedBlob(path);
+    const url = URL.createObjectURL(blob);
+    if (win) win.location.href = url;
+    else window.open(url, "_blank");
+  } catch (err) {
+    win?.close();
+    throw err;
+  }
+}
+
+/** Same as viewFile, but for a PDF built from a POSTed body (see fetchAuthedBlobPost) rather than a GET route. */
+export async function viewFilePost(path: string, body: unknown): Promise<void> {
+  const win = window.open("", "_blank");
+  try {
+    const blob = await fetchAuthedBlobPost(path, body);
     const url = URL.createObjectURL(blob);
     if (win) win.location.href = url;
     else window.open(url, "_blank");

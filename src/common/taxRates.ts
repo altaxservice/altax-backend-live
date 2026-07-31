@@ -58,6 +58,16 @@ export const STATE_BASE_SALES_TAX_RATES: Record<string, number> = {
  */
 export const PUBLISHED_RATE_CATEGORY_ID = "PUBLISHED-GENERAL";
 
+/**
+ * The universal (state = NULL) "Non-Taxable Sales" category (sql/010) —
+ * always matches every state's query, so it must be excluded when deciding
+ * whether a state has any REAL taxable category configured (otherwise its
+ * mere presence would suppress the published-rate fallback for every state
+ * that has no other categories, e.g. CA, since the category list would
+ * never come back empty).
+ */
+export const NON_TAXABLE_CATEGORY_ID = "CAT-NON-TAXABLE";
+
 export interface SalesTaxCategory {
   categoryId: string;
   categoryName: string;
@@ -105,14 +115,17 @@ export async function listSalesTaxCategories(state: string | null): Promise<Sale
     rate: (Number(r.rate) || 0) * 100,
     filingBoxLabel: r.filing_box_label || null,
   }));
-  if (categories.length > 0) return categories;
-  const published = upper in STATE_BASE_SALES_TAX_RATES ? STATE_BASE_SALES_TAX_RATES[upper] : 0;
-  return [{
-    categoryId: PUBLISHED_RATE_CATEGORY_ID,
-    categoryName: `General Sales — Published Rate (${published}%)`,
-    rate: published,
-    filingBoxLabel: null,
-  }];
+  const hasRealCategory = categories.some((c) => c.categoryId !== NON_TAXABLE_CATEGORY_ID);
+  if (!hasRealCategory) {
+    const published = upper in STATE_BASE_SALES_TAX_RATES ? STATE_BASE_SALES_TAX_RATES[upper] : 0;
+    categories.unshift({
+      categoryId: PUBLISHED_RATE_CATEGORY_ID,
+      categoryName: `General Sales — Published Rate (${published}%)`,
+      rate: published,
+      filingBoxLabel: null,
+    });
+  }
+  return categories;
 }
 
 export interface SalesTaxLineInput {
