@@ -294,6 +294,12 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     return () => clearTimeout(t);
   }, [clientState, periodTax, mdDueDate, mdPaidDate]);
 
+  function handleClearForm() {
+    setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
+    setLines([{ ...EMPTY_SALES_LINE }]);
+    setError(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -397,7 +403,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           </div>
           <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Sales Input"}</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Sales Input"}</button>
+            <button type="button" className="btn btn-sm" onClick={handleClearForm} disabled={saving}>Cancel / Clear</button>
+          </div>
         </form>
       </Panel>
       <Panel
@@ -544,7 +553,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                     <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>
                     {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
                   </td>
-                  <td onClick={(e) => e.stopPropagation()}><button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button></td>
+                  <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                    <button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(s)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
