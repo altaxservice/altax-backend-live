@@ -22,3 +22,14 @@ export interface SalesTaxPreviewResult {
   totalTax: number;
   grandTotal: number;
 }
+
+export interface MdFilingResult {
+  taxDue: number;
+  onTime: boolean;
+  discount: number;
+  penalty: number;
+  interest: number;
+  interestRateMonthly: number;
+  monthsLate: number;
+  balanceDue: number;
+}

@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { computeSalesTaxLines, listSalesTaxCategories, SalesTaxLineInput } from "../../common/taxRates";
+import { computeMdFiling } from "../../common/mdFiling";
 
 /**
  * Tools → Calculators.
@@ -35,4 +36,18 @@ calculatorsRouter.post("/sales-tax-preview", requireAuth, requireRole("admin", "
   const { lines, totalTaxableAmount, totalTax } = await computeSalesTaxLines(state, rawLines);
   const grandTotal = Math.round((totalTaxableAmount + totalTax) * 100) / 100;
   res.json({ state, lines, totalTaxableAmount, totalTax, grandTotal });
+}));
+
+/**
+ * Maryland Form 202 Line 18 (timely discount) / Line 37 (late penalty +
+ * interest) — see ../../common/mdFiling for the exact formulas, sourced
+ * from the Comptroller's own 2026 Form 202 instructions.
+ */
+calculatorsRouter.get("/md-filing", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const taxDue = Number(req.query.taxDue);
+  const dueDate = String(req.query.dueDate || "").trim();
+  const paidDate = String(req.query.paidDate || "").trim();
+  if (!Number.isFinite(taxDue) || taxDue < 0) return res.status(400).json({ error: "Enter the tax due amount." });
+  if (!dueDate || !paidDate) return res.status(400).json({ error: "Enter both the due date and the filing/payment date." });
+  res.json(await computeMdFiling(taxDue, dueDate, paidDate));
 }));

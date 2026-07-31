@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import type { SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
+import type { MdFilingResult, SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
 import { US_STATES } from "../utils/clientOptions";
 
 const money = (n: number | null | undefined): string =>
@@ -10,10 +10,10 @@ const money = (n: number | null | undefined): string =>
 /**
  * Tools → Calculators.
  *
- * Two quick one-off tools that don't need a real record behind them: sales
- * tax on a single sale, and a quarterly estimated-tax safe-harbor split.
- * Neither writes anything to the database — punch in numbers, read an
- * answer, move on.
+ * Three quick one-off tools that don't need a real record behind them: sales
+ * tax on a single sale, a quarterly estimated-tax safe-harbor split, and
+ * Maryland's Form 202 timely-discount/late-penalty math. None of them write
+ * anything to the database — punch in numbers, read an answer, move on.
  */
 export function CalculatorsPage() {
   return (
@@ -25,6 +25,7 @@ export function CalculatorsPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
         <SalesTaxCalculator />
         <SafeHarborCalculator />
+        <MdFilingCalculator />
       </div>
     </div>
   );
@@ -237,6 +238,103 @@ function SafeHarborCalculator() {
         separately) or 90% of this year's actual tax. This estimates the safe-harbor floor,
         not the exact amount owed — and doesn't include Maryland's separate state estimated
         payments. Confirm current-year due dates on the tax calendar before sending a payment.
+      </p>
+    </div>
+  );
+}
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Maryland Form 202 Lines 17/18/36-38 — enter the tax due plus the return's
+ * due date and the actual filing/payment date; shows either the timely
+ * discount (Line 18, if on time) or the late penalty + interest (Line 37,
+ * if late), and the resulting balance due (Line 20 or Line 38). Formulas
+ * sourced from the Comptroller's own 2026 Form 202 instructions — see
+ * ../../src/common/mdFiling.ts.
+ */
+function MdFilingCalculator() {
+  const [taxDue, setTaxDue] = useState("");
+  const [dueDate, setDueDate] = useState(todayIso());
+  const [paidDate, setPaidDate] = useState(todayIso());
+  const [result, setResult] = useState<MdFilingResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const amt = Number(taxDue);
+    if (!taxDue || !Number.isFinite(amt) || amt < 0 || !dueDate || !paidDate) { setResult(null); return; }
+    setLoading(true);
+    const t = setTimeout(() => {
+      api.get<MdFilingResult>(`/calculators/md-filing?taxDue=${amt}&dueDate=${dueDate}&paidDate=${paidDate}`)
+        .then((res) => { setResult(res); setError(null); })
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Could not calculate this."))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [taxDue, dueDate, paidDate]);
+
+  return (
+    <div className="card">
+      <h2 style={{ fontSize: 15, marginTop: 0 }}>Maryland — Timely Discount / Late Penalty</h2>
+      <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 12 }}>
+        Form 202 Lines 17–20 and 36–38: the timely-filing discount if paid on time, or the 10%
+        penalty plus interest if paid late.
+      </p>
+
+      {error && <ErrorBanner error={error} />}
+
+      <div className="field" style={{ margin: 0 }}>
+        <label htmlFor="md-tax-due">Tax due (Line 17)</label>
+        <input id="md-tax-due" type="number" step="0.01" min="0" placeholder="0.00"
+          value={taxDue} onChange={(e) => setTaxDue(e.target.value)} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="md-due-date">Return due date</label>
+          <input id="md-due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="md-paid-date">Filing / payment date</label>
+          <input id="md-paid-date" type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+        {loading ? (
+          <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
+        ) : result ? (
+          <>
+            <Row label="Tax due" value={money(result.taxDue)} />
+            {result.onTime ? (
+              <>
+                <Row label="Timely discount (Line 18)" value={`− ${money(result.discount)}`} />
+                <Row label="Balance due (Line 20)" value={money(result.balanceDue)} bold />
+              </>
+            ) : (
+              <>
+                <Row label={`Penalty — 10% (Line 37a)`} value={money(result.penalty)} />
+                <Row label={`Interest — ${(result.interestRateMonthly * 100).toFixed(4)}% × ${result.monthsLate} mo (Line 37b)`} value={money(result.interest)} />
+                <Row label="Balance due (Line 38)" value={money(result.balanceDue)} bold />
+              </>
+            )}
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+              {result.onTime
+                ? "Filed and paid on or before the due date — eligible for the timely discount."
+                : "Paid after the due date — no timely discount; penalty and interest apply instead."}
+            </p>
+          </>
+        ) : (
+          <p className="muted" style={{ fontSize: 13 }}>Enter the tax due and both dates.</p>
+        )}
+      </div>
+
+      <p className="muted" style={{ fontSize: 11, marginTop: 10 }}>
+        Line 18: 1.2% of tax due up to $6,000, or 0.9% + $18 above $6,000, capped at $500 — only if
+        paid by the due date. Line 37: flat 10% penalty plus interest at{" "}
+        {result ? (result.interestRateMonthly * 100).toFixed(4) : "0.9011"}% per month or fraction of
+        a month past the due date (Maryland republishes this rate every January — verify it's still
+        current before relying on this for a return in a future year).
       </p>
     </div>
   );
