@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError, viewFilePost } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { MdFilingResult, SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
+import type { Client } from "../api/types";
 import { US_STATES } from "../utils/clientOptions";
+import { useSelectedClient } from "../context/SelectedClientContext";
+
+/** Handoff key Accounting → Sales Input reads on load to prefill its category lines — see AccountingPage.tsx's SalesTab. Session-scoped (not localStorage) so a stale handoff never survives past this browser tab/session. */
+export const CALCULATOR_TO_SALES_INPUT_KEY = "altax_calculator_to_sales_input";
 
 const money = (n: number | null | undefined): string =>
   `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -58,6 +64,8 @@ const nextMdDueDate = () => {
  * ../../src/common/mdFiling.ts.
  */
 function SalesTaxCalculator() {
+  const navigate = useNavigate();
+  const { clientId: globalClientId } = useSelectedClient();
   const [state, setState] = useState("MD");
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [lines, setLines] = useState<SalesTaxLine[]>([emptySalesTaxLine()]);
@@ -74,6 +82,20 @@ function SalesTaxCalculator() {
   const [emailTo, setEmailTo] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
+
+  const [clients, setClients] = useState<Client[]>([]);
+  const [convertClientId, setConvertClientId] = useState("");
+
+  useEffect(() => {
+    api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
+  }, []);
+  // Defaults to whichever client is selected app-wide (the right-rail client
+  // panel) so the common case — working one client's calculation, then
+  // sending it to their books — needs no extra picking. Still overridable
+  // here since the calculator itself is client-agnostic.
+  useEffect(() => {
+    if (globalClientId) setConvertClientId(globalClientId);
+  }, [globalClientId]);
 
   // Categories are per-state (General, Vape, Alcohol, a local jurisdiction
   // add-on, etc.) — reload whenever the state changes, and reset the lines
@@ -132,6 +154,17 @@ function SalesTaxCalculator() {
   // the tax due — no separate manual "Gross Sales" figure to keep in sync.
   const taxableOnlyAmount = result ? result.lines.filter((l) => l.rate > 0).reduce((sum, l) => sum + l.taxableAmount, 0) : 0;
 
+  function handleClear() {
+    setLines([emptySalesTaxLine()]);
+    setResult(null);
+    setError(null);
+    setMdDueDate(nextMdDueDate());
+    setMdPaidDate(todayIso());
+    setMdFiling(null);
+    setEmailTo("");
+    setEmailStatus(null);
+  }
+
   function buildPayload() {
     return {
       state,
@@ -164,6 +197,25 @@ function SalesTaxCalculator() {
     } finally {
       setEmailBusy(false);
     }
+  }
+
+  /**
+   * Hands the current category lines off to Accounting → Sales Input for a
+   * real client, rather than writing a v3_sales_input row directly from this
+   * client-agnostic tool — the calculator has no date field and no client
+   * context of its own, so the actual save (with a real date, and a chance
+   * to review before committing) still happens on the Sales Input form
+   * itself. Session-scoped handoff, read once by SalesTab in
+   * AccountingPage.tsx and then cleared.
+   */
+  function handleConvertToSalesInput() {
+    if (!convertClientId) return;
+    const payloadLines = lines
+      .filter((l) => l.categoryId && Number(l.taxableAmount) > 0)
+      .map((l) => ({ categoryId: l.categoryId, taxableAmount: l.taxableAmount }));
+    if (payloadLines.length === 0) return;
+    sessionStorage.setItem(CALCULATOR_TO_SALES_INPUT_KEY, JSON.stringify({ clientId: convertClientId, lines: payloadLines }));
+    navigate(`/accounting?tab=Sales&client=${encodeURIComponent(convertClientId)}`);
   }
 
   return (
@@ -205,7 +257,10 @@ function SalesTaxCalculator() {
             <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(line.id)}>✕</button>
           </div>
         ))}
-        <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>
+          <button type="button" className="btn btn-sm" onClick={handleClear}>Clear</button>
+        </div>
       </div>
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
@@ -243,6 +298,27 @@ function SalesTaxCalculator() {
             </button>
           </div>
           {emailStatus && <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>{emailStatus}</p>}
+
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
+              Send to Sales Input
+            </div>
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 0, marginBottom: 8 }}>
+              Carries these category lines over to a real client's Sales Input — pick the client, review the date and details there, then save.
+            </p>
+            <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+              <div className="field" style={{ margin: 0, flex: 1, minWidth: 180 }}>
+                <label htmlFor="stc-convert-client">Client</label>
+                <select id="stc-convert-client" value={convertClientId} onChange={(e) => setConvertClientId(e.target.value)}>
+                  <option value="">Select a client…</option>
+                  {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
+                </select>
+              </div>
+              <button type="button" className="btn btn-sm" disabled={!convertClientId} onClick={handleConvertToSalesInput}>
+                Convert to Sales Input
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

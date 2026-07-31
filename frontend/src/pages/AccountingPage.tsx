@@ -15,6 +15,7 @@ import { fileToBase64 } from "../utils/file";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
+import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -221,6 +222,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [mdDueDate, setMdDueDate] = useState(nextMdDueDate);
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
+  const [importedFromCalculator, setImportedFromCalculator] = useState(false);
 
   function load() {
     api.get<{ sales: any[] }>(`/accounting/sales/${clientId}`).then((r) => setSales(r.sales)).catch(() => {});
@@ -230,6 +232,26 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     const qs = clientState ? `?state=${encodeURIComponent(clientState)}` : "";
     api.get<{ categories: SalesTaxCategory[] }>(`/accounting/sales-categories${qs}`).then((r) => setCategories(r.categories)).catch(() => setCategories([]));
   }, [clientState]);
+
+  // One-shot handoff from Calculators → "Convert to Sales Input" — prefill
+  // the category lines it computed rather than writing a v3_sales_input row
+  // directly from that client-agnostic tool, so the actual save still goes
+  // through this form's own date entry and review. Cleared immediately so a
+  // stale entry never resurfaces (a different client, a later visit here).
+  useEffect(() => {
+    const raw = sessionStorage.getItem(CALCULATOR_TO_SALES_INPUT_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(CALCULATOR_TO_SALES_INPUT_KEY);
+    try {
+      const payload = JSON.parse(raw) as { clientId: string; lines: { categoryId: string; taxableAmount: string }[] };
+      if (payload.clientId !== clientId || !Array.isArray(payload.lines) || payload.lines.length === 0) return;
+      setLines(payload.lines.map((l) => ({ categoryId: l.categoryId, taxableAmount: String(l.taxableAmount) })));
+      setImportedFromCalculator(true);
+    } catch {
+      // malformed handoff — ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId]);
 
   const linesForPreview = (ls: SalesCategoryLine[]) => ls.filter((l) => l.categoryId && Number(l.taxableAmount) > 0).map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) }));
 
@@ -298,6 +320,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
     setLines([{ ...EMPTY_SALES_LINE }]);
     setError(null);
+    setImportedFromCalculator(false);
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -312,6 +335,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
       });
       setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
       setLines([{ ...EMPTY_SALES_LINE }]);
+      setImportedFromCalculator(false);
       load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save sales input.");
@@ -379,6 +403,11 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
       <Panel title="Sales Input" note={clientState ? `${clientState} sales tax by category` : "Sales tax by category"}>
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
+          {importedFromCalculator && (
+            <p className="muted" style={{ fontSize: 11.5, margin: "0 0 10px", padding: "6px 10px", background: "var(--line)", borderRadius: 6 }}>
+              Category lines filled in from the Calculator — set the date, review, then save.
+            </p>
+          )}
           {error && <ErrorBanner error={error} />}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Date</label><input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
