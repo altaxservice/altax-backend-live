@@ -9,23 +9,23 @@ import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
   SS4_ENTITY_TYPES, SS4_REASONS, SS4_ACTIVITIES,
+  CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES,
 } from "./govForms.service";
 
 /**
- * Tools → government forms: Form 2553 (S-Corp election), Form W-9 (TIN
- * request), Form 8332 (release of dependency exemption), and Form W-4
- * (employee withholding certificate) — fills the agency's own real fillable
- * PDF, never a firm-drawn substitute (see the individual generator files
- * under this module for how every field was verified).
+ * Tools → government forms: Form SS-4 (EIN application), Form 2553 (S-Corp
+ * election), Form W-9 (TIN request), Form 8332 (release of dependency
+ * exemption), Form W-4 (employee withholding certificate), and Maryland
+ * Form CRA (Combined Registration Application) — fills the agency's own
+ * real fillable PDF, never a firm-drawn substitute (see the individual
+ * generator files under this module for how every field was verified).
  *
- * 2553/W9/8332 are client-level (v3_gov_form_filings.client_id); W4 is
- * employee-level (v3_gov_form_filings.employee_id) since a withholding
+ * SS4/2553/W9/8332/CRA are client-level (v3_gov_form_filings.client_id); W4
+ * is employee-level (v3_gov_form_filings.employee_id) since a withholding
  * election belongs to one employee at one employer, not to the client
  * business itself. Both share the same filing lifecycle (Draft → Signed →
  * Submitted, or Void) and the same physical-signature-only rule as the POA
  * forms — none of these are ever e-signed inside this app.
- *
- * Form SS-4 is not yet wired in here — its generator is still being built.
  */
 export const govFormsRouter = Router();
 
@@ -42,6 +42,7 @@ const FORM_LABELS: Record<string, string> = {
   W9: "IRS Form W-9 — Request for Taxpayer Identification Number",
   "8332": "IRS Form 8332 — Release of Claim to Exemption for Child",
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
+  CRA: "Maryland Form CRA — Combined Registration Application",
 };
 
 govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
@@ -54,6 +55,9 @@ govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHan
     ss4EntityTypes: SS4_ENTITY_TYPES,
     ss4Reasons: SS4_REASONS,
     ss4Activities: SS4_ACTIVITIES,
+    craReasons: CRA_REASONS,
+    craTaxTypes: CRA_TAX_TYPES,
+    craOwnershipTypes: CRA_OWNERSHIP_TYPES,
   });
 }));
 
@@ -71,7 +75,8 @@ govFormsRouter.get("/client/:clientId/identity", requireAuth, requireRole("admin
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const client = await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, individual_ssn, street_address, city, state, zip_code,
-            company_contact_name, company_contact_title, company_contact_ssn, secretary_of_state_id, phone
+            company_contact_name, company_contact_title, company_contact_ssn, company_contact_email, company_contact_phone,
+            secretary_of_state_id, phone, email
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );

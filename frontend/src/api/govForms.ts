@@ -1,6 +1,6 @@
 /** Shared types for Tools → Government Forms (2553, W-9, 8332 on a client; W-4 on an employee). */
 
-export type ClientGovFormType = "SS4" | "2553" | "W9" | "8332";
+export type ClientGovFormType = "SS4" | "2553" | "W9" | "8332" | "CRA";
 export type EmployeeGovFormType = "W4";
 export type GovFormType = ClientGovFormType | EmployeeGovFormType;
 
@@ -29,6 +29,9 @@ export interface GovFormsMeta {
   ss4EntityTypes: string[];
   ss4Reasons: string[];
   ss4Activities: string[];
+  craReasons: string[];
+  craTaxTypes: string[];
+  craOwnershipTypes: string[];
 }
 
 export const GOV_FORM_LABELS: Record<GovFormType, string> = {
@@ -37,6 +40,7 @@ export const GOV_FORM_LABELS: Record<GovFormType, string> = {
   W9: "IRS Form W-9 — Request for Taxpayer Identification Number",
   "8332": "IRS Form 8332 — Release of Claim to Exemption for Child",
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
+  CRA: "Maryland Form CRA — Combined Registration Application",
 };
 
 export const GOV_SUBMIT_VIA_OPTIONS = ["Mail", "Fax", "IRS Online Portal", "Hand-Delivered", "Kept on File"];

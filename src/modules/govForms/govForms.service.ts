@@ -13,6 +13,7 @@ import { generateW9, type W9Data } from "./w9";
 import { generateForm8332, type Form8332Data } from "./form8332";
 import { generateW4, type W4Data } from "./w4";
 import { generateSs4, type Ss4Data } from "./ss4";
+import { generateCra, type CraData } from "./cra";
 
 export type { Form2553Data, Form2553Shareholder } from "./form2553";
 export { FORM2553_TAX_YEAR_TYPES } from "./form2553";
@@ -23,9 +24,11 @@ export type { W4Data } from "./w4";
 export { W4_FILING_STATUSES } from "./w4";
 export type { Ss4Data } from "./ss4";
 export { SS4_ENTITY_TYPES, SS4_REASONS, SS4_ACTIVITIES } from "./ss4";
+export type { CraData } from "./cra";
+export { CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES } from "./cra";
 
 /** Client-level forms — attached to v3_gov_form_filings.client_id. */
-export const CLIENT_GOV_FORM_TYPES = ["SS4", "2553", "W9", "8332"] as const;
+export const CLIENT_GOV_FORM_TYPES = ["SS4", "2553", "W9", "8332", "CRA"] as const;
 /** Employee-level forms — attached to v3_gov_form_filings.employee_id. W-4 is a withholding election kept on file with the employer, never sent to the IRS. */
 export const EMPLOYEE_GOV_FORM_TYPES = ["W4"] as const;
 
@@ -38,6 +41,7 @@ export async function generateGovForm(formType: string, formData: any): Promise<
     case "W9": return generateW9(formData as W9Data);
     case "8332": return generateForm8332(formData as Form8332Data);
     case "W4": return generateW4(formData as W4Data);
+    case "CRA": return generateCra(formData as CraData);
     default: throw new Error(`Unknown government form type: ${formType}`);
   }
 }

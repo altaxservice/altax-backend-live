@@ -8,7 +8,16 @@ interface ClientIdentity {
   ein: string | null; individual_ssn: string | null;
   street_address: string | null; city: string | null; state: string | null; zip_code: string | null;
   company_contact_name: string | null; company_contact_title: string | null; company_contact_ssn: string | null;
-  secretary_of_state_id: string | null; phone: string | null;
+  company_contact_email: string | null; company_contact_phone: string | null;
+  secretary_of_state_id: string | null; phone: string | null; email: string | null;
+}
+
+/** "ABDULSAMAD ALMABARI" -> ["ABDULSAMAD", "ALMABARI"] — first word is the first name, everything else is the last name. Same heuristic used elsewhere in this app for splitting a single stored contact-name field into a form's separate first/last boxes; staff can always correct it before generating. */
+function splitName(full: string | null | undefined): { first: string; last: string } {
+  const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: "", last: parts[0] };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
 function combinedAddress(identity: ClientIdentity | null): string {
@@ -71,6 +80,23 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
     address: "", city: "", state: "MD", zip: "", ssn: "", ein: "",
   });
 
+  // Maryland Form CRA state
+  const [cra, setCra] = useState({
+    fein: "", ssn: "", datEntityId: "", legalFirstName: "", legalLastName: "", tradeName: "",
+    street1: "", street2: "", city: "", state: "MD", zip: "", county: "", phone: "", fax: "", email: "",
+    mailingStreet1: "", mailingStreet2: "", mailingCity: "", mailingState: "", mailingZip: "",
+    reason: "New Business", reasonOther: "",
+    taxTypes: [] as string[],
+    ownershipType: "Maryland corporation",
+    naicsCode: "", businessActivity: "", productOrService: "",
+    officerLastName: "", officerFirstName: "", officerSsn: "", officerTitle: "",
+    officerStreet: "", officerCity: "", officerState: "", officerZip: "", officerPhone: "",
+    preparerName: "AL TAX SERVICE",
+  });
+  function toggleCraTaxType(t: string) {
+    setCra((f) => ({ ...f, taxTypes: f.taxTypes.includes(t) ? f.taxTypes.filter((x) => x !== t) : [...f.taxTypes, t] }));
+  }
+
   // Form 8332 state
   const [f8332, setF8332] = useState({
     noncustodialParentName: "", noncustodialParentSsn: "", custodialParentSsn: "",
@@ -103,6 +129,18 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
           responsiblePartyName: res.client.company_contact_name || "", responsiblePartyId: res.client.company_contact_ssn || "",
           applicantName: res.client.company_contact_name || "", applicantTitle: res.client.company_contact_title || "",
         }));
+        const officer = splitName(res.client.company_contact_name);
+        setCra((f) => ({
+          ...f,
+          fein: res.client.ein || "", ssn: res.client.individual_ssn || "", datEntityId: res.client.secretary_of_state_id || "",
+          legalLastName: res.client.client_name,
+          street1: res.client.street_address || "", city: res.client.city || "", state: res.client.state || "MD", zip: res.client.zip_code || "",
+          phone: res.client.phone || "", email: res.client.email || "",
+          officerFirstName: officer.first, officerLastName: officer.last, officerSsn: res.client.company_contact_ssn || "",
+          officerTitle: res.client.company_contact_title || "",
+          officerStreet: res.client.street_address || "", officerCity: res.client.city || "", officerState: res.client.state || "MD", officerZip: res.client.zip_code || "",
+          officerPhone: res.client.company_contact_phone || res.client.phone || "",
+        }));
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
   }, [clientId]);
@@ -129,6 +167,12 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
     if (formType === "W9") {
       if (!w9.name.trim()) { setSaveError("Name is required."); return null; }
       return { ...w9 };
+    }
+    if (formType === "CRA") {
+      if (!cra.legalLastName.trim()) { setSaveError("Legal name is required."); return null; }
+      if (!cra.street1.trim() || !cra.city.trim() || !cra.zip.trim()) { setSaveError("Physical business address is required."); return null; }
+      if (cra.taxTypes.length === 0) { setSaveError("Select at least one tax account being requested."); return null; }
+      return { ...cra };
     }
     // 8332
     if (!f8332.noncustodialParentName.trim()) { setSaveError("Noncustodial parent's name is required."); return null; }
@@ -467,6 +511,116 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                     <label>EIN <span className="muted">(if applicable)</span></label>
                     <input value={w9.ein} onChange={(e) => setW9({ ...w9, ein: e.target.value })} placeholder="XX-XXXXXXX" />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {formType === "CRA" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Registers this business for Maryland tax accounts (sales &amp; use tax, employer withholding, etc.). Covers
+                  Sections A/B/F of the real form — the detailed eligibility questions in Sections B(10-16)/C/D (alcohol,
+                  tobacco, motor fuel, successor-employer history) are left for the preparer to complete by hand from the
+                  form's own printed instructions, since they depend on facts this app doesn't track.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Legal name of entity</label>
+                    <input value={cra.legalLastName} onChange={(e) => setCra({ ...cra, legalLastName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Trade name <span className="muted">(optional)</span></label>
+                    <input value={cra.tradeName} onChange={(e) => setCra({ ...cra, tradeName: e.target.value })} />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>FEIN</label>
+                    <input value={cra.fein} onChange={(e) => setCra({ ...cra, fein: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Responsible party SSN</label>
+                    <input value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>SDAT Entity ID</label>
+                    <input value={cra.datEntityId} onChange={(e) => setCra({ ...cra, datEntityId: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field"><label>Street address — Line 1</label><input value={cra.street1} onChange={(e) => setCra({ ...cra, street1: e.target.value })} /></div>
+                <div className="field"><label>Street address — Line 2 <span className="muted">(optional)</span></label><input value={cra.street2} onChange={(e) => setCra({ ...cra, street2: e.target.value })} /></div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label>City</label><input value={cra.city} onChange={(e) => setCra({ ...cra, city: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>State</label><input value={cra.state} onChange={(e) => setCra({ ...cra, state: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>ZIP</label><input value={cra.zip} onChange={(e) => setCra({ ...cra, zip: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>County</label><input value={cra.county} onChange={(e) => setCra({ ...cra, county: e.target.value })} /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}><label>Telephone</label><input value={cra.phone} onChange={(e) => setCra({ ...cra, phone: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>Fax <span className="muted">(optional)</span></label><input value={cra.fax} onChange={(e) => setCra({ ...cra, fax: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>Email</label><input value={cra.email} onChange={(e) => setCra({ ...cra, email: e.target.value })} /></div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Reason for applying</label>
+                    <select value={cra.reason} onChange={(e) => setCra({ ...cra, reason: e.target.value })}>
+                      {meta.craReasons.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Type of ownership</label>
+                    <select value={cra.ownershipType} onChange={(e) => setCra({ ...cra, ownershipType: e.target.value })}>
+                      {meta.craOwnershipTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {cra.reason === "Other" && (
+                  <div className="field"><label>Specify</label><input value={cra.reasonOther} onChange={(e) => setCra({ ...cra, reasonOther: e.target.value })} /></div>
+                )}
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>Tax accounts being requested</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+                    {meta.craTaxTypes.map((t) => (
+                      <label key={t} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                        <input type="checkbox" checked={cra.taxTypes.includes(t)} onChange={() => toggleCraTaxType(t)} />
+                        {t}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>NAICS code <span className="muted">(6 digit, optional)</span></label>
+                    <input value={cra.naicsCode} onChange={(e) => setCra({ ...cra, naicsCode: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Business activity</label>
+                    <input value={cra.businessActivity} onChange={(e) => setCra({ ...cra, businessActivity: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Product manufactured/sold or service performed</label>
+                  <input value={cra.productOrService} onChange={(e) => setCra({ ...cra, productOrService: e.target.value })} />
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>Owner / officer / responsible party</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <input placeholder="First name" value={cra.officerFirstName} onChange={(e) => setCra({ ...cra, officerFirstName: e.target.value })} />
+                    <input placeholder="Last name" value={cra.officerLastName} onChange={(e) => setCra({ ...cra, officerLastName: e.target.value })} />
+                    <input placeholder="Title" value={cra.officerTitle} onChange={(e) => setCra({ ...cra, officerTitle: e.target.value })} />
+                    <input placeholder="SSN" value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
+                    <input placeholder="Telephone" value={cra.officerPhone} onChange={(e) => setCra({ ...cra, officerPhone: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Name of preparer <span className="muted">(if other than applicant)</span></label>
+                  <input value={cra.preparerName} onChange={(e) => setCra({ ...cra, preparerName: e.target.value })} />
                 </div>
               </div>
             )}

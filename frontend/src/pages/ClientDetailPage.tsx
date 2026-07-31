@@ -1538,7 +1538,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <strong style={{ fontSize: 14 }}>Government Forms (SS-4 / 2553 / W-9 / 8332)</strong>
+        <strong style={{ fontSize: 14 }}>Government Forms (SS-4 / 2553 / W-9 / 8332 / MD CRA)</strong>
         <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Government Form</button>
       </div>
 

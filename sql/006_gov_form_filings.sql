@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS v3_gov_form_filings (
     filing_id VARCHAR(64) PRIMARY KEY,
     client_id VARCHAR(64),
     employee_id VARCHAR(64),
-    -- 'SS4' | '2553' | 'W9' | '8332' | 'W4'
+    -- 'SS4' | '2553' | 'W9' | '8332' | 'W4' | 'CRA'
     form_type VARCHAR(8) NOT NULL,
     -- Form-specific payload — see the generator for form_type for its shape.
     form_data JSONB NOT NULL DEFAULT '{}'::jsonb,
