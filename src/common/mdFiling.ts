@@ -114,6 +114,20 @@ export interface MdFilingResult {
   balanceDue: number;
 }
 
+/**
+ * The statutory MD Form 202 due date for a given reporting period — the 20th
+ * of the month AFTER periodEnd, unlike the Calculator/Sales Input quick-entry
+ * default (nextMdDueDate in the frontend) which anchors to today because
+ * those tools have no fixed period. A report already has a fixed period, so
+ * its due date should be derived from that period, not from whenever the
+ * report happens to be generated.
+ */
+export function mdDueDateForPeriod(periodEndIso: string): string {
+  const end = new Date(`${periodEndIso}T00:00:00`);
+  const due = new Date(end.getFullYear(), end.getMonth() + 1, 20);
+  return due.toISOString().slice(0, 10);
+}
+
 export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDateStr: string): Promise<MdFilingResult> {
   const dueDate = new Date(`${dueDateStr}T00:00:00`);
   const paidDate = new Date(`${paidDateStr}T00:00:00`);

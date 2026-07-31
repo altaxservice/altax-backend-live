@@ -27,6 +27,7 @@ import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
+import type { MdFilingResult } from "../../common/mdFiling";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -53,6 +54,7 @@ export interface ReportClientInfo {
   clientId: string;
   ein: string | null;
   address: string | null;
+  state?: string | null;
 }
 
 class Cursor {
@@ -488,6 +490,7 @@ export interface SalesTaxReportData {
   byCategory: SalesTaxCategoryRow[];
   sales: SalesTaxSaleRow[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
+  mdFiling?: (MdFilingResult & { dueDate: string; paidDate: string }) | null;
 }
 
 /**
@@ -575,6 +578,26 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       c.text(colAdj, y, money(s.adjustments), { size: 9, align: "right" });
       c.text(colDue, y, money(s.totalTaxDue), { size: 9, align: "right" });
       y += 14;
+    }
+  }
+
+  if (data.mdFiling) {
+    if (y > PAGE_H - 120) {
+      drawFooter(c, profile.firmName);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+    y += 10;
+    y = sectionLabel(c, y, "Filing Discount / Late Penalty (Form 202)");
+    y = row(c, y, "Return due date", fmtDate(data.mdFiling.dueDate));
+    y = row(c, y, "Filing / payment date", fmtDate(data.mdFiling.paidDate));
+    if (data.mdFiling.onTime) {
+      y = row(c, y, "Timely discount (Line 18)", `− ${money(data.mdFiling.discount)}`);
+      y = row(c, y, "Balance due (Line 20)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
+    } else {
+      y = row(c, y, "Penalty — 10% (Line 37a)", money(data.mdFiling.penalty));
+      y = row(c, y, `Interest — ${(data.mdFiling.interestRateMonthly * 100).toFixed(4)}% × ${data.mdFiling.monthsLate} mo (Line 37b)`, money(data.mdFiling.interest));
+      y = row(c, y, "Balance due (Line 38)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
     }
   }
 

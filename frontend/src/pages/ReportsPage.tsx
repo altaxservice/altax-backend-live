@@ -7,6 +7,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
+import type { MdFilingResult } from "../api/calculators";
 
 const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
@@ -54,6 +55,7 @@ interface SalesTaxReport {
   byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
   sales: { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
+  mdFiling: (MdFilingResult & { dueDate: string; paidDate: string }) | null;
 }
 
 interface ReportPaycheck {
@@ -101,6 +103,12 @@ export function ReportsPage() {
   const [salesTaxReport, setSalesTaxReport] = useState<SalesTaxReport | null>(null);
   const [salesTaxLoading, setSalesTaxLoading] = useState(false);
   const [salesTaxError, setSalesTaxError] = useState<string | null>(null);
+  // MD Form 202 discount/penalty/interest is computed "as of" a filing/payment
+  // date — the return due date itself is fixed by the report's own period
+  // (server-derived, not editable here), but when it was actually paid isn't
+  // known ahead of time, so this defaults to today and staff can back-date it
+  // to match the real filing.
+  const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [periodMessage, setPeriodMessage] = useState<{ subject: string; body: string; bodyArabic: string } | null>(null);
   const [messageLoading, setMessageLoading] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
@@ -141,11 +149,11 @@ export function ReportsPage() {
     if (!clientId || tab !== "Sales & Tax") return;
     setSalesTaxLoading(true);
     setSalesTaxError(null);
-    api.get<SalesTaxReport>(`/reports/sales-tax/${clientId}?from=${from}&to=${to}`)
+    api.get<SalesTaxReport>(`/reports/sales-tax/${clientId}?from=${from}&to=${to}&mdPaidDate=${mdPaidDate}`)
       .then(setSalesTaxReport)
       .catch((err) => { setSalesTaxReport(null); setSalesTaxError(err instanceof ApiError ? err.message : "Could not load the sales & tax report."); })
       .finally(() => setSalesTaxLoading(false));
-  }, [clientId, tab, from, to]);
+  }, [clientId, tab, from, to, mdPaidDate]);
 
   useEffect(() => {
     if (!clientId || tab !== "Client Message") return;
@@ -168,12 +176,12 @@ export function ReportsPage() {
     setSummaryTableLoading(true);
     setSummaryTableError(null);
     api.get<{ sections: SummaryTableSection[] }>(
-      `/templates/period-summary-table/${encodeURIComponent(clientId)}?periodStart=${from}&periodEnd=${to}`
+      `/templates/period-summary-table/${encodeURIComponent(clientId)}?periodStart=${from}&periodEnd=${to}&mdPaidDate=${mdPaidDate}`
     )
       .then((r) => setSummaryTable(r.sections))
       .catch((err) => setSummaryTableError(err instanceof ApiError ? err.message : "Could not load this period's figures."))
       .finally(() => setSummaryTableLoading(false));
-  }, [clientId, tab, from, to]);
+  }, [clientId, tab, from, to, mdPaidDate]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -316,6 +324,13 @@ export function ReportsPage() {
     setTab("P&L");
   }
 
+  // Carries the Sales & Tax tab's editable "filing/payment date" into the PDF/
+  // CSV/email of that same report (and the Sales, Tax & Payroll Report, which
+  // shows the same MD discount/penalty/interest block) so what a preparer
+  // downloads or sends matches what they were just looking at on screen —
+  // rather than silently recomputing against "today" a second time.
+  const mdPaidDateQuery = tab === "Sales & Tax" || tab === "Sales, Tax & Payroll Report" ? `&mdPaidDate=${mdPaidDate}` : "";
+
   async function handlePrintReport(mode: "view" | "download") {
     const segment = REPORT_PDF_SEGMENT[tab];
     if (!segment || !clientId) return;
@@ -323,7 +338,7 @@ export function ReportsPage() {
     setReportBusy(key);
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
-      const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}`;
+      const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`;
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`);
     } catch (err) {
@@ -339,7 +354,7 @@ export function ReportsPage() {
     setReportBusy("csv");
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
-      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}`, `${segment}_${clientId}_${from}_${to}.csv`);
+      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`, `${segment}_${clientId}_${from}_${to}.csv`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -399,7 +414,7 @@ export function ReportsPage() {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
       const path = isFirmOverview
         ? `/reports/pdf/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`
-        : `/reports/pdf/${REPORT_PDF_SEGMENT[tab]}/${clientId}?from=${from}&to=${to}${employeeQuery}`;
+        : `/reports/pdf/${REPORT_PDF_SEGMENT[tab]}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`;
       const contentBase64 = await blobToBase64(await fetchAuthedBlob(path));
       const periodLabel = `${from} – ${to}`;
       const periodLabelAr = `الفترة من ${from} إلى ${to}`;
@@ -680,6 +695,40 @@ export function ReportsPage() {
                       </table>
                     </div>
                   </div>
+
+                  {salesTaxReport.mdFiling && (
+                    <div className="command-panel" style={{ marginBottom: 16 }}>
+                      <div className="command-panel-header">
+                        <h2 className="command-panel-title">Filing Discount / Late Penalty (Form 202)</h2>
+                        <div className="command-panel-note">Return due {salesTaxReport.mdFiling.dueDate}</div>
+                      </div>
+                      <div style={{ padding: 16 }}>
+                        <div className="field" style={{ maxWidth: 220, margin: "0 0 12px" }}>
+                          <label htmlFor="rp-md-paid-date">Filing / payment date</label>
+                          <input id="rp-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
+                        </div>
+                        <div className="metric-grid">
+                          {salesTaxReport.mdFiling.onTime ? (
+                            <>
+                              <div className="metric"><div className="metric-label">Timely Discount (Line 18)</div><div className="metric-value">− {fmtMoney(salesTaxReport.mdFiling.discount)}</div></div>
+                              <div className="metric"><div className="metric-label">Balance Due (Line 20)</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.balanceDue)}</div></div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="metric"><div className="metric-label">Late Penalty — 10% (Line 37a)</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.penalty)}</div></div>
+                              <div className="metric"><div className="metric-label">Interest — {salesTaxReport.mdFiling.monthsLate} mo (Line 37b)</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.interest)}</div></div>
+                              <div className="metric"><div className="metric-label">Balance Due (Line 38)</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.balanceDue)}</div></div>
+                            </>
+                          )}
+                        </div>
+                        <p className="muted" style={{ fontSize: 11.5, margin: "10px 0 0" }}>
+                          {salesTaxReport.mdFiling.onTime
+                            ? "Filed and paid on or before the due date — eligible for the timely discount."
+                            : "Paid after the due date — no timely discount; penalty and interest apply instead."}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="command-panel">
                     <div className="command-panel-header">

@@ -238,6 +238,7 @@ interface PeriodFigures {
   stateTax: number;
   suta: number;
   importantDates: { label: string; date: Date }[];
+  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; paidDate: string }) | null;
 }
 
 /**
@@ -247,7 +248,7 @@ interface PeriodFigures {
  * Reports "Client Message" table and the new Sales, Tax & Payroll report) so the two
  * presentations can never drift into showing different numbers for the same period.
  */
-async function fetchPeriodFigures(clientId: string, periodStart: string, periodEnd: string): Promise<PeriodFigures> {
+async function fetchPeriodFigures(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<PeriodFigures> {
   const sales = await query<any>(
     `SELECT * FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date BETWEEN $2 AND $3 ORDER BY sale_date ASC`,
     [clientId, periodStart, periodEnd]
@@ -283,14 +284,32 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
 
   const periodEndDate = new Date(periodEnd);
   let importantDates: { label: string; date: Date }[] = [];
+  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!Number.isNaN(periodEndDate.getTime())) {
-    const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     importantDates = client ? await computeImportantDates(client, periodEndDate) : [];
+  }
+
+  // Maryland Form 202 Line 18/37 discount/penalty/interest — same formulas
+  // the Calculator and Accounting → Sales Input use (computeMdFiling), so a
+  // client's actual filing amount shows up wherever their sales tax is
+  // reported, not only in those two working-tool views. Due date is derived
+  // from the period itself (mdDueDateForPeriod), not "today" — a report
+  // covers a fixed past/future period with a fixed statutory due date.
+  // Paid date defaults to today (the date this summary is being generated),
+  // same convention the Calculator/Sales Input use for their own default.
+  const salesTaxDue = sum(sales, "total_tax_due");
+  let mdFiling: PeriodFigures["mdFiling"] = null;
+  if (client?.state === "MD" && salesTaxDue > 0 && !Number.isNaN(periodEndDate.getTime())) {
+    const { computeMdFiling, mdDueDateForPeriod } = await import("../../common/mdFiling");
+    const dueDate = mdDueDateForPeriod(periodEnd);
+    const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : new Date().toISOString().slice(0, 10);
+    const result = await computeMdFiling(salesTaxDue, dueDate, paidDate);
+    mdFiling = { ...result, dueDate, paidDate };
   }
 
   return {
     sales, paychecks,
-    salesTaxDue: sum(sales, "total_tax_due"),
+    salesTaxDue,
     grossSales: sum(sales, "gross_sales"),
     grossWages: sum(paychecks, "gross_wages"),
     employeeTaxes: sum(paychecks, "employee_taxes"),
@@ -308,6 +327,7 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
     stateTax: sum(paychecks, "state_tax"),
     suta: sum(paychecks, "suta"),
     importantDates,
+    mdFiling,
   };
 }
 
@@ -320,8 +340,8 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
  * entirely when there's no data for that period, rather than printing an all-zeros
  * block.
  */
-export async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string): Promise<string> {
-  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd);
+export async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<string> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdPaidDate);
   const { sales, paychecks } = f;
 
   const lines: string[] = ["SUMMARY"];
@@ -343,6 +363,17 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
     lines.push(`Adjustments: ${fmtMoney(f.adjustments)}`);
     lines.push(`Sales tax due: ${fmtMoney(f.salesTaxDue)}`);
     if (f.lastPayment) lines.push(`Last recorded payment date: ${fmtDate(f.lastPayment)}`);
+    if (f.mdFiling) {
+      lines.push(`Return due date: ${fmtDate(f.mdFiling.dueDate)}`);
+      if (f.mdFiling.onTime) {
+        lines.push(`Timely discount: -${fmtMoney(f.mdFiling.discount)}`);
+        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)}`);
+      } else {
+        lines.push(`Late penalty (10%): ${fmtMoney(f.mdFiling.penalty)}`);
+        lines.push(`Interest (${f.mdFiling.monthsLate} mo): ${fmtMoney(f.mdFiling.interest)}`);
+        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)}`);
+      }
+    }
   }
 
   if (paychecks.length) {
@@ -385,8 +416,8 @@ export interface SummaryTable { sections: SummaryTableSection[]; hasData: boolea
  * task types like "1120 Return") with no stored Arabic equivalent, so those two stay
  * as-is in both columns, same as the firm name staying English on the Arabic site.
  */
-export async function computeClientPeriodSummaryTable(clientId: string, periodStart: string, periodEnd: string): Promise<SummaryTable> {
-  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd);
+export async function computeClientPeriodSummaryTable(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<SummaryTable> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdPaidDate);
   const { sales, paychecks } = f;
   const sections: SummaryTableSection[] = [];
   const row = (label: string, labelAr: string, value: string): SummaryTableRow => ({ label, labelAr, value });
@@ -413,6 +444,17 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
     rows.push(row("Adjustments", "التعديلات", fmtMoney(f.adjustments)));
     rows.push(row("Sales tax due", "ضريبة المبيعات المستحقة", fmtMoney(f.salesTaxDue)));
     if (f.lastPayment) rows.push(row("Last recorded payment date", "تاريخ آخر دفعة مسجلة", fmtDate(f.lastPayment)));
+    if (f.mdFiling) {
+      rows.push(row("Return due date", "تاريخ استحقاق الإقرار", fmtDate(f.mdFiling.dueDate)));
+      if (f.mdFiling.onTime) {
+        rows.push(row("Timely discount", "الخصم مقابل السداد في الموعد", `− ${fmtMoney(f.mdFiling.discount)}`));
+        rows.push(row("Balance due", "الرصيد المستحق", fmtMoney(f.mdFiling.balanceDue)));
+      } else {
+        rows.push(row("Late penalty (10%)", "غرامة التأخير (10%)", fmtMoney(f.mdFiling.penalty)));
+        rows.push(row(`Interest (${f.mdFiling.monthsLate} mo)`, `الفائدة (${f.mdFiling.monthsLate} شهر)`, fmtMoney(f.mdFiling.interest)));
+        rows.push(row("Balance due", "الرصيد المستحق", fmtMoney(f.mdFiling.balanceDue)));
+      }
+    }
     sections.push({ title: "Sales Tax Detail", titleAr: "تفاصيل ضريبة المبيعات", rows });
   }
 
@@ -542,7 +584,8 @@ templatesRouter.get("/period-summary-table/:clientId", requireAuth, requireRole(
   const periodEnd = String(req.query.periodEnd || "").trim();
   if (!periodStart || !periodEnd) return res.status(400).json({ error: "periodStart and periodEnd are required." });
 
-  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd);
+  const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
+  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd, mdPaidDate);
   res.json({ clientName: client.client_name, periodStart, periodEnd, ...table });
 }));
 
