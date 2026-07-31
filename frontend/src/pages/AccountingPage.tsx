@@ -14,6 +14,7 @@ import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64 } from "../utils/file";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { useAuth } from "../auth/AuthContext";
+import type { MdFilingResult } from "../api/calculators";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -207,6 +208,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
+  const [mdDueDate, setMdDueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
 
   function load() {
     api.get<{ sales: any[] }>(`/accounting/sales/${clientId}`).then((r) => setSales(r.sales)).catch(() => {});
@@ -257,6 +261,20 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     }
     return Array.from(map.values()).sort((a, b) => b.tax - a.tax);
   })();
+
+  // Maryland only — Form 202's timely-discount/late-penalty math (Lines
+  // 17-20, 36-38), computed off this period's real tax total instead of a
+  // typed-in number. Same formulas the Calculators tool uses — see
+  // ../../src/common/mdFiling.ts.
+  useEffect(() => {
+    if (clientState !== "MD" || periodTax <= 0) { setMdFiling(null); return; }
+    const t = setTimeout(() => {
+      api.get<MdFilingResult>(`/calculators/md-filing?taxDue=${periodTax}&dueDate=${mdDueDate}&paidDate=${mdPaidDate}`)
+        .then(setMdFiling)
+        .catch(() => setMdFiling(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [clientState, periodTax, mdDueDate, mdPaidDate]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -393,6 +411,30 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                 </div>
               ))}
             </div>
+          </div>
+        )}
+        {clientState === "MD" && periodTax > 0 && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginBottom: 8 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Return due date</label>
+                <input type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} style={{ padding: "4px 6px" }} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Filing / payment date</label>
+                <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+              </div>
+            </div>
+            {mdFiling && (
+              <div className="card" style={{ padding: "8px 12px", fontSize: 12 }}>
+                {mdFiling.onTime ? (
+                  <>Timely discount (Line 18): <strong>− {fmtMoney(mdFiling.discount)}</strong> · Balance due (Line 20): <strong>{fmtMoney(mdFiling.balanceDue)}</strong></>
+                ) : (
+                  <>Penalty 10% (Line 37a): <strong>{fmtMoney(mdFiling.penalty)}</strong> · Interest {mdFiling.monthsLate} mo (Line 37b): <strong>{fmtMoney(mdFiling.interest)}</strong> · Balance due (Line 38): <strong>{fmtMoney(mdFiling.balanceDue)}</strong></>
+                )}
+              </div>
+            )}
           </div>
         )}
         {viewing && (
