@@ -257,10 +257,7 @@ function SalesTaxCalculator() {
             <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(line.id)}>✕</button>
           </div>
         ))}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>
-          <button type="button" className="btn btn-sm" onClick={handleClear}>Clear</button>
-        </div>
+        <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>
       </div>
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
@@ -366,6 +363,10 @@ function SalesTaxCalculator() {
           ) : null}
         </div>
       )}
+
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+        <button type="button" className="btn btn-sm" onClick={handleClear}>Clear</button>
+      </div>
     </div>
   );
 }
