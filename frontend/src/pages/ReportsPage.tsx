@@ -119,10 +119,10 @@ export function ReportsPage() {
     if (user?.role !== "admin" || tab !== "Firm Overview" || !clientId) return;
     setFirmSummary(null);
     setFirmError(null);
-    api.get<FirmSummary>(`/reports/firm-summary?months=6&clientId=${encodeURIComponent(clientId)}`)
+    api.get<FirmSummary>(`/reports/firm-summary?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`)
       .then(setFirmSummary)
       .catch(() => setFirmError("Could not load this client's overview."));
-  }, [user, tab, clientId]);
+  }, [user, tab, clientId, from, to]);
 
   useEffect(() => {
     if (!clientId || (tab !== "Payroll" && tab !== "Employee")) return;
@@ -352,9 +352,9 @@ export function ReportsPage() {
     const key = `firm-${mode}`;
     setReportBusy(key);
     try {
-      const path = `/reports/pdf/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`;
+      const path = `/reports/pdf/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, `Overview_${clientId}_6mo.pdf`);
+      else await downloadFile(path, `Overview_${clientId}_${from}_${to}.pdf`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
@@ -366,7 +366,7 @@ export function ReportsPage() {
     if (!clientId) return;
     setReportBusy("firm-csv");
     try {
-      await downloadFile(`/reports/csv/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`, `Overview_${clientId}_6mo.csv`);
+      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`, `Overview_${clientId}_${from}_${to}.csv`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -398,11 +398,11 @@ export function ReportsPage() {
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
       const path = isFirmOverview
-        ? `/reports/pdf/firm-overview?months=6&clientId=${encodeURIComponent(clientId)}`
+        ? `/reports/pdf/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`
         : `/reports/pdf/${REPORT_PDF_SEGMENT[tab]}/${clientId}?from=${from}&to=${to}${employeeQuery}`;
       const contentBase64 = await blobToBase64(await fetchAuthedBlob(path));
-      const periodLabel = isFirmOverview ? "the last 6 months" : `${from} – ${to}`;
-      const periodLabelAr = isFirmOverview ? "آخر 6 أشهر" : `الفترة من ${from} إلى ${to}`;
+      const periodLabel = `${from} – ${to}`;
+      const periodLabelAr = `الفترة من ${from} إلى ${to}`;
       const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
         clientId, subject: title.en, channel: "Email", sentTo, sendNow: true,
         messageEnglish: `Please find attached your ${title.en} for ${periodLabel}.`,
@@ -477,7 +477,7 @@ export function ReportsPage() {
                   <div>
                     <h2 className="command-panel-title">{client.client_name}</h2>
                     <div className="command-panel-note">
-                      {tab === "Firm Overview" ? "Revenue/expense trend from general-ledger activity, last 6 months." : "Financial statements are generated from general-ledger activity for the selected period."}
+                      {tab === "Firm Overview" ? `Revenue/expense trend from general-ledger activity, ${from} – ${to}.` : "Financial statements are generated from general-ledger activity for the selected period."}
                     </div>
                   </div>
                   {/* "Preview / Print" rather than the old "Print Report": this opens the
@@ -541,9 +541,9 @@ export function ReportsPage() {
                   {firmSummary && (
                     <>
                       <div className="metric-grid" style={{ marginBottom: 20 }}>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit (6 mo)</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
                         <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/billing")}><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
                       </div>
                       <div className="command-panel">

@@ -674,7 +674,8 @@ export async function generateSalesTaxPayrollReportPdf(data: SalesTaxPayrollRepo
 
 export interface FirmOverviewMonth { month: string; revenue: number; expenses: number; profit: number }
 export interface FirmOverviewReportData {
-  monthsBack: number;
+  from: string;
+  to: string;
   months: FirmOverviewMonth[];
   totals: { revenue: number; expenses: number; profit: number };
   unpaidBalance: number; unpaidInvoiceCount: number; activeClientCount: number | null;
@@ -690,7 +691,7 @@ export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Pro
   const profile = await getFirmProfile();
   const logo = await embedFirmLogo(doc, profile);
   const title = data.clientName ? `${data.clientName.toUpperCase()} — OVERVIEW` : "FIRM OVERVIEW";
-  let y = drawFirmHeader(page, c, title, `Last ${data.monthsBack} months`, profile, logo);
+  let y = drawFirmHeader(page, c, title, `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile, logo);
 
   const tiles: [string, string][] = [
     ["Revenue", money(data.totals.revenue)], ["Expenses", money(data.totals.expenses)],

@@ -25,6 +25,13 @@ function bucketAccount(account: string): "revenue" | "expense" | "other" {
   return "other";
 }
 
+/** Firm Overview's fallback window when no from/to is supplied (old bookmarked links, direct API calls) — the same "last 6 months ending today" this route always showed before from/to support existed. */
+function defaultFirmSummaryRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
 /**
  * Shared by GET /firm-summary (JSON, dashboard) and the PDF/CSV export routes below, so
  * both read identical numbers. Optionally scoped to one client (clientId) — same shape,
@@ -32,17 +39,24 @@ function bucketAccount(account: string): "revenue" | "expense" | "other" {
  * one client's revenue/expense/profit trend instead of the whole firm's, matching the
  * client-scoped pattern the other report tabs (P&L, Balance Sheet, Payroll) already use.
  * activeClientCount is meaningless for a single client, so it's null in that case.
+ *
+ * Takes an explicit from/to date range — previously this only accepted a "months back
+ * from today" count, so the FROM/TO date pickers already on ReportsPage.tsx (used by
+ * every other tab) were silently ignored here: picking Jan–Jun always still showed
+ * whatever the last 6 calendar months happened to be. Capped at 36 months walked so an
+ * accidental far-past `from` can't build an enormous table.
  */
-async function computeFirmSummary(monthsBack: number, clientId?: string) {
-  const since = new Date();
-  since.setMonth(since.getMonth() - (monthsBack - 1));
-  since.setDate(1);
+async function computeFirmSummary(from: string, to: string, clientId?: string) {
+  const startDate = new Date(`${from}T00:00:00`);
+  const endDate = new Date(`${to}T00:00:00`);
+  const startMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const endMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
 
   const glRows = await query<any>(
     `SELECT to_char(entry_date, 'YYYY-MM') AS month, account, debit, credit
        FROM altax.v3_gl_entries
-      WHERE entry_date >= $1 ${clientId ? "AND client_id = $2" : ""}`,
-    clientId ? [since.toISOString(), clientId] : [since.toISOString()]
+      WHERE entry_date >= $1::date AND entry_date <= $2::date ${clientId ? "AND client_id = $3" : ""}`,
+    clientId ? [from, to, clientId] : [from, to]
   );
 
   const byMonth = new Map<string, { revenue: number; expenses: number }>();
@@ -57,12 +71,14 @@ async function computeFirmSummary(monthsBack: number, clientId?: string) {
   }
 
   const months: { month: string; revenue: number; expenses: number; profit: number }[] = [];
-  for (let i = 0; i < monthsBack; i++) {
-    const d = new Date(since);
-    d.setMonth(d.getMonth() + i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const cursor = new Date(startMonth);
+  let guard = 0;
+  while (cursor <= endMonth && guard < 36) {
+    const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
     const entry = byMonth.get(key) || { revenue: 0, expenses: 0 };
     months.push({ month: key, revenue: Math.round(entry.revenue * 100) / 100, expenses: Math.round(entry.expenses * 100) / 100, profit: Math.round((entry.revenue - entry.expenses) * 100) / 100 });
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard++;
   }
 
   const totals = months.reduce((acc, m) => ({ revenue: acc.revenue + m.revenue, expenses: acc.expenses + m.expenses, profit: acc.profit + m.profit }), { revenue: 0, expenses: 0, profit: 0 });
@@ -98,15 +114,19 @@ async function computeFirmSummary(monthsBack: number, clientId?: string) {
 }
 
 reportsRouter.get("/firm-summary", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
   const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
-  res.json(await computeFirmSummary(monthsBack, clientId));
+  res.json(await computeFirmSummary(rangeFrom, rangeTo, clientId));
 }));
 
 reportsRouter.get("/pdf/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
   const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
-  const summary = await computeFirmSummary(monthsBack, clientId);
+  const summary = await computeFirmSummary(rangeFrom, rangeTo, clientId);
   let clientName: string | undefined;
   if (clientId) {
     const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
@@ -114,26 +134,28 @@ reportsRouter.get("/pdf/firm-overview", requireAuth, requireRole("admin"), async
   }
 
   const { generateFirmOverviewPdf } = await import("../accounting/reportsPdf");
-  const pdfBytes = await generateFirmOverviewPdf({ monthsBack, ...summary, clientName });
+  const pdfBytes = await generateFirmOverviewPdf({ from: rangeFrom, to: rangeTo, ...summary, clientName });
 
-  await logAudit("Reports", "GENERATE_FIRM_OVERVIEW_PDF", clientId || "Firm", "Months", "", String(monthsBack), `${clientName ? `${clientName} overview` : "Firm Overview"} PDF generated by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Reports", "GENERATE_FIRM_OVERVIEW_PDF", clientId || "Firm", "Period", "", `${rangeFrom} to ${rangeTo}`, `${clientName ? `${clientName} overview` : "Firm Overview"} PDF generated by ${req.user!.email}.`, req.user!.email);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${clientName ? `Overview_${clientId}` : "FirmOverview"}_${monthsBack}mo.pdf"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${clientName ? `Overview_${clientId}` : "FirmOverview"}_${rangeFrom}_${rangeTo}.pdf"`);
   res.send(Buffer.from(pdfBytes));
 }));
 
 reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const monthsBack = Math.min(24, Math.max(1, Number(req.query.months) || 6));
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
   const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
-  const summary = await computeFirmSummary(monthsBack, clientId);
+  const summary = await computeFirmSummary(rangeFrom, rangeTo, clientId);
   const csv = toCsv(
     ["Month", "Revenue", "Expenses", "Profit"],
     summary.months.map((m) => [m.month, m.revenue.toFixed(2), m.expenses.toFixed(2), m.profit.toFixed(2)])
   );
 
-  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", clientId || "Firm", "Months", "", String(monthsBack), `${clientId ? "Client" : "Firm"} Overview CSV exported by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", clientId || "Firm", "Period", "", `${rangeFrom} to ${rangeTo}`, `${clientId ? "Client" : "Firm"} Overview CSV exported by ${req.user!.email}.`, req.user!.email);
   res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="${clientId ? `Overview_${clientId}` : "FirmOverview"}_${monthsBack}mo.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${clientId ? `Overview_${clientId}` : "FirmOverview"}_${rangeFrom}_${rangeTo}.csv"`);
   res.send(csv);
 }));
 
