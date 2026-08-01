@@ -15,6 +15,7 @@ import type { DocumentRequest } from "../api/types2";
 import type { GovFormFiling } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateW4Modal } from "../components/GenerateW4Modal";
+import { GenerateW9Modal } from "../components/GenerateW9Modal";
 import { PAYROLL_FREQS, FEDERAL_FILING_STATUSES, MD_FILING_STATUSES, MD_COUNTIES } from "../utils/clientOptions";
 
 function fmtMoney(v: unknown): string {
@@ -407,7 +408,9 @@ export function EmployeeDetailPage() {
         <>
           <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
           <div style={{ marginTop: 16 }}>
-            <W4Section employeeId={employee.employee_id} />
+            {isContractor
+              ? <EmployeeGovFormSection employeeId={employee.employee_id} formType="W9" title="Form W-9" />
+              : <EmployeeGovFormSection employeeId={employee.employee_id} formType="W4" title="Form W-4" />}
           </div>
         </>
       )}
@@ -500,20 +503,25 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
 }
 
 /**
- * Form W-4 — the employee's own withholding certificate, filled and kept on
- * file with their employer. Never sent to the IRS (unlike W-2/1099 above,
- * which report to the agency), so "Mark Submitted" here just means "filed
- * away," not "mailed somewhere" — the option list still lets staff record
- * that distinction rather than pretending every government form ships the
- * same way.
+ * Form W-4 or W-9 — the employee/contractor's own withholding certificate or
+ * TIN certification, kept on file with their employer/payer. Never sent to
+ * the IRS (unlike W-2/1099 above, which report to the agency), so "Mark
+ * Submitted" here just means "filed away," not "mailed somewhere."
+ *
+ * Two ways to get a signature: staff fills it out and records an in-person
+ * wet-ink signature ("Sign Now" — unchanged, existing flow), or staff sends
+ * a mostly-blank draft to the person's own portal for them to complete and
+ * electronically sign themselves ("Send to employee to sign" — new; see
+ * govForms.routes.ts's /employee/:employeeId/send and /my/:filingId/sign).
  */
-function W4Section({ employeeId }: { employeeId: string }) {
+function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: string; formType: "W4" | "W9"; title: string }) {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
@@ -522,20 +530,40 @@ function W4Section({ employeeId }: { employeeId: string }) {
 
   function load() {
     api.get<{ filings: GovFormFiling[] }>(`/gov-forms/employee/${employeeId}`)
-      .then((res) => setFilings(res.filings))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load W-4 filings."));
+      .then((res) => setFilings(res.filings.filter((f) => f.form_type === formType)))
+      .catch((err) => setError(err instanceof ApiError ? err.message : `Could not load ${title} filings.`));
   }
-  useEffect(load, [employeeId]);
+  useEffect(load, [employeeId, formType]);
 
-  async function handlePdf(filingId: string, mode: "view" | "download") {
-    setBusy(`pdf-${filingId}`);
+  // A filing signed via the employee-portal e-sign flow has its real signed PDF
+  // (with the typed signature actually burned onto it) stored as a document —
+  // GET /:filingId/pdf only ever regenerates an unsigned copy from form_data, so
+  // it's wrong for those. A filing signed the old in-person way has no stored
+  // document at all (nothing to overlay a signature onto), so it still uses the
+  // regenerate route.
+  async function handlePdf(f: GovFormFiling, mode: "view" | "download") {
+    setBusy(`pdf-${f.filing_id}`);
     try {
-      if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
-      else await downloadFile(`/gov-forms/${filingId}/pdf`, `Form_W4_${filingId}.pdf`);
+      const path = f.attached_upload_id ? `/documents/uploads/${f.attached_upload_id}/download` : `/gov-forms/${f.filing_id}/pdf`;
+      if (mode === "view") await viewFile(path);
+      else await downloadFile(path, `Form_${formType}_${f.filing_id}.pdf`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function handleSend() {
+    setSending(true);
+    try {
+      await api.post(`/gov-forms/employee/${employeeId}/send`, { formType });
+      toast(`${title} sent — they can now fill it in and sign from their own portal.`);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not send this form.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -593,7 +621,7 @@ function W4Section({ employeeId }: { employeeId: string }) {
   }
 
   async function handleDelete(f: GovFormFiling) {
-    if (!confirm("Delete this draft W-4? This can't be undone.")) return;
+    if (!confirm(`Delete this draft ${title}? This can't be undone.`)) return;
     setBusy(`delete-${f.filing_id}`);
     try {
       await api.post(`/gov-forms/${f.filing_id}/delete`, {});
@@ -607,10 +635,15 @@ function W4Section({ employeeId }: { employeeId: string }) {
   }
 
   return (
-    <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <strong style={{ fontSize: 14 }}>Form W-4</strong>
-        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate W-4</button>
+    <div className="card" style={{ maxWidth: 620, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", gap: 8, flexWrap: "wrap" }}>
+        <strong style={{ fontSize: 14 }}>{title}</strong>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button type="button" className="btn btn-sm" disabled={sending} onClick={handleSend}>
+            {sending ? "Sending…" : "Send to employee to sign"}
+          </button>
+          <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate {title.replace("Form ", "")}</button>
+        </div>
       </div>
 
       {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
@@ -622,7 +655,12 @@ function W4Section({ employeeId }: { employeeId: string }) {
             {(filings || []).map((f) => (
               <Fragment key={f.filing_id}>
                 <tr>
-                  <td><span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
+                  <td>
+                    <span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span>
+                    {f.status === "Draft" && f.sent_to_employee_at && (
+                      <div className="muted" style={{ fontSize: 11 }}>Sent {new Date(f.sent_to_employee_at).toLocaleDateString()} — awaiting their signature</div>
+                    )}
+                  </td>
                   <td className="muted">
                     {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
                   </td>
@@ -631,13 +669,21 @@ function W4Section({ employeeId }: { employeeId: string }) {
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view")}>View PDF</button>
-                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download")}>Download</button>
-                      {f.status === "Draft" && (
+                      {!(f.status === "Draft" && f.sent_to_employee_at) && (
+                        <>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "view")}>View PDF</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "download")}>Download</button>
+                        </>
+                      )}
+                      {f.status === "Draft" && !f.sent_to_employee_at && (
                         <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now</button>
                       )}
                       {f.status === "Signed" && (
-                        <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Filed</button>
+                        <>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "view")}>View PDF</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "download")}>Download</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Filed</button>
+                        </>
                       )}
                       {isAdmin && f.status !== "Void" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>
@@ -700,11 +746,14 @@ function W4Section({ employeeId }: { employeeId: string }) {
         </table>
       </div>
       {filings && filings.length === 0 && (
-        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No W-4 on file yet.</p>
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No {title} on file yet.</p>
       )}
 
-      {generating && (
+      {generating && formType === "W4" && (
         <GenerateW4Modal employeeId={employeeId} onClose={() => setGenerating(false)} onDone={load} />
+      )}
+      {generating && formType === "W9" && (
+        <GenerateW9Modal employeeId={employeeId} onClose={() => setGenerating(false)} onDone={load} />
       )}
     </div>
   );

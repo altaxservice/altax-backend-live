@@ -1,7 +1,7 @@
 /** Shared types for Tools → Government Forms (2553, W-9, 8332 on a client; W-4 on an employee). */
 
 export type ClientGovFormType = "SS4" | "2553" | "W9" | "8332" | "CRA";
-export type EmployeeGovFormType = "W4";
+export type EmployeeGovFormType = "W4" | "W9";
 export type GovFormType = ClientGovFormType | EmployeeGovFormType;
 
 export interface GovFormFiling {
@@ -14,6 +14,10 @@ export interface GovFormFiling {
   signed_at: string | null;
   signer_name: string | null;
   signer_title: string | null;
+  /** Set once staff sends this filing to the employee's portal to fill in and e-sign themselves. */
+  sent_to_employee_at?: string | null;
+  /** The v3_document_uploads row holding the actual electronically-signed PDF (with the signature stamp burned in) — set only for filings signed via the employee-portal flow. When present, View/Download should use this document, not GET /:filingId/pdf (which only regenerates the unsigned form from form_data). */
+  attached_upload_id?: string | null;
   submitted_via: string | null;
   submitted_at: string | null;
   submitted_note: string | null;

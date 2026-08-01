@@ -1,11 +1,13 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
-import { decryptClientPii } from "../../common/encryption";
+import { decryptClientPii, encryptValue } from "../../common/encryption";
+import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
 import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
@@ -22,11 +24,23 @@ import {
  * generator files under this module for how every field was verified).
  *
  * SS4/2553/W9/8332/CRA are client-level (v3_gov_form_filings.client_id); W4
- * is employee-level (v3_gov_form_filings.employee_id) since a withholding
- * election belongs to one employee at one employer, not to the client
- * business itself. Both share the same filing lifecycle (Draft → Signed →
- * Submitted, or Void) and the same physical-signature-only rule as the POA
- * forms — none of these are ever e-signed inside this app.
+ * and (when collected from a contractor rather than the client's own
+ * business) W9 are employee-level (v3_gov_form_filings.employee_id), since a
+ * withholding election or a contractor's own TIN certification belongs to
+ * one person, not the client business itself. All share the same filing
+ * lifecycle (Draft → Signed → Submitted, or Void).
+ *
+ * Physical-signature-only applies to SS-4/2553/8332/CRA and to a client-level
+ * W-9 — same rule as the POA forms (2848/8821/548): those either go straight
+ * to a government agency, whose own e-signature rules this app doesn't
+ * implement, or (W-9 for the client's own business) are just as easily
+ * handled the same conservative way. Employee-level W-4 and W-9 are
+ * different: both are submitted to the EMPLOYER/PAYER (this firm or its
+ * client), never to the IRS directly, so this app's own electronic-signature
+ * system governs them — see esign.ts for the typed-name-attestation flow and
+ * signOverlay.ts for how the signature is burned onto the generated PDF.
+ * Employees can still be asked to sign a printed copy by hand instead
+ * (the existing POST /:filingId/sign route below covers that path too).
  */
 export const govFormsRouter = Router();
 
@@ -97,6 +111,7 @@ govFormsRouter.get("/employee/:employeeId/identity", requireAuth, requireRole("a
       employee_id: employee.employee_id,
       employee_name: employee.employee_name,
       ssn: employee.ssn ? decryptTolerant(employee.ssn) : null,
+      ein: employee.ein ? decryptTolerant(employee.ein) : null,
       street_address: employee.street_address, city: employee.city, state: employee.state, zip_code: employee.zip_code,
       federal_filing_status: employee.federal_filing_status,
     },
@@ -153,11 +168,65 @@ govFormsRouter.get("/employee/:employeeId", requireAuth, requireRole("admin", "s
   if (!(await canAccessClient(req.user!, employee.client_id))) return res.status(403).json({ error: "You do not have access to this employee." });
   const rows = await query<any>(
     `SELECT filing_id, employee_id, form_type, form_data, status, signed_at, signer_name, signer_title,
-            submitted_via, submitted_at, submitted_note, created_at
+            sent_to_employee_at, attached_upload_id, submitted_via, submitted_at, submitted_note, created_at
        FROM altax.v3_gov_form_filings WHERE employee_id = $1 ORDER BY created_at DESC`,
     [employeeId]
   );
   res.json({ filings: rows });
+}));
+
+/**
+ * Staff-initiated request for the EMPLOYEE to fill in and electronically sign
+ * their own W-4/W-9 from the portal, instead of staff filling it out for
+ * them. Pre-fills only what's already on file (name/address/SSN/EIN) — the
+ * form-specific elections (filing status, dependents, tax classification,
+ * etc.) are deliberately left blank for the employee to supply themselves,
+ * same as handing someone a paper form with their name pre-printed on it.
+ * No generateGovForm validation here (unlike the plain create route above) —
+ * the draft is intentionally incomplete until the employee finishes it.
+ */
+govFormsRouter.post("/employee/:employeeId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { employeeId } = req.params;
+  const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [employeeId]);
+  if (!employee) return res.status(404).json({ error: "Employee not found." });
+  if (!(await canAccessClient(req.user!, employee.client_id))) return res.status(403).json({ error: "You do not have access to this employee." });
+  if (!employee.email) return res.status(400).json({ error: "This person has no email on file — grant portal access with an email first." });
+  const portalUser = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE assigned_employee_id = $1 AND active = true`, [employeeId]);
+  if (!portalUser) return res.status(400).json({ error: "This person has no active employee-portal account yet — grant portal access first." });
+
+  const formType = String(req.body?.formType || "W4").trim();
+  if (!(EMPLOYEE_GOV_FORM_TYPES as readonly string[]).includes(formType)) return res.status(400).json({ error: "Choose a form to send." });
+
+  const [first, ...rest] = String(employee.employee_name || "").trim().split(/\s+/);
+  let prefill: Record<string, string> =
+    formType === "W9"
+      ? { name: employee.employee_name || "", ssn: employee.ssn ? decryptTolerant(employee.ssn) : "", ein: employee.ein ? decryptTolerant(employee.ein) : "", address: employee.street_address || "", city: employee.city || "", state: employee.state || "", zip: employee.zip_code || "" }
+      : { firstName: first || "", lastName: rest.join(" "), ssn: employee.ssn ? decryptTolerant(employee.ssn) : "", address: employee.street_address || "", city: employee.city || "", state: employee.state || "", zip: employee.zip_code || "" };
+
+  // The employer/payer side is never the employee's to fill in — pre-fill it
+  // from the client record now, same as GenerateW4Modal's own identity prefill,
+  // so the employee's own fill-in form only ever asks about themselves.
+  if (formType === "W4") {
+    const client = decryptClientPii(await queryOne<any>(`SELECT client_name, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]));
+    if (client) {
+      prefill = {
+        ...prefill,
+        employerName: client.client_name || "",
+        employerAddress: [client.street_address, [client.city, client.state, client.zip_code].filter(Boolean).join(", ")].filter(Boolean).join(", "),
+        employerEin: client.ein || "",
+      };
+    }
+  }
+
+  const filingId = `GOV-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_gov_form_filings (filing_id, employee_id, form_type, form_data, status, sent_to_employee_at, created_by)
+     VALUES ($1,$2,$3,$4,'Draft',now(),$5)`,
+    [filingId, employeeId, formType, JSON.stringify(prefill), req.user!.email]
+  );
+  await logAudit("Tools", "SEND_GOV_FORM_TO_EMPLOYEE", filingId, "form_type", "", formType,
+    `${FORM_LABELS[formType]} sent to ${employee.employee_name}'s portal to complete and sign, by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, filingId });
 }));
 
 govFormsRouter.post("/employee/:employeeId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -199,6 +268,107 @@ async function loadFiling(req: AuthedRequest, filingId: string) {
   }
   return filing;
 }
+
+// ---------------------------------------------------------------------------
+// Employee self-service (portal) routes — an employee/contractor viewing and
+// completing their OWN W-4/W-9, never anyone else's. Ownership is enforced by
+// matching req.user.employeeId (carried on the employee-portal JWT, see
+// requireAuth.ts) against the filing's employee_id — the same pattern
+// documents.routes.ts's employee-portal routes already use, no requireRole
+// call since any authenticated employee may reach these, only for their own
+// filings. Only filings staff explicitly sent (sent_to_employee_at set) are
+// visible here — a filing staff is still drafting for themselves never shows.
+// Registered ABOVE the generic /:filingId route below so "/my" isn't matched
+// as a filing ID.
+// ---------------------------------------------------------------------------
+
+govFormsRouter.get("/my", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (!req.user!.employeeId) return res.json({ filings: [] });
+  const rows = await query<any>(
+    `SELECT filing_id, form_type, form_data, status, signed_at, sent_to_employee_at, attached_upload_id,
+            submitted_via, submitted_at, created_at
+       FROM altax.v3_gov_form_filings
+      WHERE employee_id = $1 AND sent_to_employee_at IS NOT NULL
+      ORDER BY created_at DESC`,
+    [req.user!.employeeId]
+  );
+  res.json({ filings: rows });
+}));
+
+govFormsRouter.get("/my/:filingId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await queryOne<any>(
+    `SELECT filing_id, employee_id, form_type, form_data, status, signed_at, sent_to_employee_at, created_at
+       FROM altax.v3_gov_form_filings WHERE filing_id = $1`,
+    [req.params.filingId]
+  );
+  if (!filing || !filing.sent_to_employee_at || filing.employee_id !== req.user!.employeeId) {
+    return res.status(404).json({ error: "Form not found." });
+  }
+  res.json({ filing, formTypes: { w9TaxClassifications: W9_TAX_CLASSIFICATIONS, w4FilingStatuses: W4_FILING_STATUSES } });
+}));
+
+/**
+ * The employee fills in their remaining fields and types their full legal
+ * name to sign. Generates the real PDF from the merged data, burns the typed
+ * signature onto it (see signOverlay.ts), auto-attaches the signed PDF to
+ * their own Documents (same INSERT shape as documents.routes.ts's
+ * directEmployeeId branch), and records the filing as Signed with an IP/
+ * timestamp audit trail — this app's own electronic signature, valid for
+ * these two forms since both go to the employer/payer, never the IRS
+ * directly (see this module's doc comment above).
+ */
+govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await queryOne<any>(`SELECT * FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [req.params.filingId]);
+  if (!filing || !filing.sent_to_employee_at || filing.employee_id !== req.user!.employeeId) {
+    return res.status(404).json({ error: "Form not found." });
+  }
+  if (filing.status !== "Draft") return res.status(400).json({ error: `This form is already ${filing.status}.` });
+
+  const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name FROM altax.v3_employees WHERE employee_id = $1`, [filing.employee_id]);
+  if (!employee) return res.status(404).json({ error: "Employee not found." });
+
+  const signerName = String(req.body?.signerName || "").trim();
+  if (!signerName) return res.status(400).json({ error: "Type your full legal name to sign." });
+  if (!req.body?.agree) return res.status(400).json({ error: "You must check the box confirming this is your electronic signature." });
+  const formData = { ...(filing.form_data || {}), ...(req.body?.formData || {}) };
+
+  let pdfBytes: Uint8Array;
+  try {
+    pdfBytes = await generateGovForm(filing.form_type, formData);
+  } catch (err: any) {
+    return res.status(400).json({ error: `Could not generate this form: ${err?.message || "check the required fields."}` });
+  }
+  const signedAt = new Date();
+  const signedPdf = await applySignatureOverlay(filing.form_type as SignableFormType, pdfBytes, signerName, signedAt);
+  const signerIp = String(req.ip || req.socket.remoteAddress || "").slice(0, 64) || null;
+
+  const uploadId = `DOC-${idSuffix()}`;
+  const downloadToken = crypto.randomBytes(24).toString("hex");
+  const fileName = `${FORM_LABELS[filing.form_type] || filing.form_type} - Signed.pdf`;
+  const fileData = encryptValue(Buffer.from(signedPdf).toString("base64"));
+  await query(
+    `INSERT INTO altax.v3_document_uploads
+       (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
+        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Employee to Firm','Generated',$10,false,'Node Web App',$1,$11)`,
+    [
+      uploadId, employee.client_id, employee.client_name, employee.employee_id, fileName,
+      `/documents/uploads/${uploadId}/download?t=${downloadToken}`, fileData, signedPdf.byteLength,
+      req.user!.email, `Electronically signed and submitted by ${employee.employee_name} via the employee portal.`, downloadToken,
+    ]
+  );
+
+  await query(
+    `UPDATE altax.v3_gov_form_filings
+        SET form_data=$2, status='Signed', signed_at=now(), signer_name=$3, signer_ip=$4, attached_upload_id=$5, recorded_by=$6, updated_at=now()
+      WHERE filing_id=$1`,
+    [filing.filing_id, JSON.stringify(formData), signerName, signerIp, uploadId, req.user!.email]
+  );
+  await logAudit("Tools", "EMPLOYEE_SIGN_GOV_FORM", filing.filing_id, "status", "Draft", "Signed",
+    `${FORM_LABELS[filing.form_type]} electronically signed by ${employee.employee_name} via the employee portal (IP ${signerIp || "unknown"}).`, req.user!.email);
+
+  res.json({ ok: true, uploadId });
+}));
 
 govFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);

@@ -29,8 +29,8 @@ export { CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES } from "./cra";
 
 /** Client-level forms — attached to v3_gov_form_filings.client_id. */
 export const CLIENT_GOV_FORM_TYPES = ["SS4", "2553", "W9", "8332", "CRA"] as const;
-/** Employee-level forms — attached to v3_gov_form_filings.employee_id. W-4 is a withholding election kept on file with the employer, never sent to the IRS. */
-export const EMPLOYEE_GOV_FORM_TYPES = ["W4"] as const;
+/** Employee-level forms — attached to v3_gov_form_filings.employee_id. W-4 (withholding election) and W-9 (TIN certification for a contractor) are both kept on file with the employer/payer, never sent to the IRS. */
+export const EMPLOYEE_GOV_FORM_TYPES = ["W4", "W9"] as const;
 
 export type GovFormType = (typeof CLIENT_GOV_FORM_TYPES)[number] | (typeof EMPLOYEE_GOV_FORM_TYPES)[number];
 

@@ -38,6 +38,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money" },
   { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money" },
   { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication" },
+  { to: "/my-tax-forms", label: "My Tax Forms", roles: ["employee"] },
   { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication" },
   { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication" },
   // Moved out of the Clients group and renamed from "Portal Access" — this page manages
@@ -59,6 +60,7 @@ const TITLES: Record<string, string> = {
   "/tasks": "Tasks",
   "/billing": "Billing",
   "/documents": "Documents",
+  "/my-tax-forms": "My Tax Forms",
   "/users": "Users & Access",
   "/security": "Security",
   "/rules": "Rules",

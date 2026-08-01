@@ -41,6 +41,7 @@ import { SearchResultsPage } from "./pages/SearchResultsPage";
 import { PublicInvoicePage } from "./pages/PublicInvoicePage";
 import { PublicContractPage } from "./pages/PublicContractPage";
 import { PublicMessagePage } from "./pages/PublicMessagePage";
+import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 
 function App() {
   return (
@@ -69,6 +70,9 @@ function App() {
               <Route path="/communications" element={<CommunicationsPage />} />
               <Route path="/search" element={<SearchResultsPage />} />
               <Route path="/guide" element={<GuidePage />} />
+              <Route element={<ProtectedRoute roles={["employee"]} />}>
+                <Route path="/my-tax-forms" element={<MyTaxFormsPage />} />
+              </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/security" element={<SecurityPage />} />

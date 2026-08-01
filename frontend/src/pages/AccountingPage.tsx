@@ -1029,8 +1029,16 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                 <tbody>
                   <tr><td>Gross wages</td><td style={{ textAlign: "right" }}>{fmtMoney(viewingPayCheck.gross_wages)}</td></tr>
                   <tr><td className="muted">Less employee taxes</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingPayCheck.employee_taxes)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Federal Withholding</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingPayCheck.federal_withholding)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>State Tax</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingPayCheck.state_tax)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Social Security (EE)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingPayCheck.social_security_ee)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Medicare (EE)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingPayCheck.medicare_ee)}</td></tr>
                   <tr><td style={{ fontWeight: 700 }}>Net pay</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingPayCheck.net_pay)}</td></tr>
                   <tr><td className="muted">Employer taxes</td><td style={{ textAlign: "right" }} className="muted">{fmtMoney(viewingPayCheck.employer_taxes)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Social Security (ER)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingPayCheck.social_security_er)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Medicare (ER)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingPayCheck.medicare_er)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>FUTA</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingPayCheck.futa)}</td></tr>
+                  <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>SUTA</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingPayCheck.suta)}</td></tr>
                   <tr><td style={{ fontWeight: 700 }}>Total employer cost</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingPayCheck.total_cost)}</td></tr>
                 </tbody>
               </table>
@@ -2502,11 +2510,19 @@ function PaychecksTab({ clientId }: { clientId: string }) {
                   <tbody>
                     <tr><td>Gross wages</td><td style={{ textAlign: "right" }}>{fmtMoney(viewingCheck.gross_wages)}</td></tr>
                     <tr><td className="muted">Less employee taxes withheld</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingCheck.employee_taxes)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Federal Withholding</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingCheck.federal_withholding)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>State Tax</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingCheck.state_tax)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Social Security (EE)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingCheck.social_security_ee)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Medicare (EE)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">−{fmtMoney(viewingCheck.medicare_ee)}</td></tr>
                     {Number(viewingCheck.total_deductions) > 0 && (
                       <tr><td className="muted">Less other deductions</td><td style={{ textAlign: "right" }} className="muted">−{fmtMoney(viewingCheck.total_deductions)}</td></tr>
                     )}
                     <tr><td style={{ fontWeight: 700 }}>Net pay to employee</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingCheck.net_pay)}</td></tr>
                     <tr><td className="muted">Employer taxes (firm cost, not withheld)</td><td style={{ textAlign: "right" }} className="muted">{fmtMoney(viewingCheck.employer_taxes)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Social Security (ER)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingCheck.social_security_er)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>Medicare (ER)</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingCheck.medicare_er)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>FUTA</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingCheck.futa)}</td></tr>
+                    <tr><td className="muted" style={{ paddingLeft: 20, fontSize: 12.5 }}>SUTA</td><td style={{ textAlign: "right", fontSize: 12.5 }} className="muted">{fmtMoney(viewingCheck.suta)}</td></tr>
                     <tr><td style={{ fontWeight: 700 }}>Total cost to employer</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingCheck.total_cost)}</td></tr>
                   </tbody>
                 </table>
