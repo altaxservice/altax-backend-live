@@ -638,7 +638,10 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Documents" && canSeeStaffTabs && (
-            <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
+            <>
+              <ClientChecklistSection clientId={client.client_id} />
+              <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
+            </>
           )}
 
           {tab === "Communications" && canSeeStaffTabs && (
@@ -876,6 +879,84 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       {requestOpen && (
         <RequestDocumentModal clientId={clientId} clientName={clientName} onClose={() => setRequestOpen(false)} onDone={load} />
       )}
+    </div>
+  );
+}
+
+interface ChecklistProgressRow {
+  progress_id: string;
+  client_id: string;
+  item_id: string;
+  document_name: string;
+  checklist_name: string;
+  checked: boolean;
+  checked_at: string | null;
+  checked_by: string | null;
+}
+
+/**
+ * Internal "did we collect everything we need" tracker — distinct from
+ * Document Requests (which ask the client to upload something). Rows are
+ * server-synced against whichever admin-managed templates currently match
+ * this client's type/services every time this loads (see checklists.routes.ts's
+ * syncAndLoadProgress), so nothing to "apply" manually here — check a service
+ * on Profile, save, come back to Documents, the new checklist items are here.
+ */
+function ClientChecklistSection({ clientId }: { clientId: string }) {
+  const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ progress: ChecklistProgressRow[] }>(`/checklists/clients/${clientId}/checklist`)
+      .then((res) => setRows(res.progress))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the document checklist."));
+  }
+  useEffect(load, [clientId]);
+
+  async function handleToggle(row: ChecklistProgressRow) {
+    setTogglingId(row.progress_id);
+    try {
+      const res = await api.post<{ checked: boolean }>(`/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`, {});
+      setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id ? { ...r, checked: res.checked } : r)));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not update this item.");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  if (error) return <div className="card" style={{ marginBottom: 16 }}><ErrorBanner error={error} /></div>;
+  if (!rows) return null;
+  if (!rows.length) return null; // no template matches this client's type/services — nothing to show
+
+  const grouped = new Map<string, ChecklistProgressRow[]>();
+  for (const r of rows) {
+    const arr = grouped.get(r.checklist_name) || [];
+    arr.push(r);
+    grouped.set(r.checklist_name, arr);
+  }
+  const total = rows.length;
+  const done = rows.filter((r) => r.checked).length;
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Document Checklist</strong>
+        <span className="muted" style={{ fontSize: 12 }}>{done} / {total} collected</span>
+      </div>
+      {Array.from(grouped.entries()).map(([name, items]) => (
+        <div key={name} style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
+          <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{name}</div>
+          {items.map((r) => (
+            <label key={r.progress_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
+              <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => handleToggle(r)} />
+              <span style={{ textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>{r.document_name}</span>
+              {r.checked && r.checked_by && <span className="muted" style={{ fontSize: 11 }}>— {r.checked_by}</span>}
+            </label>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

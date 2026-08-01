@@ -53,6 +53,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm" },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm" },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm" },
+  { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm" },
   { to: "/guide", label: "Guide", navKey: "nav.guide" },
 ];
 
@@ -79,6 +80,7 @@ const TITLES: Record<string, string> = {
   "/fix-center": "Fix Center",
   "/firm-settings": "Firm Settings",
   "/list-settings": "List Settings",
+  "/document-checklists": "Document Checklists",
   "/firm-portals": "Firm Portal Credentials",
   "/guide": "Guide",
 };

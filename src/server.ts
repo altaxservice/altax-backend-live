@@ -37,6 +37,7 @@ import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
 import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
 import { haccpRouter } from "./modules/haccp/haccp.routes";
+import { checklistsRouter } from "./modules/checklists/checklists.routes";
 import cron from "node-cron";
 import { alertAdmins } from "./common/adminAlerts";
 
@@ -250,6 +251,7 @@ app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
 app.use("/public/messages", publicMessageRouter);
 app.use("/haccp", haccpRouter);
+app.use("/checklists", checklistsRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and
 // never collide with an API prefix, so plain static serving after the API routers is safe.
