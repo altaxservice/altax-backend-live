@@ -18,10 +18,21 @@ import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } fro
  */
 export const reportsRouter = Router();
 
+/**
+ * Delegates to bucketFor (below) rather than its own substring rules — this
+ * used to independently match `a.includes("sales")`, which also matched
+ * "Sales Tax Payable" (a liability, not revenue) and silently inflated Firm
+ * Overview's Revenue/Net Profit by however much sales tax was collected
+ * that period. bucketFor already gets this right (LIABILITY_HINTS includes
+ * "payable", checked before it would ever fall through to a bare "sales"
+ * match), so Firm Overview now reads off the exact same classification the
+ * P&L/Balance Sheet tabs already use — one ruleset, not two that can drift
+ * apart.
+ */
 function bucketAccount(account: string): "revenue" | "expense" | "other" {
-  const a = String(account || "").toLowerCase();
-  if (a.includes("revenue") || a.includes("sales")) return "revenue";
-  if (a.includes("expense") || a.includes("tax") || a.includes("cost of goods")) return "expense";
+  const bucket = bucketFor(account);
+  if (bucket === "income") return "revenue";
+  if (bucket === "cogs" || bucket === "expense") return "expense";
   return "other";
 }
 

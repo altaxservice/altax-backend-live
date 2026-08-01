@@ -178,13 +178,26 @@ function CategoryLinesEditor({ lines, setLines, categories, clientState }: {
 
 const isoDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/** Maryland sales tax returns are due the 20th of the month following the reporting period — the 20th of this month if we haven't passed it yet, otherwise next month's 20th. A sensible default "next due date," not just today's date. */
-const nextMdDueDate = () => {
-  const now = new Date();
-  const due = new Date(now.getFullYear(), now.getMonth(), 20);
-  if (now.getDate() > 20) due.setMonth(due.getMonth() + 1);
+/**
+ * The statutory MD Form 202 due date for the period currently selected in
+ * "Sales & Tax by Period" — the 20th of the month AFTER the period's end
+ * date. Previously this defaulted to "the next 20th relative to today" and
+ * stayed editable, which silently showed the wrong due date the moment
+ * staff picked a period other than the current month (e.g. "Last quarter"
+ * or a past month) — the on-screen due date and the period being reviewed
+ * could disagree with no indication anything was off. Deriving it from the
+ * period itself removes that whole class of mistake; matches
+ * mdDueDateForPeriod in src/common/mdFiling.ts (used server-side for the
+ * same math on the Reports page). Returns null for "All time" (no single
+ * end date to anchor a due date to).
+ */
+function mdDueDateForPeriodEnd(periodEnd: string): string | null {
+  if (!periodEnd) return null;
+  const end = new Date(`${periodEnd}T00:00:00`);
+  if (Number.isNaN(end.getTime())) return null;
+  const due = new Date(end.getFullYear(), end.getMonth() + 1, 20);
   return isoDate(due);
-};
+}
 
 /**
  * Sales-tax filing periods staff actually work in. "All time" is deliberately
@@ -219,7 +232,6 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
-  const [mdDueDate, setMdDueDate] = useState(nextMdDueDate);
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
@@ -285,6 +297,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     : `${fmtDate(period.start) || "the beginning"} – ${fmtDate(period.end) || "today"}`;
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
+  const mdDueDate = mdDueDateForPeriodEnd(period.end);
   // Per-category rollup for the period — previously the only category-level
   // visibility was re-opening each sale's Edit form one at a time; this answers
   // "how much did we collect in Vape tax this quarter" without that.
@@ -307,7 +320,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   // typed-in number. Same formulas the Calculators tool uses — see
   // ../../src/common/mdFiling.ts.
   useEffect(() => {
-    if (clientState !== "MD" || periodTax <= 0) { setMdFiling(null); return; }
+    if (clientState !== "MD" || periodTax <= 0 || !mdDueDate) { setMdFiling(null); return; }
     const t = setTimeout(() => {
       api.get<MdFilingResult>(`/calculators/md-filing?taxDue=${periodTax}&dueDate=${mdDueDate}&paidDate=${mdPaidDate}`)
         .then(setMdFiling)
@@ -484,28 +497,55 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         {clientState === "MD" && periodTax > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginBottom: 4 }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Return due date</label>
-                <input type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} style={{ padding: "4px 6px" }} />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Filing / payment date</label>
-                <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
-              </div>
-            </div>
-            <p className="muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
-              MD sales tax returns are due the 20th of the month following the reporting period —
-              paying on or before that date is on time, no penalty or interest.
-            </p>
-            {mdFiling && (
-              <div className="card" style={{ padding: "8px 12px", fontSize: 12 }}>
-                {mdFiling.onTime ? (
-                  <>Timely discount (Line 18): <strong>− {fmtMoney(mdFiling.discount)}</strong> · Balance due (Line 20): <strong>{fmtMoney(mdFiling.balanceDue)}</strong></>
-                ) : (
-                  <>Penalty 10% (Line 37a): <strong>{fmtMoney(mdFiling.penalty)}</strong> · Interest {mdFiling.monthsLate} mo (Line 37b): <strong>{fmtMoney(mdFiling.interest)}</strong> · Balance due (Line 38): <strong>{fmtMoney(mdFiling.balanceDue)}</strong></>
+
+            {!mdDueDate ? (
+              <p className="muted" style={{ fontSize: 12 }}>
+                Pick a specific period above (not "All time") to see the filing due date and discount/penalty math.
+              </p>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                  <div>
+                    <div className="small-label" style={{ marginBottom: 2 }}>Return due date</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdDueDate)}</div>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Filing / payment date</label>
+                    <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                  </div>
+                </div>
+                <p className="muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+                  Due date is the 20th of the month after this period ends
+                  {period.start && period.start.slice(0, 7) !== period.end.slice(0, 7) ? " — this period spans more than one month, so confirm this matches how the client actually files (monthly vs. quarterly) before relying on it" : ""}.
+                  Enter when the return was (or will be) filed and paid to see the discount or penalty below.
+                </p>
+
+                {mdFiling && (
+                  <>
+                    <div style={{
+                      display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 11.5, fontWeight: 700, marginBottom: 10,
+                      background: mdFiling.onTime ? "var(--good-tint, #e6f4ea)" : "var(--danger-tint, #fce8e6)",
+                      color: mdFiling.onTime ? "var(--good, #1a7f37)" : "var(--danger, #cf222e)",
+                    }}>
+                      {mdFiling.onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.monthsLate} month${mdFiling.monthsLate === 1 ? "" : "s"} past due`}
+                    </div>
+                    <div className="metric-grid">
+                      {mdFiling.onTime ? (
+                        <>
+                          <div className="metric"><div className="metric-label">Timely Discount (Line 18)</div><div className="metric-value">− {fmtMoney(mdFiling.discount)}</div></div>
+                          <div className="metric"><div className="metric-label">Balance Due (Line 20)</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div></div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="metric"><div className="metric-label">Penalty — 10% (Line 37a)</div><div className="metric-value">{fmtMoney(mdFiling.penalty)}</div></div>
+                          <div className="metric"><div className="metric-label">Interest (Line 37b)</div><div className="metric-value">{fmtMoney(mdFiling.interest)}</div></div>
+                          <div className="metric"><div className="metric-label">Balance Due (Line 38)</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div></div>
+                        </>
+                      )}
+                    </div>
+                  </>
                 )}
-              </div>
+              </>
             )}
           </div>
         )}
