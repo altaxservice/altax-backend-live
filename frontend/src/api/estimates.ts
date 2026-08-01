@@ -116,7 +116,23 @@ export const BUSINESS_TYPES = [
 
 export const SPEEDS = ["Standard", "Expedited", "Rush"];
 
-export const ESTIMATE_STATUSES = ["Draft", "Sent", "Approved", "Declined", "Expired"];
+export const ESTIMATE_STATUSES = ["Draft", "Contacted", "Sent", "Approved", "Declined", "Expired"];
+
+/** Pipeline board stage for an estimate's current status — see PipelinePage.tsx. */
+export const STAGE_LABELS = ["New", "Contacted", "Proposal Sent", "Won", "Lost"] as const;
+export type StageLabel = (typeof STAGE_LABELS)[number];
+
+const STATUS_TO_STAGE: Record<string, StageLabel> = {
+  Draft: "New",
+  Contacted: "Contacted",
+  Sent: "Proposal Sent",
+  Approved: "Won",
+  Declined: "Lost",
+};
+
+export function stageForEstimate(status: string): StageLabel | null {
+  return STATUS_TO_STAGE[status] || null;
+}
 
 export const money = (n: number | string | null | undefined): string =>
   `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

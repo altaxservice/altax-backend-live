@@ -256,9 +256,9 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
   }
 
   if (sent) {
-    // Sent moves a Draft estimate off the "still being built" bucket; it never
-    // downgrades an estimate already Approved or further along.
-    if (est.status === "Draft") {
+    // Sent moves a Draft/Contacted estimate off the "still being built" bucket;
+    // it never downgrades an estimate already Approved or further along.
+    if (est.status === "Draft" || est.status === "Contacted") {
       await query(`UPDATE altax.v3_estimates SET status = 'Sent', updated_at = now() WHERE estimate_id = $1`, [est.estimate_id]);
     }
     await query(
@@ -469,6 +469,46 @@ estimatesRouter.post("/:estimateId/decline", requireAuth, requireRole("admin", "
     [estimateId, String(req.body?.reason || "").trim() || null]
   );
   await logAudit("Tools", "DECLINE_ESTIMATE", estimateId, "status", "", "Declined", `Estimate declined by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+// Kanban stage → v3_estimates.status. "New"/"Contacted"/"Proposal Sent" are
+// plain status writes; "Won"/"Lost" reuse the same fields /approve and
+// /decline already stamp (approved_at/by/method, declined reason) so a card
+// dragged straight to Won on the board is indistinguishable from clicking
+// Approve on the estimate detail page.
+const STAGE_TO_STATUS: Record<string, string> = {
+  New: "Draft",
+  Contacted: "Contacted",
+  "Proposal Sent": "Sent",
+  Won: "Approved",
+  Lost: "Declined",
+};
+
+estimatesRouter.post("/:estimateId/stage", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { estimateId } = req.params;
+  const stage = String(req.body?.stage || "").trim();
+  const status = STAGE_TO_STATUS[stage];
+  if (!status) return res.status(400).json({ error: "Unknown pipeline stage." });
+
+  const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
+  if (!est) return res.status(404).json({ error: "Estimate not found." });
+
+  if (stage === "Won") {
+    await query(
+      `UPDATE altax.v3_estimates SET status='Approved', approved_at=COALESCE(approved_at, now()),
+         approved_by=COALESCE(approved_by, $2), approval_method=COALESCE(approval_method, 'Pipeline'), updated_at=now()
+       WHERE estimate_id=$1`,
+      [estimateId, req.user!.email]
+    );
+  } else if (stage === "Lost") {
+    await query(`UPDATE altax.v3_estimates SET status='Declined', updated_at=now() WHERE estimate_id=$1`, [estimateId]);
+  } else {
+    await query(`UPDATE altax.v3_estimates SET status=$2, updated_at=now() WHERE estimate_id=$1`, [estimateId, status]);
+  }
+
+  await logAudit("Tools", "STAGE_ESTIMATE", estimateId, "status", est.status, status,
+    `Moved to pipeline stage "${stage}" by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));
 

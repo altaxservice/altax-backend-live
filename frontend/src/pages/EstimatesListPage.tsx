@@ -42,12 +42,12 @@ export function EstimatesListPage() {
 
   const filtered = (estimates || []).filter((e) => {
     if (statusFilter === "all") return true;
-    if (statusFilter === "open") return e.status === "Draft" || e.status === "Sent";
+    if (statusFilter === "open") return e.status === "Draft" || e.status === "Contacted" || e.status === "Sent";
     return e.status === statusFilter;
   });
 
   const pipeline = (estimates || [])
-    .filter((e) => e.status === "Draft" || e.status === "Sent")
+    .filter((e) => e.status === "Draft" || e.status === "Contacted" || e.status === "Sent")
     .reduce((sum, e) => sum + (e.totals?.total || 0), 0);
   const won = (estimates || []).filter((e) => e.status === "Approved");
   const unremitted = (estimates || []).reduce((sum, e) => sum + (e.totals?.unremitted || 0), 0);
@@ -84,7 +84,7 @@ export function EstimatesListPage() {
         <div className="metric">
           <div className="metric-label">Open Pipeline</div>
           <div className="metric-value">{money(pipeline)}</div>
-          <div className="metric-sub">{(estimates || []).filter((e) => e.status === "Draft" || e.status === "Sent").length} estimates</div>
+          <div className="metric-sub">{(estimates || []).filter((e) => e.status === "Draft" || e.status === "Contacted" || e.status === "Sent").length} estimates</div>
         </div>
         <div className="metric">
           <div className="metric-label">Approved</div>
@@ -99,7 +99,7 @@ export function EstimatesListPage() {
       </div>
 
       <div className="card" style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {["open", "all", "Draft", "Sent", "Approved", "Declined"].map((s) => (
+        {["open", "all", "Draft", "Contacted", "Sent", "Approved", "Declined"].map((s) => (
           <button key={s} className={`btn btn-sm ${statusFilter === s ? "btn-primary" : ""}`} onClick={() => setStatusFilter(s)}>
             {s === "open" ? "Open" : s === "all" ? "All" : s}
           </button>
