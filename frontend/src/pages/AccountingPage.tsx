@@ -17,9 +17,9 @@ import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -106,6 +106,7 @@ export function AccountingPage() {
       {tab === "Paychecks" && clientId && <PaychecksTab clientId={clientId} />}
       {tab === "Month-End" && clientId && <MonthEndTab clientId={clientId} />}
       {tab === "Budget" && clientId && <BudgetTab clientId={clientId} />}
+      {tab === "Bank Rec" && clientId && <BankRecTab clientId={clientId} />}
       {tab === "Check Settings" && clientId && <CheckSettingsTab clientId={clientId} />}
       {tab === "Year-End" && clientId && <YearEndTab clientId={clientId} clientState={client?.state} />}
       {tab === "Tax Rates" && <TaxRatesTab />}
@@ -3486,6 +3487,208 @@ function BudgetTab({ clientId }: { clientId: string }) {
             </tbody>
           </table>
           <p className="muted" style={{ fontSize: 11, padding: "8px 12px" }}>Teal = favorable variance (more income or less expense than budgeted). Red = unfavorable.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface BankLine { line_id: string; statement_date: string; description: string | null; amount: number; matched_gl_entry_id: string | null }
+interface GlCandidate { gl_entry_id: string; entry_date: string; description: string | null; ref: string | null; amount: number }
+interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; bookBalance: number; clearedBalance: number }
+
+/**
+ * Manual bank reconciliation — upload the bank's own CSV/Excel statement export,
+ * then match each line to an existing GL entry (or, for a transaction nothing was
+ * ever recorded for — a bank fee, say — create the missing GL entry directly from
+ * the bank line). Two-column layout: unmatched bank lines on the left, unmatched
+ * GL entries for the same account on the right; select one of each and Match.
+ */
+function BankRecTab({ clientId }: { clientId: string }) {
+  const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
+  const [accountName, setAccountName] = useState("");
+  const [data, setData] = useState<BankRecData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [selectedBankLine, setSelectedBankLine] = useState<string | null>(null);
+  const [selectedGl, setSelectedGl] = useState<string | null>(null);
+  const [matching, setMatching] = useState(false);
+  const [creatingFor, setCreatingFor] = useState<string | null>(null);
+  const [offsetAccount, setOffsetAccount] = useState("");
+
+  useEffect(() => {
+    api.get<{ accounts: CoaAccount[] }>("/accounting/coa")
+      .then((r) => {
+        const assets = r.accounts.filter((a) => a.account_type === "Asset" && a.active);
+        setAccounts(r.accounts);
+        if (!accountName && assets.length) setAccountName(assets[0].account_name);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function load() {
+    if (!accountName) return;
+    setError(null);
+    api.get<BankRecData>(`/bank-rec/${clientId}?accountName=${encodeURIComponent(accountName)}`)
+      .then(setData)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load bank reconciliation."));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [clientId, accountName]);
+
+  async function handleUpload() {
+    if (!file || !accountName) return;
+    setUploading(true); setError(null);
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const res = await api.post<{ inserted: number }>("/bank-rec/upload", { clientId, accountName, fileBase64 });
+      setFile(null);
+      load();
+      alert(`Imported ${res.inserted} statement line(s).`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not read this statement file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleMatch() {
+    if (!selectedBankLine || !selectedGl) return;
+    setMatching(true);
+    try {
+      await api.post(`/bank-rec/${selectedBankLine}/match`, { glEntryId: selectedGl });
+      setSelectedBankLine(null); setSelectedGl(null);
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not match these.");
+    } finally {
+      setMatching(false);
+    }
+  }
+
+  async function handleCreateEntry(lineId: string) {
+    if (!offsetAccount) return;
+    setMatching(true);
+    try {
+      await api.post(`/bank-rec/${lineId}/create-entry`, { offsetAccount });
+      setCreatingFor(null); setOffsetAccount("");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not create this entry.");
+    } finally {
+      setMatching(false);
+    }
+  }
+
+  const assetAccounts = (accounts || []).filter((a) => a.account_type === "Asset" && a.active);
+  const nonBankAccounts = (accounts || []).filter((a) => a.active);
+  const difference = data ? Math.round((data.bookBalance - data.clearedBalance) * 100) / 100 : 0;
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 12, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div className="field" style={{ margin: 0, minWidth: 220 }}>
+          <label>Bank / Cash Account</label>
+          <select value={accountName} onChange={(e) => setAccountName(e.target.value)}>
+            {assetAccounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <FileDropInput file={file} onChange={setFile} accept=".csv,.xls,.xlsx" hint="your bank's own statement export (.csv/.xls/.xlsx)" />
+        </div>
+        <button className="btn btn-primary" disabled={!file || uploading} onClick={handleUpload}>{uploading ? "Uploading…" : "Upload Statement"}</button>
+      </div>
+
+      {error && <ErrorBanner error={error} />}
+
+      {data && (
+        <div className="metric-grid" style={{ marginBottom: 16 }}>
+          <div className="metric"><div className="metric-label">Book Balance</div><div className="metric-value">{fmtMoney(data.bookBalance)}</div></div>
+          <div className="metric"><div className="metric-label">Cleared Balance</div><div className="metric-value">{fmtMoney(data.clearedBalance)}</div></div>
+          <div className="metric">
+            <div className="metric-label">Difference</div>
+            <div className="metric-value" style={{ color: Math.abs(difference) < 0.01 ? "var(--teal)" : "var(--red, #b91c1c)" }}>{fmtMoney(difference)}</div>
+          </div>
+        </div>
+      )}
+
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 700, fontSize: 13 }}>
+              Bank Lines ({data.bankLines.filter((b) => !b.matched_gl_entry_id).length} unmatched)
+            </div>
+            <div style={{ maxHeight: 480, overflowY: "auto" }}>
+              {data.bankLines.filter((b) => !b.matched_gl_entry_id).map((b) => (
+                <div key={b.line_id}>
+                  <div
+                    onClick={() => setSelectedBankLine(b.line_id === selectedBankLine ? null : b.line_id)}
+                    style={{
+                      padding: "8px 14px", borderBottom: "1px solid var(--line)", cursor: "pointer",
+                      background: selectedBankLine === b.line_id ? "var(--surface-2, #f0fdfa)" : undefined,
+                      display: "flex", justifyContent: "space-between", gap: 8,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 13 }}>{b.description || "—"}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{b.statement_date}</div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                      <span style={{ fontWeight: 700 }}>{fmtMoney(b.amount)}</span>
+                      <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
+                        {creatingFor === b.line_id ? "Cancel" : "New Entry"}
+                      </button>
+                    </div>
+                  </div>
+                  {creatingFor === b.line_id && (
+                    <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, alignItems: "center" }}>
+                      <select style={{ flex: 1 }} value={offsetAccount} onChange={(e) => setOffsetAccount(e.target.value)}>
+                        <option value="">Offset account…</option>
+                        {nonBankAccounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+                      </select>
+                      <button className="btn btn-sm btn-primary" disabled={!offsetAccount || matching} onClick={() => handleCreateEntry(b.line_id)}>Create</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!data.bankLines.filter((b) => !b.matched_gl_entry_id).length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing unmatched.</p>}
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 700, fontSize: 13 }}>
+              GL Entries ({data.glCandidates.length} unmatched)
+            </div>
+            <div style={{ maxHeight: 480, overflowY: "auto" }}>
+              {data.glCandidates.map((g) => (
+                <div
+                  key={g.gl_entry_id}
+                  onClick={() => setSelectedGl(g.gl_entry_id === selectedGl ? null : g.gl_entry_id)}
+                  style={{
+                    padding: "8px 14px", borderBottom: "1px solid var(--line)", cursor: "pointer",
+                    background: selectedGl === g.gl_entry_id ? "var(--surface-2, #f0fdfa)" : undefined,
+                    display: "flex", justifyContent: "space-between", gap: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13 }}>{g.description || g.ref || "—"}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>{fmtDate(g.entry_date)}</div>
+                  </div>
+                  <span style={{ fontWeight: 700 }}>{fmtMoney(g.amount)}</span>
+                </div>
+              ))}
+              {!data.glCandidates.length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing unmatched.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedBankLine && selectedGl && (
+        <div className="card" style={{ marginTop: 12, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Match the selected bank line to the selected GL entry?</span>
+          <button className="btn btn-primary btn-sm" disabled={matching} onClick={handleMatch}>{matching ? "Matching…" : "Match"}</button>
         </div>
       )}
     </div>
