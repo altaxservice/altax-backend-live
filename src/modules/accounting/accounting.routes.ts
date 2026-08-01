@@ -864,6 +864,19 @@ export async function createSinglePaycheck(
       employeeTaxes, employerTaxes, netPay, totalCost,
     } = calc;
 
+    // Neither this route nor the edit route below checked these before — a caller-
+    // overridden withholding larger than gross wages silently produced a negative net
+    // pay that still got written and GL-posted. Preview (calculatePaycheck's other
+    // caller) deliberately does NOT run this check, so a still-being-typed-out form can
+    // show the bad number on screen before the user finishes fixing it; only the actual
+    // save is blocked.
+    if (netPay < 0) {
+      throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
+    }
+    if (gross < 0) {
+      throw new Error("Gross wages cannot be negative.");
+    }
+
     const payrollInputId = `PAYIN-${idSuffix()}`;
     const paycheckId = `CHK-${idSuffix()}`;
     const checkNumber = String(body.checkNumber || "").trim() || await nextCheckNumber(client.client_id);
@@ -1194,6 +1207,15 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   const employerTaxes = money(ssEr + medEr + futa + suta);
   const netPay = money(gross + nonTaxableReimbursement - totalDeductions - employeeTaxes);
   const totalCost = money(gross + nonTaxableReimbursement + employerTaxes);
+
+  // Same sanity bounds as the create route — a caller-overridden withholding/deduction
+  // larger than gross wages previously saved a negative net pay with no rejection.
+  if (netPay < 0) {
+    return res.status(400).json({ error: `Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.` });
+  }
+  if (gross < 0) {
+    return res.status(400).json({ error: "Gross wages cannot be negative." });
+  }
 
   // Every column this route recalculates gets written back. The earlier version
   // wrote only hours/rate and the tax totals, leaving regular_hours, regular_pay,
