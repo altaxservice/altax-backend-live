@@ -37,6 +37,9 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [showCcBcc, setShowCcBcc] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,6 +89,8 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
           notes: notes || undefined,
           notify: isLast,
           batchFileNames: isLast && files.length > 1 ? allNames : undefined,
+          cc: isLast ? cc || undefined : undefined,
+          bcc: isLast ? bcc || undefined : undefined,
         });
       }
       const who = mode === "client" ? "client's" : "employee's";
@@ -151,9 +156,18 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
             <FileDropInput files={files} onFilesChange={setFiles} />
           </div>
           <div className="field">
-            <label htmlFor="up-notes">Note <span className="muted">(optional — included in the notification email)</span></label>
+            <label htmlFor="up-notes">
+              Note <span className="muted">(optional — included in the notification email)</span>
+              {!showCcBcc && <button type="button" className="link-button" style={{ float: "right", fontWeight: 400 }} onClick={() => setShowCcBcc(true)}>Add Cc/Bcc</button>}
+            </label>
             <input id="up-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Your W-2 for 2025" />
           </div>
+          {showCcBcc && (
+            <>
+              <div className="field"><label>Cc <span className="muted">(comma-separated for more than one)</span></label><input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" /></div>
+              <div className="field"><label>Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
+            </>
+          )}
 
           <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
             The {mode === "client" ? "client" : "employee"} gets one email letting them know the file{files.length > 1 ? "s are" : " is"} waiting in their portal.

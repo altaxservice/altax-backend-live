@@ -21,6 +21,9 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
 }) {
   const toast = useToast();
   const [email, setEmail] = useState(clientEmail || "");
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [showCcBcc, setShowCcBcc] = useState(false);
   const [subject, setSubject] = useState(`Invoice ${invoice.invoice_id} from AL Tax Service`);
   const [message, setMessage] = useState(`Please find invoice ${invoice.invoice_id} attached. Total due: $${Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -50,7 +53,7 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
     setResults(null);
     try {
       const res = await api.post<{ results: SendResult[] }>(`/billing/invoices/${invoice.invoice_id}/send`, {
-        channels: ["email"], email, subject, message,
+        channels: ["email"], email, cc, bcc, subject, message,
       });
       setResults(res.results);
       const allOk = res.results.every((r) => r.ok);
@@ -70,7 +73,19 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
-            <div className="field"><label>Email address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
+            <div className="field">
+              <label>
+                Email address
+                {!showCcBcc && <button type="button" className="link-button" style={{ float: "right", fontWeight: 400 }} onClick={() => setShowCcBcc(true)}>Add Cc/Bcc</button>}
+              </label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" />
+            </div>
+            {showCcBcc && (
+              <>
+                <div className="field"><label>Cc <span className="muted">(comma-separated for more than one)</span></label><input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com, manager@example.com" /></div>
+                <div className="field"><label>Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
+              </>
+            )}
             <div className="field"><label>Subject</label><input value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
             <div className="field"><label>Message</label><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 

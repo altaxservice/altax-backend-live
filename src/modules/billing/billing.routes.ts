@@ -419,10 +419,12 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
   const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
   if (channels.length === 0) return res.status(400).json({ error: "Select at least one channel to send with." });
 
-  const { sendEmail, sendSms, sendWhatsApp } = await import("../../common/notifications");
+  const { sendEmail, sendSms, sendWhatsApp, parseEmailList } = await import("../../common/notifications");
   const built = await buildInvoicePdf(req.params.invoiceId);
   const subject = String(body.subject || `Invoice ${invoice.invoice_id} from AL Tax Service`).trim();
   const message = String(body.message || `Please find invoice ${invoice.invoice_id} attached. Total due: $${Number(invoice.balance_due).toFixed(2)}.`).trim();
+  const cc = parseEmailList(body.cc);
+  const bcc = parseEmailList(body.bcc);
 
   const results: { channel: string; ok: boolean; error?: string }[] = [];
   for (const channel of channels) {
@@ -431,7 +433,7 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
         const to = String(body.email || "").trim();
         if (!to) throw new Error("No email address provided.");
         await sendEmail({
-          to, subject,
+          to, cc, bcc, subject,
           html: await invoiceEmailHtml({
             message, invoiceId: invoice.invoice_id, invoiceDate: invoice.invoice_date,
             dueDate: invoice.due_date, balanceDue: Number(invoice.balance_due), req,

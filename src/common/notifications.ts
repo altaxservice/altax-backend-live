@@ -13,16 +13,31 @@ export class NotConfiguredError extends Error {}
 
 export interface EmailAttachment { filename: string; content: Buffer; contentType?: string }
 
-export async function sendEmail(opts: { to: string; subject: string; html: string; attachments?: EmailAttachment[] }): Promise<void> {
+export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[]; subject: string; html: string; attachments?: EmailAttachment[] }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new NotConfiguredError("Email is not connected yet — add RESEND_API_KEY to the backend .env to enable sending.");
   const from = process.env.RESEND_FROM_EMAIL || "AL Tax Service <onboarding@resend.dev>";
   const resend = new Resend(apiKey);
   const result = await resend.emails.send({
     from, to: [opts.to], subject: opts.subject, html: opts.html,
+    cc: opts.cc?.length ? opts.cc : undefined,
+    bcc: opts.bcc?.length ? opts.bcc : undefined,
     attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
   });
   if (result.error) throw new Error(result.error.message || "Resend rejected this email.");
+}
+
+/**
+ * Turns whatever a "CC"/"BCC" input sent us — a comma/semicolon-separated
+ * string from a plain text field, an array, or nothing — into a clean list
+ * of email addresses. Loose validation (must contain "@") is enough here:
+ * Resend itself will reject anything malformed, and this is staff typing
+ * their own colleagues' addresses, not untrusted public input.
+ */
+export function parseEmailList(value: unknown): string[] | undefined {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,;]/) : [];
+  const cleaned = raw.map((v) => String(v).trim()).filter((v) => v.includes("@"));
+  return cleaned.length ? cleaned : undefined;
 }
 
 function twilioClient(): ReturnType<typeof twilio> {

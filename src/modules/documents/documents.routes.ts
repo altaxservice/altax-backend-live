@@ -201,6 +201,7 @@ async function notifyPortalFileShared(opts: {
   clientId: string; clientName: string; recipientEmail: string | null;
   fileNames: string[]; notes: string | null;
   employeeName?: string | null; portalPath: "client" | "employee";
+  cc?: string[]; bcc?: string[];
 }): Promise<void> {
   const forWhom = opts.employeeName ? `${opts.employeeName} (${opts.clientName})` : opts.clientName;
   const many = opts.fileNames.length > 1;
@@ -231,7 +232,7 @@ async function notifyPortalFileShared(opts: {
         <p style="margin:0 0 18px;">Sign in to your portal and open <strong>Documents</strong> to view or download ${many ? "them" : "it"}.</p>
         ${loginUrl ? `<p style="margin:0;"><a href="${loginUrl}" style="display:inline-block; background:#0f766e; color:#ffffff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">Open My Portal</a></p>` : ""}
       `, opts.req);
-      await sendEmail({ to: opts.recipientEmail, subject, html });
+      await sendEmail({ to: opts.recipientEmail, cc: opts.cc, bcc: opts.bcc, subject, html });
       status = "Saved + Sent";
     } catch (err: any) {
       status = `Saved — ${err?.message || "email failed"}`;
@@ -552,6 +553,9 @@ function resolveUploadFile(body: any): { fileUrl: string; fileName: string; file
 
 documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
+  const { parseEmailList } = await import("../../common/notifications");
+  const notifyCc = parseEmailList(body.cc);
+  const notifyBcc = parseEmailList(body.bcc);
   const requestId = String(body.requestId || "").trim();
   const taskId = String(body.taskId || "").trim();
   const directEmployeeId = !requestId && !taskId ? String(body.employeeId || "").trim() : "";
@@ -667,6 +671,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         fileNames: Array.isArray(body.batchFileNames) && body.batchFileNames.length ? body.batchFileNames.map(String) : [fileName],
         notes: String(body.notes || "").trim() || null,
         employeeName: employee.employee_name, portalPath: "employee",
+        cc: notifyCc, bcc: notifyBcc,
       });
     }
   } else {
@@ -704,6 +709,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         fileNames: Array.isArray(body.batchFileNames) && body.batchFileNames.length ? body.batchFileNames.map(String) : [fileName],
         notes: String(body.notes || "").trim() || null,
         portalPath: "client",
+        cc: notifyCc, bcc: notifyBcc,
       });
     }
   }
