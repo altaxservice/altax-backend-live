@@ -11,6 +11,7 @@ import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
+import { scanFileForMalware } from "../../common/malwareScan";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 
 /** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
@@ -47,6 +48,11 @@ async function saveMessageAttachmentAsDocument(
   if (!ALLOWED_UPLOAD_MIME_TYPES.has(mimeType)) return { error: `unsupported file type (${mimeType})` };
   const sizeBytes = Math.ceil((attachment.contentBase64.length * 3) / 4);
   if (sizeBytes > MAX_UPLOAD_BYTES) return { error: "attachment too large" };
+
+  const scan = await scanFileForMalware(Buffer.from(attachment.contentBase64, "base64"), attachment.filename);
+  if (scan.scanned && !scan.clean) {
+    return { error: `flagged by malware scanning${scan.foundViruses?.length ? ` (${scan.foundViruses.join(", ")})` : ""}` };
+  }
 
   // client_id is nullable — a staff-to-staff message has no client behind it at all,
   // so this is stored as a client-less document purely to get a secure hosted

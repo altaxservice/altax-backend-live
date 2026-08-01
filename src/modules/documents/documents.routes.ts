@@ -8,6 +8,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
 import { rateLimit } from "../../common/rateLimit";
+import { scanFileForMalware } from "../../common/malwareScan";
 
 /**
  * Documents module — Phase 4 slice covering the plan's five stated test scenarios:
@@ -560,6 +561,14 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   const resolved = resolveUploadFile(body);
   if ("error" in resolved) return res.status(400).json({ error: resolved.error });
   const { fileName, mimeType, fileSize } = resolved;
+
+  if (resolved.fileData) {
+    const scan = await scanFileForMalware(Buffer.from(resolved.fileData, "base64"), fileName);
+    if (scan.scanned && !scan.clean) {
+      return res.status(400).json({ error: `This file was flagged by malware scanning${scan.foundViruses?.length ? ` (${scan.foundViruses.join(", ")})` : ""} and was not uploaded.` });
+    }
+  }
+
   // Encrypted after size/mime validation (which needs the real plaintext length) but
   // before it's ever written — every new row's file_data is the "v1:...:..." envelope,
   // never plaintext. fileSize/mime stay unencrypted since they're needed unauthenticated
