@@ -11,7 +11,7 @@ import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
@@ -28,7 +28,7 @@ import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
-interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean }
+interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean; suggestions?: string[] }
 
 const hasService = (form: Record<string, any>, key: string) => Array.isArray(form.services) && form.services.includes(key);
 const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
@@ -116,6 +116,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
       { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
+      { key: "referral_source", apiKey: "referralSource", label: "Referral Source", kind: "text", suggestions: REFERRAL_SOURCES },
     ],
   },
   {
@@ -433,7 +434,12 @@ export function ClientDetailPage() {
                   ) : (
                     <div className="field" key={f.apiKey}>
                       <label htmlFor={f.apiKey}>{f.label}</label>
-                      <input id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                      <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                      {f.suggestions && (
+                        <datalist id={`${f.apiKey}-list`}>
+                          {f.suggestions.map((o) => <option key={o} value={o} />)}
+                        </datalist>
+                      )}
                     </div>
                   )
                 ))}
@@ -526,6 +532,7 @@ export function ClientDetailPage() {
                 <DetailRow label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
                 <DetailRow label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
                 <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
+                <DetailRow label="Referral Source" value={client.referral_source as string | null} />
               </div>
               {String(client.notes || "").trim() && (
                 <div className="card" style={{ maxWidth: 560, marginTop: 20 }}>
@@ -635,7 +642,10 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Communications" && canSeeStaffTabs && (
-            <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
+            <>
+              <ClientActivitySection clientId={client.client_id} />
+              <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
+            </>
           )}
 
           {tab === "Billing" && canSeeStaffTabs && (
@@ -2124,6 +2134,110 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
         </div>
       )}
       {rows && rows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tax payment tracking rows for this client yet.</p>}
+    </div>
+  );
+}
+
+interface ActivityRow {
+  id: string; type: string; note: string | null; occurred_at: string; logged_by: string | null; source: "log" | "communication";
+}
+
+const ACTIVITY_TYPES = ["Phone Call", "In-Person Meeting", "Video Call", "Voicemail", "Other"];
+
+/**
+ * Manually-logged interaction timeline ("Called about Q3 estimate," "In-person
+ * meeting," etc.) merged with actual sent Communications, so staff have one combined
+ * view of every touchpoint with this client instead of checking two places. Sits
+ * above ClientMessages in the same Communications tab rather than its own tab —
+ * these are two views of the same relationship history, not separate concerns.
+ */
+function ClientActivitySection({ clientId }: { clientId: string }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<ActivityRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [activityType, setActivityType] = useState(ACTIVITY_TYPES[0]);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    api.get<{ activity: ActivityRow[] }>(`/clients/${clientId}/activity`)
+      .then((res) => setRows(res.activity))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load activity."));
+  }
+  useEffect(load, [clientId]);
+
+  async function handleAdd() {
+    if (!note.trim()) return;
+    setSaving(true);
+    try {
+      await api.post(`/clients/${clientId}/activity`, { activityType, note: note.trim() });
+      setNote("");
+      setAdding(false);
+      toast("Logged.");
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not log this activity.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(row: ActivityRow) {
+    if (row.source !== "log") return;
+    if (!confirm("Delete this activity entry?")) return;
+    try {
+      await api.post(`/clients/${clientId}/activity/${row.id}/delete`, {});
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this entry.");
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Activity Timeline</strong>
+        <button type="button" className="btn btn-sm" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ Log Activity"}</button>
+      </div>
+      {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
+      {adding && (
+        <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div className="field" style={{ margin: 0, maxWidth: 180 }}>
+            <label>Type</label>
+            <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
+              {ACTIVITY_TYPES.map((t) => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="field" style={{ margin: 0, flex: 1, minWidth: 220 }}>
+            <label>Note</label>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called about Q3 estimate" />
+          </div>
+          <button type="button" className="btn btn-primary btn-sm" disabled={saving || !note.trim()} onClick={handleAdd}>{saving ? "Saving…" : "Save"}</button>
+        </div>
+      )}
+      {!rows ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No activity logged for this client yet.</p>
+      ) : (
+        <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th>When</th><th>Type</th><th>Note</th><th>By</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="muted" data-label="When">{new Date(r.occurred_at).toLocaleString()}</td>
+                  <td data-label="Type">{r.type}{r.source === "communication" ? " (sent)" : ""}</td>
+                  <td data-label="Note">{r.note || "—"}</td>
+                  <td className="muted" data-label="By">{r.logged_by || "—"}</td>
+                  <td>{r.source === "log" && <button type="button" className="link-button" onClick={() => handleDelete(r)}>Delete</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

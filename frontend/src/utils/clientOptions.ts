@@ -43,6 +43,8 @@ export const RETURN_TYPES = ["1120", "1120S", "1065", "Schedule C", "990", "N/A"
 // fell back to "Both" server-side.
 export const LANGUAGES = ["English", "Arabic", "Both"];
 export const CONTACT_PREFS = ["Email", "Phone", "SMS", "Portal"];
+// Suggested values only (the field is free text) — how a client found the firm.
+export const REFERRAL_SOURCES = ["Referral", "Google", "Website", "Social Media", "Walk-in", "Other"];
 
 // Firm-wide service lines a client can be engaged for — keys must match
 // FIRM_SERVICES in src/modules/contracts/contractContent.ts (backend), since

@@ -181,6 +181,74 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   });
 }));
 
+function nextActivityId(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `ACT-${ts}-${Math.floor(100 + Math.random() * 900)}`;
+}
+
+/**
+ * Manually-logged client interaction timeline — "Called about Q3 estimate," "In-person
+ * meeting," etc. — distinct from the Communications log, which only captures messages
+ * actually sent through this app (email/SMS/WhatsApp/portal note). A phone call or a
+ * walk-in meeting leaves no trace otherwise. Merges in Communications rows as read-only
+ * timeline entries (a cheap UNION, no schema change) so staff get one combined view
+ * instead of checking two separate places. Admin/staff only — this is an internal
+ * relationship-management tool, not something a client or employee portal user sees.
+ */
+clientsRouter.get("/:clientId/activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
+  const logged = await query<any>(
+    `SELECT activity_id AS id, activity_type AS type, note, occurred_at, logged_by, 'log' AS source
+       FROM altax.v3_client_activity_log WHERE client_id = $1`,
+    [clientId]
+  );
+  const sent = await query<any>(
+    `SELECT communication_id AS id, channel AS type, subject AS note, sent_at AS occurred_at, sent_by AS logged_by, 'communication' AS source
+       FROM altax.v3_communications WHERE client_id = $1 AND sent_at IS NOT NULL`,
+    [clientId]
+  );
+  const combined = [...logged, ...sent].sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  res.json({ activity: combined });
+}));
+
+clientsRouter.post("/:clientId/activity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const body = req.body || {};
+  const activityType = String(body.activityType || "").trim();
+  const note = String(body.note || "").trim();
+  if (!activityType || !note) return res.status(400).json({ error: "Type and note are required." });
+
+  const activityId = nextActivityId();
+  await query(
+    `INSERT INTO altax.v3_client_activity_log (activity_id, client_id, activity_type, note, occurred_at, logged_by)
+     VALUES ($1,$2,$3,$4,now(),$5)`,
+    [activityId, clientId, activityType, note, req.user!.email]
+  );
+  await logAudit("Clients", "LOG_ACTIVITY", activityId, "", "", activityType, `Activity logged for ${clientId} by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, activityId });
+}));
+
+clientsRouter.post("/:clientId/activity/:activityId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, activityId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_activity_log WHERE activity_id = $1 AND client_id = $2`, [activityId, clientId]);
+  if (!row) return res.status(404).json({ error: "Activity entry not found." });
+  await query(`DELETE FROM altax.v3_client_activity_log WHERE activity_id = $1`, [activityId]);
+  await logAudit("Clients", "DELETE_ACTIVITY", activityId, "", row.activity_type || "", "", `Activity entry deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 /** Next sequential C-#### id, matching the existing client_id pattern in real data. */
 async function nextClientId(): Promise<string> {
   const row = await queryOne<any>(
@@ -221,6 +289,7 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   city: { column: "city" },
   zipCode: { column: "zip_code" },
   preferredContact: { column: "preferred_contact" },
+  referralSource: { column: "referral_source" },
   notes: { column: "notes" },
   ein: { column: "ein", encrypted: true },
   individualSsn: { column: "individual_ssn", encrypted: true },
