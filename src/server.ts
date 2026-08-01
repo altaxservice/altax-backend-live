@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { rateLimit } from "./common/rateLimit";
+import { pool } from "./config/db";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter } from "./modules/clients/clients.routes";
 import { usersRouter } from "./modules/users/users.routes";
@@ -37,6 +38,7 @@ import { publicContractRouter } from "./modules/contracts/publicContract.routes"
 import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
 import { haccpRouter } from "./modules/haccp/haccp.routes";
 import cron from "node-cron";
+import { alertAdmins } from "./common/adminAlerts";
 
 dotenv.config();
 
@@ -89,7 +91,20 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "12mb" })); // covers base64-encoded file uploads (see documents.routes.ts POST /uploads) up to ~8MB raw
 
-app.get("/health", (_req, res) => res.json({ ok: true, phase: "0-foundation" }));
+// Previously a static {ok:true} with no database check, so a full DB outage would
+// still report "healthy" to Railway/any uptime monitor watching this route. Kept
+// unauthenticated (a health check needs to work when the app is otherwise broken)
+// and deliberately reveals nothing about *why* the DB is unreachable, only that it
+// is — the real error goes to the server's own logs, not the response body.
+app.get("/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ ok: true, phase: "0-foundation" });
+  } catch (err) {
+    console.error("[health] database check failed:", err);
+    res.status(503).json({ ok: false, error: "Database unreachable." });
+  }
+});
 
 // Read-only internal demo page (public/preview.html) — not part of the real client/staff
 // app, just a way to see the API's data against real records without a frontend yet.
@@ -267,8 +282,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // was made under.
 cron.schedule("30 6 * * *", () => {
   runReminders("System (Daily Reminder Job)").catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error("Daily reminders run failed:", err);
+    alertAdmins("Daily reminders job failed", err instanceof Error ? (err.stack || err.message) : String(err));
   });
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
@@ -278,12 +292,28 @@ console.log("Daily reminders scheduled for 6:30AM America/New_York.");
 // lands in the admin inbox without anyone remembering to click Download.
 cron.schedule("0 6 * * 0", () => {
   runWeeklyBackupEmail("System (Weekly Backup Job)").catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error("Weekly backup email failed:", err);
+    alertAdmins("Weekly backup email failed", err instanceof Error ? (err.stack || err.message) : String(err));
   });
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
+
+// Previously nothing caught these — a crash outside an Express request handler (a
+// bad async callback, a rejected promise nobody awaited) just died silently except
+// for whatever happened to scroll past in Railway's own logs. uncaughtException means
+// the process is now in an undefined state, so this alerts then exits deliberately
+// (Railway restarts it) rather than limping on; unhandledRejection just alerts, since
+// most of those in this codebase are already deliberately-swallowed .catch(() => {})
+// patterns elsewhere and forcing an exit here would be too aggressive.
+process.on("uncaughtException", (err) => {
+  const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+  Promise.race([alertAdmins("Server crashed (uncaught exception)", detail), new Promise((r) => setTimeout(r, 5000))])
+    .finally(() => process.exit(1));
+});
+process.on("unhandledRejection", (reason) => {
+  const detail = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+  alertAdmins("Unhandled promise rejection", detail).catch(() => {});
+});
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {

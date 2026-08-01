@@ -496,33 +496,35 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
 
   const saleId = `SALE-${idSuffix()}`;
   const grossSales = money(body.grossSales);
-  await query(
-    `INSERT INTO altax.v3_sales_input
-       (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
-        source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1)`,
-    [saleId, client.client_id, client.client_name, String(body.saleDate || "").trim() || null, grossSales,
-      adjustments, String(body.paymentDate || "").trim() || null, totalTax, String(body.notes || "").trim() || null]
-  );
-  for (const line of computed.lines) {
-    await query(
-      `INSERT INTO altax.v3_sales_input_lines (line_id, sale_id, category_id, taxable_amount, tax_rate_used, tax_amount)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [`SLINE-${idSuffix()}`, saleId, line.categoryId, line.taxableAmount, line.rate, line.taxAmount]
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_sales_input
+         (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
+          source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1)`,
+      [saleId, client.client_id, client.client_name, String(body.saleDate || "").trim() || null, grossSales,
+        adjustments, String(body.paymentDate || "").trim() || null, totalTax, String(body.notes || "").trim() || null]
     );
-  }
+    for (const line of computed.lines) {
+      await db.query(
+        `INSERT INTO altax.v3_sales_input_lines (line_id, sale_id, category_id, taxable_amount, tax_rate_used, tax_amount)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [`SLINE-${idSuffix()}`, saleId, line.categoryId, line.taxableAmount, line.rate, line.taxAmount]
+      );
+    }
 
-  await appendGl(client.client_id, client.client_name, {
-    entryDate: body.saleDate, ref: saleId, description: "Sales receipt / tax collected",
-    account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
-  });
-  await appendGl(client.client_id, client.client_name, {
-    entryDate: body.saleDate, ref: saleId, description: "Sales revenue",
-    account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
-  });
-  await appendGl(client.client_id, client.client_name, {
-    entryDate: body.saleDate, ref: saleId, description: "Sales tax payable",
-    account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
+    await appendGl(client.client_id, client.client_name, {
+      entryDate: body.saleDate, ref: saleId, description: "Sales receipt / tax collected",
+      account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
+    }, db);
+    await appendGl(client.client_id, client.client_name, {
+      entryDate: body.saleDate, ref: saleId, description: "Sales revenue",
+      account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
+    }, db);
+    await appendGl(client.client_id, client.client_name, {
+      entryDate: body.saleDate, ref: saleId, description: "Sales tax payable",
+      account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
+    }, db);
   });
 
   await logAudit("Accounting", "CREATE_SALES_INPUT", saleId, "", "", String(totalTax),
@@ -623,32 +625,34 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   }
   const totalTax = money(computed.totalTax + adjustments);
 
-  await query(
-    `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7
-     WHERE sale_id = $1`,
-    [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes]
-  );
-  await query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
-  for (const line of computed.lines) {
-    await query(
-      `INSERT INTO altax.v3_sales_input_lines (line_id, sale_id, category_id, taxable_amount, tax_rate_used, tax_amount)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [`SLINE-${idSuffix()}`, saleId, line.categoryId, line.taxableAmount, line.rate, line.taxAmount]
+  await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_sales_input SET sale_date=$2, gross_sales=$3, adjustments=$4, payment_date=$5, total_tax_due=$6, notes=$7
+       WHERE sale_id = $1`,
+      [saleId, saleDate, grossSales, adjustments, paymentDate, totalTax, notes]
     );
-  }
+    await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
+    for (const line of computed.lines) {
+      await db.query(
+        `INSERT INTO altax.v3_sales_input_lines (line_id, sale_id, category_id, taxable_amount, tax_rate_used, tax_amount)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [`SLINE-${idSuffix()}`, saleId, line.categoryId, line.taxableAmount, line.rate, line.taxAmount]
+      );
+    }
 
-  await query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input'`, [saleId]);
-  await appendGl(existing.client_id, existing.client_name, {
-    entryDate: saleDate, ref: saleId, description: "Sales receipt / tax collected",
-    account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
-  });
-  await appendGl(existing.client_id, existing.client_name, {
-    entryDate: saleDate, ref: saleId, description: "Sales revenue",
-    account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
-  });
-  await appendGl(existing.client_id, existing.client_name, {
-    entryDate: saleDate, ref: saleId, description: "Sales tax payable",
-    account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
+    await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input'`, [saleId]);
+    await appendGl(existing.client_id, existing.client_name, {
+      entryDate: saleDate, ref: saleId, description: "Sales receipt / tax collected",
+      account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
+    }, db);
+    await appendGl(existing.client_id, existing.client_name, {
+      entryDate: saleDate, ref: saleId, description: "Sales revenue",
+      account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
+    }, db);
+    await appendGl(existing.client_id, existing.client_name, {
+      entryDate: saleDate, ref: saleId, description: "Sales tax payable",
+      account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
+    }, db);
   });
 
   await logAudit("Accounting", "EDIT_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), String(totalTax),
@@ -677,12 +681,15 @@ accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin")
     return res.status(400).json({ error: "Type DELETE to confirm removing this sales record." });
   }
 
-  const removedGl = await query<any>(
-    `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
-    [saleId]
-  );
-  await query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
-  await query(`DELETE FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
+  const removedGl = await withTransaction(async (db) => {
+    const removed = await db.query<any>(
+      `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
+      [saleId]
+    );
+    await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
+    await db.query(`DELETE FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
+    return removed;
+  });
 
   await logAudit("Accounting", "DELETE_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), "",
     `Sales input deleted by ${req.user!.email}; ${removedGl.length} GL line(s) reversed.`, req.user!.email);
@@ -1417,29 +1424,31 @@ accountingRouter.post("/contractor-payments", requireAuth, requireRole("admin", 
   const paymentDate = String(body.paymentDate || "").trim() || null;
   const paymentMethod = await resolvePaymentMethod(clientId, "payroll", body.paymentMethodId);
 
-  await query(
-    `INSERT INTO altax.v3_contractor_payments
-       (contractor_payment_id, client_id, client_name, contractor_id, contractor_name, payment_date, amount,
-        method, payment_method_id, check_number, confirmation_number, expense_category, memo, is_1099_eligible, status,
-        payment_bank_name, payment_routing_number, payment_account_number, payment_account_type, payment_bank_last4,
-        source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Node Web App',$1)`,
-    [paymentId, client.client_id, client.client_name, contractor.employee_id, contractor.employee_name, paymentDate,
-      amount, String(body.method || "Check").trim(), paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
-      String(body.checkNumber || "").trim() || null, String(body.confirmationNumber || "").trim() || null,
-      expenseCategory, String(body.memo || "").trim() || null,
-      body.eligible1099 === undefined ? true : Boolean(body.eligible1099), String(body.status || "Active").trim(),
-      paymentMethod?.bankName || null, paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null,
-      paymentMethod?.accountType || null, paymentMethod?.bankLast4 || null]
-  );
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_contractor_payments
+         (contractor_payment_id, client_id, client_name, contractor_id, contractor_name, payment_date, amount,
+          method, payment_method_id, check_number, confirmation_number, expense_category, memo, is_1099_eligible, status,
+          payment_bank_name, payment_routing_number, payment_account_number, payment_account_type, payment_bank_last4,
+          source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'Node Web App',$1)`,
+      [paymentId, client.client_id, client.client_name, contractor.employee_id, contractor.employee_name, paymentDate,
+        amount, String(body.method || "Check").trim(), paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
+        String(body.checkNumber || "").trim() || null, String(body.confirmationNumber || "").trim() || null,
+        expenseCategory, String(body.memo || "").trim() || null,
+        body.eligible1099 === undefined ? true : Boolean(body.eligible1099), String(body.status || "Active").trim(),
+        paymentMethod?.bankName || null, paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null,
+        paymentMethod?.accountType || null, paymentMethod?.bankLast4 || null]
+    );
 
-  await appendGl(client.client_id, client.client_name, {
-    entryDate: paymentDate, ref: paymentId, description: `Contractor payment - ${contractor.employee_name}`,
-    account: expenseCategory, debit: amount, credit: 0, source: "Contractor Payment",
-  });
-  await appendGl(client.client_id, client.client_name, {
-    entryDate: paymentDate, ref: paymentId, description: "Contractor payment cash/bank",
-    account: "Cash", debit: 0, credit: amount, source: "Contractor Payment",
+    await appendGl(client.client_id, client.client_name, {
+      entryDate: paymentDate, ref: paymentId, description: `Contractor payment - ${contractor.employee_name}`,
+      account: expenseCategory, debit: amount, credit: 0, source: "Contractor Payment",
+    }, db);
+    await appendGl(client.client_id, client.client_name, {
+      entryDate: paymentDate, ref: paymentId, description: "Contractor payment cash/bank",
+      account: "Cash", debit: 0, credit: amount, source: "Contractor Payment",
+    }, db);
   });
 
   await logAudit("Contractors", "RECORD_PAYMENT", paymentId, "ContractorID", "", contractorId,
@@ -1487,23 +1496,25 @@ accountingRouter.patch("/contractor-payments/:contractorPaymentId", requireAuth,
   const accountType = paymentMethod?.accountType ?? existing.payment_account_type;
   const bankLast4 = paymentMethod?.bankLast4 ?? existing.payment_bank_last4;
 
-  await query(
-    `UPDATE altax.v3_contractor_payments SET payment_date=$2, amount=$3, expense_category=$4, memo=$5, method=$6, check_number=$7,
-       confirmation_number=$8, is_1099_eligible=$9, payment_method_id=$10, payment_bank_name=$11, payment_routing_number=$12,
-       payment_account_number=$13, payment_account_type=$14, payment_bank_last4=$15
-     WHERE contractor_payment_id = $1`,
-    [contractorPaymentId, paymentDate, amount, expenseCategory, memo, method, checkNumber,
-      confirmationNumber, eligible1099, paymentMethodId, bankName, routingNumber, accountNumber, accountType, bankLast4]
-  );
+  await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_contractor_payments SET payment_date=$2, amount=$3, expense_category=$4, memo=$5, method=$6, check_number=$7,
+         confirmation_number=$8, is_1099_eligible=$9, payment_method_id=$10, payment_bank_name=$11, payment_routing_number=$12,
+         payment_account_number=$13, payment_account_type=$14, payment_bank_last4=$15
+       WHERE contractor_payment_id = $1`,
+      [contractorPaymentId, paymentDate, amount, expenseCategory, memo, method, checkNumber,
+        confirmationNumber, eligible1099, paymentMethodId, bankName, routingNumber, accountNumber, accountType, bankLast4]
+    );
 
-  await query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Contractor Payment'`, [contractorPaymentId]);
-  await appendGl(existing.client_id, existing.client_name, {
-    entryDate: paymentDate, ref: contractorPaymentId, description: `Contractor payment - ${existing.contractor_name}`,
-    account: expenseCategory, debit: amount, credit: 0, source: "Contractor Payment",
-  });
-  await appendGl(existing.client_id, existing.client_name, {
-    entryDate: paymentDate, ref: contractorPaymentId, description: "Contractor payment cash/bank",
-    account: "Cash", debit: 0, credit: amount, source: "Contractor Payment",
+    await db.query(`DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Contractor Payment'`, [contractorPaymentId]);
+    await appendGl(existing.client_id, existing.client_name, {
+      entryDate: paymentDate, ref: contractorPaymentId, description: `Contractor payment - ${existing.contractor_name}`,
+      account: expenseCategory, debit: amount, credit: 0, source: "Contractor Payment",
+    }, db);
+    await appendGl(existing.client_id, existing.client_name, {
+      entryDate: paymentDate, ref: contractorPaymentId, description: "Contractor payment cash/bank",
+      account: "Cash", debit: 0, credit: amount, source: "Contractor Payment",
+    }, db);
   });
 
   await logAudit("Contractors", "EDIT_PAYMENT", contractorPaymentId, "Amount", String(existing.amount ?? ""), String(amount),
@@ -1550,24 +1561,24 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
   const description = String(body.description || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
 
-  let firstLineId = "";
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineId = `${jeId}-${i + 1}`;
-    if (!firstLineId) firstLineId = lineId;
-    await query(
-      `INSERT INTO altax.v3_manual_je
-         (jeid, client_id, client_name, entry_date, ref, description, account, debit, credit, notes,
-          source_system, source_record_id, journal_entry_id, line_no)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Node Web App',$11,$11,$12)`,
-      [lineId, client.client_id, client.client_name, entryDate, ref, description, line.account, line.debit,
-        line.credit, line.memo || notes || description, jeId, i + 1]
-    );
-    await appendGl(client.client_id, client.client_name, {
-      entryDate, ref, description: description || "Manual journal entry", account: line.account,
-      debit: line.debit, credit: line.credit, source: "Manual JE", notes: line.memo || notes || description,
-    });
-  }
+  await withTransaction(async (db) => {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineId = `${jeId}-${i + 1}`;
+      await db.query(
+        `INSERT INTO altax.v3_manual_je
+           (jeid, client_id, client_name, entry_date, ref, description, account, debit, credit, notes,
+            source_system, source_record_id, journal_entry_id, line_no)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Node Web App',$11,$11,$12)`,
+        [lineId, client.client_id, client.client_name, entryDate, ref, description, line.account, line.debit,
+          line.credit, line.memo || notes || description, jeId, i + 1]
+      );
+      await appendGl(client.client_id, client.client_name, {
+        entryDate, ref, description: description || "Manual journal entry", account: line.account,
+        debit: line.debit, credit: line.credit, source: "Manual JE", notes: line.memo || notes || description,
+      }, db);
+    }
+  });
 
   await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", "Manual journal entry created from web app.", req.user!.email);
 
@@ -1624,11 +1635,14 @@ accountingRouter.post("/journal-entries/:journalEntryId/delete", requireAuth, re
 
   // GL rows are keyed by the entry's ref, not its id — same key appendGl wrote.
   const ref = lines[0].ref || journalEntryId;
-  const removedGl = await query<any>(
-    `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Manual JE' RETURNING gl_entry_id`,
-    [ref]
-  );
-  await query(`DELETE FROM altax.v3_manual_je WHERE journal_entry_id = $1 OR jeid = $1`, [journalEntryId]);
+  const removedGl = await withTransaction(async (db) => {
+    const removed = await db.query<any>(
+      `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Manual JE' RETURNING gl_entry_id`,
+      [ref]
+    );
+    await db.query(`DELETE FROM altax.v3_manual_je WHERE journal_entry_id = $1 OR jeid = $1`, [journalEntryId]);
+    return removed;
+  });
 
   await logAudit("Accounting", "DELETE_JE", journalEntryId, "", String(lines.length) + " line(s)", "",
     `Manual journal entry deleted by ${req.user!.email}; ${removedGl.length} GL line(s) reversed.`, req.user!.email);

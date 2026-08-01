@@ -933,6 +933,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           </div>
 
           <SubLabel>Tax overrides (leave blank to auto-calculate)</SubLabel>
+          <p style={{ background: "var(--amber-soft)", color: "var(--amber)", borderRadius: 6, padding: "8px 10px", fontSize: 12, margin: "0 0 10px", lineHeight: 1.4 }}>
+            ⚠ The auto-calculated Federal/State Withholding is a flat-rate estimate, not real IRS bracket withholding
+            (it ignores W-4 filing status and allowances). Enter the real figures from an actual payroll processor
+            here whenever you have them — don't rely on the auto-calculated default as a verified number.
+          </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Federal Withholding</label><input type="number" step="0.01" value={form.federalWithholding} onChange={(e) => setForm((f) => ({ ...f, federalWithholding: e.target.value }))} /></div>
             <div className="field"><label>{clientState || "State"} Withholding</label><input type="number" step="0.01" value={form.stateTax} onChange={(e) => setForm((f) => ({ ...f, stateTax: e.target.value }))} /></div>
