@@ -36,6 +36,7 @@ import { TemplatesPage } from "./pages/TemplatesPage";
 import { EstimatesListPage } from "./pages/EstimatesListPage";
 import { EstimateDetailPage } from "./pages/EstimateDetailPage";
 import { PipelinePage } from "./pages/PipelinePage";
+import { TaskCalendarPage } from "./pages/TaskCalendarPage";
 import { FeeSchedulePage } from "./pages/FeeSchedulePage";
 import { CalculatorsPage } from "./pages/CalculatorsPage";
 import { SearchResultsPage } from "./pages/SearchResultsPage";
@@ -92,6 +93,7 @@ function App() {
                 <Route path="/clients" element={<ClientsListPage />} />
                 <Route path="/clients/:clientId" element={<ClientDetailPage />} />
                 <Route path="/tasks" element={<TasksListPage />} />
+                <Route path="/calendar" element={<TaskCalendarPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
                 <Route path="/accounting" element={<AccountingPage />} />
                 <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
