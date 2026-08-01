@@ -47,13 +47,19 @@ timeTrackingRouter.post("/entries", asyncHandler(async (req: AuthedRequest, res:
     clientName = client.client_name;
   }
 
+  // Billable only makes sense against a real client — an internal/no-client entry can
+  // never be rolled into a client invoice, so billable silently drops to false without one.
+  const billable = clientId ? Boolean(body.billable) : false;
+  const hourlyRate = billable && body.hourlyRate !== undefined && body.hourlyRate !== "" ? Number(body.hourlyRate) : null;
+  if (billable && hourlyRate !== null && !(hourlyRate > 0)) return res.status(400).json({ error: "Hourly rate must be a positive number." });
+
   const timeEntryId = `TIME-${idSuffix()}`;
   await query(
     `INSERT INTO altax.v3_time_entries
        (time_entry_id, user_email, entry_date, client_id, client_name, hours, description, status,
-        source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted','Node Web App',$1)`,
-    [timeEntryId, req.user!.email, entryDate, clientId, clientName, hours, String(body.description || "").trim() || null]
+        billable, hourly_rate, source_system, source_record_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'Submitted',$8,$9,'Node Web App',$1)`,
+    [timeEntryId, req.user!.email, entryDate, clientId, clientName, hours, String(body.description || "").trim() || null, billable, hourlyRate]
   );
 
   await logAudit("Time Tracking", "CREATE_ENTRY", timeEntryId, "", "", String(hours),
@@ -92,16 +98,22 @@ timeTrackingRouter.patch("/entries/:timeEntryId", asyncHandler(async (req: Authe
   if (!isAdmin && existing.status !== "Submitted") {
     return res.status(400).json({ error: "This entry has already been decided and can no longer be edited." });
   }
+  if (existing.billed) return res.status(400).json({ error: "This entry is already on an invoice and can no longer be edited." });
 
   const body = req.body || {};
   const entryDate = body.entryDate !== undefined ? String(body.entryDate).trim() : existing.entry_date;
   const hours = body.hours !== undefined ? Number(body.hours) : Number(existing.hours);
   if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: "Hours must be a positive number." });
   const description = body.description !== undefined ? (String(body.description).trim() || null) : existing.description;
+  const billable = body.billable !== undefined ? (existing.client_id ? Boolean(body.billable) : false) : existing.billable;
+  const hourlyRate = body.hourlyRate !== undefined
+    ? (billable && body.hourlyRate !== "" ? Number(body.hourlyRate) : null)
+    : existing.hourly_rate;
+  if (billable && hourlyRate !== null && !(Number(hourlyRate) > 0)) return res.status(400).json({ error: "Hourly rate must be a positive number." });
 
   await query(
-    `UPDATE altax.v3_time_entries SET entry_date=$2, hours=$3, description=$4, updated_at = now() WHERE time_entry_id = $1`,
-    [timeEntryId, entryDate, hours, description]
+    `UPDATE altax.v3_time_entries SET entry_date=$2, hours=$3, description=$4, billable=$5, hourly_rate=$6, updated_at = now() WHERE time_entry_id = $1`,
+    [timeEntryId, entryDate, hours, description, billable, hourlyRate]
   );
 
   await logAudit("Time Tracking", "EDIT_ENTRY", timeEntryId, "Hours", String(existing.hours ?? ""), String(hours),

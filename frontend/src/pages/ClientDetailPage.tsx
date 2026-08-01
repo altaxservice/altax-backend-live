@@ -2103,12 +2103,34 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
+  const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
+  const [creatingFromTime, setCreatingFromTime] = useState(false);
 
   useEffect(() => {
     api.get<{ invoices: Invoice[] }>("/billing/invoices")
       .then((res) => setInvoices(res.invoices.filter((i) => i.client_id === clientId)))
       .catch(() => setInvoices([]));
   }, [clientId]);
+
+  function loadUnbilledTime() {
+    api.get<{ count: number; amount: number }>(`/billing/invoices/from-time/preview?clientId=${encodeURIComponent(clientId)}`)
+      .then(setUnbilledTime)
+      .catch(() => setUnbilledTime(null));
+  }
+  useEffect(loadUnbilledTime, [clientId]);
+
+  async function handleCreateFromTime() {
+    if (!confirm(`Create an invoice for ${unbilledTime?.count} approved billable time ${unbilledTime?.count === 1 ? "entry" : "entries"} (${fmtMoney(unbilledTime?.amount)})?`)) return;
+    setCreatingFromTime(true);
+    try {
+      const res = await api.post<{ invoiceId: string }>("/billing/invoices/from-time", { clientId });
+      navigate(`/billing/${res.invoiceId}`);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not create this invoice.");
+    } finally {
+      setCreatingFromTime(false);
+    }
+  }
 
   async function handleStatement(mode: "view" | "download") {
     setStatementBusy(mode);
@@ -2134,6 +2156,11 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
           <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{invoices?.length ?? 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {Boolean(unbilledTime?.count) && (
+            <button className="btn btn-sm btn-primary" disabled={creatingFromTime} onClick={handleCreateFromTime}>
+              {creatingFromTime ? "Creating…" : `Create Invoice from Unbilled Time (${unbilledTime!.count}, ${fmtMoney(unbilledTime!.amount)})`}
+            </button>
+          )}
           <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("view")}>{statementBusy === "view" ? "Opening…" : "View Statement"}</button>
           <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("download")}>{statementBusy === "download" ? "Generating…" : "Print / Download PDF"}</button>
         </div>

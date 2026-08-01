@@ -250,6 +250,94 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
 }));
 
 /**
+ * Time-and-materials billing: roll every unbilled, billable, Approved time entry
+ * for a client into one new invoice — one line item per entry (service_date =
+ * entry_date, rate = the entry's own hourly_rate, quantity = hours). Only
+ * Approved entries qualify (not merely Submitted) since a submitted-but-not-yet-
+ * reviewed entry could still be edited or rejected; billing it first would mean
+ * un-billing it later. Reuses the exact same computeInvoiceTotals/replaceLineItems/
+ * postInvoiceTotalGl path POST /invoices already uses, so a time-based invoice is
+ * indistinguishable from one built by hand in the line-item editor.
+ */
+/** Whether a client has unbilled, Approved, billable time worth invoicing — powers the "Create Invoice from Unbilled Time" button on the client's Billing tab without exposing the full per-staff time-tracking list (a separate, more restricted module). */
+billingRouter.get("/invoices/from-time/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "clientId is required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const row = await queryOne<any>(
+    `SELECT COUNT(*)::int AS count, COALESCE(SUM(hours * COALESCE(hourly_rate,0)), 0) AS amount
+       FROM altax.v3_time_entries
+      WHERE client_id = $1 AND billable = true AND billed = false AND status = 'Approved'`,
+    [clientId]
+  );
+  res.json({ count: Number(row?.count || 0), amount: Number(row?.amount || 0) });
+}));
+
+billingRouter.post("/invoices/from-time", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.body?.clientId || req.query.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "clientId is required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const client = await queryOne<any>(`SELECT client_id, client_name, state, address, client_type FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const entries = await query<any>(
+    `SELECT * FROM altax.v3_time_entries
+      WHERE client_id = $1 AND billable = true AND billed = false AND status = 'Approved'
+      ORDER BY entry_date ASC`,
+    [clientId]
+  );
+  if (!entries.length) return res.status(400).json({ error: "No approved, unbilled billable time for this client." });
+  if (entries.some((e: any) => !(Number(e.hourly_rate) > 0))) {
+    return res.status(400).json({ error: "Every billable entry needs an hourly rate before it can be invoiced." });
+  }
+
+  // entry_date comes back from pg as a JS Date object (DATE column) — stringifying it
+  // directly (via String()/template literals) produces "...GMT-0400 (...)", which
+  // Postgres then rejects trying to parse it back as a date. Format explicitly instead.
+  const lineItems: LineItemInput[] = entries.map((e: any) => ({
+    serviceDate: e.entry_date instanceof Date ? e.entry_date.toISOString().slice(0, 10) : String(e.entry_date).slice(0, 10),
+    description: e.description || `Time — ${e.user_email}`,
+    quantity: Number(e.hours), rate: Number(e.hourly_rate), taxable: false,
+  }));
+  const { normalized, lineAmounts, subtotal, taxableSubtotal, salesTaxAmount, total } = computeInvoiceTotals(
+    lineItems, { discountPercent: 0, discountAmount: 0, salesTaxRate: 0, shippingAmount: 0 }
+  );
+
+  const invoiceId = nextInvoiceId();
+  const invoiceDate = new Date().toISOString().slice(0, 10);
+
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_invoices
+         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
+          balance_due, status, customer_type, bill_to, subtotal_amount, taxable_subtotal,
+          sales_tax_amount, source_system, source_record_id)
+       VALUES ($1,$2,$3,$3,$4,$5,0,$5,'Unpaid',$6,$7,$8,$9,$10,'Node Web App',$1)`,
+      [
+        invoiceId, clientId, invoiceDate, `Time & materials — ${entries.length} entr${entries.length === 1 ? "y" : "ies"}`,
+        total, String(client.client_type || "").trim() || null, client.address || null,
+        subtotal, taxableSubtotal || null, salesTaxAmount || null,
+      ]
+    );
+    await postInvoiceTotalGl(clientId, client.client_name, invoiceId, invoiceDate, total, db);
+    await db.query(
+      `UPDATE altax.v3_time_entries SET billed = true, invoice_id = $2, updated_at = now() WHERE time_entry_id = ANY($1::text[])`,
+      [entries.map((e: any) => e.time_entry_id), invoiceId]
+    );
+  });
+
+  await replaceLineItems(invoiceId, normalized, lineAmounts);
+
+  await logAudit("Billing", "CREATE_INVOICE_FROM_TIME", invoiceId, "", "", String(total),
+    `Invoice created from ${entries.length} time entries by ${req.user!.email}.`, req.user!.email);
+
+  res.status(201).json({ ok: true, invoiceId, totalAmount: total, entryCount: entries.length });
+}));
+
+/**
  * List invoices — admin sees all; client sees only their own client's invoices
  * (viewing is allowed for client role even though editing is not — the legacy access
  * helper only gates mutations); staff/general see invoices for clients they have task
