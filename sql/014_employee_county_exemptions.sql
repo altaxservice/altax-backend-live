@@ -1,0 +1,2 @@
+ALTER TABLE altax.v3_employees ADD COLUMN IF NOT EXISTS county VARCHAR(50);
+ALTER TABLE altax.v3_employees ADD COLUMN IF NOT EXISTS md_exemptions INTEGER;

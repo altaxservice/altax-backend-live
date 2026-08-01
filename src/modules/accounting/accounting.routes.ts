@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
+import { calculateFederalWithholding, calculateMarylandWithholding } from "../../common/withholdingTables";
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
@@ -698,6 +699,33 @@ accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin")
 }));
 
 /**
+ * Default (auto-calculated) federal withholding for one paycheck — real 2026 IRS
+ * STANDARD bracket calculation (see withholdingTables.ts), keyed off the employee's own
+ * pay frequency and federal filing status. Only a default: the caller-supplied
+ * federalWithholding override always wins over this when set (both call sites below
+ * check that before ever calling this).
+ */
+function estimateFederalWithholding(federalTaxableWages: number, employee: any): number {
+  return calculateFederalWithholding(federalTaxableWages, employee.pay_frequency, employee.federal_filing_status);
+}
+
+/**
+ * Default (auto-calculated) state withholding for one paycheck. Uses the real 2026
+ * Maryland state+county bracket calculation when the employee's work state is Maryland
+ * (this app doesn't yet have real bracket data for DC/PA/VA/DE); everywhere else keeps
+ * the flat-rate estimate this app has always used, since a wrong "real" bracket table
+ * would be worse than an honest flat estimate. Only a default — see
+ * estimateFederalWithholding's doc comment above.
+ */
+async function estimateStateWithholding(stateTaxableWages: number, employee: any, payrollState: string | null | undefined, clientId: string): Promise<number> {
+  const isMaryland = String(payrollState || "").trim().toUpperCase() === "MD";
+  if (isMaryland) {
+    return calculateMarylandWithholding(stateTaxableWages, employee.pay_frequency, employee.state_filing_status, employee.county, employee.md_exemptions);
+  }
+  return stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState || undefined));
+}
+
+/**
  * Record payroll for one pay period — ported from alTaxPortalSavePayrollInput.
  * Requires an active, non-contractor employee profile (same guard legacy uses to
  * keep contractors out of the payroll workflow). Computes pay/withholding via the
@@ -753,9 +781,9 @@ async function calculatePaycheck(clientId: string, employeeName: string, employe
   const payDate = String(body.payDate || "").trim() || null;
 
   const federal = body.federalWithholding === undefined || body.federalWithholding === ""
-    ? money(federalTaxableWages * (await lookupRate("FIT", 0.025116, clientId))) : money(body.federalWithholding);
+    ? money(estimateFederalWithholding(federalTaxableWages, employee)) : money(body.federalWithholding);
   const state = body.stateTax === undefined || body.stateTax === ""
-    ? money(stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState || undefined))) : money(body.stateTax);
+    ? money(await estimateStateWithholding(stateTaxableWages, employee, payrollState, clientId)) : money(body.stateTax);
   // Social Security only applies up to the annual wage base (unlike Medicare, which is
   // uncapped) — this used to be missing entirely, so SS kept accruing on every paycheck
   // all year for any employee who crossed the base, over-withholding them and
@@ -1134,7 +1162,7 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   const clientForState = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   const clientState = clientForState?.state || undefined;
   const employeeForState = await queryOne<any>(
-    `SELECT state FROM altax.v3_employees WHERE client_id = $1 AND lower(employee_name) = lower($2)`,
+    `SELECT * FROM altax.v3_employees WHERE client_id = $1 AND lower(employee_name) = lower($2)`,
     [clientId, existing.employee]
   );
   const payrollState = employeeForState?.state || clientState;
@@ -1182,9 +1210,9 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   const payDate = body.payDate !== undefined ? (String(body.payDate).trim() || null) : existing.pay_date;
 
   const federal = body.federalWithholding !== undefined && body.federalWithholding !== ""
-    ? money(body.federalWithholding) : Number(existing.federal_withholding) || money(federalTaxableWages * (await lookupRate("FIT", 0.025116, clientId)));
+    ? money(body.federalWithholding) : Number(existing.federal_withholding) || money(estimateFederalWithholding(federalTaxableWages, employeeForState || {}));
   const state = body.stateTax !== undefined && body.stateTax !== ""
-    ? money(body.stateTax) : Number(existing.state_tax) || money(stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState)));
+    ? money(body.stateTax) : Number(existing.state_tax) || money(await estimateStateWithholding(stateTaxableWages, employeeForState || {}, payrollState, clientId));
   // Same SS wage-base cap as the create route above — excludes this paycheck's own
   // prior (pre-edit) contribution from the YTD lookup via paycheckId, so editing a
   // paycheck doesn't double-count it against its own cap.
@@ -1915,7 +1943,8 @@ accountingRouter.patch("/employees/:employeeId/sensitive", requireAuth, requireR
        w9_status=$8, tin_verification_status=$9, vendor_classification=$10, contractor_payment_type=$11,
        fixed_project_amount=$12, is_1099_eligible=$13, payment_method=$14, direct_deposit=$15,
        payment_bank_name=$16, payment_routing_number=$17, payment_account_number=$18, payment_account_type=$19,
-       payment_bank_last4=$20, bank_last4=$20, state=$21, street_address=$22, city=$23, zip_code=$24, updated_at = now()
+       payment_bank_last4=$20, bank_last4=$20, state=$21, street_address=$22, city=$23, zip_code=$24,
+       county=$25, md_exemptions=$26, updated_at = now()
      WHERE employee_id = $1`,
     [employeeId,
       String(body.ssn || "").trim() ? encryptValue(String(body.ssn).trim()) : employee.ssn,
@@ -1937,7 +1966,9 @@ accountingRouter.patch("/employees/:employeeId/sensitive", requireAuth, requireR
       paymentAccountNumber ? encryptValue(paymentAccountNumber) : employee.payment_account_number,
       paymentAccountType || employee.payment_account_type,
       bankLast4,
-      newState, newStreet, newCity, newZip]
+      newState, newStreet, newCity, newZip,
+      String(body.county || "").trim() || null,
+      body.mdExemptions !== undefined && body.mdExemptions !== "" ? Number(body.mdExemptions) || 0 : employee.md_exemptions]
   );
 
   await logAudit("Employees", "EDIT_SENSITIVE", employeeId, "", "", "",
@@ -1975,6 +2006,8 @@ accountingRouter.get("/employees/:employeeId/sensitive", requireAuth, requireRol
     zipCode: employee.zip_code || null,
     federalFilingStatus: employee.federal_filing_status || null,
     stateFilingStatus: employee.state_filing_status || null,
+    county: employee.county || null,
+    mdExemptions: employee.md_exemptions ?? null,
     w9Status: employee.w9_status || null,
     tinVerificationStatus: employee.tin_verification_status || null,
     vendorClassification: employee.vendor_classification || null,

@@ -13,6 +13,26 @@ export const FREQ_OPTIONS = ["Monthly", "Quarterly", "Semiannual", "Annually", "
 // — a mismatch here (previously "Bi-weekly"/"Semi-monthly") makes the <select> unable to
 // find a matching <option>, so it silently shows blank instead of the client's real value.
 export const PAYROLL_FREQS = ["Weekly", "Bi-Weekly", "Semi-Monthly", "Monthly", "N/A"];
+// These four mirror the filing-status categories the 2026 IRS Publication 15-T STANDARD
+// Withholding Rate Schedules actually distinguish (see src/common/withholdingTables.ts on
+// the backend, which this must stay in sync with) — Single and Married Filing Separately
+// share the same bracket table there, but both are offered here since that's how a real
+// W-4 is filled out.
+export const FEDERAL_FILING_STATUSES = ["Single", "Married Filing Jointly", "Married Filing Separately", "Head of Household"];
+// Mirrors Form MW507's own filing-status categories and src/common/withholdingTables.ts's
+// MD_FILING_STATUSES on the backend.
+export const MD_FILING_STATUSES = ["Single", "Married", "Head of Household"];
+// All 23 Maryland counties + Baltimore City, plus the two special cases the Comptroller's
+// Central Payroll Bureau defines for missing/out-of-state data — must stay in sync with
+// MD_COUNTIES in src/common/withholdingTables.ts on the backend.
+export const MD_COUNTIES = [
+  "Allegany County", "Anne Arundel County", "Baltimore County", "Baltimore City",
+  "Calvert County", "Caroline County", "Carroll County", "Cecil County", "Charles County",
+  "Dorchester County", "Frederick County", "Garrett County", "Harford County", "Howard County",
+  "Kent County", "Montgomery County", "Prince George's County", "Queen Anne's County",
+  "St. Mary's County", "Somerset County", "Talbot County", "Washington County",
+  "Wicomico County", "Worcester County", "Unknown Maryland County", "Out of State",
+];
 export const PAYROLL_PROVIDERS = ["QBO", "Drake", "Gusto", "ADP", "Paychex", "Other"];
 export const RETURN_TYPES = ["1120", "1120S", "1065", "Schedule C", "990", "N/A"];
 // Matches normalizeLanguagePreference() in src/modules/communications/communications.routes.ts

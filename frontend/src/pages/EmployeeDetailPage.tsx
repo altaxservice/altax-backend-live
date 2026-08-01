@@ -15,6 +15,7 @@ import type { DocumentRequest } from "../api/types2";
 import type { GovFormFiling } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateW4Modal } from "../components/GenerateW4Modal";
+import { PAYROLL_FREQS, FEDERAL_FILING_STATUSES, MD_FILING_STATUSES, MD_COUNTIES } from "../utils/clientOptions";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -25,6 +26,7 @@ interface SensitiveFields {
   ssn: string | null; ein: string | null; tin: string | null; address: string | null;
   streetAddress: string | null; city: string | null; state: string | null; zipCode: string | null;
   federalFilingStatus: string | null; stateFilingStatus: string | null; w9Status: string | null;
+  county: string | null; mdExemptions: number | string | null;
   tinVerificationStatus: string | null; vendorClassification: string | null; contractorPaymentType: string | null;
   fixedProjectAmount: number | string | null; is1099Eligible: boolean; paymentMethod: string | null;
   directDeposit: boolean; paymentBankName: string | null; paymentRoutingNumber: string | null;
@@ -33,7 +35,7 @@ interface SensitiveFields {
 
 const SENSITIVE_FORM_DEFAULTS = {
   ssn: "", ein: "", tin: "", address: "", streetAddress: "", city: "", state: "", zipCode: "",
-  federalFilingStatus: "", stateFilingStatus: "",
+  federalFilingStatus: "", stateFilingStatus: "", county: "", mdExemptions: "",
   w9Status: "", tinVerificationStatus: "", vendorClassification: "", contractorPaymentType: "",
   fixedProjectAmount: "", is1099Eligible: false, paymentMethod: "", directDeposit: false,
   paymentBankName: "", paymentRoutingNumber: "", paymentAccountNumber: "", paymentAccountType: "",
@@ -141,6 +143,7 @@ export function EmployeeDetailPage() {
       ssn: sensitive?.ssn || "", ein: sensitive?.ein || "", tin: sensitive?.tin || "", address: sensitive?.address || "",
       streetAddress: sensitive?.streetAddress || "", city: sensitive?.city || "", state: sensitive?.state || "", zipCode: sensitive?.zipCode || "",
       federalFilingStatus: sensitive?.federalFilingStatus || "", stateFilingStatus: sensitive?.stateFilingStatus || "",
+      county: sensitive?.county || "", mdExemptions: String(sensitive?.mdExemptions ?? ""),
       w9Status: sensitive?.w9Status || "", tinVerificationStatus: sensitive?.tinVerificationStatus || "",
       vendorClassification: sensitive?.vendorClassification || "", contractorPaymentType: sensitive?.contractorPaymentType || "",
       fixedProjectAmount: String(sensitive?.fixedProjectAmount ?? ""), is1099Eligible: Boolean(sensitive?.is1099Eligible),
@@ -220,7 +223,13 @@ export function EmployeeDetailPage() {
               <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
             </div>
             <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
-            <div className="field"><label>Pay Frequency</label><input value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))} placeholder="e.g. Weekly, Bi-Weekly" /></div>
+            <div className="field">
+              <label>Pay Frequency (drives withholding calculation)</label>
+              <select value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))}>
+                <option value="">Select…</option>
+                {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
             {form.workerType === "Contractor" && (
               <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} /></div>
             )}
@@ -289,6 +298,8 @@ export function EmployeeDetailPage() {
               <DetailRow label="ZIP" value={sensitive.zipCode} />
               <DetailRow label="Federal Filing Status" value={sensitive.federalFilingStatus} />
               <DetailRow label="State Filing Status" value={sensitive.stateFilingStatus} />
+              <DetailRow label="Maryland County" value={sensitive.county} />
+              <DetailRow label="MD Exemptions (Form MW507)" value={sensitive.mdExemptions != null && sensitive.mdExemptions !== "" ? String(sensitive.mdExemptions) : null} />
               <DetailRow label="W-9 Status" value={sensitive.w9Status} />
               <DetailRow label="TIN Verification" value={sensitive.tinVerificationStatus} />
               <DetailRow label="Vendor Classification" value={sensitive.vendorClassification} />
@@ -324,9 +335,36 @@ export function EmployeeDetailPage() {
                 }))}
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div className="field"><label>Federal Filing Status</label><input value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))} /></div>
-                <div className="field"><label>State Filing Status</label><input value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))} /></div>
+                <div className="field">
+                  <label>Federal Filing Status (drives federal withholding)</label>
+                  <select value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {FEDERAL_FILING_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>State Filing Status (drives MD withholding)</label>
+                  <select value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {MD_FILING_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
               </div>
+              {String(sensitiveForm.state || "").trim().toUpperCase() === "MD" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div className="field">
+                    <label>Maryland County (drives local withholding)</label>
+                    <select value={sensitiveForm.county} onChange={(e) => setSensitiveForm((f) => ({ ...f, county: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {MD_COUNTIES.map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>MD Exemptions (Form MW507)</label>
+                    <input type="number" min="0" step="1" value={sensitiveForm.mdExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, mdExemptions: e.target.value }))} placeholder="0" />
+                  </div>
+                </div>
+              )}
               <div className="field"><label>W-9 Status</label><input value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>
               {isContractor && (
                 <>

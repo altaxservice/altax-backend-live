@@ -7,7 +7,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import type { PaymentMethod } from "../api/types2";
 import { StatusBadge } from "../components/StatusBadge";
-import { US_STATES } from "../utils/clientOptions";
+import { US_STATES, PAYROLL_FREQS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
@@ -934,9 +934,12 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
 
           <SubLabel>Tax overrides (leave blank to auto-calculate)</SubLabel>
           <p style={{ background: "var(--amber-soft)", color: "var(--amber)", borderRadius: 6, padding: "8px 10px", fontSize: 12, margin: "0 0 10px", lineHeight: 1.4 }}>
-            ⚠ The auto-calculated Federal/State Withholding is a flat-rate estimate, not real IRS bracket withholding
-            (it ignores W-4 filing status and allowances). Enter the real figures from an actual payroll processor
-            here whenever you have them — don't rely on the auto-calculated default as a verified number.
+            ⚠ Federal Withholding auto-calculates from the real 2026 IRS bracket tables, using the employee's own Pay
+            Frequency and Federal Filing Status (set on their profile's Sensitive Info tab). State Withholding does
+            the same with real 2026 Maryland state + county bracket tables when the employee works in MD — for any
+            other work state it's still a flat-rate estimate. Both are simplified estimates (no Step 3/4 W-4
+            adjustments, no MW507 exemptions beyond a flat count) — enter real figures from an actual payroll
+            processor here whenever you have them.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label>Federal Withholding</label><input type="number" step="0.01" value={form.federalWithholding} onChange={(e) => setForm((f) => ({ ...f, federalWithholding: e.target.value }))} /></div>
@@ -1646,7 +1649,13 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
             <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
           </div>
           <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
-          <div className="field"><label>Pay Frequency</label><input value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))} placeholder="e.g. Weekly, Bi-Weekly" /></div>
+          <div className="field">
+            <label>Pay Frequency (drives withholding calculation)</label>
+            <select value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))}>
+              <option value="">Select…</option>
+              {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </div>
           {isContractorTab && (
             <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
           )}
