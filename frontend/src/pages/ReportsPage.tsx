@@ -9,13 +9,13 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
 
-const TABS = ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
+const TABS = ["Firm Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
-/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview). */
+/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview, AR Aging — both firm-wide, not per-client, so they have their own PDF/CSV buttons instead of using this map). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
-  "Firm Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
+  "Firm Overview": null, "AR Aging": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
   "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee", "Client Message": "client-message",
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
 };
@@ -468,6 +468,9 @@ export function ReportsPage() {
         ))}
       </div>
 
+      {tab === "AR Aging" && <ArAgingTab />}
+
+      {tab !== "AR Aging" && (
       <>
           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
             <div className="field" style={{ maxWidth: 320, margin: 0 }}>
@@ -957,6 +960,7 @@ export function ReportsPage() {
             </>
           )}
         </>
+      )}
     </div>
   );
 }
@@ -997,6 +1001,144 @@ interface TrialBalanceData {
  * accountant. This makes it a one-click answer, and names the exact source
  * document when something is off rather than just reporting a total.
  */
+interface ArAgingRow {
+  clientId: string; clientName: string;
+  current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number;
+}
+interface ArAgingData {
+  asOf: string;
+  rows: ArAgingRow[];
+  totals: { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number };
+}
+
+/**
+ * AR Aging — firm-wide, not per-client, so unlike every other tab on this page it
+ * doesn't need the Client/From/To toolbar (ReportsPage hides that toolbar entirely
+ * for this tab). Which clients owe the firm money and how overdue, bucketed off
+ * each open invoice's due_date as of today.
+ */
+function ArAgingTab() {
+  const navigate = useNavigate();
+  const [data, setData] = useState<ArAgingData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function load() {
+    setError(null);
+    api.get<ArAgingData>("/reports/ar-aging")
+      .then(setData)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load AR aging."));
+  }
+  useEffect(load, []);
+
+  async function handlePrint(mode: "view" | "download") {
+    setBusy(mode);
+    try {
+      if (mode === "view") await viewFile("/reports/pdf/ar-aging");
+      else await downloadFile("/reports/pdf/ar-aging", `AR_Aging_${data?.asOf || "report"}.pdf`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not generate the PDF.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleCsv() {
+    setBusy("csv");
+    try {
+      await downloadFile("/reports/csv/ar-aging", `AR_Aging_${data?.asOf || "report"}.csv`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not export the CSV.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error) return <ErrorBanner error={error} />;
+  if (!data) return <div className="spinner-wrap">Loading…</div>;
+
+  return (
+    <>
+      <div className="command-panel" style={{ marginBottom: 16 }}>
+        <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h2 className="command-panel-title">AR Aging</h2>
+            <div className="command-panel-note">Open invoice balances by client, as of {data.asOf}.</div>
+          </div>
+          <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("view")}>
+              {busy === "view" ? "Opening…" : "Preview / Print"}
+            </button>
+            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("download")}>
+              {busy === "download" ? "Generating…" : "Download PDF"}
+            </button>
+            <button type="button" className="btn" disabled={busy !== null} onClick={handleCsv}>
+              {busy === "csv" ? "Exporting…" : "Export CSV"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="metric-grid" style={{ marginBottom: 20 }}>
+        <div className="metric"><div className="metric-label">Total Outstanding</div><div className="metric-value">{fmtMoney(data.totals.total)}</div></div>
+        <div className="metric"><div className="metric-label">Current</div><div className="metric-value">{fmtMoney(data.totals.current)}</div></div>
+        <div className="metric"><div className="metric-label">31-90 Days</div><div className="metric-value">{fmtMoney(data.totals.d31_60 + data.totals.d61_90)}</div></div>
+        <div className="metric"><div className="metric-label">90+ Days</div><div className="metric-value">{fmtMoney(data.totals.d90Plus)}</div></div>
+      </div>
+
+      <div className="command-panel">
+        <div className="command-panel-header">
+          <h2 className="command-panel-title">Clients With A Balance ({data.rows.length})</h2>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th style={{ textAlign: "right" }}>Current</th>
+                <th style={{ textAlign: "right" }}>1-30</th>
+                <th style={{ textAlign: "right" }}>31-60</th>
+                <th style={{ textAlign: "right" }}>61-90</th>
+                <th style={{ textAlign: "right" }}>90+</th>
+                <th style={{ textAlign: "right" }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => (
+                <tr key={r.clientId} style={{ cursor: "pointer" }} onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)}>
+                  <td>{r.clientName}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(r.current)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(r.d1_30)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(r.d31_60)}</td>
+                  <td style={{ textAlign: "right", color: r.d61_90 > 0 ? "var(--amber, #b45309)" : undefined }}>{fmtMoney(r.d61_90)}</td>
+                  <td style={{ textAlign: "right", color: r.d90Plus > 0 ? "var(--red, #b91c1c)" : undefined }}>{fmtMoney(r.d90Plus)}</td>
+                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(r.total)}</td>
+                </tr>
+              ))}
+              {!data.rows.length && (
+                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 24 }}>No open balances — every invoice is paid or void.</td></tr>
+              )}
+            </tbody>
+            {data.rows.length > 0 && (
+              <tfoot>
+                <tr style={{ fontWeight: 700 }}>
+                  <td>Total</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.current)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d1_30)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d31_60)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d61_90)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d90Plus)}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.total)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: string; to: string }) {
   const navigate = useNavigate();
   const [data, setData] = useState<TrialBalanceData | null>(null);
