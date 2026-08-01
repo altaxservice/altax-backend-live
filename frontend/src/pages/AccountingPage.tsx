@@ -17,9 +17,9 @@ import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -105,6 +105,7 @@ export function AccountingPage() {
       )}
       {tab === "Paychecks" && clientId && <PaychecksTab clientId={clientId} />}
       {tab === "Month-End" && clientId && <MonthEndTab clientId={clientId} />}
+      {tab === "Budget" && clientId && <BudgetTab clientId={clientId} />}
       {tab === "Check Settings" && clientId && <CheckSettingsTab clientId={clientId} />}
       {tab === "Year-End" && clientId && <YearEndTab clientId={clientId} clientState={client?.state} />}
       {tab === "Tax Rates" && <TaxRatesTab />}
@@ -3318,6 +3319,178 @@ const COA_FORM_DEFAULTS = {
   accountId: "", accountName: "", accountType: "Expense", detailType: "", normalBalance: "Debit",
   openingBalance: "", subAccountOf: "", taxLine: "", notes: "", active: true,
 };
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+interface BudgetAccountRow { accountName: string; accountType: string }
+interface BudgetEntry { accountName: string; month: number; amount: number }
+interface BudgetData { year: number; accounts: BudgetAccountRow[]; budgets: BudgetEntry[]; actuals: BudgetEntry[] }
+
+/**
+ * Budget vs. actual — a spreadsheet-style entry grid (accounts × 12 months) plus,
+ * toggled by View, the same data read back as budget/actual/variance so the two
+ * live on one tab rather than splitting entry and reporting across pages. Every
+ * Income/COGS/Expense account in the chart of accounts gets a row automatically —
+ * budgeting a balance-sheet account (Cash, Accounts Payable) isn't meaningful the
+ * way a P&L account is, so those types are excluded server-side.
+ */
+function BudgetTab({ clientId }: { clientId: string }) {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [data, setData] = useState<BudgetData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [grid, setGrid] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<"Entry" | "Variance">("Entry");
+
+  function key(accountName: string, month: number) {
+    return `${accountName}::${month}`;
+  }
+
+  function load() {
+    setError(null);
+    api.get<BudgetData>(`/budgets/${clientId}?year=${year}`)
+      .then((res) => {
+        setData(res);
+        const g: Record<string, string> = {};
+        for (const b of res.budgets) g[key(b.accountName, b.month)] = String(b.amount);
+        setGrid(g);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the budget."));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [clientId, year]);
+
+  async function handleSave() {
+    if (!data) return;
+    setSaving(true);
+    try {
+      const entries = data.accounts.flatMap((a) =>
+        MONTH_LABELS.map((_, i) => ({ accountName: a.accountName, month: i + 1, amount: Number(grid[key(a.accountName, i + 1)]) || 0 }))
+      );
+      await api.post(`/budgets/${clientId}`, { year, entries });
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not save the budget.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const actualsByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of data?.actuals || []) map.set(key(a.accountName, a.month), a.amount);
+    return map;
+  }, [data]);
+
+  if (error) return <ErrorBanner error={error} />;
+  if (!data) return <div className="spinner-wrap">Loading…</div>;
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="field" style={{ margin: 0, maxWidth: 100 }}>
+            <label>Year</label>
+            <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value) || year)} />
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {(["Entry", "Variance"] as const).map((v) => (
+              <button key={v} className={`btn btn-sm ${view === v ? "btn-primary" : ""}`} onClick={() => setView(v)}>{v}</button>
+            ))}
+          </div>
+        </div>
+        {view === "Entry" && <button className="btn btn-primary btn-sm" disabled={saving} onClick={handleSave}>{saving ? "Saving…" : "Save Budget"}</button>}
+      </div>
+
+      {!data.accounts.length && <p className="muted">No Income/COGS/Expense accounts in the chart of accounts yet — add some on the COA tab first.</p>}
+
+      {data.accounts.length > 0 && view === "Entry" && (
+        <div className="card table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                {MONTH_LABELS.map((m) => <th key={m} style={{ textAlign: "right" }}>{m}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {data.accounts.map((a) => (
+                <tr key={a.accountName}>
+                  <td>{a.accountName}<div className="muted" style={{ fontSize: 11 }}>{a.accountType}</div></td>
+                  {MONTH_LABELS.map((_, i) => (
+                    <td key={i} style={{ padding: 2 }}>
+                      <input
+                        type="number" step="0.01"
+                        style={{ width: 80, textAlign: "right", padding: "4px 6px" }}
+                        value={grid[key(a.accountName, i + 1)] ?? ""}
+                        onChange={(e) => setGrid((prev) => ({ ...prev, [key(a.accountName, i + 1)]: e.target.value }))}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {data.accounts.length > 0 && view === "Variance" && (
+        <div className="card table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                {MONTH_LABELS.map((m) => <th key={m} style={{ textAlign: "right" }}>{m}</th>)}
+                <th style={{ textAlign: "right" }}>Year Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.accounts.map((a) => {
+                // For Income, exceeding the target is favorable (teal); for
+                // COGS/Expense, exceeding the target is unfavorable (red) — the
+                // same +/- variance number means the opposite thing depending
+                // on account type, so the color has to follow accountType, not
+                // just the sign of the variance.
+                const isIncome = a.accountType === "Income";
+                let yearBudget = 0, yearActual = 0;
+                return (
+                  <tr key={a.accountName}>
+                    <td>{a.accountName}</td>
+                    {MONTH_LABELS.map((_, i) => {
+                      const budget = Number(grid[key(a.accountName, i + 1)]) || 0;
+                      const actual = actualsByKey.get(key(a.accountName, i + 1)) || 0;
+                      yearBudget += budget; yearActual += actual;
+                      const variance = actual - budget;
+                      const pct = budget !== 0 ? (variance / budget) * 100 : actual !== 0 ? 100 : 0;
+                      const favorable = isIncome ? variance >= 0 : variance <= 0;
+                      return (
+                        <td key={i} style={{ textAlign: "right", fontSize: 11 }}>
+                          {budget === 0 && actual === 0 ? <span className="muted">—</span> : (
+                            <>
+                              <div>{fmtMoney(actual)}</div>
+                              <div style={{ color: variance === 0 ? undefined : favorable ? "var(--teal)" : "var(--red, #b91c1c)" }}>
+                                {variance >= 0 ? "+" : ""}{fmtMoney(variance)} ({pct >= 0 ? "+" : ""}{pct.toFixed(0)}%)
+                              </div>
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>
+                      <div>{fmtMoney(yearActual)}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>vs {fmtMoney(yearBudget)}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="muted" style={{ fontSize: 11, padding: "8px 12px" }}>Teal = favorable variance (more income or less expense than budgeted). Red = unfavorable.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CoaTab() {
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
