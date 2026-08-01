@@ -10,7 +10,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
-import { encryptValue } from "../../common/encryption";
+import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 
 /** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. */
@@ -52,14 +52,15 @@ async function saveMessageAttachmentAsDocument(
   // so this is stored as a client-less document purely to get a secure hosted
   // download link; it won't appear in anyone's Documents list, only via this direct URL.
   const uploadId = `DOC-${docUploadIdSuffix()}`;
-  const fileUrl = `/documents/uploads/${uploadId}/download`;
+  const downloadToken = generateShareToken();
+  const fileUrl = `/documents/uploads/${uploadId}/download?t=${downloadToken}`;
   await query(
     `INSERT INTO altax.v3_document_uploads
        (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1)`,
+        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1,$12)`,
     [uploadId, clientId, clientName, attachment.filename, fileUrl, encryptValue(attachment.contentBase64), mimeType, sizeBytes, uploadedBy,
-      "Attached to a message.", !clientId]
+      "Attached to a message.", !clientId, downloadToken]
   );
   return { fileUrl };
 }
@@ -85,7 +86,7 @@ async function generateAutoReportAttachment(
 ): Promise<SendAttachment | null> {
   const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd);
   if (!table.hasData) return null;
-  const clientRow = await queryOne<any>(`SELECT ein, address FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const clientRow = decryptClientPii(await queryOne<any>(`SELECT ein, address FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   const { generateSalesTaxPayrollReportPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateSalesTaxPayrollReportPdf({
     client: { clientId, clientName, ein: clientRow?.ein || null, address: clientRow?.address || null },

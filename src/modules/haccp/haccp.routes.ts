@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -483,14 +484,15 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
   const uploadIds: string[] = [];
   for (const doc of docs) {
     const uploadId = `DOC-${idSuffix()}`;
+    const downloadToken = crypto.randomBytes(24).toString("hex");
     const fileData = encryptValue(Buffer.from(doc.bytes).toString("base64"));
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,'application/pdf',$7,$8,now(),'Internal','Generated',$9,true,'Node Web App',$1)`,
-      [uploadId, plan.client_id, client?.client_name || plan.business_name, doc.label, `/documents/uploads/${uploadId}/download`,
-       fileData, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`]
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,'application/pdf',$7,$8,now(),'Internal','Generated',$9,true,'Node Web App',$1,$10)`,
+      [uploadId, plan.client_id, client?.client_name || plan.business_name, doc.label, `/documents/uploads/${uploadId}/download?t=${downloadToken}`,
+       fileData, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`, downloadToken]
     );
     uploadIds.push(uploadId);
   }

@@ -108,14 +108,20 @@ export async function capWagesToAnnualLimit(
   payDate: string | null,
   wagesThisCheck: number,
   wageCap: number | null,
-  excludePaycheckId?: string
+  excludePaycheckId?: string,
+  // Social Security's wage base applies to social_security_wages, not
+  // federal_taxable_wages — the two differ whenever there's a pre-tax
+  // retirement deduction (which reduces federal taxable wages but not SS
+  // wages). FUTA/SUTA correctly use the default here since their base really
+  // is federal/state taxable wages.
+  wageColumn: "federal_taxable_wages" | "social_security_wages" = "federal_taxable_wages"
 ): Promise<number> {
   if (wageCap === null || !payDate) return wagesThisCheck;
   const year = new Date(payDate).getFullYear();
   if (!Number.isFinite(year)) return wagesThisCheck;
 
   const row = await queryOne<any>(
-    `SELECT COALESCE(SUM(federal_taxable_wages), 0) AS ytd
+    `SELECT COALESCE(SUM(${wageColumn}), 0) AS ytd
      FROM altax.v3_paychecks
      WHERE client_id = $1 AND employee = $2 AND EXTRACT(YEAR FROM pay_date) = $3
        AND lower(status) <> 'void'` + (excludePaycheckId ? ` AND paycheck_id <> $4` : ``),
@@ -295,5 +301,57 @@ export async function postPayrollGl(
   await appendGl(clientId, clientName, {
     entryDate: payDate, ref: paycheckId, description: "Payroll tax payable", account: "Payroll Tax Payable",
     debit: 0, credit: money(calc.employeeTaxes + calc.employerTaxes), source: "Payroll",
+  }, db);
+}
+
+/**
+ * Posts Dr Accounts Receivable / Cr Sales Revenue for the (possibly negative) change
+ * in an invoice's total — pass `delta = total` on create (0 → total), or
+ * `newTotal - oldTotal` on a re-total edit, or `-balanceDue` to write off whatever's
+ * still outstanding when an invoice is voided (the already-paid portion, if any, was
+ * already posted correctly by postInvoicePaymentGl and is left untouched — void only
+ * reverses the unpaid remainder, not cash actually received). A negative delta posts
+ * the reverse direction (Dr Revenue / Cr AR). No-op for delta === 0, so a plain
+ * metadata edit that doesn't change the total posts nothing.
+ *
+ * Billing previously had zero GL postings at all — invoices, payments, and voids
+ * never touched v3_gl_entries, so the Trial Balance/P&L were structurally blind to
+ * billed revenue and receivables. This and postInvoicePaymentGl below close that gap.
+ */
+export async function postInvoiceTotalGl(
+  clientId: string, clientName: string, invoiceId: string, invoiceDate: string | Date | null, delta: number, db: DbClient = { query, queryOne }
+): Promise<void> {
+  const amount = money(delta);
+  if (amount === 0) return;
+  const description = amount > 0 ? "Invoice issued" : "Invoice total reduced";
+  const abs = Math.abs(amount);
+  await appendGl(clientId, clientName, {
+    entryDate: invoiceDate, ref: invoiceId, description, account: "Accounts Receivable",
+    debit: amount > 0 ? abs : 0, credit: amount > 0 ? 0 : abs, source: "Billing",
+  }, db);
+  await appendGl(clientId, clientName, {
+    entryDate: invoiceDate, ref: invoiceId, description, account: "Sales Revenue",
+    debit: amount > 0 ? 0 : abs, credit: amount > 0 ? abs : 0, source: "Billing",
+  }, db);
+}
+
+/**
+ * Posts Dr Cash / Cr Accounts Receivable for a payment recorded against an invoice
+ * (or the reverse direction, when `reversed` is true, for a payment reversal). See
+ * postInvoiceTotalGl above for why this exists.
+ */
+export async function postInvoicePaymentGl(
+  clientId: string, clientName: string, ref: string, paymentDate: string | Date | null, amount: number, reversed: boolean, db: DbClient = { query, queryOne }
+): Promise<void> {
+  const amt = money(Math.abs(amount));
+  if (amt === 0) return;
+  const description = reversed ? "Invoice payment reversed" : "Invoice payment received";
+  await appendGl(clientId, clientName, {
+    entryDate: paymentDate, ref, description, account: "Cash",
+    debit: reversed ? 0 : amt, credit: reversed ? amt : 0, source: "Billing",
+  }, db);
+  await appendGl(clientId, clientName, {
+    entryDate: paymentDate, ref, description, account: "Accounts Receivable",
+    debit: reversed ? amt : 0, credit: reversed ? 0 : amt, source: "Billing",
   }, db);
 }

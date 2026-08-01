@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
+import { decryptClientPii } from "../../common/encryption";
 import {
   generatePoaForm, F2848_DESIGNATIONS, MD548_DESIGNATIONS,
   type PoaFilingData, type PoaRepresentative, type PoaTaxMatter,
@@ -65,12 +66,12 @@ poaFormsRouter.get("/representatives", requireAuth, requireRole("admin", "staff"
 }));
 
 async function loadClientTaxpayerData(clientId: string) {
-  return queryOne<any>(
+  return decryptClientPii(await queryOne<any>(
     `SELECT client_id, client_name, phone, street_address, city, state, zip_code,
             individual_ssn, ein, company_contact_ssn, company_contact_name, client_type
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
-  );
+  ));
 }
 
 function buildTaxpayerSnapshot(client: any) {

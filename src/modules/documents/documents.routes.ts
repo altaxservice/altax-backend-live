@@ -1,11 +1,13 @@
 import { Router, Response } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
+import { rateLimit } from "../../common/rateLimit";
 
 /**
  * Documents module — Phase 4 slice covering the plan's five stated test scenarios:
@@ -41,6 +43,10 @@ function nextRequestId(): string {
 }
 function nextUploadId(): string {
   return `DOC-${idSuffix()}`;
+}
+/** 24 random bytes, hex-encoded — same shape as contracts'/invoices' share_token. Required for any unauthenticated download of a self-hosted file (see the /download route below); uploadId alone is not a real secret. */
+function generateDownloadToken(): string {
+  return crypto.randomBytes(24).toString("hex");
 }
 function idSuffix(): string {
   const now = new Date();
@@ -561,7 +567,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   const fileData = resolved.fileData ? encryptValue(resolved.fileData) : null;
   let fileUrl = resolved.fileUrl;
   const uploadId = nextUploadId();
-  if (fileData) fileUrl = `/documents/uploads/${uploadId}/download`;
+  // Only self-hosted files (bytes we're serving through our own /download route)
+  // need a download token — a pasted external link (fileUrl already set above)
+  // never touches that route at all.
+  const downloadToken = fileData ? generateDownloadToken() : null;
+  if (fileData) fileUrl = `/documents/uploads/${uploadId}/download?t=${downloadToken}`;
 
   if (requestId) {
     const request = await queryOne<any>(`SELECT * FROM altax.v3_document_requests WHERE request_id = $1`, [requestId]);
@@ -576,12 +586,12 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13,$14,$15,false,'Node Web App',$1)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13,$14,$15,false,'Node Web App',$1,$16)`,
       [
         uploadId, requestId, request.task_id || null, request.client_id, request.client_name, request.employee_id || null,
         fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email, direction, String(body.status || "Uploaded").trim(),
-        String(body.notes || "").trim() || null,
+        String(body.notes || "").trim() || null, downloadToken,
       ]
     );
 
@@ -605,11 +615,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Internal',$11,$12,true,'Node Web App',$1)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Internal',$11,$12,true,'Node Web App',$1,$13)`,
       [
         uploadId, taskId, task.client_id, task.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
-        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
+        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken,
       ]
     );
   } else if (directEmployeeId) {
@@ -631,11 +641,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Firm to Employee',$11,$12,false,'Node Web App',$1)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Firm to Employee',$11,$12,false,'Node Web App',$1,$13)`,
       [
         uploadId, employee.client_id, employee.client_name, employee.employee_id, fileName, fileUrl, fileData, mimeType, fileSize,
-        req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null,
+        req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken,
       ]
     );
 
@@ -669,11 +679,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client',$10,$11,$12,'Node Web App',$1)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client',$10,$11,$12,'Node Web App',$1,$13)`,
       [
         uploadId, client.client_id, client.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
-        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient),
+        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient), downloadToken,
       ]
     );
 
@@ -700,38 +710,71 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
 const UNAUTHED_DOWNLOAD_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 /**
- * Serves an uploaded file's actual bytes. No requireAuth gate — the same trust
- * model legacy used for pasted Drive links ("anyone with the link"), and the
- * uploadId itself is an unguessable timestamp+random string, not a
- * sequential/enumerable ID. This keeps every existing "Open Attachment"/"View
- * File" link working as a plain <a href> across the app without needing
- * bearer-token-aware download logic everywhere.
+ * Serves an uploaded file's actual bytes. No requireAuth gate at the router level —
+ * legacy's "anyone with the link" model for pasted Drive links is preserved for the
+ * unauthenticated case, but access is now genuinely checked rather than relying on
+ * uploadId being hard to guess (it's only a timestamp + 3-digit Math.random()
+ * suffix, ~900 real possibilities — not a secret). Two independent gates, either
+ * one is sufficient:
  *
- * The Authorization header is decoded if present but never required — the app's
- * own View/Download actions (frontend/src/api/client.ts fetchAuthedBlob) always
- * send a valid Bearer token, so a present-and-valid token means this is the
- * app's own portal/admin fetch of a client's real, ongoing document and should
- * never expire. Absence (or an invalid/expired token) means this is a raw link
- * tap — e.g. from an SMS — and gets the same 90-day cap as the message-view
- * link, so an old forwarded/leaked link doesn't stay useful forever.
+ *  1. A valid Bearer token (the app's own View/Download actions always send one) —
+ *     in that case the requester must actually own the document: admin always
+ *     passes, client/employee must match client_id/employee_id exactly (employee
+ *     is never matched against a client-addressed file, same rule as
+ *     canAccessDocumentRequest), staff/general go through canAccessClient's
+ *     assignment scoping. A present-but-failing-ownership token is a hard 403, not
+ *     a silent fall-through to the unauthenticated path.
+ *
+ *  2. No token (a raw link tap, e.g. from an SMS) — requires the real per-upload
+ *     download_token as a `t` query param, and still expires after 90 days
+ *     (UNAUTHED_DOWNLOAD_MAX_AGE_MS) so an old forwarded/leaked link doesn't stay
+ *     useful forever. Uploads created before this token existed have none on file
+ *     (rows are backfilled with a fresh, never-distributed token at migration time
+ *     precisely so old bare links — which never had a token — stop working rather
+ *     than keep relying on the weak uploadId alone).
+ *
+ * Also rate-limited on top of both gates — a legitimate user rarely downloads more
+ * than a handful of documents in one sitting, but a script trying to guess uploadIds
+ * or download_tokens needs many more attempts than that, so a tight per-IP cap costs
+ * real users nothing while making guessing attacks impractical.
  */
-documentsRouter.get("/uploads/:uploadId/download", asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const row = await queryOne<any>(`SELECT file_name, file_data, mime_type, uploaded_at FROM altax.v3_document_uploads WHERE upload_id = $1`, [req.params.uploadId]);
+const downloadLimiter = rateLimit({ name: "doc-download", windowMs: 15 * 60 * 1000, max: 60 });
+documentsRouter.get("/uploads/:uploadId/download", downloadLimiter, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(
+    `SELECT file_name, file_data, mime_type, uploaded_at, client_id, employee_id, download_token FROM altax.v3_document_uploads WHERE upload_id = $1`,
+    [req.params.uploadId]
+  );
   if (!row || !row.file_data) return res.status(404).json({ error: "File not found." });
 
   const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  let isAuthed = false;
-  if (token) {
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  let authedUser: { sub: string; role: string; email: string; clientId?: string; employeeId?: string } | null = null;
+  if (bearer) {
     try {
-      jwt.verify(token, process.env.JWT_SECRET as string);
-      isAuthed = true;
+      authedUser = jwt.verify(bearer, process.env.JWT_SECRET as string) as any;
     } catch {
-      isAuthed = false;
+      authedUser = null;
     }
   }
-  if (!isAuthed && row.uploaded_at && Date.now() - new Date(row.uploaded_at).getTime() > UNAUTHED_DOWNLOAD_MAX_AGE_MS) {
-    return res.status(410).json({ error: "This link has expired. Please log in to your client portal to view this document, or contact the firm for a current copy." });
+
+  if (authedUser) {
+    let owns = authedUser.role === "admin";
+    if (!owns && authedUser.role === "employee") {
+      owns = Boolean(authedUser.employeeId) && row.employee_id === authedUser.employeeId;
+    } else if (!owns && authedUser.role === "client") {
+      owns = !row.employee_id && row.client_id === authedUser.clientId;
+    } else if (!owns && row.client_id) {
+      owns = await canAccessClient(authedUser as any, row.client_id);
+    }
+    if (!owns) return res.status(403).json({ error: "You do not have access to this document." });
+  } else {
+    const suppliedToken = String(req.query.t || "");
+    if (!row.download_token || suppliedToken !== row.download_token) {
+      return res.status(403).json({ error: "This link is invalid. Please log in to your client portal to view this document, or contact the firm for a current copy." });
+    }
+    if (row.uploaded_at && Date.now() - new Date(row.uploaded_at).getTime() > UNAUTHED_DOWNLOAD_MAX_AGE_MS) {
+      return res.status(410).json({ error: "This link has expired. Please log in to your client portal to view this document, or contact the firm for a current copy." });
+    }
   }
 
   // Always "attachment", never "inline": this route is intentionally unauthenticated

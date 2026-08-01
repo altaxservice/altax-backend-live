@@ -3,8 +3,27 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// Local dev (`npm run dev`) and the test suite (`npm test`) used to point at the exact
+// same Neon instance as production — there was no separate dev/test database at all,
+// so a mistaken local DELETE or a test run was a direct incident against real client
+// SSNs/bank data. DATABASE_URL_DEV is an optional override: set it in your local .env
+// to a separate Neon branch's connection string (Neon → branches → create branch from
+// main → copy its connection string) and every local `npm run dev`/`npm test` run will
+// use it instead, with zero change to how Railway/production connects (which only ever
+// reads DATABASE_URL and never sees this var). Production is unaffected either way —
+// this is purely additive.
+const isProdRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
+const connectionString = (!isProdRuntime && process.env.DATABASE_URL_DEV) || process.env.DATABASE_URL;
+if (!isProdRuntime && !process.env.DATABASE_URL_DEV) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "\n[db] WARNING: no DATABASE_URL_DEV set — this local process is connected to the SAME database as production.\n" +
+    "     Create a separate Neon branch for local dev/test and set DATABASE_URL_DEV in your .env to stop this.\n"
+  );
+}
+
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
   max: 10,
   idleTimeoutMillis: 30000,
 });

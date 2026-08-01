@@ -3,6 +3,7 @@ import helmet from "helmet";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
+import { rateLimit } from "./common/rateLimit";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter } from "./modules/clients/clients.routes";
 import { usersRouter } from "./modules/users/users.routes";
@@ -194,6 +195,14 @@ app.get("*", (req, res, next) => {
     if (err) next(err);
   });
 });
+
+// General-purpose safety net — previously only the auth surface and the public
+// contact form had any rate limiting at all, so a scripted attacker could hammer
+// any other route (a client search, a report export, an ID-guessing attempt) with
+// zero friction. 900 requests/5min per IP is well above what the SPA's own heaviest
+// page (Accounting's several parallel fetches on tab switch) generates in normal use,
+// so this is meant to catch scripted abuse, not throttle a real user's browser.
+app.use(rateLimit({ name: "api-general", windowMs: 5 * 60 * 1000, max: 900 }));
 
 app.use("/auth", authRouter);
 app.use("/clients", clientsRouter);

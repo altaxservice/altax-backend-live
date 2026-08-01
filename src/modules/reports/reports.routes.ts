@@ -3,6 +3,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
+import { decryptClientPii } from "../../common/encryption";
 import { logAudit } from "../../common/audit";
 import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
@@ -184,7 +185,7 @@ reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), async
 const INCOME_TYPES = ["Sales Revenue", "Income", "Revenue"];
 const COGS_TYPES = ["COGS", "Cost of Goods Sold"];
 const EXPENSE_HINTS = ["expense", "payroll tax", "office"];
-const ASSET_HINTS = ["cash", "asset", "bank"];
+const ASSET_HINTS = ["cash", "asset", "bank", "receivable"];
 const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 
 function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "other" {
@@ -199,7 +200,7 @@ function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "
 
 async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<ReportClientInfo | null> {
   if (!(await canAccessClient(req.user!, clientId))) return null;
-  const client = await queryOne<any>(`SELECT client_id, client_name, ein, address, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT client_id, client_name, ein, address, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return null;
   return { clientId: client.client_id, clientName: client.client_name, ein: client.ein, address: client.address, state: client.state };
 }

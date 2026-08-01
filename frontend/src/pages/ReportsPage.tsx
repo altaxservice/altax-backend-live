@@ -81,7 +81,7 @@ function fmtMoney(v: unknown): string {
 const INCOME_TYPES = ["Sales Revenue", "Income", "Revenue"];
 const COGS_TYPES = ["COGS", "Cost of Goods Sold"];
 const EXPENSE_HINTS = ["expense", "payroll tax", "office"];
-const ASSET_HINTS = ["cash", "asset", "bank"];
+const ASSET_HINTS = ["cash", "asset", "bank", "receivable"];
 const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 
 export function ReportsPage() {

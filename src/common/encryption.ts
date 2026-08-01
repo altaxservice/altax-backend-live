@@ -92,3 +92,28 @@ export function decryptTolerant(value: string): string {
   if (parts.length !== 3 || parts[0] !== VERSION) return value;
   return decryptValue(value);
 }
+
+/**
+ * v3_clients.individual_ssn/company_contact_ssn/ein/state_tax_id are now encrypted at
+ * rest (previously the one PII category in the app stored in plaintext — every other
+ * category, employee SSN/bank data, documents, payment methods, already went through
+ * this same envelope encryption). Call this immediately after ANY raw SELECT of these
+ * columns off v3_clients — a real IRS/state form, PDF, or report needs the actual
+ * value, not ciphertext, and this is the one place that decryption logic lives so no
+ * caller has to remember which of the four columns are encrypted. decryptTolerant
+ * means it's safe to call on rows written before this migration too (still plaintext
+ * until next saved). Null-safe so it can wrap a queryOne(...) result directly even
+ * when no row was found.
+ */
+export function decryptClientPii<
+  T extends { individual_ssn?: string | null; company_contact_ssn?: string | null; ein?: string | null; state_tax_id?: string | null } | null | undefined
+>(row: T): T {
+  if (!row) return row;
+  return {
+    ...row,
+    individual_ssn: row.individual_ssn != null ? decryptTolerant(row.individual_ssn) : row.individual_ssn,
+    company_contact_ssn: row.company_contact_ssn != null ? decryptTolerant(row.company_contact_ssn) : row.company_contact_ssn,
+    ein: row.ein != null ? decryptTolerant(row.ein) : row.ein,
+    state_tax_id: row.state_tax_id != null ? decryptTolerant(row.state_tax_id) : row.state_tax_id,
+  };
+}

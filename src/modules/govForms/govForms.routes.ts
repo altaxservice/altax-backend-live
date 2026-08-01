@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
+import { decryptClientPii } from "../../common/encryption";
 import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
@@ -64,22 +65,23 @@ govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHan
 /**
  * Unmasked identity fields for pre-filling a new filing's form — the client
  * list/detail API masks SSN/EIN for on-screen display (see clients.routes.ts's
- * maskTail), but these columns are stored plaintext and a real filled-out
- * government form needs the real number, same reasoning poaForms.routes.ts's
- * loadClientTaxpayerData already established. Whatever the user submits when
+ * maskTail), but a real filled-out government form needs the real number, so
+ * this decrypts (individual_ssn/ein/company_contact_ssn/state_tax_id are now
+ * encrypted at rest, same reasoning poaForms.routes.ts's loadClientTaxpayerData
+ * already established for that module). Whatever the user submits when
  * creating the filing is a snapshot in form_data from then on — a later
  * change to the client record never rewrites an already-generated filing.
  */
 govFormsRouter.get("/client/:clientId/identity", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
-  const client = await queryOne<any>(
+  const client = decryptClientPii(await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, individual_ssn, street_address, city, state, zip_code,
             company_contact_name, company_contact_title, company_contact_ssn, company_contact_email, company_contact_phone,
             secretary_of_state_id, phone, email
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
-  );
+  ));
   if (!client) return res.status(404).json({ error: "Client not found." });
   res.json({ client });
 }));
@@ -89,7 +91,7 @@ govFormsRouter.get("/employee/:employeeId/identity", requireAuth, requireRole("a
   const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [employeeId]);
   if (!employee) return res.status(404).json({ error: "Employee not found." });
   if (!(await canAccessClient(req.user!, employee.client_id))) return res.status(403).json({ error: "You do not have access to this employee." });
-  const client = await queryOne<any>(`SELECT client_name, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT client_name, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]));
   res.json({
     employee: {
       employee_id: employee.employee_id,

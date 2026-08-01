@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
+import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/encryption";
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY } from "../contracts/contractContent";
@@ -73,6 +74,7 @@ clientsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(
     );
   }
 
+  rows = rows.map((row) => decryptClientPii(row));
   if (req.user!.role !== "admin") {
     for (const c of rows) {
       c.company_contact_ssn = maskTail(c.company_contact_ssn);
@@ -103,7 +105,7 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
     return res.status(403).json({ error: "You do not have access to this client." });
   }
 
-  const c = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const c = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!c) return res.status(404).json({ error: "Client not found." });
 
   if (req.user!.role !== "admin") {
@@ -189,7 +191,7 @@ async function nextClientId(): Promise<string> {
 }
 
 /** camelCase API field -> [db column, isBoolean]. Allow-list ported 1:1 from alTaxV3UpdateClientProfile. */
-const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean }> = {
+const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean; encrypted?: boolean }> = {
   clientName: { column: "client_name" },
   entityType: { column: "entity_type" },
   // date_of_formation is a DATE column — an empty string (an optional field
@@ -220,13 +222,13 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   zipCode: { column: "zip_code" },
   preferredContact: { column: "preferred_contact" },
   notes: { column: "notes" },
-  ein: { column: "ein" },
-  individualSsn: { column: "individual_ssn" },
-  stateTaxId: { column: "state_tax_id" },
+  ein: { column: "ein", encrypted: true },
+  individualSsn: { column: "individual_ssn", encrypted: true },
+  stateTaxId: { column: "state_tax_id", encrypted: true },
   secretaryOfStateId: { column: "secretary_of_state_id" },
   companyContactName: { column: "company_contact_name" },
   companyContactTitle: { column: "company_contact_title" },
-  companyContactSsn: { column: "company_contact_ssn" },
+  companyContactSsn: { column: "company_contact_ssn", encrypted: true },
   // Separate from the client's own email/phone above — those are the company's
   // main line, this is how to reach the actual responsible-party person (who
   // may not be the one answering the main number), same distinction already
@@ -246,6 +248,11 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // Advisory only, not enforced — see v3_clients.industry_category's schema comment.
   industryCategory: { column: "industry_category" },
 };
+
+/** Columns whose value must never appear in plain text in the audit log — see the PATCH route's redacted logAudit call below, matching the same "EDIT_SENSITIVE" pattern already used for employee SSN/EIN/bank edits. */
+const ENCRYPTED_CLIENT_COLUMNS = new Set(
+  Object.values(UPDATABLE_FIELDS).filter((f) => f.encrypted).map((f) => f.column)
+);
 
 /**
  * Create client — ported from alTaxPortalAddClient / clientProfileFormHtml's Add path.
@@ -278,11 +285,17 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   // "123456789" are recognized as the same EIN.
   const einDigits = String(body.ein || "").replace(/\D/g, "");
   if (einDigits) {
-    const einDupe = await queryOne<any>(
-      `SELECT client_id, client_name FROM altax.v3_clients
-       WHERE regexp_replace(COALESCE(ein, ''), '\\D', '', 'g') = $1 AND status <> 'Archived'`,
-      [einDigits]
+    // ein is now encrypted at rest, so a SQL-side regexp_replace against the raw
+    // column (the old approach) would just compare digits pulled out of ciphertext
+    // and never match anything real — the comparison has to happen after decryption,
+    // in application code. Same linear scan cost as the old SQL version had anyway
+    // (there was never an index on ein), just moved client-side.
+    const candidates = await query<any>(
+      `SELECT client_id, client_name, ein FROM altax.v3_clients WHERE ein IS NOT NULL AND ein <> '' AND status <> 'Archived'`
     );
+    const einDupe = candidates
+      .map((row) => ({ ...row, ein: decryptTolerant(row.ein) }))
+      .find((row) => row.ein.replace(/\D/g, "") === einDigits);
     if (einDupe) {
       return res.status(409).json({ error: `A client with EIN ${body.ein} already exists: "${einDupe.client_name}" (${einDupe.client_id}).` });
     }
@@ -293,10 +306,15 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   const columns = ["client_id"];
   const placeholders = ["$1"];
   const values: any[] = [clientId];
-  for (const [key, { column, boolean, date }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       columns.push(column);
-      values.push(boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key]);
+      values.push(
+        boolean ? Boolean(body[key])
+          : date ? (body[key] || null)
+          : encrypted ? (String(body[key] || "").trim() ? encryptValue(String(body[key]).trim()) : null)
+          : body[key]
+      );
       placeholders.push(`$${values.length}`);
     }
   }
@@ -349,19 +367,30 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
 
   const body = req.body || {};
 
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!old) return res.status(404).json({ error: "Client not found." });
+
+  // Whether any encrypted (SSN/EIN/state-tax-ID) field actually changed — tracked
+  // separately from `fields` since `fields[column]` holds ciphertext by the time the
+  // UPDATE runs, so it can't be compared against decryptTolerant(old[column]) the way
+  // the generic per-field diff loop below compares every other column.
+  let sensitiveChanged = false;
   const fields: Record<string, any> = {};
-  for (const [key, { column, boolean, date }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
-      fields[column] = boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key];
+      if (encrypted) {
+        const plaintext = String(body[key] || "").trim();
+        if (plaintext !== decryptTolerant(old[column] || "")) sensitiveChanged = true;
+        fields[column] = plaintext ? encryptValue(plaintext) : null;
+      } else {
+        fields[column] = boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key];
+      }
     }
   }
 
   if (Object.keys(fields).length === 0) {
     return res.status(400).json({ error: "No client fields received." });
   }
-
-  const old = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!old) return res.status(404).json({ error: "Client not found." });
 
   if (!Object.prototype.hasOwnProperty.call(body, "address")
       && ["streetAddress", "city", "state", "zipCode"].some((k) => Object.prototype.hasOwnProperty.call(body, k))) {
@@ -382,6 +411,12 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   );
 
   for (const [col, newValue] of Object.entries(fields)) {
+    // Encrypted columns never get their value into the audit log, even redacted-
+    // looking — old[col]/newValue are ciphertext at this point, but logging
+    // ciphertext-vs-ciphertext as "old"/"new" would still be pointless noise, and a
+    // future refactor that decrypted one side and not the other could easily leak a
+    // real SSN into v3_audit_log. One EDIT_SENSITIVE entry below covers all of them.
+    if (ENCRYPTED_CLIENT_COLUMNS.has(col)) continue;
     const oldValue = old[col];
     if (String(oldValue ?? "") !== String(newValue ?? "")) {
       await logAudit(
@@ -389,6 +424,10 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
         "Client updated from web app.", req.user!.email
       );
     }
+  }
+  if (sensitiveChanged) {
+    await logAudit("Clients", "EDIT_SENSITIVE", clientId, "", "", "",
+      `Sensitive client fields (SSN/EIN/state tax ID) updated by ${req.user!.email}.`, req.user!.email);
   }
 
   if (Object.prototype.hasOwnProperty.call(fields, "services")) {

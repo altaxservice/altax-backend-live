@@ -1,10 +1,10 @@
 import { Router, Response } from "express";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
-import { resolvePaymentMethod } from "../../common/accountingHelpers";
+import { resolvePaymentMethod, postInvoiceTotalGl, postInvoicePaymentGl } from "../../common/accountingHelpers";
 import { composeAddress } from "../../common/address";
 import { lookupSalesTaxRate } from "../../common/taxRates";
 
@@ -66,6 +66,12 @@ function money(value: unknown): number {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
 }
 
+/** v3_invoices has no client_name column of its own — routes that only load the invoice row (void, payments, reverse, patch) need this for GL posting. */
+async function getClientName(clientId: string): Promise<string> {
+  const row = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  return row?.client_name || "";
+}
+
 /**
  * Mirrors alTaxV5PortalInvoiceAllowed_: used to gate mutations (edit/void/record
  * payment) AND the single-invoice view route below, for every role except client
@@ -83,6 +89,21 @@ async function canMutateInvoice(user: NonNullable<AuthedRequest["user"]>, invoic
   if (user.role === "admin") return true;
   if (user.role === "client" || user.role === "employee") return false;
   return canAccessClient(user, invoice.client_id);
+}
+
+/**
+ * Paid/Void are terminal — canMutateInvoice only checks role/access, never status, so
+ * without this a Paid or Void invoice's total/line items/amount-paid could be silently
+ * rewritten with no ledger cross-check to catch the discrepancy (the GL postings in
+ * postInvoiceTotalGl/postInvoicePaymentGl above are keyed to the delta at edit time, so
+ * they'd still balance individually, but the invoice's own historical record — what a
+ * client was actually billed and told they'd paid — would no longer match what was
+ * originally issued). Mirrors isPaycheckLockedForEdit's same "create a corrected one
+ * instead" rule for locked paychecks.
+ */
+const INVOICE_LOCKED_STATUSES = ["paid", "void"];
+function isInvoiceLockedForEdit(invoice: any): boolean {
+  return INVOICE_LOCKED_STATUSES.includes(String(invoice?.status || "").trim().toLowerCase());
 }
 
 interface LineItemInput {
@@ -187,28 +208,39 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
     ? composeAddress({ street: shipToStreet, city: shipToCity, state: shipToState, zip: shipToZip })
     : (String(body.shipTo || body.billTo || client.address || "").trim() || null);
 
-  await query(
-    `INSERT INTO altax.v3_invoices
-       (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
-        balance_due, status, pdf_link, terms, customer_type, bill_to, ship_to, ship_from,
-        payment_instructions, client_note, internal_note, subtotal_amount, discount_percent,
-        discount_amount, taxable_subtotal, sales_tax_rate, sales_tax_amount, shipping_amount,
-        deposit_amount, ship_via, shipping_date, tracking_number, source_system, source_record_id,
-        ship_to_street, ship_to_city, ship_to_state, ship_to_zip)
-     VALUES ($1,$2,COALESCE($3,now()),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'Node Web App',$1,$30,$31,$32,$33)`,
-    [
-      invoiceId, clientId, invoiceDate, dueDate, description, total, paid, balance, status,
-      String(body.pdfLink || "").trim() || null, String(body.terms || "").trim() || null,
-      String(body.customerType || client.client_type || "").trim() || null, billTo, shipTo,
-      String(body.shipFrom || "").trim() || null, String(body.paymentInstructions || "").trim() || null,
-      String(body.clientNote || "").trim() || null, String(body.internalNote || "").trim() || null,
-      subtotal, money(body.discountPercent) || null, discountAmount || null, taxableSubtotal || null,
-      salesTaxRate || null, salesTaxAmount || null, money(body.shippingAmount) || null, deposit || null,
-      String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
-      String(body.trackingNumber || "").trim() || null,
-      shipToStreet, shipToCity, shipToState, shipToZip,
-    ]
-  );
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_invoices
+         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
+          balance_due, status, pdf_link, terms, customer_type, bill_to, ship_to, ship_from,
+          payment_instructions, client_note, internal_note, subtotal_amount, discount_percent,
+          discount_amount, taxable_subtotal, sales_tax_rate, sales_tax_amount, shipping_amount,
+          deposit_amount, ship_via, shipping_date, tracking_number, source_system, source_record_id,
+          ship_to_street, ship_to_city, ship_to_state, ship_to_zip)
+       VALUES ($1,$2,COALESCE($3,now()),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'Node Web App',$1,$30,$31,$32,$33)`,
+      [
+        invoiceId, clientId, invoiceDate, dueDate, description, total, paid, balance, status,
+        String(body.pdfLink || "").trim() || null, String(body.terms || "").trim() || null,
+        String(body.customerType || client.client_type || "").trim() || null, billTo, shipTo,
+        String(body.shipFrom || "").trim() || null, String(body.paymentInstructions || "").trim() || null,
+        String(body.clientNote || "").trim() || null, String(body.internalNote || "").trim() || null,
+        subtotal, money(body.discountPercent) || null, discountAmount || null, taxableSubtotal || null,
+        salesTaxRate || null, salesTaxAmount || null, money(body.shippingAmount) || null, deposit || null,
+        String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
+        String(body.trackingNumber || "").trim() || null,
+        shipToStreet, shipToCity, shipToState, shipToZip,
+      ]
+    );
+
+    // Dr Accounts Receivable / Cr Sales Revenue for the full invoice — then, if any
+    // amount is already paid/deposited as of creation (the caller front-loaded it
+    // instead of using the separate record-payment endpoint), also post the cash
+    // side so AR still nets down to the real balance due.
+    await postInvoiceTotalGl(clientId, client.client_name, invoiceId, invoiceDate, total, db);
+    if (paid + deposit > 0) {
+      await postInvoicePaymentGl(clientId, client.client_name, invoiceId, invoiceDate, paid + deposit, false, db);
+    }
+  });
 
   if (normalized.length > 0) await replaceLineItems(invoiceId, normalized, lineAmounts);
 
@@ -520,8 +552,13 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
   if (!(await canMutateInvoice(req.user!, invoice))) {
     return res.status(403).json({ error: "You do not have access to this invoice." });
   }
+  if (isInvoiceLockedForEdit(invoice)) {
+    return res.status(400).json({ error: "Paid or void invoices cannot be edited. Reverse the payment or issue a new invoice instead." });
+  }
 
   const body = req.body || {};
+  const oldTotal = money(invoice.total_amount);
+  const oldPaid = money(invoice.amount_paid);
   const lineItems: LineItemInput[] = Array.isArray(body.lineItems) ? body.lineItems : [];
   let subtotal: number | null = null, taxableSubtotal: number | null = null, discountAmount: number | null = null,
     salesTaxAmount: number | null = null, salesTaxRate: number | null = null, normalized: LineItemInput[] = [], lineAmounts: number[] = [];
@@ -583,36 +620,53 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
     ? composeAddress({ street: shipToStreet, city: shipToCity, state: shipToState, zip: shipToZip })
     : (String(body.shipTo || "").trim() || null);
 
-  await query(
-    `UPDATE altax.v3_invoices SET
-       invoice_date = COALESCE($2, invoice_date), due_date = COALESCE($3, due_date),
-       description = COALESCE($4, description), total_amount = $5, amount_paid = $6,
-       balance_due = $7, status = $8, pdf_link = COALESCE($9, pdf_link),
-       terms = COALESCE($10, terms), customer_type = COALESCE($11, customer_type),
-       bill_to = COALESCE($12, bill_to), ship_to = COALESCE($13, ship_to), ship_from = COALESCE($14, ship_from),
-       payment_instructions = COALESCE($15, payment_instructions), client_note = COALESCE($16, client_note),
-       internal_note = COALESCE($17, internal_note), subtotal_amount = COALESCE($18, subtotal_amount),
-       discount_percent = COALESCE($19, discount_percent), discount_amount = COALESCE($20, discount_amount),
-       taxable_subtotal = COALESCE($21, taxable_subtotal), sales_tax_rate = COALESCE($22, sales_tax_rate),
-       sales_tax_amount = COALESCE($23, sales_tax_amount), shipping_amount = COALESCE($24, shipping_amount),
-       deposit_amount = $25, ship_via = COALESCE($26, ship_via), shipping_date = COALESCE($27, shipping_date),
-       tracking_number = COALESCE($28, tracking_number),
-       ship_to_street = $29, ship_to_city = $30, ship_to_state = $31, ship_to_zip = $32, updated_at = now()
-     WHERE invoice_id = $1`,
-    [
-      req.params.invoiceId, String(body.invoiceDate || "").trim() || null, String(body.dueDate || "").trim() || null,
-      String(body.description || "").trim() || null, total, paid, balance, status, String(body.pdfLink || "").trim() || null,
-      String(body.terms || "").trim() || null, String(body.customerType || "").trim() || null,
-      String(body.billTo || "").trim() || null, shipToComposed, String(body.shipFrom || "").trim() || null,
-      String(body.paymentInstructions || "").trim() || null, String(body.clientNote || "").trim() || null,
-      String(body.internalNote || "").trim() || null, subtotal, body.discountPercent !== undefined ? money(body.discountPercent) : null,
-      discountAmount, taxableSubtotal, salesTaxRate, salesTaxAmount,
-      body.shippingAmount !== undefined ? money(body.shippingAmount) : null, deposit,
-      String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
-      String(body.trackingNumber || "").trim() || null,
-      shipToStreet, shipToCity, shipToState, shipToZip,
-    ]
-  );
+  await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_invoices SET
+         invoice_date = COALESCE($2, invoice_date), due_date = COALESCE($3, due_date),
+         description = COALESCE($4, description), total_amount = $5, amount_paid = $6,
+         balance_due = $7, status = $8, pdf_link = COALESCE($9, pdf_link),
+         terms = COALESCE($10, terms), customer_type = COALESCE($11, customer_type),
+         bill_to = COALESCE($12, bill_to), ship_to = COALESCE($13, ship_to), ship_from = COALESCE($14, ship_from),
+         payment_instructions = COALESCE($15, payment_instructions), client_note = COALESCE($16, client_note),
+         internal_note = COALESCE($17, internal_note), subtotal_amount = COALESCE($18, subtotal_amount),
+         discount_percent = COALESCE($19, discount_percent), discount_amount = COALESCE($20, discount_amount),
+         taxable_subtotal = COALESCE($21, taxable_subtotal), sales_tax_rate = COALESCE($22, sales_tax_rate),
+         sales_tax_amount = COALESCE($23, sales_tax_amount), shipping_amount = COALESCE($24, shipping_amount),
+         deposit_amount = $25, ship_via = COALESCE($26, ship_via), shipping_date = COALESCE($27, shipping_date),
+         tracking_number = COALESCE($28, tracking_number),
+         ship_to_street = $29, ship_to_city = $30, ship_to_state = $31, ship_to_zip = $32, updated_at = now()
+       WHERE invoice_id = $1`,
+      [
+        req.params.invoiceId, String(body.invoiceDate || "").trim() || null, String(body.dueDate || "").trim() || null,
+        String(body.description || "").trim() || null, total, paid, balance, status, String(body.pdfLink || "").trim() || null,
+        String(body.terms || "").trim() || null, String(body.customerType || "").trim() || null,
+        String(body.billTo || "").trim() || null, shipToComposed, String(body.shipFrom || "").trim() || null,
+        String(body.paymentInstructions || "").trim() || null, String(body.clientNote || "").trim() || null,
+        String(body.internalNote || "").trim() || null, subtotal, body.discountPercent !== undefined ? money(body.discountPercent) : null,
+        discountAmount, taxableSubtotal, salesTaxRate, salesTaxAmount,
+        body.shippingAmount !== undefined ? money(body.shippingAmount) : null, deposit,
+        String(body.shipVia || "").trim() || null, String(body.shippingDate || "").trim() || null,
+        String(body.trackingNumber || "").trim() || null,
+        shipToStreet, shipToCity, shipToState, shipToZip,
+      ]
+    );
+
+    // Re-total and amount-paid edits are real money movements that must reach the
+    // ledger too, not just the invoices table — post only the delta from what was
+    // there before, so a plain metadata edit (no total/paid change) posts nothing.
+    if (total !== oldTotal || paid !== oldPaid) {
+      const clientName = await getClientName(invoice.client_id);
+      const entryDate = String(body.invoiceDate || "").trim() || invoice.invoice_date;
+      if (total !== oldTotal) {
+        await postInvoiceTotalGl(invoice.client_id, clientName, req.params.invoiceId, entryDate, total - oldTotal, db);
+      }
+      if (paid !== oldPaid) {
+        const paidDelta = paid - oldPaid;
+        await postInvoicePaymentGl(invoice.client_id, clientName, req.params.invoiceId, entryDate, paidDelta, paidDelta < 0, db);
+      }
+    }
+  });
 
   if (normalized.length > 0) await replaceLineItems(req.params.invoiceId, normalized, lineAmounts);
 
@@ -633,10 +687,21 @@ billingRouter.post("/invoices/:invoiceId/void", requireAuth, requireRole("admin"
   }
 
   const reason = String((req.body || {}).reason || "Invoice voided from web app.");
-  await query(
-    `UPDATE altax.v3_invoices SET status = 'Void', balance_due = 0, updated_at = now() WHERE invoice_id = $1`,
-    [req.params.invoiceId]
-  );
+  const outstanding = money(invoice.balance_due);
+  await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_invoices SET status = 'Void', balance_due = 0, updated_at = now() WHERE invoice_id = $1`,
+      [req.params.invoiceId]
+    );
+    // Write off only the still-outstanding balance — any portion already collected
+    // was posted correctly by postInvoicePaymentGl when the payment was recorded
+    // and stays untouched (voiding doesn't undo cash actually received; use a
+    // payment reversal for that).
+    if (outstanding !== 0) {
+      const clientName = await getClientName(invoice.client_id);
+      await postInvoiceTotalGl(invoice.client_id, clientName, req.params.invoiceId, invoice.invoice_date, -outstanding, db);
+    }
+  });
   await logAudit("Billing", "VOID_INVOICE", req.params.invoiceId, "Status", invoice.status || "", "Void", reason, req.user!.email);
 
   res.json({ ok: true, invoiceId: req.params.invoiceId, status: "Void" });
@@ -683,6 +748,9 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   if (!(await canMutateInvoice(req.user!, invoice))) {
     return res.status(403).json({ error: "You do not have access to this invoice." });
   }
+  if (String(invoice.status || "").trim().toLowerCase() === "void") {
+    return res.status(400).json({ error: "This invoice is void — nothing is owed on it." });
+  }
 
   const body = req.body || {};
   const amount = money(body.actualAmount ?? body.amount);
@@ -702,28 +770,34 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
-  await query(
-    `INSERT INTO altax.v3_payments
-       (payment_id, invoice_id, task_id, client_id, payment_date, expected_amount, actual_amount, method,
-        payment_method_id, payment_bank_name, payment_routing_number, payment_account_number,
-        payment_account_type, payment_bank_last4, confirmation_number, notes, status, reversal_reason,
-        source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,COALESCE($5,now()),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'Active','','Node Web App',$1)`,
-    [
-      paymentId, req.params.invoiceId, String(body.taskId || "").trim() || null, invoice.client_id,
-      String(body.paymentDate || "").trim() || null, money(body.expectedAmount ?? invoice.balance_due ?? total), amount,
-      String(body.method || "Manual").trim(), paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
-      String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
-      String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
-      accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
-      String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
-    ]
-  );
+  const paymentDate = String(body.paymentDate || "").trim() || null;
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_payments
+         (payment_id, invoice_id, task_id, client_id, payment_date, expected_amount, actual_amount, method,
+          payment_method_id, payment_bank_name, payment_routing_number, payment_account_number,
+          payment_account_type, payment_bank_last4, confirmation_number, notes, status, reversal_reason,
+          source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,COALESCE($5,now()),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'Active','','Node Web App',$1)`,
+      [
+        paymentId, req.params.invoiceId, String(body.taskId || "").trim() || null, invoice.client_id,
+        paymentDate, money(body.expectedAmount ?? invoice.balance_due ?? total), amount,
+        String(body.method || "Manual").trim(), paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
+        String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
+        String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
+        accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
+        String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
+      ]
+    );
 
-  await query(
-    `UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
-    [req.params.invoiceId, newPaid, balance, status]
-  );
+    await db.query(
+      `UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
+      [req.params.invoiceId, newPaid, balance, status]
+    );
+
+    const clientName = await getClientName(invoice.client_id);
+    await postInvoicePaymentGl(invoice.client_id, clientName, paymentId, paymentDate || invoice.invoice_date, amount, false, db);
+  });
 
   await logAudit("Billing", "RECORD_PAYMENT", paymentId, "InvoiceID", "", req.params.invoiceId,
     `Payment recorded by ${req.user!.email}.`, req.user!.email);
@@ -753,34 +827,43 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
   const invoiceId = nextInvoiceId();
   const invoiceDate = String(body.date || "").trim() || null;
   const description = String(body.description || "Sales receipt").trim();
-
-  await query(
-    `INSERT INTO altax.v3_invoices
-       (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
-        balance_due, status, source_system, source_record_id)
-     VALUES ($1,$2,COALESCE($3,now()),COALESCE($3,now()),$4,$5,$5,0,'Paid','Node Web App',$1)`,
-    [invoiceId, clientId, invoiceDate, description, amount]
-  );
-
   const paymentId = nextPaymentId();
   const paymentMethod = await resolvePaymentMethod(clientId, "invoices", body.paymentMethodId);
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
-  await query(
-    `INSERT INTO altax.v3_payments
-       (payment_id, invoice_id, client_id, payment_date, expected_amount, actual_amount, method,
-        payment_method_id, payment_bank_name, payment_routing_number, payment_account_number,
-        payment_account_type, payment_bank_last4, confirmation_number, notes, status, reversal_reason, source_system, source_record_id)
-     VALUES ($1,$2,$3,COALESCE($4,now()),$5,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Active','','Node Web App',$1)`,
-    [
-      paymentId, invoiceId, clientId, invoiceDate, amount, String(body.method || "Manual").trim(),
-      paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
-      String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
-      String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
-      accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
-      String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
-    ]
-  );
+
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_invoices
+         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
+          balance_due, status, source_system, source_record_id)
+       VALUES ($1,$2,COALESCE($3,now()),COALESCE($3,now()),$4,$5,$5,0,'Paid','Node Web App',$1)`,
+      [invoiceId, clientId, invoiceDate, description, amount]
+    );
+
+    await db.query(
+      `INSERT INTO altax.v3_payments
+         (payment_id, invoice_id, client_id, payment_date, expected_amount, actual_amount, method,
+          payment_method_id, payment_bank_name, payment_routing_number, payment_account_number,
+          payment_account_type, payment_bank_last4, confirmation_number, notes, status, reversal_reason, source_system, source_record_id)
+       VALUES ($1,$2,$3,COALESCE($4,now()),$5,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'Active','','Node Web App',$1)`,
+      [
+        paymentId, invoiceId, clientId, invoiceDate, amount, String(body.method || "Manual").trim(),
+        paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
+        String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
+        String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
+        accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
+        String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
+      ]
+    );
+
+    // Dr AR / Cr Revenue for the invoice, then Dr Cash / Cr AR for the same-instant
+    // payment — nets to Dr Cash / Cr Revenue, correctly bypassing AR entirely since
+    // this is money already in hand, not billed-and-awaited.
+    const clientName = await getClientName(clientId);
+    await postInvoiceTotalGl(clientId, clientName, invoiceId, invoiceDate, amount, db);
+    await postInvoicePaymentGl(clientId, clientName, paymentId, invoiceDate, amount, false, db);
+  });
 
   await logAudit("Billing", "CREATE_SALES_RECEIPT", invoiceId, "", "", String(amount),
     `Sales receipt created by ${req.user!.email}.`, req.user!.email);
@@ -818,10 +901,15 @@ billingRouter.post("/payments/:paymentId/reverse", requireAuth, requireRole("adm
   const balance = Math.max(0, total - newPaid);
   const status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
 
-  await query(`UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
-    [payment.invoice_id, newPaid, balance, status]);
-  await query(`UPDATE altax.v3_payments SET status = 'Reversed', reversal_reason = $2, updated_at = now() WHERE payment_id = $1`,
-    [req.params.paymentId, reason]);
+  await withTransaction(async (db) => {
+    await db.query(`UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
+      [payment.invoice_id, newPaid, balance, status]);
+    await db.query(`UPDATE altax.v3_payments SET status = 'Reversed', reversal_reason = $2, updated_at = now() WHERE payment_id = $1`,
+      [req.params.paymentId, reason]);
+
+    const clientName = await getClientName(invoice.client_id);
+    await postInvoicePaymentGl(invoice.client_id, clientName, req.params.paymentId, payment.payment_date || invoice.invoice_date, paymentAmount, true, db);
+  });
 
   await logAudit("Billing", "REVERSE_PAYMENT", payment.invoice_id, "AmountPaid", String(existingPaid), String(newPaid), reason, req.user!.email);
 

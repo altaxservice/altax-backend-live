@@ -5,7 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
-import { encryptValue } from "../../common/encryption";
+import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
@@ -749,9 +749,18 @@ async function calculatePaycheck(clientId: string, employeeName: string, employe
     ? money(federalTaxableWages * (await lookupRate("FIT", 0.025116, clientId))) : money(body.federalWithholding);
   const state = body.stateTax === undefined || body.stateTax === ""
     ? money(stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState || undefined))) : money(body.stateTax);
-  const ssEe = money(socialSecurityWages * (await lookupRate("SS_EE", 0.062, clientId)));
+  // Social Security only applies up to the annual wage base (unlike Medicare, which is
+  // uncapped) — this used to be missing entirely, so SS kept accruing on every paycheck
+  // all year for any employee who crossed the base, over-withholding them and
+  // over-accruing the employer liability indefinitely. Mirrors the FUTA/SUTA cap two
+  // blocks below, just against social_security_wages instead of taxable wages. 176,100
+  // is the 2025 wage base kept here only as a floor if no Tax Rates row overrides it —
+  // update the "SS" rate's wage cap on the Tax Rates screen each year the base changes.
+  const ssWageCap = await lookupWageCap("SS", 176100, clientId);
+  const ssTaxableWages = await capWagesToAnnualLimit(clientId, employeeName, payDate, socialSecurityWages, ssWageCap, undefined, "social_security_wages");
+  const ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
   const medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
-  const ssEr = money(socialSecurityWages * (await lookupRate("SS_ER", 0.062, clientId)));
+  const ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
   const medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
   // FUTA only applies to an employee's first $7,000 (or whatever the configured wage_cap is)
   // of wages per calendar year — capWagesToAnnualLimit stops this paycheck from taxing wages
@@ -1156,9 +1165,14 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
     ? money(body.federalWithholding) : Number(existing.federal_withholding) || money(federalTaxableWages * (await lookupRate("FIT", 0.025116, clientId)));
   const state = body.stateTax !== undefined && body.stateTax !== ""
     ? money(body.stateTax) : Number(existing.state_tax) || money(stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState)));
-  const ssEe = money(socialSecurityWages * (await lookupRate("SS_EE", 0.062, clientId)));
+  // Same SS wage-base cap as the create route above — excludes this paycheck's own
+  // prior (pre-edit) contribution from the YTD lookup via paycheckId, so editing a
+  // paycheck doesn't double-count it against its own cap.
+  const ssWageCap = await lookupWageCap("SS", 176100, clientId);
+  const ssTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, socialSecurityWages, ssWageCap, paycheckId, "social_security_wages");
+  const ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
   const medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
-  const ssEr = money(socialSecurityWages * (await lookupRate("SS_ER", 0.062, clientId)));
+  const ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
   const medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
   // Same $7,000-style annual wage cap as the create route above — excludes this
   // paycheck's own prior (pre-edit) contribution from the YTD lookup, so editing
@@ -1245,7 +1259,7 @@ accountingRouter.get("/paychecks/:paycheckId/print", requireAuth, requireRole("a
       return res.status(403).json({ error: "You do not have access to this paycheck." });
     }
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [paycheck.client_id]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [paycheck.client_id]));
 
   const ytd = await queryOne<any>(
     `SELECT
@@ -1999,7 +2013,7 @@ accountingRouter.get("/tax-forms/w2/:employeeId", requireAuth, requireRole("admi
   if (!(await canAccessClient(req.user!, employee.client_id))) {
     return res.status(403).json({ error: "You do not have access to this employee." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]));
   if (!client) return res.status(404).json({ error: "Employer client not found." });
 
   const totals = await queryOne<any>(
@@ -2049,7 +2063,7 @@ accountingRouter.get("/tax-forms/1099nec/:contractorId", requireAuth, requireRol
   if (!(await canAccessClient(req.user!, contractor.client_id))) {
     return res.status(403).json({ error: "You do not have access to this contractor." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [contractor.client_id]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [contractor.client_id]));
   if (!client) return res.status(404).json({ error: "Payer client not found." });
 
   const totals = await queryOne<any>(
@@ -2102,7 +2116,7 @@ accountingRouter.get("/year-end-review/:clientId", requireAuth, requireRole("adm
   const year = String(req.query.year || new Date().getFullYear()).trim();
   if (!/^\d{4}$/.test(year)) return res.status(400).json({ error: "A valid 4-digit year is required." });
 
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
   const clientIssues: string[] = [];
   if (!client.ein) clientIssues.push("Employer EIN missing on client record");
@@ -2175,7 +2189,7 @@ accountingRouter.get("/tax-forms/w3/:clientId", requireAuth, requireRole("admin"
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
   const totals = await queryOne<any>(
@@ -2227,7 +2241,7 @@ accountingRouter.get("/tax-forms/1096/:clientId", requireAuth, requireRole("admi
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
   const totals = await queryOne<any>(
@@ -2267,7 +2281,7 @@ accountingRouter.get("/tax-forms/940/:clientId", requireAuth, requireRole("admin
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
   const wageRows = await query<any>(
@@ -2312,7 +2326,7 @@ accountingRouter.get("/tax-forms/941/:clientId", requireAuth, requireRole("admin
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
   const totals = await queryOne<any>(
@@ -2374,7 +2388,7 @@ accountingRouter.get("/check-settings/:clientId/calibration-sheet", requireAuth,
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
   const checkSettings = await queryOne<any>(`SELECT * FROM altax.v3_check_settings WHERE client_id = $1`, [clientId]);
 
