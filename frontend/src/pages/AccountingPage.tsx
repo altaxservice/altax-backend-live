@@ -552,17 +552,17 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                     }}>
                       {mdFiling.onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.monthsLate} month${mdFiling.monthsLate === 1 ? "" : "s"} past due`}
                     </div>
-                    <div className="metric-grid">
+                    <div className="metric-grid metric-grid-3">
                       {mdFiling.onTime ? (
                         <>
-                          <div className="metric"><div className="metric-label">Timely Discount (Line 18)</div><div className="metric-value">− {fmtMoney(mdFiling.discount)}</div></div>
-                          <div className="metric"><div className="metric-label">Balance Due (Line 20)</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div></div>
+                          <div className="metric"><div className="metric-label">Timely Discount</div><div className="metric-value">− {fmtMoney(mdFiling.discount)}</div><div className="metric-note">Line 18</div></div>
+                          <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div><div className="metric-note">Line 20</div></div>
                         </>
                       ) : (
                         <>
-                          <div className="metric"><div className="metric-label">Penalty — 10% (Line 37a)</div><div className="metric-value">{fmtMoney(mdFiling.penalty)}</div></div>
-                          <div className="metric"><div className="metric-label">Interest (Line 37b)</div><div className="metric-value">{fmtMoney(mdFiling.interest)}</div></div>
-                          <div className="metric"><div className="metric-label">Balance Due (Line 38)</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div></div>
+                          <div className="metric"><div className="metric-label">Penalty — 10%</div><div className="metric-value">{fmtMoney(mdFiling.penalty)}</div><div className="metric-note">Line 37a</div></div>
+                          <div className="metric"><div className="metric-label">Interest</div><div className="metric-value">{fmtMoney(mdFiling.interest)}</div><div className="metric-note">Line 37b</div></div>
+                          <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.balanceDue)}</div><div className="metric-note">Line 38</div></div>
                         </>
                       )}
                     </div>
