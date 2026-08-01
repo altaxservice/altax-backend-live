@@ -226,6 +226,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [editError, setEditError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
   const [salesPreview, setSalesPreview] = useState<SalesPreview | null>(null);
+  const [editSalesPreview, setEditSalesPreview] = useState<SalesPreview | null>(null);
   const [period, setPeriod] = useState(() => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -286,6 +287,28 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, JSON.stringify(lines), form.adjustments]);
+
+  // Same auto-computed Gross Sales as the create form above — editing a
+  // sale's category lines used to leave the Gross Sales box exactly as it
+  // was when Edit was opened, so changing a line's amount silently stopped
+  // matching what was actually saved. Only runs while a sale is actually
+  // being edited.
+  useEffect(() => {
+    if (!editing) { setEditSalesPreview(null); return; }
+    const payloadLines = linesForPreview(editLines);
+    if (payloadLines.length === 0 && !Number(editForm.adjustments)) { setEditSalesPreview(null); setEditForm((f) => ({ ...f, grossSales: "" })); return; }
+    const handle = setTimeout(() => {
+      api.post<SalesPreview>("/accounting/sales/preview", {
+        clientId, categoryLines: payloadLines, adjustments: Number(editForm.adjustments) || 0,
+      }).then((r) => {
+        setEditSalesPreview(r);
+        const gross = r.lines.reduce((sum, l) => sum + l.taxableAmount, 0);
+        setEditForm((f) => ({ ...f, grossSales: gross ? String(Math.round(gross * 100) / 100) : f.grossSales }));
+      }).catch(() => setEditSalesPreview(null));
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, clientId, JSON.stringify(editLines), editForm.adjustments]);
 
   const salesInPeriod = sales.filter((s) => {
     const d = s.sale_date ? String(s.sale_date).slice(0, 10) : null;
@@ -588,9 +611,22 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             {editError && <ErrorBanner error={editError} />}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label>Date</label><input type="date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
-              <div className="field"><label>Gross Sales</label><input type="number" step="0.01" value={editForm.grossSales} onChange={(e) => setEditForm((f) => ({ ...f, grossSales: e.target.value }))} /></div>
+              <div className="field">
+                <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
+                <input type="number" step="0.01" value={editForm.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
+              </div>
             </div>
             <CategoryLinesEditor lines={editLines} setLines={setEditLines} categories={categories} clientState={clientState} />
+            {editSalesPreview && editSalesPreview.lines.length > 0 && (
+              <div style={{ marginTop: 8, marginBottom: 12, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+                {editSalesPreview.lines.map((l) => (
+                  <SalesRow key={l.categoryId} label={`${l.categoryName} — ${fmtMoney(l.taxableAmount)} @ ${(l.rate * 100).toFixed(2).replace(/\.?0+$/, "")}%`} value={fmtMoney(l.taxAmount)} />
+                ))}
+                <SalesRow label="Gross sales (Line 3)" value={fmtMoney(Number(editForm.grossSales) || 0)} />
+                <SalesRow label="Taxable amount" value={fmtMoney(editSalesPreview.lines.filter((l) => l.rate > 0).reduce((s, l) => s + l.taxableAmount, 0))} />
+                <SalesRow label="Total tax" value={fmtMoney(editSalesPreview.totalTaxDue)} bold />
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
               <div className="field"><label>Adjustments</label><input type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
               <div className="field"><label>Payment Date</label><input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
