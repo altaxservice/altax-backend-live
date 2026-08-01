@@ -28,6 +28,7 @@ interface SensitiveFields {
   streetAddress: string | null; city: string | null; state: string | null; zipCode: string | null;
   federalFilingStatus: string | null; stateFilingStatus: string | null; w9Status: string | null;
   county: string | null; mdExemptions: number | string | null;
+  stateExemptions: number | string | null; ageBlindExemptions: number | string | null;
   tinVerificationStatus: string | null; vendorClassification: string | null; contractorPaymentType: string | null;
   fixedProjectAmount: number | string | null; is1099Eligible: boolean; paymentMethod: string | null;
   directDeposit: boolean; paymentBankName: string | null; paymentRoutingNumber: string | null;
@@ -37,6 +38,7 @@ interface SensitiveFields {
 const SENSITIVE_FORM_DEFAULTS = {
   ssn: "", ein: "", tin: "", address: "", streetAddress: "", city: "", state: "", zipCode: "",
   federalFilingStatus: "", stateFilingStatus: "", county: "", mdExemptions: "",
+  stateExemptions: "", ageBlindExemptions: "",
   w9Status: "", tinVerificationStatus: "", vendorClassification: "", contractorPaymentType: "",
   fixedProjectAmount: "", is1099Eligible: false, paymentMethod: "", directDeposit: false,
   paymentBankName: "", paymentRoutingNumber: "", paymentAccountNumber: "", paymentAccountType: "",
@@ -145,6 +147,7 @@ export function EmployeeDetailPage() {
       streetAddress: sensitive?.streetAddress || "", city: sensitive?.city || "", state: sensitive?.state || "", zipCode: sensitive?.zipCode || "",
       federalFilingStatus: sensitive?.federalFilingStatus || "", stateFilingStatus: sensitive?.stateFilingStatus || "",
       county: sensitive?.county || "", mdExemptions: String(sensitive?.mdExemptions ?? ""),
+      stateExemptions: String(sensitive?.stateExemptions ?? ""), ageBlindExemptions: String(sensitive?.ageBlindExemptions ?? ""),
       w9Status: sensitive?.w9Status || "", tinVerificationStatus: sensitive?.tinVerificationStatus || "",
       vendorClassification: sensitive?.vendorClassification || "", contractorPaymentType: sensitive?.contractorPaymentType || "",
       fixedProjectAmount: String(sensitive?.fixedProjectAmount ?? ""), is1099Eligible: Boolean(sensitive?.is1099Eligible),
@@ -301,6 +304,8 @@ export function EmployeeDetailPage() {
               <DetailRow label="State Filing Status" value={sensitive.stateFilingStatus} />
               <DetailRow label="Maryland County" value={sensitive.county} />
               <DetailRow label="MD Exemptions (Form MW507)" value={sensitive.mdExemptions != null && sensitive.mdExemptions !== "" ? String(sensitive.mdExemptions) : null} />
+              <DetailRow label="State Exemptions (VA-4 / DC / DE)" value={sensitive.stateExemptions != null && sensitive.stateExemptions !== "" ? String(sensitive.stateExemptions) : null} />
+              <DetailRow label="VA Age 65+/Blind Exemptions" value={sensitive.ageBlindExemptions != null && sensitive.ageBlindExemptions !== "" ? String(sensitive.ageBlindExemptions) : null} />
               <DetailRow label="W-9 Status" value={sensitive.w9Status} />
               <DetailRow label="TIN Verification" value={sensitive.tinVerificationStatus} />
               <DetailRow label="Vendor Classification" value={sensitive.vendorClassification} />
@@ -344,7 +349,7 @@ export function EmployeeDetailPage() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>State Filing Status (drives MD withholding)</label>
+                  <label>State Filing Status (drives MD/DE withholding)</label>
                   <select value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))}>
                     <option value="">Select…</option>
                     {MD_FILING_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -364,6 +369,30 @@ export function EmployeeDetailPage() {
                     <label>MD Exemptions (Form MW507)</label>
                     <input type="number" min="0" step="1" value={sensitiveForm.mdExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, mdExemptions: e.target.value }))} placeholder="0" />
                   </div>
+                </div>
+              )}
+              {String(sensitiveForm.state || "").trim().toUpperCase() === "VA" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div className="field">
+                    <label>VA Exemptions (Form VA-4, personal + dependents)</label>
+                    <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
+                  </div>
+                  <div className="field">
+                    <label>VA Age 65+/Blind Exemptions (Form VA-4)</label>
+                    <input type="number" min="0" step="1" value={sensitiveForm.ageBlindExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, ageBlindExemptions: e.target.value }))} placeholder="0" />
+                  </div>
+                </div>
+              )}
+              {String(sensitiveForm.state || "").trim().toUpperCase() === "DC" && (
+                <div className="field">
+                  <label>DC Dependents (drives DC withholding)</label>
+                  <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
+                </div>
+              )}
+              {String(sensitiveForm.state || "").trim().toUpperCase() === "DE" && (
+                <div className="field">
+                  <label>DE Exemptions ($110 credit each, drives DE withholding)</label>
+                  <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
                 </div>
               )}
               <div className="field"><label>W-9 Status</label><input value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>

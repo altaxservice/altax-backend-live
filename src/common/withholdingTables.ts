@@ -1,11 +1,21 @@
 /**
- * Real bracket-based federal and Maryland payroll withholding — replaces the flat-rate
- * estimate (a single percentage like 2.5116% applied to every dollar) that this app used
- * previously. Source data transcribed directly from the 2026 IRS Publication 15-T
- * ("Percentage Method Tables for Automated Payroll Systems," STANDARD Withholding Rate
- * Schedules, page 12) and the Maryland Comptroller's Central Payroll Bureau memo "2026
- * Maryland State and Local Income Tax Withholding Information" (Feb 4, 2026) plus the
- * "2026 Maryland Employer Withholding Guide" (standard deduction / exemption table, p.10).
+ * Real bracket-based federal, Maryland, Virginia, DC, and Delaware payroll withholding —
+ * replaces the flat-rate estimate (a single percentage like 2.5116% applied to every
+ * dollar) that this app used previously. Source data transcribed directly from official
+ * state/federal sources: the 2026 IRS Publication 15-T ("Percentage Method Tables for
+ * Automated Payroll Systems," STANDARD Withholding Rate Schedules, page 12); the Maryland
+ * Comptroller's Central Payroll Bureau memo "2026 Maryland State and Local Income Tax
+ * Withholding Information" (Feb 4, 2026) plus the "2026 Maryland Employer Withholding
+ * Guide" (standard deduction / exemption table, p.10); Virginia Tax's "Income Tax
+ * Withholding Guide for Employers" (Rev. 05/25, formula effective for wages paid after
+ * July 1, 2025 — cross-checked against the guide's own worked example); DC OTR's current
+ * individual income tax bracket schedule (no separate withholding-specific standard
+ * deduction — DC only allows a dependent allowance); and Delaware's official 2026
+ * "Tax Computation Schedule" (from the Division of Revenue's PIT-EST estimated-tax
+ * instructions, which states the same brackets used for withholding).
+ *
+ * VA/DC/DE all have NO local/county income tax layer (unlike Maryland), so each of those
+ * three is just a single state bracket table — no per-county lookup needed.
  *
  * Both engines use the same shape of math: annualize the per-period taxable wages, walk
  * a bracket table to get annual tax, divide back down by the number of pay periods. This
@@ -252,10 +262,13 @@ const MD_ANNUAL_EXEMPTION_AMOUNT = 3200;
 
 /**
  * Maryland state + local (county) income tax withholding for one paycheck. Only accurate
- * for Maryland residents working in Maryland — this app doesn't yet have real DC/PA/VA/DE
- * bracket data, so calculatePaycheck should keep using the flat-rate estimate for any
- * other work state. `periodTaxableWages` is the same federal-taxable-wages figure used
- * elsewhere (gross less pre-tax retirement/health/HSA deductions).
+ * for Maryland residents working in Maryland. `periodTaxableWages` is the same
+ * federal-taxable-wages figure used elsewhere (gross less pre-tax retirement/health/HSA
+ * deductions). See calculateVirginiaWithholding/calculateDcWithholding/
+ * calculateDelawareWithholding below for those three states' real bracket engines —
+ * calculatePaycheck still falls back to the flat-rate estimate for any other work state
+ * (PA is already exact as a flat 3.07% rate, seeded directly in v3_tax_rates, so it needs
+ * no bracket function here).
  *
  * `exemptions` is the MW507 exemption count (defaults to 0 — the safer, higher-
  * withholding default absent real MW507 data on file). `county` defaults to "Unknown
@@ -280,4 +293,140 @@ export function calculateMarylandWithholding(
   const annualStateTax = applyBrackets(annualTaxableIncome, mdStateBracketsFor(stateFilingStatus));
   const annualLocalTax = localTaxFor(annualTaxableIncome, county, stateFilingStatus);
   return (annualStateTax + annualLocalTax) / periods;
+}
+
+// ---- Virginia ----
+
+// Virginia Tax's "Income Tax Withholding Guide for Employers" (Rev. 05/25), formula
+// effective for wages paid after July 1, 2025 (Taxable Year 2025 and after). Unlike
+// federal/MD, Virginia's formula uses ONE bracket table regardless of filing status —
+// the marital distinction lives entirely in the VA-4 exemption count (E1), not a
+// separate married/single table. Cross-checked against the guide's own worked example
+// (semi-monthly pay, 5 exemptions, $2,649 gross → $109.50 withheld — matches exactly).
+const VA_BRACKETS: Bracket[] = [
+  { atLeast: 0, baseTax: 0, rate: 0.02 },
+  { atLeast: 3000, baseTax: 60, rate: 0.03 },
+  { atLeast: 5000, baseTax: 120, rate: 0.05 },
+  { atLeast: 17000, baseTax: 720, rate: 0.0575 },
+];
+
+// Per Form VA-4: $8,750 base amount (the guide's own formula constant — not literally a
+// "standard deduction" line item, just the formula's fixed subtraction), $930 per
+// personal/dependent exemption (E1), $800 per age-65-or-over-or-blind exemption (E2).
+const VA_BASE_AMOUNT = 8750;
+const VA_EXEMPTION_AMOUNT = 930;
+const VA_AGE_BLIND_AMOUNT = 800;
+
+/**
+ * Virginia state income tax withholding for one paycheck — no local/county layer (VA has
+ * none). `personalExemptions` is Form VA-4's E1 (personal + dependent count, defaults to
+ * 0 — safer/higher-withholding default absent real VA-4 data, same reasoning as
+ * Maryland's exemption default). `ageBlindExemptions` is E2 (age 65+/blind count).
+ */
+export function calculateVirginiaWithholding(
+  periodTaxableWages: number,
+  payFrequency: string | null | undefined,
+  personalExemptions: number | null | undefined,
+  ageBlindExemptions: number | null | undefined
+): number {
+  if (periodTaxableWages <= 0) return 0;
+  const periods = periodsPerYear(payFrequency);
+  const annualWages = periodTaxableWages * periods;
+  const e1 = Math.max(0, Number(personalExemptions) || 0);
+  const e2 = Math.max(0, Number(ageBlindExemptions) || 0);
+  const annualTaxableIncome = Math.max(0, annualWages - VA_BASE_AMOUNT - e1 * VA_EXEMPTION_AMOUNT - e2 * VA_AGE_BLIND_AMOUNT);
+  const annualTax = applyBrackets(annualTaxableIncome, VA_BRACKETS);
+  return annualTax / periods;
+}
+
+// ---- District of Columbia ----
+
+// DC OTR's current individual income tax brackets — 7 brackets, 4% to 10.75%. No local
+// layer (DC has none — it IS the local jurisdiction) and no separate withholding-specific
+// standard deduction; DC's own percentage-method instructions only subtract a Dependent
+// Allowance before applying this same bracket table.
+const DC_BRACKETS: Bracket[] = [
+  { atLeast: 0, baseTax: 0, rate: 0.04 },
+  { atLeast: 10000, baseTax: 400, rate: 0.06 },
+  { atLeast: 40000, baseTax: 2200, rate: 0.065 },
+  { atLeast: 60000, baseTax: 3500, rate: 0.085 },
+  { atLeast: 250000, baseTax: 19650, rate: 0.0925 },
+  { atLeast: 500000, baseTax: 42775, rate: 0.0975 },
+  { atLeast: 1000000, baseTax: 91525, rate: 0.1075 },
+];
+
+const DC_DEPENDENT_ALLOWANCE = 4150;
+
+/**
+ * DC income tax withholding for one paycheck. `dependents` is the number of dependents
+ * claimed (defaults to 0 — same safer/higher-withholding default as MD/VA).
+ */
+export function calculateDcWithholding(
+  periodTaxableWages: number,
+  payFrequency: string | null | undefined,
+  dependents: number | null | undefined
+): number {
+  if (periodTaxableWages <= 0) return 0;
+  const periods = periodsPerYear(payFrequency);
+  const annualWages = periodTaxableWages * periods;
+  const dependentCount = Math.max(0, Number(dependents) || 0);
+  const annualTaxableIncome = Math.max(0, annualWages - dependentCount * DC_DEPENDENT_ALLOWANCE);
+  const annualTax = applyBrackets(annualTaxableIncome, DC_BRACKETS);
+  return annualTax / periods;
+}
+
+// ---- Delaware ----
+
+// Delaware Division of Revenue's 2026 "Tax Computation Schedule" (from the PIT-EST
+// estimated-tax instructions, which use the same brackets as withholding) — 7 brackets,
+// 0% to 6.6%. No local layer (DE has none).
+const DE_BRACKETS: Bracket[] = [
+  { atLeast: 0, baseTax: 0, rate: 0 },
+  { atLeast: 2000, baseTax: 0, rate: 0.022 },
+  { atLeast: 5000, baseTax: 66, rate: 0.039 },
+  { atLeast: 10000, baseTax: 261, rate: 0.048 },
+  { atLeast: 20000, baseTax: 741, rate: 0.052 },
+  { atLeast: 25000, baseTax: 1001, rate: 0.0555 },
+  { atLeast: 60000, baseTax: 2943, rate: 0.066 },
+];
+
+// Delaware is structurally different from MD/VA/federal: instead of subtracting
+// exemptions from income before applying the bracket table, it applies a flat $110
+// PERSONAL CREDIT per exemption directly against the computed tax, after the bracket
+// step — per the official Tax Computation Schedule ("Personal Credits ($110.00 X total
+// number of Federal Exemptions and exemptions for being 60 or older)"). The standard
+// deduction ($3,250 single/MFS, $6,500 MFJ) is still a before-bracket subtraction like
+// every other state here. Deliberately not implementing the additional $2,500 age-65-
+// or-blind deduction (a further, separate adjustment) — this app's employee data model
+// doesn't track age/blind status, same scope line already drawn for federal Step 3/4
+// adjustments and MD/VA's own optional adjustments.
+const DE_STANDARD_DEDUCTION_SINGLE = 3250;
+const DE_STANDARD_DEDUCTION_MARRIED = 6500;
+const DE_PERSONAL_CREDIT = 110;
+
+/**
+ * Delaware state income tax withholding for one paycheck. `filingStatus` reuses the same
+ * MD_FILING_STATUSES values already on the employee record ("Single" | "Married" | "Head
+ * of Household") — Delaware's own form only distinguishes Single/MFS/Dependent vs.
+ * Married Filing Jointly, so "Head of Household" is treated as Single here (Delaware's
+ * own Tax Computation Schedule groups "single, divorced or widow(er), head of household"
+ * under the same $3,250 standard deduction). `exemptions` reuses the same
+ * `state_exemptions` count as DC/VA, defaults to 0 (safer/higher-withholding default).
+ */
+export function calculateDelawareWithholding(
+  periodTaxableWages: number,
+  payFrequency: string | null | undefined,
+  filingStatus: string | null | undefined,
+  exemptions: number | null | undefined
+): number {
+  if (periodTaxableWages <= 0) return 0;
+  const periods = periodsPerYear(payFrequency);
+  const annualWages = periodTaxableWages * periods;
+  const status = String(filingStatus || "").trim().toLowerCase();
+  const standardDeduction = status === "married" ? DE_STANDARD_DEDUCTION_MARRIED : DE_STANDARD_DEDUCTION_SINGLE;
+  const annualTaxableIncome = Math.max(0, annualWages - standardDeduction);
+  const annualTaxBeforeCredit = applyBrackets(annualTaxableIncome, DE_BRACKETS);
+  const exemptionCount = Math.max(0, Number(exemptions) || 0);
+  const annualTax = Math.max(0, annualTaxBeforeCredit - exemptionCount * DE_PERSONAL_CREDIT);
+  return annualTax / periods;
 }

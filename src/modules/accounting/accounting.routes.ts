@@ -6,7 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
-import { calculateFederalWithholding, calculateMarylandWithholding } from "../../common/withholdingTables";
+import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding } from "../../common/withholdingTables";
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
@@ -710,17 +710,26 @@ function estimateFederalWithholding(federalTaxableWages: number, employee: any):
 }
 
 /**
- * Default (auto-calculated) state withholding for one paycheck. Uses the real 2026
- * Maryland state+county bracket calculation when the employee's work state is Maryland
- * (this app doesn't yet have real bracket data for DC/PA/VA/DE); everywhere else keeps
- * the flat-rate estimate this app has always used, since a wrong "real" bracket table
- * would be worse than an honest flat estimate. Only a default — see
- * estimateFederalWithholding's doc comment above.
+ * Default (auto-calculated) state withholding for one paycheck. Uses a real bracket
+ * calculation for MD/VA/DC/DE (see withholdingTables.ts); everywhere else — including PA,
+ * which is already exact as a flat 3.07% rate seeded directly in v3_tax_rates — keeps the
+ * flat-rate lookup this app has always used, since a wrong "real" bracket table would be
+ * worse than an honest flat estimate. Only a default — see estimateFederalWithholding's
+ * doc comment above.
  */
 async function estimateStateWithholding(stateTaxableWages: number, employee: any, payrollState: string | null | undefined, clientId: string): Promise<number> {
-  const isMaryland = String(payrollState || "").trim().toUpperCase() === "MD";
-  if (isMaryland) {
+  const state = String(payrollState || "").trim().toUpperCase();
+  if (state === "MD") {
     return calculateMarylandWithholding(stateTaxableWages, employee.pay_frequency, employee.state_filing_status, employee.county, employee.md_exemptions);
+  }
+  if (state === "VA") {
+    return calculateVirginiaWithholding(stateTaxableWages, employee.pay_frequency, employee.state_exemptions, employee.age_blind_exemptions);
+  }
+  if (state === "DC") {
+    return calculateDcWithholding(stateTaxableWages, employee.pay_frequency, employee.state_exemptions);
+  }
+  if (state === "DE") {
+    return calculateDelawareWithholding(stateTaxableWages, employee.pay_frequency, employee.state_filing_status, employee.state_exemptions);
   }
   return stateTaxableWages * (await lookupRate("STATE", 0.03, clientId, payrollState || undefined));
 }
@@ -1944,7 +1953,7 @@ accountingRouter.patch("/employees/:employeeId/sensitive", requireAuth, requireR
        fixed_project_amount=$12, is_1099_eligible=$13, payment_method=$14, direct_deposit=$15,
        payment_bank_name=$16, payment_routing_number=$17, payment_account_number=$18, payment_account_type=$19,
        payment_bank_last4=$20, bank_last4=$20, state=$21, street_address=$22, city=$23, zip_code=$24,
-       county=$25, md_exemptions=$26, updated_at = now()
+       county=$25, md_exemptions=$26, state_exemptions=$27, age_blind_exemptions=$28, updated_at = now()
      WHERE employee_id = $1`,
     [employeeId,
       String(body.ssn || "").trim() ? encryptValue(String(body.ssn).trim()) : employee.ssn,
@@ -1968,7 +1977,9 @@ accountingRouter.patch("/employees/:employeeId/sensitive", requireAuth, requireR
       bankLast4,
       newState, newStreet, newCity, newZip,
       String(body.county || "").trim() || null,
-      body.mdExemptions !== undefined && body.mdExemptions !== "" ? Number(body.mdExemptions) || 0 : employee.md_exemptions]
+      body.mdExemptions !== undefined && body.mdExemptions !== "" ? Number(body.mdExemptions) || 0 : employee.md_exemptions,
+      body.stateExemptions !== undefined && body.stateExemptions !== "" ? Number(body.stateExemptions) || 0 : employee.state_exemptions,
+      body.ageBlindExemptions !== undefined && body.ageBlindExemptions !== "" ? Number(body.ageBlindExemptions) || 0 : employee.age_blind_exemptions]
   );
 
   await logAudit("Employees", "EDIT_SENSITIVE", employeeId, "", "", "",
@@ -2008,6 +2019,8 @@ accountingRouter.get("/employees/:employeeId/sensitive", requireAuth, requireRol
     stateFilingStatus: employee.state_filing_status || null,
     county: employee.county || null,
     mdExemptions: employee.md_exemptions ?? null,
+    stateExemptions: employee.state_exemptions ?? null,
+    ageBlindExemptions: employee.age_blind_exemptions ?? null,
     w9Status: employee.w9_status || null,
     tinVerificationStatus: employee.tin_verification_status || null,
     vendorClassification: employee.vendor_classification || null,
