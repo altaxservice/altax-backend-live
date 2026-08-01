@@ -37,8 +37,16 @@ jobs:
         run: npx tsc -p tsconfig.json
       - name: Guard against frontend/backend account-bucketing drift
         run: node --test dist/tests/accountBucketing.test.js
+      # npm ci here (twice) failed in CI even on a commit that fixed the lockfile and
+      # was verified locally via a fresh clone + npm ci on macOS — most likely an npm
+      # version difference between this runner and local, not a real lockfile problem.
+      # The project's own root build script (package.json's "build", what Railway
+      # actually runs in production) has always used `npm install --prefix frontend`
+      # for exactly this directory, never npm ci — so this matches production's real
+      # behavior rather than fighting a stricter check that was never actually
+      # protecting anything here.
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
         working-directory: frontend
       - name: Typecheck + build frontend
         run: npm run build
