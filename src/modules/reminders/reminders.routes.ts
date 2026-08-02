@@ -275,6 +275,24 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       `\nOpen Reports -> Trial Balance for the client to see and repair the exact entries.`
     : `\nBooks health: every client's ledger balances.`;
 
+  // --- Upcoming appointments: everything Scheduled in the next 48 hours, so
+  // admins/staff get a daily heads-up alongside the task summary instead of
+  // having to check the Calendar proactively. The client's own day-before
+  // reminder (appointments.routes.ts's runAppointmentReminders, hourly cron)
+  // is separate — this is the firm-side view of the same data.
+  const upcomingAppointments = await query<any>(
+    `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+       LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+      WHERE a.status = 'Scheduled' AND a.start_time BETWEEN now() AND now() + interval '48 hours'
+      ORDER BY a.start_time ASC`
+  );
+  const fmtApptLine = (a: any) => {
+    const when = new Date(a.start_time).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const who = a.linked_client_name || a.contact_name || "—";
+    return `- ${when} ET — ${a.title || "Appointment"} with ${who}${a.assigned_to ? ` (${a.assigned_to})` : ""}`;
+  };
+  const appointmentsSection = `\nUpcoming appointments, next 48 hours (${upcomingAppointments.length}):\n${upcomingAppointments.length ? upcomingAppointments.map(fmtApptLine).join("\n") : "None"}`;
+
   const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
   for (const admin of admins) {
     const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
@@ -286,6 +304,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     const bodyEnglish = [
       `Firm-wide task status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
       booksHealthSection,
+      appointmentsSection,
       `\nBy status:\n${statusBreakdown || "None"}`,
       `\nOverdue (${overdueTasks.length}):\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None"}`,
       `\nDue within ${daysAhead} day${daysAhead === 1 ? "" : "s"} (${dueSoonTasks.length}):\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None"}`,

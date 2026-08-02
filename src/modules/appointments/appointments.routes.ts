@@ -7,7 +7,6 @@ import { logAudit } from "../../common/audit";
 import { sendEmail, sendSms, NotConfiguredError } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
-import { bodyToDirectionalHtml } from "../communications/communications.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { getAppointmentSettings, bookableWeekdayLabel } from "../../common/appointmentSettings";
 
@@ -113,35 +112,34 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
+}
+
 export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled";
 
 /**
- * Builds the full bilingual body: the resolved per-appointment template text,
- * then (for Confirmation/Reminder only — a cancellation notice doesn't need
- * re-stating the policy) the duration/weekly-schedule line, office
- * location+map link, and the admin-edited policy text from Calendar Settings,
- * then a manage-appointment link the client can use to cancel or reschedule
- * without logging in. English and Arabic are joined with the "\n\n---\n\n"
- * divider bodyToDirectionalHtml (communications.routes.ts) expects, so each
- * language block renders with its own correct text direction.
+ * Builds the full bilingual PLAIN-TEXT body for logging/display (the
+ * Communications page renders v3_communications.message_english/arabic as
+ * plain text, white-space:pre-wrap — see CommunicationsPage.tsx) and for
+ * SMS. Includes, for Confirmation/Reminder only (a cancellation notice
+ * doesn't need re-stating the policy), the duration/weekly-schedule line,
+ * office location+map link, and the admin-edited policy text from Calendar
+ * Settings, then the manage-appointment link.
  */
-async function buildAppointmentMessage(
-  appt: any, resolved: { subject: string; message_english: string; message_arabic: string },
-  includeDetails: boolean, manageUrl: string
-): Promise<{ subject: string; english: string; arabic: string }> {
-  if (!includeDetails) {
-    return { subject: resolved.subject, english: resolved.message_english, arabic: resolved.message_arabic };
+function buildAppointmentPlainText(
+  resolved: { message_english: string; message_arabic: string },
+  includeDetails: boolean, manageUrl: string,
+  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null
+): { english: string; arabic: string } {
+  if (!includeDetails || !settings) {
+    return { english: resolved.message_english, arabic: resolved.message_arabic };
   }
-  const settings = await getAppointmentSettings();
-
   const english = [
     resolved.message_english,
-    `${settings.slotMinutes} min appointment`,
-    `Available weekly on ${bookableWeekdayLabel(settings, "en")}`,
-    "",
-    settings.locationName,
-    settings.locationAddress,
-    settings.locationMapUrl,
+    `${settings.slotMinutes} min appointment — available weekly on ${bookableWeekdayLabel(settings, "en")}`,
+    `${settings.locationName}, ${settings.locationAddress}`,
+    settings.locationMapUrl || "",
     "",
     settings.policyMessageEn,
     manageUrl ? `\nNeed to cancel or reschedule? ${manageUrl}` : "",
@@ -149,18 +147,73 @@ async function buildAppointmentMessage(
 
   const arabic = [
     resolved.message_arabic,
-    `مدة الموعد ${settings.slotMinutes} دقيقة`,
-    `متاح أسبوعيًا أيام ${bookableWeekdayLabel(settings, "ar")}`,
-    "",
-    settings.locationName,
-    settings.locationAddress,
-    settings.locationMapUrl,
+    `مدة الموعد ${settings.slotMinutes} دقيقة — متاح أسبوعيًا أيام ${bookableWeekdayLabel(settings, "ar")}`,
+    `${settings.locationName}, ${settings.locationAddress}`,
+    settings.locationMapUrl || "",
     "",
     settings.policyMessageAr,
     manageUrl ? `\nهل تحتاج لإلغاء الموعد أو إعادة جدولته؟ ${manageUrl}` : "",
   ].filter(Boolean).join("\n");
 
-  return { subject: resolved.subject, english, arabic };
+  return { english, arabic };
+}
+
+/**
+ * Builds the actual HTML sent in the email — real structure (not the plain-text
+ * blob run through bodyToDirectionalHtml) so the office address/map link, which
+ * are Latin-script data, don't get visually reordered by the browser's bidi
+ * algorithm when they'd otherwise sit inside a dir="rtl" paragraph. Every
+ * Latin-script run inside the Arabic section is wrapped in <bdi dir="ltr">,
+ * which isolates it from the surrounding RTL context. Shown once (not
+ * duplicated per language) since an address/map link doesn't translate.
+ */
+export function buildAppointmentEmailHtml(
+  resolved: { message_english: string; message_arabic: string },
+  includeDetails: boolean, manageUrl: string,
+  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null
+): string {
+  const englishHtml = escapeHtml(resolved.message_english).replace(/\n/g, "<br>");
+  const arabicHtml = escapeHtml(resolved.message_arabic).replace(/\n/g, "<br>");
+
+  let detailsHtml = "";
+  if (includeDetails && settings) {
+    const mapLink = settings.locationMapUrl
+      ? `<br><a href="${escapeHtml(settings.locationMapUrl)}" dir="ltr" style="color:#0f2d3e;">${escapeHtml(settings.locationMapUrl)}</a>`
+      : "";
+    detailsHtml = `
+      <div style="margin:18px 0; padding:16px 0; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; text-align:center;">
+        <div style="font-weight:700;">${settings.slotMinutes} min appointment</div>
+        <div style="color:#6b7280; font-size:12.5px; margin-top:3px;">
+          <bdi dir="ltr">${escapeHtml(bookableWeekdayLabel(settings, "en"))}</bdi>
+          &nbsp;/&nbsp;
+          <bdi dir="rtl">${escapeHtml(bookableWeekdayLabel(settings, "ar"))}</bdi>
+        </div>
+        <div style="margin-top:10px; font-size:13.5px;">
+          <bdi dir="ltr">${escapeHtml(settings.locationName)}</bdi><br>
+          <bdi dir="ltr">${escapeHtml(settings.locationAddress)}</bdi>
+          ${mapLink}
+        </div>
+      </div>
+      <div dir="ltr" style="text-align:left; margin-bottom:14px;">${escapeHtml(settings.policyMessageEn).replace(/\n/g, "<br>")}</div>
+      <div dir="rtl" style="text-align:right; margin-bottom:14px;">${escapeHtml(settings.policyMessageAr).replace(/\n/g, "<br>")}</div>
+    `;
+  }
+
+  const manageHtml = manageUrl
+    ? `<div style="text-align:center; margin-top:16px;">
+         <a href="${escapeHtml(manageUrl)}" style="display:inline-block; background:#0f2d3e; color:#ffffff; padding:10px 18px; border-radius:6px; text-decoration:none; font-size:13.5px;">
+           Cancel / Reschedule &nbsp;·&nbsp; <bdi dir="rtl">إلغاء أو إعادة جدولة</bdi>
+         </a>
+       </div>`
+    : "";
+
+  return `
+    <div dir="ltr" style="text-align:left;">${englishHtml}</div>
+    <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+    <div dir="rtl" style="text-align:right;">${arabicHtml}</div>
+    ${detailsHtml}
+    ${manageHtml}
+  `;
 }
 
 /**
@@ -191,7 +244,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   const includeDetails = templateName !== "Appointment Cancelled";
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
-  const resolved = await buildAppointmentMessage(appt, resolvedTemplate, includeDetails, manageUrl);
+  const settings = includeDetails ? await getAppointmentSettings() : null;
+  const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, settings);
 
   const marker = templateName === "Appointment Reminder" ? "REM" : templateName === "Appointment Cancelled" ? "CANCEL" : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
@@ -206,7 +260,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     let sendError: string | undefined;
     try {
       if (channel === "Email") {
-        await sendEmail({ to, subject: resolved.subject, html: await wrapEmailHtml(bodyToDirectionalHtml(`${resolved.english}\n\n---\n\n${resolved.arabic}`), req) });
+        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings);
+        await sendEmail({ to, subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
       } else {
         // SMS stays short — the full policy/location text only goes in the email (see
         // SMS_INLINE_MAX_CHARS convention in communications.routes.ts) — but the manage
@@ -226,7 +281,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
           message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
        VALUES ($1,$2,$3,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Appointments',$11)`,
       [`COM-${idSuffix()}`, appt.client_id || null, appt.contact_name || appt.client_name || null,
-        channel, resolved.subject, resolved.english, resolved.arabic,
+        channel, resolvedTemplate.subject, plainText.english, plainText.arabic,
         to, actorEmail, status, `APPT-${marker}-${appt.appointment_id}-${channel}`]
     );
   }
