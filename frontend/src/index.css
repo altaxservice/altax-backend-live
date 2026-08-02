@@ -115,6 +115,19 @@ textarea:focus-visible, [tabindex]:focus-visible {
   outline: none;
   border-color: var(--teal);
 }
+/* Opt-in per field: add class="field invalid" (or set aria-invalid="true" directly on
+   the input) once a field fails validation, and .field-error under it for the message —
+   gives every form the same red-border + inline-message treatment for free, same idea
+   as .btn-loading above. */
+.field.invalid input, .field.invalid select, .field.invalid textarea,
+.field input[aria-invalid="true"], .field select[aria-invalid="true"], .field textarea[aria-invalid="true"] {
+  border-color: var(--red);
+}
+.field.invalid input:focus, .field.invalid select:focus, .field.invalid textarea:focus,
+.field input[aria-invalid="true"]:focus, .field select[aria-invalid="true"]:focus, .field textarea[aria-invalid="true"]:focus {
+  border-color: var(--red);
+}
+.field-error { color: var(--red); font-size: 12px; font-weight: 600; margin: 2px 0 0; }
 
 /* ---- Cards / panels ---- */
 .card {

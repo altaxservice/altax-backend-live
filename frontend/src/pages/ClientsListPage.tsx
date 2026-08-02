@@ -100,6 +100,7 @@ export function ClientsListPage() {
   const [ownerFilter, setOwnerFilter] = useStickyState("clients.owner", "all");
   const [typeFilter, setTypeFilter] = useStickyState("clients.type", "all");
   const [serviceFilter, setServiceFilter] = useStickyState("clients.service", "all");
+  const [payrollProviderFilter, setPayrollProviderFilter] = useStickyState("clients.payrollProvider", "all");
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
@@ -242,6 +243,10 @@ export function ClientsListPage() {
     () => Array.from(new Set([...SERVICE_TYPES, ...(clients || []).map((c) => c.service_type).filter(Boolean) as string[]])),
     [clients]
   );
+  const payrollProviders = useMemo(
+    () => Array.from(new Set([...PAYROLL_PROVIDERS, ...(clients || []).map((c) => c.payroll_system).filter(Boolean) as string[]])),
+    [clients]
+  );
   const statuses = useMemo(() => Array.from(new Set((clients || []).map((c) => c.status).filter(Boolean))) as string[], [clients]);
 
   const filtered = useMemo(() => {
@@ -252,6 +257,7 @@ export function ClientsListPage() {
       if (ownerFilter !== "all" && String(c.assigned_to || "") !== ownerFilter) return false;
       if (typeFilter !== "all" && String(c.client_type || "") !== typeFilter) return false;
       if (serviceFilter !== "all" && String(c.service_type || "") !== serviceFilter) return false;
+      if (payrollProviderFilter !== "all" && String(c.payroll_system || "") !== payrollProviderFilter) return false;
       const tab = QUICK_TABS.find((t) => t.key === quickTab);
       if (tab && !tab.test(c)) return false;
       if (q && ![c.client_name, c.client_id, c.email, c.phone, c.assigned_to].some((v) => String(v || "").toLowerCase().includes(q))) return false;
@@ -264,7 +270,7 @@ export function ClientsListPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, quickTab, sortKey, sortDir]);
+  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, quickTab, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -285,6 +291,7 @@ export function ClientsListPage() {
         { key: "email", label: "Email" }, { key: "phone", label: "Phone" },
         { key: "assigned_to", label: "Owner" }, { key: "service_type", label: "Service" },
         { key: "sales_tax_frequency", label: "Sales Tax Frequency" }, { key: "payroll_frequency", label: "Payroll Frequency" },
+        { key: "payroll_system", label: "Payroll Provider" },
         { key: "status", label: "Status" }, { key: "portal_enabled", label: "Portal" },
       ],
       filtered as unknown as Record<string, unknown>[]
@@ -308,6 +315,7 @@ export function ClientsListPage() {
           { label: "Owner", value: ownerFilter, options: owners, onChange: setOwnerFilter },
           { label: "Type", value: typeFilter, options: types, onChange: setTypeFilter },
           { label: "Service", value: serviceFilter, options: services, onChange: setServiceFilter },
+          { label: "Payroll Provider", value: payrollProviderFilter, options: payrollProviders, onChange: setPayrollProviderFilter },
         ]}
         onRefresh={handleRefresh}
         refreshing={refreshing}
