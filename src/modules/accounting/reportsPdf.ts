@@ -795,47 +795,34 @@ export async function generateArAgingPdf(data: ArAgingReportData): Promise<Uint8
   if (!data.rows.length) {
     emptyNote(c, y);
   } else {
-    const colClient = 48, colCurrent = PAGE_W - 48 - 400, col30 = PAGE_W - 48 - 320, col60 = PAGE_W - 48 - 240,
-      col90 = PAGE_W - 48 - 160, col90p = PAGE_W - 48 - 80, colTotal = PAGE_W - 48;
-    const drawTableHeader = () => {
-      c.text(colClient, y, "Client", { size: 8, bold: true, color: MUTED });
-      c.text(colCurrent, y, "Current", { size: 8, bold: true, color: MUTED, align: "right" });
-      c.text(col30, y, "1-30", { size: 8, bold: true, color: MUTED, align: "right" });
-      c.text(col60, y, "31-60", { size: 8, bold: true, color: MUTED, align: "right" });
-      c.text(col90, y, "61-90", { size: 8, bold: true, color: MUTED, align: "right" });
-      c.text(col90p, y, "90+", { size: 8, bold: true, color: MUTED, align: "right" });
-      c.text(colTotal, y, "Total", { size: 8, bold: true, color: MUTED, align: "right" });
-      y += 6;
-      c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
-      y += 14;
+    // Two lines per client (name+total, then buckets on their own line) rather than
+    // one packed row — a fixed-width "Client" column sized for a short name (the
+    // original layout) ran straight into the neighboring dollar column for this
+    // firm's real client names (many 25-40+ characters), producing overlapping,
+    // unreadable text. Giving the name its own full-width line makes overlap
+    // impossible regardless of how long a real client name is.
+    const L = 48, R = PAGE_W - 48;
+    const drawRow = (name: string, total: number, bold_: boolean, current: number, d1_30: number, d31_60: number, d61_90: number, d90Plus: number) => {
+      c.text(L, y, name, { size: 9.5, bold: bold_ });
+      c.text(R, y, money(total), { size: 9.5, bold: true, align: "right" });
+      y += 12;
+      const bucketColor = d61_90 > 0 || d90Plus > 0 ? rgb(0.6, 0.25, 0.15) : MUTED;
+      const bucketLine = `Current ${money(current)}   ·   1-30 ${money(d1_30)}   ·   31-60 ${money(d31_60)}   ·   61-90 ${money(d61_90)}   ·   90+ ${money(d90Plus)}`;
+      c.text(L + 8, y, bucketLine, { size: 8, color: bucketColor });
+      y += 15;
     };
-    drawTableHeader();
     for (const r of data.rows) {
-      if (y > PAGE_H - 60) {
+      if (y > PAGE_H - 75) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
-        drawTableHeader();
       }
-      c.text(colClient, y, r.clientName.slice(0, 34), { size: 9 });
-      c.text(colCurrent, y, money(r.current), { size: 9, align: "right" });
-      c.text(col30, y, money(r.d1_30), { size: 9, align: "right" });
-      c.text(col60, y, money(r.d31_60), { size: 9, align: "right" });
-      c.text(col90, y, money(r.d61_90), { size: 9, align: "right", color: r.d61_90 > 0 ? rgb(0.7, 0.45, 0.1) : INK });
-      c.text(col90p, y, money(r.d90Plus), { size: 9, align: "right", color: r.d90Plus > 0 ? rgb(0.7, 0.15, 0.15) : INK });
-      c.text(colTotal, y, money(r.total), { size: 9, bold: true, align: "right" });
-      y += 15;
+      drawRow(r.clientName.slice(0, 60), r.total, false, r.current, r.d1_30, r.d31_60, r.d61_90, r.d90Plus);
     }
     y += 4;
-    c.line(48, y, PAGE_W - 48, y, INK, 1);
+    c.line(L, y, R, y, INK, 1);
     y += 14;
-    c.text(colClient, y, "Total", { size: 9, bold: true });
-    c.text(colCurrent, y, money(data.totals.current), { size: 9, bold: true, align: "right" });
-    c.text(col30, y, money(data.totals.d1_30), { size: 9, bold: true, align: "right" });
-    c.text(col60, y, money(data.totals.d31_60), { size: 9, bold: true, align: "right" });
-    c.text(col90, y, money(data.totals.d61_90), { size: 9, bold: true, align: "right" });
-    c.text(col90p, y, money(data.totals.d90Plus), { size: 9, bold: true, align: "right" });
-    c.text(colTotal, y, money(data.totals.total), { size: 9, bold: true, align: "right" });
+    drawRow("Total", data.totals.total, true, data.totals.current, data.totals.d1_30, data.totals.d31_60, data.totals.d61_90, data.totals.d90Plus);
   }
 
   drawFooter(c, profile.firmName, "Internal firm analytics — not a client-facing document.");
