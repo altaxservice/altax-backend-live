@@ -17,6 +17,7 @@ import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { exportCsv } from "../components/FilterBar";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -241,10 +242,19 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
 
-  function load() {
-    api.get<{ sales: any[] }>(`/accounting/sales/${clientId}`).then((r) => setSales(r.sales)).catch(() => {});
+  const [refreshing, setRefreshing] = useState(false);
+  function load(): Promise<void> {
+    return api.get<{ sales: any[] }>(`/accounting/sales/${clientId}`).then((r) => setSales(r.sales)).catch(() => {});
   }
-  useEffect(load, [clientId]);
+  useEffect(() => { load(); }, [clientId]);
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }
   useEffect(() => {
     const qs = clientState ? `?state=${encodeURIComponent(clientState)}` : "";
     api.get<{ categories: SalesTaxCategory[] }>(`/accounting/sales-categories${qs}`).then((r) => setCategories(r.categories)).catch(() => setCategories([]));
@@ -324,6 +334,17 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     : `${fmtDate(period.start) || "the beginning"} – ${fmtDate(period.end) || "today"}`;
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
+
+  function handleExportCsv() {
+    exportCsv(
+      `sales-${clientId}.csv`,
+      [
+        { key: "sale_date", label: "Date" }, { key: "gross_sales", label: "Gross Sales" },
+        { key: "total_tax_due", label: "Tax Due" }, { key: "payment_date", label: "Payment Date" }, { key: "notes", label: "Notes" },
+      ],
+      salesInPeriod as unknown as Record<string, unknown>[]
+    );
+  }
   const mdDueDate = mdDueDateForPeriodEnd(period.end);
   // Per-category rollup for the period — previously the only category-level
   // visibility was re-opening each sale's Edit form one at a time; this answers
@@ -486,6 +507,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+            <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
           </div>
         }
       >
@@ -729,6 +752,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   const [form, setForm] = useState(EMPTY_PAYROLL_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invalidField, setInvalidField] = useState<"employee" | "payDate" | null>(null);
   const [result, setResult] = useState<any>(null);
   const [preview, setPreview] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -785,6 +809,9 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setInvalidField(null);
+    if (!form.employee) { setInvalidField("employee"); return; }
+    if (!form.payDate) { setInvalidField("payDate"); return; }
     setSaving(true);
     setError(null);
     setResult(null);
@@ -894,17 +921,31 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             </div>
           )}
 
-          <div className="field">
+          <div className={`field ${invalidField === "employee" ? "invalid" : ""}`}>
             <label>Employee</label>
-            <select required value={form.employee} onChange={(e) => setForm((f) => ({ ...f, employee: e.target.value }))}>
+            <select
+              aria-invalid={invalidField === "employee" ? "true" : undefined}
+              value={form.employee}
+              onChange={(e) => { setForm((f) => ({ ...f, employee: e.target.value })); if (invalidField === "employee") setInvalidField(null); }}
+            >
               <option value="">Select an employee…</option>
               {employees.map((e) => <option key={e.employee_id} value={e.employee_name}>{e.employee_name}</option>)}
             </select>
+            {invalidField === "employee" && <p className="field-error">Select an employee.</p>}
           </div>
           {employees.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No active employees yet — add one under the Employees tab first.</p>}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Pay Date</label><input type="date" required value={form.payDate} onChange={(e) => setForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+            <div className={`field ${invalidField === "payDate" ? "invalid" : ""}`}>
+              <label>Pay Date</label>
+              <input
+                type="date"
+                aria-invalid={invalidField === "payDate" ? "true" : undefined}
+                value={form.payDate}
+                onChange={(e) => { setForm((f) => ({ ...f, payDate: e.target.value })); if (invalidField === "payDate") setInvalidField(null); }}
+              />
+              {invalidField === "payDate" && <p className="field-error">Pay date is required.</p>}
+            </div>
             <div className="field">
               <label>Pay Type</label>
               <select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}>
@@ -2267,6 +2308,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
 
 function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; initialRef?: string | null; initialAccount?: string | null }) {
   const [entries, setEntries] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [viewingRef, setViewingRef] = useState<string | null>(initialRef || null);
   const [accountFilter, setAccountFilter] = useState(initialAccount || "");
   // Deep links (Trial Balance rows) must not have their target hidden by the
@@ -2279,9 +2321,19 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
     return { start, end };
   });
 
-  useEffect(() => {
-    api.get<{ glEntries: any[] }>(`/accounting/gl/${clientId}`).then((r) => setEntries(r.glEntries)).catch(() => {});
-  }, [clientId]);
+  function loadEntries(): Promise<void> {
+    return api.get<{ glEntries: any[] }>(`/accounting/gl/${clientId}`).then((r) => setEntries(r.glEntries)).catch(() => {});
+  }
+  useEffect(() => { loadEntries(); }, [clientId]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await loadEntries();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const accounts = [...new Set(entries.map((g) => String(g.account || "")))].filter(Boolean).sort();
 
@@ -2291,6 +2343,18 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
     if (!d) return false;
     return (!period.start || d >= period.start) && (!period.end || d <= period.end);
   });
+
+  function handleExportCsv() {
+    exportCsv(
+      `gl-${clientId}.csv`,
+      [
+        { key: "entry_date", label: "Date" }, { key: "ref", label: "Ref" }, { key: "account", label: "Account" },
+        { key: "description", label: "Description" }, { key: "debit", label: "Debit" }, { key: "credit", label: "Credit" },
+        { key: "source", label: "Source" },
+      ],
+      filtered as unknown as Record<string, unknown>[]
+    );
+  }
   // Every line of the entry the user clicked, taken from what is already loaded
   // rather than a second fetch — the ref is the key appendGl writes for all
   // lines of one posting.
@@ -2314,6 +2378,8 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
           <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
+          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+          <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
         </div>
       }
     >

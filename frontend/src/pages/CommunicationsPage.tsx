@@ -5,6 +5,7 @@ import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { exportCsv } from "../components/FilterBar";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
@@ -153,14 +154,15 @@ export function CommunicationsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [comms, setComms] = useState<Communication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   // Messaging one specific client now lives on that client's own profile
   // (Communications tab), same move already made for Documents — this page
   // is left with only the genuinely firm-wide tools: bulk client blasts and
   // internal staff notes.
   const [activeTab, setActiveTab] = useState<"bulk" | "staff">("bulk");
 
-  function load() {
-    api.get<{ communications: Communication[] }>("/communications")
+  function load(): Promise<void> {
+    return api.get<{ communications: Communication[] }>("/communications")
       .then((res) => setComms(res.communications))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load communications."));
   }
@@ -170,7 +172,27 @@ export function CommunicationsPage() {
     if (canManage) api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
   }, [canManage]);
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   const staffMessages = (comms || []).filter((c) => c.direction === "Staff to Staff");
+
+  function handleExportStaffCsv() {
+    exportCsv(
+      "staff-messages.csv",
+      [
+        { key: "sent_at", label: "Date/Time" }, { key: "channel", label: "Channel" },
+        { key: "sent_to", label: "Sent To" }, { key: "subject", label: "Subject" }, { key: "status", label: "Status" },
+      ],
+      staffMessages as unknown as Record<string, unknown>[]
+    );
+  }
 
   const TABS: { key: typeof activeTab; label: string }[] = [
     { key: "bulk", label: "Bulk Client Message" },
@@ -202,7 +224,11 @@ export function CommunicationsPage() {
               </div>
             ))}
           </div>
-          <RunRemindersButton onDone={load} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+            <button type="button" className="ghost-button" onClick={handleExportStaffCsv}>Export CSV</button>
+            <RunRemindersButton onDone={load} />
+          </div>
         </div>
       )}
 

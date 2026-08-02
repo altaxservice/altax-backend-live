@@ -347,6 +347,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 .status-pill {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   min-height: 24px;
   border-radius: 999px;
   padding: 4px 9px;

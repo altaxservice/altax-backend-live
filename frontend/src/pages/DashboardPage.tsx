@@ -10,7 +10,7 @@ import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate } from "../utils/date";
-import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS } from "../components/TaskCells";
+import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -125,9 +125,15 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
             )}
             <TaskFileCell task={t} />
             <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
-              {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => (
-                <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleAction(t, a.value)}>{a.label}</button>
-              ))}
+              {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => {
+                const Icon = TASK_QUICK_ACTION_ICON[a.value];
+                return (
+                  <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleAction(t, a.value)}>
+                    {Icon && <Icon size={13} strokeWidth={2} aria-hidden="true" />}
+                    {a.label}
+                  </button>
+                );
+              })}
               <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
             </div>
           </div>

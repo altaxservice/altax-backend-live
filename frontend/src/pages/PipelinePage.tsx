@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { money, STAGE_LABELS, stageForEstimate, type Estimate, type StageLabel } from "../api/estimates";
 import { useStickyState } from "../utils/listState";
+import { exportCsv } from "../components/FilterBar";
 
 /**
  * Pipeline — the same Estimates data as the Estimates list, viewed as a sales
@@ -38,14 +39,35 @@ export function PipelinePage() {
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useStickyState<Period>("pipeline.period", "This Quarter");
 
-  function load() {
-    api.get<{ estimates: Estimate[] }>("/estimates")
+  function load(): Promise<void> {
+    return api.get<{ estimates: Estimate[] }>("/estimates")
       .then((res) => setEstimates(res.estimates))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the pipeline."));
   }
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function handleExportCsv() {
+    exportCsv(
+      "pipeline.csv",
+      [
+        { key: "business_name", label: "Client" }, { key: "status", label: "Status" },
+        { key: "estimate_date", label: "Date" }, { key: "total", label: "Total" },
+      ],
+      (estimates || []).map((e) => ({ business_name: e.business_name, status: e.status, estimate_date: e.estimate_date, total: e.totals?.total ?? "" }))
+    );
+  }
 
   const byStage = useMemo(() => {
     const grouped: Record<StageLabel, Estimate[]> = { New: [], Contacted: [], "Proposal Sent": [], Won: [], Lost: [] };
@@ -89,7 +111,11 @@ export function PipelinePage() {
             The same estimates as Estimates, viewed as a sales funnel. Move a card with its stage buttons.
           </p>
         </div>
-        <button className="btn" onClick={() => navigate("/estimates")}>View as List</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
+          <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
+          <button className="btn" onClick={() => navigate("/estimates")}>View as List</button>
+        </div>
       </div>
 
       <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>

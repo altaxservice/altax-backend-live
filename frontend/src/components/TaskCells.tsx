@@ -1,3 +1,4 @@
+import { MessageSquare, StickyNote } from "lucide-react";
 import type { Task } from "../api/types";
 import { openAnyFile, downloadAnyFile } from "../api/client";
 import { daysUntil } from "../utils/date";
@@ -97,6 +98,15 @@ export const TASK_QUICK_ACTIONS: ActionMenuOption[] = [
   { value: "task-message", label: "Message" },
   { value: "task-note", label: "Note" },
 ];
+
+/** One icon per quick-action value — these are the two buttons pinned onto every
+ * task row app-wide (see TASK_QUICK_ACTIONS above), so this is the highest-traffic
+ * place in the product an icon can go. Keyed by value rather than assumed
+ * array order, so it stays correct if TASK_QUICK_ACTIONS is reordered later. */
+export const TASK_QUICK_ACTION_ICON: Record<string, typeof MessageSquare> = {
+  "task-message": MessageSquare,
+  "task-note": StickyNote,
+};
 
 export function archivedTaskActionOptions(): ActionMenuOption[] {
   return [
