@@ -77,9 +77,6 @@ export function TaskFileCell({ task }: { task: Task }) {
 export function taskActionOptions(role: string | undefined): ActionMenuOption[] {
   if (role === "client") return [{ value: "task-file", label: "Files" }, { value: "request-doc", label: "New Request" }];
   const options: ActionMenuOption[] = [
-    { value: "review-task", label: "Review Task" },
-    { value: "task-message", label: "Send Message" },
-    { value: "task-note", label: "Add Note" },
     { value: "task-history", label: "Review Notes / Messages" },
     { value: "edit-task", label: "Edit Task" },
     { value: "task-file", label: "Files" },
@@ -89,6 +86,17 @@ export function taskActionOptions(role: string | undefined): ActionMenuOption[] 
   if (role === "admin") options.push({ value: "delete-task", label: "Delete Task Row" });
   return options;
 }
+
+/** The two task actions frequent enough to deserve an always-visible button instead
+ * of being buried in the overflow menu — everything else in taskActionOptions() is
+ * comparatively rare (edit, void, delete) or already reachable by clicking the row
+ * itself ("Review Task" was pure duplication of the row's own onClick and has been
+ * dropped rather than pinned). Not shown for the client role, which has its own
+ * 2-item action set with no message/note concept. */
+export const TASK_QUICK_ACTIONS: ActionMenuOption[] = [
+  { value: "task-message", label: "Message" },
+  { value: "task-note", label: "Note" },
+];
 
 export function archivedTaskActionOptions(): ActionMenuOption[] {
   return [

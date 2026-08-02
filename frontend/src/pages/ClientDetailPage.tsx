@@ -14,7 +14,7 @@ import { useToast } from "../components/Toast";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
-import { TASK_STATUSES, DueLabel, taskActionOptions } from "../components/TaskCells";
+import { TASK_STATUSES, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
@@ -626,7 +626,12 @@ export function ClientDetailPage() {
                         </select>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => (
+                            <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleTaskAction(t, a.value)}>{a.label}</button>
+                          ))}
+                          <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
+                        </div>
                       </td>
                     </tr>
                   ))}

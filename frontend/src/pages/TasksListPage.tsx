@@ -11,7 +11,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
-import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions } from "../components/TaskCells";
+import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS } from "../components/TaskCells";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -451,7 +451,12 @@ export function TasksListPage() {
                       <button type="button" className="btn btn-sm" disabled={restoring === t.task_id} onClick={() => handleRestore(t.task_id)}>{restoring === t.task_id ? "Restoring…" : "Restore"}</button>
                     ) : (
                       <>
-                        <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => (
+                            <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleAction(t, a.value)}>{a.label}</button>
+                          ))}
+                          <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
+                        </div>
                         {t.first_file_url && <TaskFileCell task={t} />}
                       </>
                     )}
