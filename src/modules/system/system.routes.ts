@@ -394,7 +394,11 @@ systemRouter.get("/security", requireAuth, requireRole("admin"), asyncHandler(as
       role: u.role,
       active: u.active,
       passwordStatus: !u.password_hash ? "Not Set" : u.must_reset_password ? "Must Reset" : "Ready",
-      passwordStorage: !u.password_hash ? "Not Set" : u.password_hash_version === 2 ? "Current" : "Legacy",
+      // 3 = scrypt (password.ts's SCRYPT_VERSION "v3", the strong current format);
+      // anything else (NULL, 1, 2) is either the legacy unsalted SHA-256 hash or
+      // the older iterated-hash "v2" format — both flagged Legacy so this column
+      // stays a meaningful "still needs to sign in once to upgrade" signal.
+      passwordStorage: !u.password_hash ? "Not Set" : u.password_hash_version === 3 ? "Current" : "Legacy",
       failedLoginCount: u.failed_login_count || 0,
       lockedUntil: u.locked_until,
       lastLogin: u.last_login,

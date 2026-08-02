@@ -401,7 +401,7 @@ usersRouter.post("/:userId/temporary-password", requireAuth, requireRole("admin"
   const fields = createPasswordHashFields(tempPassword);
   await query(
     `UPDATE altax.v3_users
-       SET password_hash = $2, password_salt = $3, password_hash_version = 2, last_password_change_at = $4,
+       SET password_hash = $2, password_salt = $3, password_hash_version = 3, last_password_change_at = $4,
            invite_token = NULL, invite_expires = NULL, must_reset_password = TRUE, updated_at = now()
      WHERE user_id = $1`,
     [userId, fields.PasswordHash, fields.PasswordSalt, fields.LastPasswordChangeAt]

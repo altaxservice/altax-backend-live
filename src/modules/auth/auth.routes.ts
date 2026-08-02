@@ -591,7 +591,7 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
     const fields = createPasswordHashFields(password);
     await client.query(
       `UPDATE altax.v3_users
-         SET password_hash = $1, password_salt = $2, password_hash_version = 2, last_password_change_at = $3,
+         SET password_hash = $1, password_salt = $2, password_hash_version = 3, last_password_change_at = $3,
              invite_token = NULL, invite_expires = NULL, must_reset_password = FALSE, last_login = now()
        WHERE user_id = $4`,
       [fields.PasswordHash, fields.PasswordSalt, fields.LastPasswordChangeAt, row.user_id]
@@ -666,7 +666,7 @@ authRouter.post("/change-password", requireAuth, asyncHandler(async (req: Authed
     const updated = createPasswordHashFields(newPassword);
     await client.query(
       `UPDATE altax.v3_users
-         SET password_hash = $1, password_salt = $2, password_hash_version = 2,
+         SET password_hash = $1, password_salt = $2, password_hash_version = 3,
              last_password_change_at = $3, must_reset_password = FALSE,
              failed_login_count = NULL, locked_until = NULL
        WHERE user_id = $4`,
