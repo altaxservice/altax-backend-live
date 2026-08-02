@@ -11,7 +11,7 @@ import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
@@ -165,6 +165,7 @@ export function ClientDetailPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [searchParams, setSearchParams] = useSearchParams();
   const [client, setClient] = useState<Client | null>(null);
   const [summary, setSummary] = useState<ClientSummary | null>(null);
@@ -248,7 +249,7 @@ export function ClientDetailPage() {
       loadTasks();
       api.get<ClientSummary>(`/clients/${clientId}/summary`).then(setSummary).catch(() => {});
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setSavingStatusId(null);
     }
@@ -269,7 +270,7 @@ export function ClientDetailPage() {
         toast("Task voided.");
         loadTasks();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not void this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not void this task.");
       }
     }
     if (action === "delete-task") {
@@ -284,7 +285,7 @@ export function ClientDetailPage() {
         toast("Task deleted.");
         loadTasks();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not delete this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not delete this task.");
       }
     }
   }
@@ -340,13 +341,13 @@ export function ClientDetailPage() {
       toast(`${client.client_name} archived.`);
       navigate("/clients");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this client.");
+      await notify(err instanceof ApiError ? err.message : "Could not archive this client.");
     }
   }
 
   async function handleInvite() {
     if (!client) return;
-    if (!client.email) { alert("This client has no email on file. Add one before sending a portal invitation."); return; }
+    if (!client.email) { await notify("This client has no email on file. Add one before sending a portal invitation."); return; }
     try {
       const res = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>("/users", {
         role: "client", assignedClientId: client.client_id, email: client.email, name: client.client_name,
@@ -354,7 +355,7 @@ export function ClientDetailPage() {
       setInviteInfo(res);
       toast(res.inviteEmailed ? "Portal invite emailed." : "Portal invite created.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not create a portal invite.");
+      await notify(err instanceof ApiError ? err.message : "Could not create a portal invite.");
     }
   }
 
@@ -365,6 +366,18 @@ export function ClientDetailPage() {
 
   return (
     <div>
+      {/* A single "← All clients" link told you how to leave, not where you were —
+          several tabs deep (say, Vault → Tax Payments) there was no trail back
+          through the path itself. BackLink's history-aware "go back to my exact
+          prior view" behavior is still genuinely useful and stays; this adds the
+          structural Clients / [Name] / [Tab] trail alongside it. */}
+      <nav aria-label="Breadcrumb" style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <Link to="/clients" className="muted" style={{ textDecoration: "none" }}>Clients</Link>
+        <span aria-hidden="true">/</span>
+        <span>{client.client_name}</span>
+        <span aria-hidden="true">/</span>
+        <span style={{ color: "var(--ink)", fontWeight: 700 }}>{tab}</span>
+      </nav>
       <BackLink fallback="/clients" fallbackLabel="All clients" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
@@ -756,6 +769,7 @@ const CONTRACT_STATUS_COLOR: Record<string, string> = {
 function ClientDocumentsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -791,7 +805,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       toast("File revoked.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not revoke this file.");
     } finally {
       setRemovingId(null);
     }
@@ -803,7 +817,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       toast(`Archived — ${clientName} still sees this file.`);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not archive this file.");
     } finally {
       setArchivingId(null);
     }
@@ -815,7 +829,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       toast("Unarchived.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not unarchive this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not unarchive this file.");
     } finally {
       setArchivingId(null);
     }
@@ -923,6 +937,7 @@ interface ChecklistProgressRow {
  * on Profile, save, come back to Documents, the new checklist items are here.
  */
 function ClientChecklistSection({ clientId }: { clientId: string }) {
+  const notify = useNotify();
   const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -940,7 +955,7 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
       const res = await api.post<{ checked: boolean }>(`/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`, {});
       setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id ? { ...r, checked: res.checked } : r)));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update this item.");
+      await notify(err instanceof ApiError ? err.message : "Could not update this item.");
     } finally {
       setTogglingId(null);
     }
@@ -985,6 +1000,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [contracts, setContracts] = useState<ClientContract[] | null>(null);
@@ -1031,7 +1047,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       setGenForm({ feeAmount: "", feeDescription: "", effectiveDate: new Date().toISOString().slice(0, 10) });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this contract.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this contract.");
     } finally {
       setBusy(null);
     }
@@ -1044,7 +1060,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       toast(res.emailed ? "Contract sent — emailed to the client." : `Contract marked sent.${res.emailError ? " (Email not sent — copy the link instead.)" : ""}`);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not send this contract.");
+      await notify(err instanceof ApiError ? err.message : "Could not send this contract.");
     } finally {
       setBusy(null);
     }
@@ -1063,7 +1079,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       setSignInPersonFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+      await notify(err instanceof ApiError ? err.message : "Could not record this signature.");
     } finally {
       setBusy(null);
     }
@@ -1085,7 +1101,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       toast("Contract voided.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this contract.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this contract.");
     } finally {
       setBusy(null);
     }
@@ -1100,7 +1116,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       toast("Draft contract deleted.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this contract.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this contract.");
     } finally {
       setBusy(null);
     }
@@ -1112,7 +1128,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       if (mode === "view") await viewFile(`/contracts/${contractId}/pdf`);
       else await downloadFile(`/contracts/${contractId}/pdf`, `${title.replace(/[^\w-]+/g, "_")}_${contractId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
     } finally {
       setBusy(null);
     }
@@ -1131,7 +1147,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       if (mode === "view") await viewFile(`/contracts/client/${clientId}/packet`);
       else await downloadFile(`/contracts/client/${clientId}/packet`, `Signing_Packet_${clientId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not combine these documents.");
+      await notify(err instanceof ApiError ? err.message : "Could not combine these documents.");
     } finally {
       setBusy(null);
     }
@@ -1151,7 +1167,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
       const res = await api.get<{ contract: { rendered_body: string } }>(`/contracts/${contractId}`);
       setPreviewText((prev) => ({ ...prev, [contractId]: res.contract.rendered_body }));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not load this contract's text.");
+      await notify(err instanceof ApiError ? err.message : "Could not load this contract's text.");
       setPreviewId(null);
     }
   }
@@ -1336,6 +1352,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<PoaFiling[] | null>(null);
@@ -1360,7 +1377,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       if (mode === "view") await viewFile(`/poa-forms/${filingId}/pdf`);
       else await downloadFile(`/poa-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
       setBusy(null);
     }
@@ -1379,7 +1396,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       setSignInPersonFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+      await notify(err instanceof ApiError ? err.message : "Could not record this signature.");
     } finally {
       setBusy(null);
     }
@@ -1398,7 +1415,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       setSubmitFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+      await notify(err instanceof ApiError ? err.message : "Could not mark this submitted.");
     } finally {
       setBusy(null);
     }
@@ -1413,7 +1430,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       toast("Filing voided.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this filing.");
     } finally {
       setBusy(null);
     }
@@ -1428,7 +1445,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       toast("Draft filing deleted.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this filing.");
     } finally {
       setBusy(null);
     }
@@ -1557,6 +1574,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
@@ -1581,7 +1599,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
       else await downloadFile(`/gov-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
       setBusy(null);
     }
@@ -1600,7 +1618,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       setSignInPersonFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+      await notify(err instanceof ApiError ? err.message : "Could not record this signature.");
     } finally {
       setBusy(null);
     }
@@ -1619,7 +1637,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       setSubmitFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+      await notify(err instanceof ApiError ? err.message : "Could not mark this submitted.");
     } finally {
       setBusy(null);
     }
@@ -1634,7 +1652,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       toast("Filing voided.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this filing.");
     } finally {
       setBusy(null);
     }
@@ -1649,7 +1667,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       toast("Draft filing deleted.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this filing.");
     } finally {
       setBusy(null);
     }
@@ -1773,6 +1791,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
  * on the client itself rather than on any one employee's page.
  */
 function EmployerTaxFormsSection({ clientId }: { clientId: string }) {
+  const notify = useNotify();
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const currentQuarter = (Math.floor(new Date().getMonth() / 3) + 1) as 1 | 2 | 3 | 4;
   const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(currentQuarter);
@@ -1788,7 +1807,7 @@ function EmployerTaxFormsSection({ clientId }: { clientId: string }) {
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, filename);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : `Could not generate this form.`);
+      await notify(err instanceof ApiError ? err.message : `Could not generate this form.`);
     } finally {
       setBusy(null);
     }
@@ -1865,6 +1884,7 @@ interface VaultAccessLogEntry {
 function VaultSection({ clientId }: { clientId: string }) {
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [secrets, setSecrets] = useState<VaultSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -1907,7 +1927,7 @@ function VaultSection({ clientId }: { clientId: string }) {
       setForm({ category: "", label: "", agencyName: "", username: "", secret: "" });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save this secret.");
+      await notify(err instanceof ApiError ? err.message : "Could not save this secret.");
     } finally {
       setSaving(false);
     }
@@ -1941,7 +1961,7 @@ function VaultSection({ clientId }: { clientId: string }) {
       }, VAULT_REVEAL_TIMEOUT_MS);
       if (showLog) loadLog();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not decrypt this secret.");
+      await notify(err instanceof ApiError ? err.message : "Could not decrypt this secret.");
     }
   }
 
@@ -1957,7 +1977,7 @@ function VaultSection({ clientId }: { clientId: string }) {
       await api.post(`/vault/${clientId}/${secretId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this item.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this item.");
     }
   }
 
@@ -2058,6 +2078,7 @@ const PAYMENT_METHOD_FORM_DEFAULTS = {
 
 function PaymentMethodsSection({ clientId }: { clientId: string }) {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [methods, setMethods] = useState<PaymentMethod[] | null>(null);
@@ -2086,7 +2107,7 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
       setForm(PAYMENT_METHOD_FORM_DEFAULTS);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save this payment method.");
+      await notify(err instanceof ApiError ? err.message : "Could not save this payment method.");
     } finally {
       setSaving(false);
     }
@@ -2111,7 +2132,7 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
       await api.post(`/payment-methods/${clientId}/${paymentMethodId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this payment method.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this payment method.");
     }
   }
 
@@ -2120,7 +2141,7 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
       const res = await api.get<{ accountNumber: string | null; routingNumber: string | null }>(`/payment-methods/${clientId}/${paymentMethodId}/reveal`);
       setRevealed((prev) => ({ ...prev, [paymentMethodId]: res }));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not decrypt this payment method.");
+      await notify(err instanceof ApiError ? err.message : "Could not decrypt this payment method.");
     }
   }
 
@@ -2235,6 +2256,7 @@ function fmtMoney(v: unknown): string {
 function ClientBillingSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
@@ -2261,7 +2283,7 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
       const res = await api.post<{ invoiceId: string }>("/billing/invoices/from-time", { clientId });
       navigate(`/billing/${res.invoiceId}`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not create this invoice.");
+      await notify(err instanceof ApiError ? err.message : "Could not create this invoice.");
     } finally {
       setCreatingFromTime(false);
     }
@@ -2273,7 +2295,7 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
       if (mode === "view") await viewFile(`/billing/clients/${clientId}/statement`);
       else await downloadFile(`/billing/clients/${clientId}/statement`, `Statement_${clientId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setStatementBusy(null);
     }
@@ -2397,6 +2419,7 @@ const ACTIVITY_TYPES = ["Phone Call", "In-Person Meeting", "Video Call", "Voicem
 function ClientActivitySection({ clientId }: { clientId: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [rows, setRows] = useState<ActivityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -2421,7 +2444,7 @@ function ClientActivitySection({ clientId }: { clientId: string }) {
       toast("Logged.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not log this activity.");
+      await notify(err instanceof ApiError ? err.message : "Could not log this activity.");
     } finally {
       setSaving(false);
     }
@@ -2435,7 +2458,7 @@ function ClientActivitySection({ clientId }: { clientId: string }) {
       await api.post(`/clients/${clientId}/activity/${row.id}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this entry.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this entry.");
     }
   }
 

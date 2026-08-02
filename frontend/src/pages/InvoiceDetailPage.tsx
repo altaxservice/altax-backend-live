@@ -12,7 +12,7 @@ import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -31,6 +31,7 @@ export function InvoiceDetailPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -59,7 +60,7 @@ export function InvoiceDetailPage() {
     try {
       await viewFile(`/billing/invoices/${invoiceId}/print`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this invoice PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF.");
     } finally {
       setViewingInvoice(false);
     }
@@ -71,7 +72,7 @@ export function InvoiceDetailPage() {
     try {
       await downloadFile(`/billing/invoices/${invoiceId}/print`, `Invoice_${invoiceId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this invoice PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF.");
     } finally {
       setPrinting(false);
     }
@@ -83,7 +84,7 @@ export function InvoiceDetailPage() {
     try {
       await viewFile(`/billing/clients/${invoice.client_id}/statement`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setViewingStatement(false);
     }
@@ -95,7 +96,7 @@ export function InvoiceDetailPage() {
     try {
       await downloadFile(`/billing/clients/${invoice.client_id}/statement`, `Statement_${invoice.client_id}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setStatementing(false);
     }
@@ -144,7 +145,7 @@ export function InvoiceDetailPage() {
       await api.post(`/billing/payments/${paymentId}/reverse`, { reason });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not reverse this payment.");
+      await notify(err instanceof ApiError ? err.message : "Could not reverse this payment.");
     }
   }
 
@@ -157,7 +158,7 @@ export function InvoiceDetailPage() {
       await navigator.clipboard.writeText(url);
       toast("Share link copied to clipboard.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not create a share link.");
+      await notify(err instanceof ApiError ? err.message : "Could not create a share link.");
     } finally {
       setSharing(false);
     }
@@ -171,7 +172,7 @@ export function InvoiceDetailPage() {
       await api.post(`/billing/invoices/${invoiceId}/void`, {});
       navigate("/billing");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this invoice.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this invoice.");
     }
   }
 

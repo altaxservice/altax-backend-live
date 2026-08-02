@@ -9,7 +9,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useToast } from "../components/Toast";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -60,6 +60,7 @@ export function DocumentsListPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
@@ -152,7 +153,7 @@ export function DocumentsListPage() {
       toast("File revoked — removed from both sides.");
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not revoke this file.");
     } finally {
       setRemovingId(null);
     }
@@ -191,7 +192,7 @@ export function DocumentsListPage() {
       toast("Status updated.");
       loadRequests();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setSavingStatusId(null);
     }
@@ -212,7 +213,7 @@ export function DocumentsListPage() {
         toast("Document request deleted.");
         loadAll();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not delete this request.");
+        await notify(err instanceof ApiError ? err.message : "Could not delete this request.");
       }
     }
   }
@@ -232,7 +233,7 @@ export function DocumentsListPage() {
       setSelected(new Set());
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Bulk delete failed.");
+      await notify(err instanceof ApiError ? err.message : "Bulk delete failed.");
     } finally {
       setBulkBusy(false);
     }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { useToast } from "../components/Toast";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 /**
  * List Settings — every dropdown list in the app, editable in one place.
@@ -32,6 +32,7 @@ interface DropdownCategory {
 export function ListSettingsPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [categories, setCategories] = useState<DropdownCategory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -66,7 +67,7 @@ export function ListSettingsPage() {
       await fn();
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "That change could not be saved.");
+      await notify(err instanceof ApiError ? err.message : "That change could not be saved.");
     } finally {
       setBusy(false);
     }

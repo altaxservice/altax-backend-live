@@ -16,7 +16,7 @@ import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
@@ -34,6 +34,7 @@ export function TasksListPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -188,12 +189,12 @@ export function TasksListPage() {
     setBulkBusy(true);
     try {
       const res = await api.post<{ succeeded: number; failed: string[] }>("/tasks/bulk", { taskIds: Array.from(selected), action, confirm: confirmValue });
-      if (res.failed.length) alert(`${res.succeeded} updated, ${res.failed.length} could not be updated (no access or not found).`);
+      if (res.failed.length) await notify(`${res.succeeded} updated, ${res.failed.length} could not be updated (no access or not found).`);
       else toast(`${res.succeeded} task(s) ${action === "delete" ? "deleted" : "updated"}.`);
       setSelected(new Set());
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Bulk action failed.");
+      await notify(err instanceof ApiError ? err.message : "Bulk action failed.");
     } finally {
       setBulkBusy(false);
     }
@@ -207,7 +208,7 @@ export function TasksListPage() {
       load();
       toast("Task restored.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not restore this task.");
+      await notify(err instanceof ApiError ? err.message : "Could not restore this task.");
     } finally {
       setRestoring(null);
     }
@@ -221,7 +222,7 @@ export function TasksListPage() {
       await load();
       if (archivedTasks !== null) await loadArchived();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setSavingStatusId(null);
     }
@@ -242,7 +243,7 @@ export function TasksListPage() {
         toast("Task voided.");
         load();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not void this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not void this task.");
       }
     }
     if (action === "delete-task") {
@@ -257,7 +258,7 @@ export function TasksListPage() {
         toast("Task deleted.");
         load();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not delete this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not delete this task.");
       }
     }
   }
@@ -397,13 +398,21 @@ export function TasksListPage() {
       {!ready && <div className="spinner-wrap">Loading tasks…</div>}
 
       {ready && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }} id="master-task-pipeline">
+        /* No overflow:hidden here (unlike most .card wrappers) — that would clip
+           the sticky table header, since position:sticky's stick range is bound
+           by the nearest ancestor whose overflow isn't visible. The card's own
+           border-radius still rounds its outer edge visually via its border. */
+        <div className="card" style={{ padding: 0 }} id="master-task-pipeline">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>{tableTitle}</strong>
             <span className="muted" style={{ fontSize: 12 }}>{filtered.length} tasks</span>
           </div>
-          <div style={{ overflowX: "auto" }}>
-          <div className="table-scroll">
+          {/* No separate overflow:auto wrapper around .table-scroll — that div computed
+              its own overflow-y to "auto" too (pairing a non-visible overflow-x with a
+              default-visible overflow-y forces this per spec), becoming a second scroll
+              container that broke the sticky header below exactly like .table-scroll
+              itself used to before it got an explicit overflow-y:visible. */}
+          <div className="table-scroll card-table no-h-scroll">
           <table>
             <thead>
               <tr>
@@ -429,36 +438,47 @@ export function TasksListPage() {
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}
                   <td>
-                    <div>{t.client_name}</div>
-                    <div className="muted" style={{ fontSize: 11 }}>{t.service_line || "—"}</div>
+                    {/* Wrapped in one div so card-table's mobile layout (a flex row per
+                        <td>, label on the left) sees a single flex item instead of two
+                        or three, and these lines stack the way they do on desktop. */}
+                    <div>
+                      <div>{t.client_name}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{t.service_line || "—"}</div>
+                    </div>
                   </td>
-                  <td>
-                    <div>{t.task_name}</div>
-                    {t.priority && t.priority !== "Normal" && (
-                      <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
-                    )}
+                  <td data-label="Task">
+                    <div>
+                      <div>{t.task_name}</div>
+                      {t.priority && t.priority !== "Normal" && (
+                        <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
+                      )}
+                    </div>
                   </td>
-                  <td>
-                    <div className="muted">{fmtDateOnly(t.agency_due_date)}</div>
-                    <DueLabel task={t} />
+                  <td data-label="Due">
+                    <div>
+                      <div className="muted">{fmtDateOnly(t.agency_due_date)}</div>
+                      <DueLabel task={t} />
+                    </div>
                   </td>
-                  <td className="muted">
-                    <div>{t.assigned_to || "Unassigned"}</div>
-                    <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateOnly(t.updated_at)}` : "Not updated"}</div>
-                    {t.updated_by && <div style={{ fontSize: 11 }}>by {t.updated_by}</div>}
+                  <td className="muted" data-label="Owner">
+                    <div>
+                      <div>{t.assigned_to || "Unassigned"}</div>
+                      <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateOnly(t.updated_at)}` : "Not updated"}</div>
+                      {t.updated_by && <div style={{ fontSize: 11 }}>by {t.updated_by}</div>}
+                    </div>
                   </td>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label="Status" onClick={(e) => e.stopPropagation()}>
                     {!isArchivedView && canManage ? (
                       <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleStatusChange(t.task_id, e.target.value)}>
                         {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     ) : <StatusBadge status={t.status} />}
                   </td>
-                  {isArchivedView && <td className="muted">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
+                  {isArchivedView && <td className="muted" data-label="Archived">{t.archived_at ? new Date(String(t.archived_at)).toLocaleDateString() : "—"}</td>}
                   {/* Files folded in here rather than owning a column of its own —
                       most rows have no attachment, so a whole column was spent
                       printing "No file". */}
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label="Action" onClick={(e) => e.stopPropagation()}>
                     {isArchivedView ? (
                       <button type="button" className="btn btn-sm" disabled={restoring === t.task_id} onClick={() => handleRestore(t.task_id)}>{restoring === t.task_id ? "Restoring…" : "Restore"}</button>
                     ) : (
@@ -477,7 +497,6 @@ export function TasksListPage() {
               ))}
             </tbody>
           </table>
-          </div>
           </div>
           {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
         </div>

@@ -4,6 +4,7 @@ import type { Client } from "../api/types";
 import type { Invoice, ProductService } from "../api/types2";
 import { AddRecurringModal } from "./AddRecurringModal";
 import { useToast } from "./Toast";
+import { useNotify } from "./ConfirmProvider";
 import { AddressFields } from "./AddressFields";
 import { ErrorBanner } from "./ErrorBanner";
 
@@ -37,6 +38,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
   clients: Client[]; editing?: Invoice; initialClientId?: string; onClose: () => void; onDone: (invoiceId: string) => void;
 }) {
   const toast = useToast();
+  const notify = useNotify();
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = Boolean(editing);
 
@@ -160,7 +162,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
       setShowQuickAdd(null);
       toast("Product/service added.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not add this product/service.");
+      await notify(err instanceof ApiError ? err.message : "Could not add this product/service.");
     }
   }
 
@@ -365,11 +367,11 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
               <>
                 <button
                   type="button" className="btn btn-sm" disabled={printing}
-                  onClick={() => { setPrinting(true); viewFile(`/billing/invoices/${editing!.invoice_id}/print`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not open this invoice.")).finally(() => setPrinting(false)); }}
+                  onClick={() => { setPrinting(true); viewFile(`/billing/invoices/${editing!.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this invoice.")).finally(() => setPrinting(false)); }}
                 >{printing ? "Opening…" : "View / Print"}</button>
                 <button
                   type="button" className="btn btn-sm" disabled={downloading}
-                  onClick={() => { setDownloading(true); downloadFile(`/billing/invoices/${editing!.invoice_id}/print`, `Invoice_${editing!.invoice_id}.pdf`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not download this invoice.")).finally(() => setDownloading(false)); }}
+                  onClick={() => { setDownloading(true); downloadFile(`/billing/invoices/${editing!.invoice_id}/print`, `Invoice_${editing!.invoice_id}.pdf`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not download this invoice.")).finally(() => setDownloading(false)); }}
                 >{downloading ? "Generating…" : "Download"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => setShowRecurring(true)}>Make Recurring</button>
               </>

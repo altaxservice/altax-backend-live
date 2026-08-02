@@ -3,7 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useToast } from "../components/Toast";
 import { US_STATES } from "../utils/clientOptions";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 /**
  * Firm Portal Credentials — the firm's own agency logins (EFTPS, MD Tax Connect,
@@ -51,6 +51,7 @@ const EMPTY_FORM = {
 export function FirmPortalsPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [portals, setPortals] = useState<FirmPortal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -126,7 +127,7 @@ export function FirmPortalsPage() {
       const res = await api.get<Revealed & { portalName: string }>(`/firm-portals/${p.portal_id}/reveal`);
       setRevealed({ portalId: p.portal_id, username: res.username, password: res.password, notes: res.notes });
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not reveal this credential.");
+      await notify(err instanceof ApiError ? err.message : "Could not reveal this credential.");
     }
   }
 
@@ -139,7 +140,7 @@ export function FirmPortalsPage() {
       setRevealed(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this credential.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this credential.");
     }
   }
 
@@ -148,7 +149,7 @@ export function FirmPortalsPage() {
       await navigator.clipboard.writeText(value);
       toast(`${what} copied to clipboard.`);
     } catch {
-      alert("Could not copy — your browser blocked clipboard access.");
+      await notify("Could not copy — your browser blocked clipboard access.");
     }
   }
 

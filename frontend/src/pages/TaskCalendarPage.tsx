@@ -8,7 +8,7 @@ import { isOpenTask, isOverdue, isDueWeek } from "../components/TaskCells";
 import { NewAppointmentModal } from "../components/NewAppointmentModal";
 import { CalendarSettingsPanel } from "../components/CalendarSettingsPanel";
 import { useAuth } from "../auth/AuthContext";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 /**
  * Practice Management: calendar + staff capacity — task due dates (from the same
@@ -39,6 +39,7 @@ function fmtApptTime(a: Appointment): string {
 export function TaskCalendarPage() {
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -117,7 +118,7 @@ export function TaskCalendarPage() {
       await api.post(`/appointments/${id}/cancel`, {});
       loadAppointments();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not cancel this appointment.");
+      await notify(err instanceof ApiError ? err.message : "Could not cancel this appointment.");
     }
   }
   async function handleDeleteAppointment(id: string) {
@@ -127,7 +128,7 @@ export function TaskCalendarPage() {
       await api.post(`/appointments/${id}/delete`, {});
       loadAppointments();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this appointment.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this appointment.");
     }
   }
 

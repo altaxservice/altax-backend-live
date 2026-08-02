@@ -10,7 +10,7 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
 import type { DocumentRequest } from "../api/types2";
 import type { GovFormFiling } from "../api/govForms";
@@ -51,6 +51,7 @@ type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -123,7 +124,7 @@ export function EmployeeDetailPage() {
       await api.post(`/accounting/employees/${employee.employee_id}/status`, { status: nextStatus });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not change this profile's status.");
+      await notify(err instanceof ApiError ? err.message : "Could not change this profile's status.");
     } finally {
       setStatusSaving(false);
     }
@@ -136,7 +137,7 @@ export function EmployeeDetailPage() {
       const res = await api.get<SensitiveFields>(`/accounting/employees/${employee.employee_id}/sensitive`);
       setSensitive(res);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not decrypt this profile's sensitive fields.");
+      await notify(err instanceof ApiError ? err.message : "Could not decrypt this profile's sensitive fields.");
     } finally {
       setRevealing(false);
     }
@@ -455,6 +456,7 @@ export function EmployeeDetailPage() {
  * + View/Download W-2 cluster, which sat unlabeled next to unrelated buttons.
  */
 function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { employeeId: string; employeeName: string; isContractor: boolean }) {
+  const notify = useNotify();
   const [years, setYears] = useState<number[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyYear, setBusyYear] = useState<string | null>(null);
@@ -478,7 +480,7 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
     try {
       await viewFile(formPath(year));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this tax form.");
     } finally {
       setBusyYear(null);
     }
@@ -489,7 +491,7 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
       const filename = `${isContractor ? "1099NEC" : "W2"}_${year}_${employeeName.replace(/\s+/g, "_")}.pdf`;
       await downloadFile(formPath(year), filename);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this tax form.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this tax form.");
     } finally {
       setBusyYear(null);
     }
@@ -548,6 +550,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
@@ -580,7 +583,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `Form_${formType}_${f.filing_id}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
       setBusy(null);
     }
@@ -593,7 +596,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       toast(`${title} sent — they can now fill it in and sign from their own portal.`);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not send this form.");
+      await notify(err instanceof ApiError ? err.message : "Could not send this form.");
     } finally {
       setSending(false);
     }
@@ -612,7 +615,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       setSignInPersonFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not record this signature.");
+      await notify(err instanceof ApiError ? err.message : "Could not record this signature.");
     } finally {
       setBusy(null);
     }
@@ -631,7 +634,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       setSubmitFor(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not mark this submitted.");
+      await notify(err instanceof ApiError ? err.message : "Could not mark this submitted.");
     } finally {
       setBusy(null);
     }
@@ -646,7 +649,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       toast("Filing voided.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this filing.");
     } finally {
       setBusy(null);
     }
@@ -661,7 +664,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
       toast("Draft filing deleted.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this filing.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this filing.");
     } finally {
       setBusy(null);
     }
@@ -803,6 +806,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
 function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientName }: { employeeId: string; employeeName: string; clientId: string; clientName: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -840,7 +844,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
       toast("File revoked.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not revoke this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not revoke this file.");
     } finally {
       setRemovingId(null);
     }
@@ -852,7 +856,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
       toast(`Archived — ${employeeName} still sees this file.`);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not archive this file.");
     } finally {
       setArchivingId(null);
     }
@@ -864,7 +868,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
       toast("Unarchived.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not unarchive this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not unarchive this file.");
     } finally {
       setArchivingId(null);
     }

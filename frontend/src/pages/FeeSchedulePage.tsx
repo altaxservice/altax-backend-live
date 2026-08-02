@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type FeeItem } from "../api/estimates";
 
@@ -26,6 +26,7 @@ const EMPTY: Partial<FeeItem> & { unit_cost: string; unit_price: string } = {
 export function FeeSchedulePage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [items, setItems] = useState<FeeItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<(Partial<FeeItem> & Record<string, unknown>) | null>(null);
@@ -95,7 +96,7 @@ export function FeeSchedulePage() {
       toast("Fee deactivated.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not deactivate this fee.");
+      await notify(err instanceof ApiError ? err.message : "Could not deactivate this fee.");
     }
   }
 

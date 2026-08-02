@@ -15,7 +15,7 @@ import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { AddRecurringModal } from "../components/AddRecurringModal";
 import { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 export { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 
@@ -41,6 +41,7 @@ export function InvoicesListPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { setSelectedClient } = useSelectedClient();
 
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
@@ -120,7 +121,7 @@ export function InvoicesListPage() {
     try {
       await viewFile(statementPath());
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setViewingStatement(false);
     }
@@ -132,7 +133,7 @@ export function InvoicesListPage() {
     try {
       await downloadFile(statementPath(), `Statement_${statementClientId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this statement.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setPrintingStatement(false);
     }
@@ -149,7 +150,7 @@ export function InvoicesListPage() {
       toast(`Created ${res.created.length} invoice(s), skipped ${res.skipped}.${res.errors.length ? ` ${res.errors.length} error(s).` : ""}${emailSummary}`);
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not run recurring billing.");
+      await notify(err instanceof ApiError ? err.message : "Could not run recurring billing.");
     } finally {
       setRunning(false);
     }
@@ -163,7 +164,7 @@ export function InvoicesListPage() {
       toast("Invoice voided.");
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this invoice.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this invoice.");
     }
   }
 
@@ -179,7 +180,7 @@ export function InvoicesListPage() {
       toast("Invoice deleted.");
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this invoice.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this invoice.");
     }
   }
 
@@ -191,7 +192,7 @@ export function InvoicesListPage() {
       toast("Schedule archived.");
       loadSchedules();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this schedule.");
+      await notify(err instanceof ApiError ? err.message : "Could not archive this schedule.");
     }
   }
 
@@ -203,7 +204,7 @@ export function InvoicesListPage() {
       toast(`Invoice ${res.invoiceId} created.`);
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not run this schedule.");
+      await notify(err instanceof ApiError ? err.message : "Could not run this schedule.");
     }
   }
 
@@ -217,7 +218,7 @@ export function InvoicesListPage() {
       toast("Schedule paused.");
       loadSchedules();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not pause this schedule.");
+      await notify(err instanceof ApiError ? err.message : "Could not pause this schedule.");
     }
   }
 
@@ -227,7 +228,7 @@ export function InvoicesListPage() {
       toast("Schedule resumed.");
       loadSchedules();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not resume this schedule.");
+      await notify(err instanceof ApiError ? err.message : "Could not resume this schedule.");
     }
   }
 
@@ -239,7 +240,7 @@ export function InvoicesListPage() {
       toast("Next occurrence skipped.");
       loadSchedules();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not skip this schedule's next date.");
+      await notify(err instanceof ApiError ? err.message : "Could not skip this schedule's next date.");
     }
   }
 
@@ -255,7 +256,7 @@ export function InvoicesListPage() {
       toast("Schedule deleted.");
       loadSchedules();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this schedule.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this schedule.");
     }
   }
 
@@ -410,8 +411,8 @@ export function InvoicesListPage() {
                         ]}
                         onSelect={(action) => {
                           if (action === "view") navigate(`/billing/${inv.invoice_id}`);
-                          if (action === "view-pdf") viewFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not open this invoice."));
-                          if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, `Invoice_${inv.invoice_id}.pdf`).catch((err) => alert(err instanceof ApiError ? err.message : "Could not print this invoice."));
+                          if (action === "view-pdf") viewFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this invoice."));
+                          if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, `Invoice_${inv.invoice_id}.pdf`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice."));
                           if (action === "void") handleVoid(inv.invoice_id);
                           if (action === "delete") handleDelete(inv.invoice_id);
                         }}

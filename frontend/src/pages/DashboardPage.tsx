@@ -8,7 +8,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
-import { usePrompt } from "../components/ConfirmProvider";
+import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -43,6 +43,7 @@ function CommandPanel({ title, note, action, children }: { title: React.ReactNod
 function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: Task[]; empty: string; statusEditable?: boolean; onChanged?: () => void }) {
   const navigate = useNavigate();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
@@ -55,7 +56,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
       await api.patch(`/tasks/${taskId}`, { status });
       onChanged?.();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setSavingId(null);
     }
@@ -75,7 +76,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
         await api.post(`/tasks/${task.task_id}/void`, { reason });
         onChanged?.();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not void this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not void this task.");
       }
     }
     if (action === "delete-task") {
@@ -89,7 +90,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
         await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
         onChanged?.();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not delete this task.");
+        await notify(err instanceof ApiError ? err.message : "Could not delete this task.");
       }
     }
   }
@@ -244,6 +245,7 @@ function invoiceActionOptions(role: string | undefined) {
 
 function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; empty: string; clientNames: Map<string, string> }) {
   const navigate = useNavigate();
+  const notify = useNotify();
   const { user } = useAuth();
   if (!invoices.length) return <p className="muted" style={{ padding: 16 }}>{empty}</p>;
 
@@ -252,22 +254,22 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
     if (action === "record-payment" || action === "edit-invoice") return navigate(`/billing/${i.invoice_id}`);
     if (action === "view-invoice-pdf") {
       try { await viewFile(`/billing/invoices/${i.invoice_id}/print`); }
-      catch (err) { alert(err instanceof ApiError ? err.message : "Could not open this invoice."); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not open this invoice."); }
       return;
     }
     if (action === "print-invoice") {
       try { await downloadFile(`/billing/invoices/${i.invoice_id}/print`, `Invoice_${i.invoice_id}.pdf`); }
-      catch (err) { alert(err instanceof ApiError ? err.message : "Could not generate this invoice PDF."); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF."); }
       return;
     }
     if (action === "view-statement") {
       try { await viewFile(`/billing/clients/${i.client_id}/statement`); }
-      catch (err) { alert(err instanceof ApiError ? err.message : "Could not generate this statement."); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this statement."); }
       return;
     }
     if (action === "download-statement") {
       try { await downloadFile(`/billing/clients/${i.client_id}/statement`, `Statement_${i.client_id}.pdf`); }
-      catch (err) { alert(err instanceof ApiError ? err.message : "Could not generate this statement."); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this statement."); }
     }
   }
 
@@ -552,6 +554,7 @@ interface MyPaycheck {
 function EmployeeCommand() {
   const { user } = useAuth();
   const { t, dir } = useLanguage();
+  const notify = useNotify();
   const [paychecks, setPaychecks] = useState<MyPaycheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -569,7 +572,7 @@ function EmployeeCommand() {
     try {
       await viewFile(`/accounting/paychecks/${p.paycheck_id}/print`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this paystub.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this paystub.");
     } finally {
       setBusy(null);
     }
@@ -580,7 +583,7 @@ function EmployeeCommand() {
     try {
       await downloadFile(`/accounting/paychecks/${p.paycheck_id}/print`, `Paystub_${p.check_number || p.paycheck_id}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not download this paystub.");
+      await notify(err instanceof ApiError ? err.message : "Could not download this paystub.");
     } finally {
       setBusy(null);
     }

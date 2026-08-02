@@ -11,7 +11,7 @@ import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
-import { usePrompt } from "../components/ConfirmProvider";
+import { usePrompt, useNotify } from "../components/ConfirmProvider";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -60,6 +60,7 @@ function toDateInput(value: unknown): string {
 
 export function TaskDetailPage() {
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -132,7 +133,7 @@ export function TaskDetailPage() {
       await api.patch(`/tasks/${taskId}`, { status: newStatus });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setStatusSaving(false);
     }
@@ -146,7 +147,7 @@ export function TaskDetailPage() {
       await api.post(`/tasks/${taskId}/void`, { reason });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not void this task.");
+      await notify(err instanceof ApiError ? err.message : "Could not void this task.");
     }
   }
 

@@ -3,7 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import type { Client } from "../api/types";
 
 interface TimeEntry {
@@ -33,6 +33,7 @@ const money = (n: number | string | null | undefined) => `$${(Number(n) || 0).to
  */
 export function TimeTrackingPage() {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
@@ -85,7 +86,7 @@ export function TimeTrackingPage() {
       await api.post(`/time-tracking/entries/${entryId}/${decision}`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update this entry.");
+      await notify(err instanceof ApiError ? err.message : "Could not update this entry.");
     }
   }
 
@@ -96,7 +97,7 @@ export function TimeTrackingPage() {
       await api.post(`/time-tracking/entries/${entryId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this entry.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this entry.");
     }
   }
 

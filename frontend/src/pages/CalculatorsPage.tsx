@@ -6,6 +6,7 @@ import type { MdFilingResult, SalesTaxCategory, SalesTaxPreviewResult } from "..
 import type { Client } from "../api/types";
 import { US_STATES } from "../utils/clientOptions";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useNotify } from "../components/ConfirmProvider";
 
 /** Handoff key Accounting → Sales Input reads on load to prefill its category lines — see AccountingPage.tsx's SalesTab. Session-scoped (not localStorage) so a stale handoff never survives past this browser tab/session. */
 export const CALCULATOR_TO_SALES_INPUT_KEY = "altax_calculator_to_sales_input";
@@ -64,6 +65,7 @@ const nextMdDueDate = () => {
  */
 function SalesTaxCalculator() {
   const navigate = useNavigate();
+  const notify = useNotify();
   const { clientId: globalClientId } = useSelectedClient();
   const [state, setState] = useState("MD");
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
@@ -178,7 +180,7 @@ function SalesTaxCalculator() {
     try {
       await viewFilePost("/calculators/sales-tax-pdf", buildPayload());
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this PDF.");
     } finally {
       setPdfBusy(false);
     }

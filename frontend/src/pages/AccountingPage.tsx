@@ -16,7 +16,7 @@ import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -216,6 +216,7 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
 
 function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
@@ -400,9 +401,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
       setViewing(null);
       setEditing(null);
       load();
-      alert(`Sale deleted. ${res.glLinesRemoved} general-ledger line(s) reversed.`);
+      await notify(`Sale deleted. ${res.glLinesRemoved} general-ledger line(s) reversed.`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this sale.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this sale.");
     }
   }
 
@@ -710,6 +711,7 @@ function SalesRow({ label, value, bold }: { label: string; value: string; bold?:
 
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [viewingPayCheck, setViewingPayCheck] = useState<any | null>(null);
   // Edit/delete live here as well as on the Paychecks tab. Sending someone to
   // another tab to correct the row they are already looking at is the kind of
@@ -870,7 +872,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
       if (editing?.paycheck_id === p.paycheck_id) setEditing(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
     } finally {
       setDeleting(null);
     }
@@ -1530,6 +1532,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isContractorTab = workerType === "Contractor";
@@ -1556,7 +1559,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
     try {
       await viewFile(taxFormPath(emp));
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
+      await notify(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
     } finally {
       setViewingForm(null);
     }
@@ -1567,7 +1570,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
     try {
       await downloadFile(taxFormPath(emp), `${isContractorTab ? "1099NEC" : "W2"}_${taxYear}_${emp.employee_name.replace(/\s+/g, "_")}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
+      await notify(err instanceof ApiError ? err.message : `Could not generate this ${formLabel}.`);
     } finally {
       setPrinting(null);
     }
@@ -1581,7 +1584,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       load();
       onWorkersChanged?.();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not archive this profile.");
+      await notify(err instanceof ApiError ? err.message : "Could not archive this profile.");
     }
   }
 
@@ -1597,7 +1600,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       load();
       onWorkersChanged?.();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this profile.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this profile.");
     }
   }
 
@@ -1760,6 +1763,7 @@ const EMPTY_CONTRACTOR_PAYMENT_FORM = {
 const CONTRACTOR_PAYMENT_METHODS = ["Check", "ACH", "Zelle", "Cash", "Card", "Other"];
 
 function ContractorsTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const notify = useNotify();
   const [contractors, setContractors] = useState<Employee[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -1782,7 +1786,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
     try {
       await viewFile(`/accounting/tax-forms/1099nec/${necContractorId}?year=${necYear}`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this 1099-NEC.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this 1099-NEC.");
     } finally {
       setViewingNec(false);
     }
@@ -1796,7 +1800,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
       const contractor = contractors.find((c) => c.employee_id === necContractorId);
       await downloadFile(`/accounting/tax-forms/1099nec/${necContractorId}?year=${necYear}`, `1099NEC_${necYear}_${(contractor?.employee_name || necContractorId).replace(/\s+/g, "_")}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this 1099-NEC.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this 1099-NEC.");
     } finally {
       setPrintingNec(false);
     }
@@ -2017,6 +2021,7 @@ function jeTotal(entry: any, side: "debit" | "credit"): number {
 
 function ManualJeTab({ clientId }: { clientId: string }) {
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
@@ -2066,9 +2071,9 @@ function ManualJeTab({ clientId }: { clientId: string }) {
       );
       setViewingJe(null);
       loadHistory();
-      alert(`Journal entry deleted — ${res.linesRemoved} line(s), ${res.glLinesRemoved} general-ledger line(s) reversed.`);
+      await notify(`Journal entry deleted — ${res.linesRemoved} line(s), ${res.glLinesRemoved} general-ledger line(s) reversed.`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this journal entry.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this journal entry.");
     }
   }
 
@@ -2396,6 +2401,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
 
 function PaychecksTab({ clientId }: { clientId: string }) {
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [viewingCheck, setViewingCheck] = useState<any | null>(null);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -2416,7 +2422,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
     try {
       await viewFile(`/accounting/paychecks/${p.paycheck_id}/print`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this paycheck.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this paycheck.");
     } finally {
       setViewing(null);
     }
@@ -2427,7 +2433,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
     try {
       await downloadFile(`/accounting/paychecks/${p.paycheck_id}/print`, `Paycheck_${p.check_number || p.paycheck_id}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this paycheck.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this paycheck.");
     } finally {
       setPrinting(null);
     }
@@ -2446,7 +2452,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       if (viewingCheck?.paycheck_id === p.paycheck_id) setViewingCheck(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this paycheck.");
     } finally {
       setDeleting(null);
     }
@@ -2656,6 +2662,7 @@ function currentPeriodValue(): string {
 }
 
 function MonthEndTab({ clientId }: { clientId: string }) {
+  const notify = useNotify();
   const [period, setPeriod] = useState(currentPeriodValue());
   const [items, setItems] = useState<MonthEndItem[] | null>(null);
   const [doneCount, setDoneCount] = useState(0);
@@ -2677,7 +2684,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
       await api.post(`/accounting/month-end/${clientId}/items`, { period, itemName: item.item_name, category: item.category, status: nextStatus });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update this item.");
+      await notify(err instanceof ApiError ? err.message : "Could not update this item.");
     } finally {
       setSaving(null);
     }
@@ -2762,6 +2769,7 @@ function CheckDesignerPreview({ form }: { form: typeof EMPTY_CHECK_FORM }) {
 }
 
 function CheckSettingsTab({ clientId }: { clientId: string }) {
+  const notify = useNotify();
   const [settings, setSettings] = useState<CheckSettings | null>(null);
   const [form, setForm] = useState({ ...EMPTY_CHECK_FORM });
   const [saving, setSaving] = useState(false);
@@ -2777,7 +2785,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `MICR_Calibration_${clientId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate the calibration sheet.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate the calibration sheet.");
     } finally {
       setCalibrationBusy(null);
     }
@@ -2876,6 +2884,7 @@ interface YearEndEmployeeRow { employeeId: string; employeeName: string; ssnOnFi
 interface YearEndContractorRow { contractorId: string; contractorName: string; tinOnFile: boolean; nec: number; status: string; issues: string[] }
 
 function YearEndTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const notify = useNotify();
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [data, setData] = useState<{ clientIssues: string[]; employees: YearEndEmployeeRow[]; contractors: YearEndContractorRow[]; mdWithholdingSummary: { total: number; employeeCount: number } } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2897,7 +2906,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
     try {
       await downloadFile(path, filename);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this form.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this form.");
     } finally {
       setBusy(null);
     }
@@ -3014,6 +3023,7 @@ const TAX_RATE_FORM_DEFAULTS = { rateId: "", rateType: "", rate: "", scope: "Glo
 
 function TaxRatesTab() {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [rates, setRates] = useState<TaxRate[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -3077,11 +3087,11 @@ function TaxRatesTab() {
   async function handleDeactivate(rowId: string) {
     const ok = await confirmDialog({ title: "Deactivate tax rate", message: "Deactivate this tax rate?" });
     if (!ok) return;
-    await api.post(`/accounting/tax-rates/${rowId}/deactivate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/tax-rates/${rowId}/deactivate`, {}).catch((e) => notify(e.message));
     load();
   }
   async function handleActivate(rowId: string) {
-    await api.post(`/accounting/tax-rates/${rowId}/activate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/tax-rates/${rowId}/activate`, {}).catch((e) => notify(e.message));
     load();
   }
 
@@ -3208,6 +3218,7 @@ const CATEGORY_FORM_DEFAULTS = {
  */
 function SalesCategoriesSection() {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [categories, setCategories] = useState<SalesTaxCategoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -3257,11 +3268,11 @@ function SalesCategoriesSection() {
   async function handleDeactivate(categoryId: string) {
     const ok = await confirmDialog({ title: "Deactivate category", message: "It will stop appearing in Sales Input." });
     if (!ok) return;
-    await api.post(`/accounting/sales-categories/${categoryId}/deactivate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/sales-categories/${categoryId}/deactivate`, {}).catch((e) => notify(e.message));
     load();
   }
   async function handleActivate(categoryId: string) {
-    await api.post(`/accounting/sales-categories/${categoryId}/activate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/sales-categories/${categoryId}/activate`, {}).catch((e) => notify(e.message));
     load();
   }
   async function handleDelete(categoryId: string, categoryName: string) {
@@ -3271,7 +3282,7 @@ function SalesCategoriesSection() {
       await api.post(`/accounting/sales-categories/${categoryId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this category.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this category.");
     }
   }
 
@@ -3357,6 +3368,7 @@ interface BudgetData { year: number; accounts: BudgetAccountRow[]; budgets: Budg
  * way a P&L account is, so those types are excluded server-side.
  */
 function BudgetTab({ clientId }: { clientId: string }) {
+  const notify = useNotify();
   const [year, setYear] = useState(new Date().getFullYear());
   const [data, setData] = useState<BudgetData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -3392,7 +3404,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
       await api.post(`/budgets/${clientId}`, { year, entries });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save the budget.");
+      await notify(err instanceof ApiError ? err.message : "Could not save the budget.");
     } finally {
       setSaving(false);
     }
@@ -3527,6 +3539,7 @@ interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; book
  */
 function BankRecTab({ clientId }: { clientId: string }) {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
   const [accountName, setAccountName] = useState("");
   const [data, setData] = useState<BankRecData | null>(null);
@@ -3569,7 +3582,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
       const res = await api.post<{ inserted: number }>("/bank-rec/upload", { clientId, accountName, fileBase64 });
       setFile(null);
       load();
-      alert(`Imported ${res.inserted} statement line(s).`);
+      await notify(`Imported ${res.inserted} statement line(s).`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not read this statement file.");
     } finally {
@@ -3585,7 +3598,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
       setSelectedBankLine(null); setSelectedGl(null);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not match these.");
+      await notify(err instanceof ApiError ? err.message : "Could not match these.");
     } finally {
       setMatching(false);
     }
@@ -3599,7 +3612,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
       setCreatingFor(null); setOffsetAccount("");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not create this entry.");
+      await notify(err instanceof ApiError ? err.message : "Could not create this entry.");
     } finally {
       setMatching(false);
     }
@@ -3613,11 +3626,11 @@ function BankRecTab({ clientId }: { clientId: string }) {
         `/bank-rec/${clientId}/auto-match?accountName=${encodeURIComponent(accountName)}`, {}
       );
       load();
-      alert(res.matched
+      await notify(res.matched
         ? `Auto-matched ${res.matched} line(s) by exact amount + nearest date. ${res.remaining} line(s) still need a manual look.`
         : "No exact amount matches were found — everything unmatched needs a manual look.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not auto-match.");
+      await notify(err instanceof ApiError ? err.message : "Could not auto-match.");
     } finally {
       setAutoMatching(false);
     }
@@ -3630,7 +3643,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
       await api.post(`/bank-rec/${lineId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this line.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this line.");
     }
   }
 
@@ -3755,6 +3768,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
 
 function CoaTab() {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -3788,7 +3802,7 @@ function CoaTab() {
       setForm(COA_FORM_DEFAULTS);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save this account.");
+      await notify(err instanceof ApiError ? err.message : "Could not save this account.");
     } finally {
       setSaving(false);
     }
@@ -3797,11 +3811,11 @@ function CoaTab() {
   async function handleDeactivate(accountId: string) {
     const ok = await confirmDialog({ title: "Deactivate account", message: "Deactivate this account?" });
     if (!ok) return;
-    await api.post(`/accounting/coa/${accountId}/deactivate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/coa/${accountId}/deactivate`, {}).catch((e) => notify(e.message));
     load();
   }
   async function handleActivate(accountId: string) {
-    await api.post(`/accounting/coa/${accountId}/activate`, {}).catch((e) => alert(e.message));
+    await api.post(`/accounting/coa/${accountId}/activate`, {}).catch((e) => notify(e.message));
     load();
   }
 

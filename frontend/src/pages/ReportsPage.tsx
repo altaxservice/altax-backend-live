@@ -3,28 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
 
-const TABS = ["Firm Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
+const TABS = ["Financial Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Groups the flat 10-tab strip into labeled clusters — a flat row this long wrapped
  * unpredictably and gave no visual signal it was still one control. */
 const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
-  { label: "Financials", tabs: ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "AR Aging"] },
+  { label: "Financials", tabs: ["Financial Overview", "P&L", "Balance Sheet", "Trial Balance", "AR Aging"] },
   { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee"] },
   { label: "Client-Facing", tabs: ["Client Message", "Sales, Tax & Payroll Report"] },
 ];
 
-/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview, AR Aging — both firm-wide, not per-client, so they have their own PDF/CSV buttons instead of using this map). */
+/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists. Financial Overview is per-client like the rest despite its name (renamed from "Firm Overview" for exactly that reason — it always required picking a client); AR Aging is the one genuinely firm-wide tab here. Both have their own PDF/CSV buttons instead of using this map. */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
-  "Firm Overview": null, "AR Aging": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
+  "Financial Overview": null, "AR Aging": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
   "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee", "Client Message": "client-message",
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
 };
@@ -38,7 +38,7 @@ const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance
  * flow instead of these buttons, since it already builds real bilingual content).
  */
 const REPORT_TITLES: Partial<Record<Tab, { en: string; ar: string }>> = {
-  "Firm Overview": { en: "Financial Overview", ar: "نظرة عامة مالية" },
+  "Financial Overview": { en: "Financial Overview", ar: "نظرة عامة مالية" },
   "P&L": { en: "Profit & Loss Statement", ar: "قائمة الأرباح والخسائر" },
   "Balance Sheet": { en: "Balance Sheet", ar: "الميزانية العمومية" },
   "Sales & Tax": { en: "Sales Tax Report", ar: "تقرير ضريبة المبيعات" },
@@ -96,8 +96,9 @@ const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 export function ReportsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const notify = useNotify();
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
-  const [tab, setTab] = useState<Tab>("Firm Overview");
+  const [tab, setTab] = useState<Tab>("Financial Overview");
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(globalClientId || "");
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
@@ -133,7 +134,7 @@ export function ReportsPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== "admin" || tab !== "Firm Overview" || !clientId) return;
+    if (user?.role !== "admin" || tab !== "Financial Overview" || !clientId) return;
     setFirmSummary(null);
     setFirmError(null);
     api.get<FirmSummary>(`/reports/firm-summary?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`)
@@ -351,7 +352,7 @@ export function ReportsPage() {
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this report.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
       setReportBusy(null);
     }
@@ -365,7 +366,7 @@ export function ReportsPage() {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
       await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`, `${segment}_${clientId}_${from}_${to}.csv`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not export this data.");
+      await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
       setReportBusy(null);
     }
@@ -380,7 +381,7 @@ export function ReportsPage() {
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, `Overview_${clientId}_${from}_${to}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate this report.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
       setReportBusy(null);
     }
@@ -392,7 +393,7 @@ export function ReportsPage() {
     try {
       await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`, `Overview_${clientId}_${from}_${to}.csv`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not export this data.");
+      await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
       setReportBusy(null);
     }
@@ -413,10 +414,10 @@ export function ReportsPage() {
     if (!title) return;
     const sentTo = client.email;
     if (!sentTo) {
-      alert("This client has no email address on file.");
+      await notify("This client has no email address on file.");
       return;
     }
-    const isFirmOverview = tab === "Firm Overview";
+    const isFirmOverview = tab === "Financial Overview";
     const key = `${isFirmOverview ? "firm" : REPORT_PDF_SEGMENT[tab]}-email`;
     setReportBusy(key);
     try {
@@ -433,10 +434,10 @@ export function ReportsPage() {
         messageArabic: `يرجى الاطلاع على ${title.ar} المرفق لـ ${periodLabelAr}.`,
         attachment: { filename: `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`, contentBase64, contentType: "application/pdf" },
       });
-      if (res.sent) alert(`${title.en} emailed to ${sentTo}.`);
-      else alert(res.sendError ? `Could not send: ${res.sendError}` : "Could not send this report.");
+      if (res.sent) await notify(`${title.en} emailed to ${sentTo}.`);
+      else await notify(res.sendError ? `Could not send: ${res.sendError}` : "Could not send this report.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not send this report.");
+      await notify(err instanceof ApiError ? err.message : "Could not send this report.");
     } finally {
       setReportBusy(null);
     }
@@ -467,7 +468,7 @@ export function ReportsPage() {
     navigate(`/clients/${clientId}?tab=Communications`);
   }
 
-  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Firm Overview");
+  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Financial Overview");
 
   return (
     <div>
@@ -515,14 +516,14 @@ export function ReportsPage() {
                   <div>
                     <h2 className="command-panel-title">{client.client_name}</h2>
                     <div className="command-panel-note">
-                      {tab === "Firm Overview" ? `Revenue/expense trend from general-ledger activity, ${from} – ${to}.` : "Financial statements are generated from general-ledger activity for the selected period."}
+                      {tab === "Financial Overview" ? `Revenue/expense trend from general-ledger activity, ${from} – ${to}.` : "Financial statements are generated from general-ledger activity for the selected period."}
                     </div>
                   </div>
                   {/* "Preview / Print" rather than the old "Print Report": this opens the
                       real generated PDF in a new tab, where it can be read first and printed
                       from the browser — it never printed directly, so the old label undersold
                       it as a preview step and the user asked for one explicitly. */}
-                  {tab === "Firm Overview" ? (
+                  {tab === "Financial Overview" ? (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("view")}>
                         {reportBusy === "firm-view" ? "Opening…" : "Preview / Print"}
@@ -572,7 +573,7 @@ export function ReportsPage() {
                 </div>
               </div>
 
-              {tab === "Firm Overview" && (
+              {tab === "Financial Overview" && (
                 <>
                   {firmError && <ErrorBanner error={firmError} />}
                   {!firmSummary && !firmError && <div className="spinner-wrap">Loading…</div>}

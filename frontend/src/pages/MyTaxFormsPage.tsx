@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
+import { useNotify } from "../components/ConfirmProvider";
 import { useLanguage } from "../context/LanguageContext";
 import type { GovFormFiling, GovFormsMeta } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_STATUS_COLOR } from "../api/govForms";
@@ -15,6 +16,7 @@ import { GOV_FORM_LABELS, GOV_STATUS_COLOR } from "../api/govForms";
  */
 export function MyTaxFormsPage() {
   const toast = useToast();
+  const notify = useNotify();
   const { t, dir } = useLanguage();
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function MyTaxFormsPage() {
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, filename);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not open this form.");
+      await notify(err instanceof ApiError ? err.message : "Could not open this form.");
     } finally {
       setBusy(null);
     }

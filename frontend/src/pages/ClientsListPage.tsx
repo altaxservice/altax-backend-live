@@ -9,7 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -83,6 +83,7 @@ export function ClientsListPage() {
   const { setSelectedClient } = useSelectedClient();
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [searchParams, setSearchParams] = useSearchParams();
   const [clients, setClients] = useState<Client[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +110,7 @@ export function ClientsListPage() {
   const [createPortalNow, setCreatePortalNow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
   const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [requestDocFor, setRequestDocFor] = useState<{ clientId: string; clientName: string } | null>(null);
@@ -151,6 +153,11 @@ export function ClientsListPage() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (!form.clientName.trim()) {
+      setNameError("Client name is required.");
+      return;
+    }
+    setNameError(null);
     setSaving(true);
     setSaveError(null);
     try {
@@ -201,7 +208,7 @@ export function ClientsListPage() {
         setInviteInfo({ clientName: c.client_name, inviteLink: res.inviteLink });
         toast(`Invite created for ${c.client_name}.`);
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not create a portal invite.");
+        await notify(err instanceof ApiError ? err.message : "Could not create a portal invite.");
       }
       return;
     }
@@ -213,7 +220,7 @@ export function ClientsListPage() {
         toast(`${c.client_name} archived.`);
         load();
       } catch (err) {
-        alert(err instanceof ApiError ? err.message : "Could not archive this client.");
+        await notify(err instanceof ApiError ? err.message : "Could not archive this client.");
       }
     }
   }
@@ -366,10 +373,19 @@ export function ClientsListPage() {
 
           <div className="form-section-title">Client Identity</div>
           <div className="form-grid-3">
-            <div className="field">
+            <div className={`field ${nameError ? "invalid" : ""}`}>
               <label htmlFor="nc-name">Client Name</label>
-              <input id="nc-name" required value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))} />
-              <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Client ID will be auto-assigned when you save.</div>
+              <input
+                id="nc-name"
+                aria-invalid={nameError ? "true" : undefined}
+                value={form.clientName}
+                onChange={(e) => { setForm((f) => ({ ...f, clientName: e.target.value })); if (nameError) setNameError(null); }}
+              />
+              {nameError ? (
+                <p className="field-error">{nameError}</p>
+              ) : (
+                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Client ID will be auto-assigned when you save.</div>
+              )}
             </div>
             <div className="field">
               <label htmlFor="nc-ctype">Client Type</label>
@@ -678,13 +694,20 @@ export function ClientsListPage() {
       {!clients && !error && <div className="spinner-wrap">Loading clients…</div>}
 
       {clients && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        /* No overflow:hidden (unlike most .card wrappers) — it would clip the
+           sticky table header, since position:sticky's stick range is bound by
+           the nearest ancestor whose overflow isn't visible. */
+        <div className="card" style={{ padding: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>{tableTitle}</strong>
             <span className="muted" style={{ fontSize: 12 }}>{filtered.length} of {clients.length} clients</span>
           </div>
-          <div style={{ overflowX: "auto" }}>
-          <div className="table-scroll">
+          {/* No separate overflow:auto wrapper around .table-scroll — that div computed
+              its own overflow-y to "auto" too (pairing a non-visible overflow-x with a
+              default-visible overflow-y forces this per spec), becoming a second scroll
+              container that broke the sticky header below exactly like .table-scroll
+              itself used to before it got an explicit overflow-y:visible. */}
+          <div className="table-scroll card-table no-h-scroll">
           <table>
             <thead>
               <tr>
@@ -705,36 +728,47 @@ export function ClientsListPage() {
                 return (
                   <tr key={c.client_id} data-row-id={c.client_id} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
                     <td>
-                      <div className="cell-primary">{c.client_name}</div>
-                      <div className="cell-sub">
-                        {c.client_id}
-                        {c.client_type ? ` · ${c.client_type}` : ""}
-                        {c.entity_type ? ` · ${c.entity_type}` : ""}
+                      {/* Wrapped in one div so the card-table mobile layout (which turns
+                          each <td> into a flex row with the column label on the left)
+                          sees a single flex item here instead of two, and the name/id
+                          lines stack the way they do on desktop instead of sitting
+                          side by side. */}
+                      <div>
+                        <div className="cell-primary">{c.client_name}</div>
+                        <div className="cell-sub">
+                          {c.client_id}
+                          {c.client_type ? ` · ${c.client_type}` : ""}
+                          {c.entity_type ? ` · ${c.entity_type}` : ""}
+                        </div>
                       </div>
                     </td>
-                    <td>
-                      {c.email ? <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="cell-primary">{c.email}</a> : <div className="cell-primary muted">—</div>}
-                      <div className="cell-sub">{c.phone || ""}</div>
-                      {!resp.empty && <div className="cell-sub">Resp: {resp.primary}{resp.secondary ? ` · ${resp.secondary}` : ""}</div>}
+                    <td data-label="Contact">
+                      <div>
+                        {c.email ? <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="cell-primary">{c.email}</a> : <div className="cell-primary muted">—</div>}
+                        <div className="cell-sub">{c.phone || ""}</div>
+                        {!resp.empty && <div className="cell-sub">Resp: {resp.primary}{resp.secondary ? ` · ${resp.secondary}` : ""}</div>}
+                      </div>
                     </td>
-                    <td className="muted">{c.assigned_to || "—"}</td>
-                    <td>
+                    <td className="muted" data-label="Owner">{c.assigned_to || "—"}</td>
+                    <td data-label="Compliance">
                       {(() => {
                         const { lead, detail } = complianceInfo(c);
                         if (!lead && !detail) return <span className="muted">—</span>;
                         return (
-                          <>
+                          <div>
                             {lead && <span className="badge">{lead}</span>}
                             {detail && <div className="cell-sub">{detail}</div>}
-                          </>
+                          </div>
                         );
                       })()}
                     </td>
-                    <td>
-                      <StatusBadge status={c.status} />
-                      <div className="cell-sub">{c.portal_enabled ? "Portal on" : "No portal"}</div>
+                    <td data-label="Status">
+                      <div>
+                        <StatusBadge status={c.status} />
+                        <div className="cell-sub">{c.portal_enabled ? "Portal on" : "No portal"}</div>
+                      </div>
                     </td>
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu options={actionOptions(c)} onSelect={(action) => handleAction(c, action)} />
                     </td>
                   </tr>
@@ -742,7 +776,6 @@ export function ClientsListPage() {
               })}
             </tbody>
           </table>
-          </div>
           </div>
           {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No clients match.</p>}
         </div>

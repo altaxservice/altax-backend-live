@@ -20,13 +20,19 @@ interface PromptOptions {
   multiline?: boolean;
 }
 
+interface NotifyOptions {
+  title?: string;
+}
+
 type PendingRequest =
   | { kind: "confirm"; options: ConfirmOptions; resolve: (value: boolean) => void }
-  | { kind: "prompt"; options: PromptOptions; resolve: (value: string | null) => void };
+  | { kind: "prompt"; options: PromptOptions; resolve: (value: string | null) => void }
+  | { kind: "notify"; message: string; options: NotifyOptions; resolve: () => void };
 
 interface ConfirmContextValue {
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   promptFor: (options: PromptOptions) => Promise<string | null>;
+  notify: (message: string, options?: NotifyOptions) => Promise<void>;
 }
 
 const ConfirmContext = createContext<ConfirmContextValue | null>(null);
@@ -59,6 +65,12 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const notify = useCallback((message: string, options: NotifyOptions = {}) => {
+    return new Promise<void>((resolve) => {
+      setPending({ kind: "notify", message, options, resolve });
+    });
+  }, []);
+
   function close() {
     setPending(null);
     setValue("");
@@ -68,6 +80,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   function handleCancel() {
     if (pending?.kind === "confirm") pending.resolve(false);
     if (pending?.kind === "prompt") pending.resolve(null);
+    if (pending?.kind === "notify") pending.resolve();
     close();
   }
 
@@ -91,15 +104,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   const promptInvalid = pending?.kind === "prompt" && touched && pending.options.required !== false && !value.trim();
 
   return (
-    <ConfirmContext.Provider value={{ confirm, promptFor }}>
+    <ConfirmContext.Provider value={{ confirm, promptFor, notify }}>
       {children}
       {pending && (
         <div className="modal-overlay" onClick={handleCancel}>
           <div className="modal-panel" style={{ width: "min(440px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{pending.options.title || (pending.kind === "confirm" ? "Please confirm" : "One more thing")}</h2>
+              <h2>{pending.kind === "notify" ? (pending.options.title || "Notice") : (pending.options.title || (pending.kind === "confirm" ? "Please confirm" : "One more thing"))}</h2>
             </div>
-            {pending.kind === "confirm" ? (
+            {pending.kind === "notify" ? (
+              <>
+                <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "10px 0 20px", whiteSpace: "pre-wrap" }}>{pending.message}</p>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button type="button" className="btn btn-primary" onClick={handleCancel} autoFocus>OK</button>
+                </div>
+              </>
+            ) : pending.kind === "confirm" ? (
               <>
                 <p style={{ fontSize: 13.5, color: "var(--muted)", margin: "10px 0 20px" }}>{pending.options.message}</p>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -157,4 +177,11 @@ export function usePrompt(): (options: PromptOptions) => Promise<string | null> 
   const ctx = useContext(ConfirmContext);
   if (!ctx) throw new Error("usePrompt must be used within ConfirmProvider");
   return ctx.promptFor;
+}
+
+/** Drop-in async replacement for window.alert(message) — call as `await notify(message)`. Same single-string call shape as window.alert, so every existing call site converts with a find-and-replace, not a rewrite. */
+export function useNotify(): (message: string, options?: NotifyOptions) => Promise<void> {
+  const ctx = useContext(ConfirmContext);
+  if (!ctx) throw new Error("useNotify must be used within ConfirmProvider");
+  return ctx.notify;
 }

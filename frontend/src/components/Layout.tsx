@@ -203,7 +203,17 @@ export function Layout() {
         <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} />
         <InstallPrompt />
         <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
-          <main className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", overflowX: "auto", minWidth: 0 }}>
+          {/* No overflow-x:auto here — every page with a genuinely wide table already
+              wraps it in its own .table-scroll (which handles horizontal overflow
+              locally), so this was a redundant second safety net. It was also a
+              silent, app-wide killer of position:sticky: pairing a non-visible
+              overflow-x with the default-visible overflow-y forces the latter to
+              compute to "auto" too per spec (no override, inline or otherwise, can
+              undo this), which turns <main> into ITS OWN scroll container even
+              though it never actually scrolls (the real page scroll is on <html>)
+              — so every sticky element anywhere in the app, not just table headers,
+              was silently broken by this one inline style. */}
+          <main className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", minWidth: 0 }}>
             <Outlet />
           </main>
           {showPanel && <ClientContextPanel />}

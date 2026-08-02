@@ -3,7 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -33,6 +33,7 @@ function inviteStatusColor(status: string): string | undefined {
 export function UsersPage() {
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [users, setUsers] = useState<PortalUser[] | null>(null);
   const [employees, setEmployees] = useState<EmployeeOption[] | null>(null);
   const [options, setOptions] = useState<WebOptions | null>(null);
@@ -119,7 +120,7 @@ export function UsersPage() {
       await api.post(`/users/${userId}/deactivate`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not deactivate this user.");
+      await notify(err instanceof ApiError ? err.message : "Could not deactivate this user.");
     }
   }
 
@@ -160,11 +161,11 @@ export function UsersPage() {
         const ok = await confirmDialog({ title: "Reset two-factor authentication", message: "Their current authenticator will stop working and they'll be asked to set up a new one the next time they sign in." });
         if (!ok) return;
         await api.post(`/users/${userId}/2fa/reset`, {});
-        alert("Two-factor authentication reset. The user will set up a new authenticator at their next sign-in.");
+        await notify("Two-factor authentication reset. The user will set up a new authenticator at their next sign-in.");
       }
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not complete this action.");
+      await notify(err instanceof ApiError ? err.message : "Could not complete this action.");
     }
   }
 
@@ -179,7 +180,7 @@ export function UsersPage() {
       await api.post(`/users/${userId}/delete`, { confirm: confirmValue });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this user.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this user.");
     }
   }
 

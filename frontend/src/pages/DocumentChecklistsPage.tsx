@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FIRM_SERVICES } from "../utils/clientOptions";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 interface ChecklistItem { item_id: string; document_name: string; sort_order: number }
 interface Checklist { checklist_id: string; name: string; client_type: string | null; service_key: string | null; active: boolean; items: ChecklistItem[] }
@@ -19,6 +19,7 @@ const CLIENT_TYPES = ["", "Business", "Individual"];
  */
 export function DocumentChecklistsPage() {
   const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [checklists, setChecklists] = useState<Checklist[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -43,7 +44,7 @@ export function DocumentChecklistsPage() {
       setName(""); setClientType(""); setServiceKey(""); setCreating(false);
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not create this template.");
+      await notify(err instanceof ApiError ? err.message : "Could not create this template.");
     } finally {
       setSaving(false);
     }
@@ -56,7 +57,7 @@ export function DocumentChecklistsPage() {
       await api.post(`/checklists/${id}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this template.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this template.");
     }
   }
 
@@ -68,7 +69,7 @@ export function DocumentChecklistsPage() {
       setNewItemName((prev) => ({ ...prev, [checklistId]: "" }));
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not add this item.");
+      await notify(err instanceof ApiError ? err.message : "Could not add this item.");
     }
   }
 
@@ -77,7 +78,7 @@ export function DocumentChecklistsPage() {
       await api.post(`/checklists/${checklistId}/items/${itemId}/delete`, {});
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this item.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this item.");
     }
   }
 

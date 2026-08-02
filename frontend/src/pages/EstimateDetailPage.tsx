@@ -8,7 +8,7 @@ import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
 import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 /**
  * The estimate builder.
@@ -26,6 +26,7 @@ export function EstimateDetailPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [lines, setLines] = useState<EstimateLine[]>([]);
   const [totals, setTotals] = useState<EstimateTotals | null>(null);
@@ -84,7 +85,7 @@ export function EstimateDetailPage() {
 
   async function saveInfo() {
     if (!estimateId) return;
-    if (!infoForm.businessName.trim()) { alert("Business name is required."); return; }
+    if (!infoForm.businessName.trim()) { await notify("Business name is required."); return; }
     setInfoSaving(true);
     try {
       await api.patch(`/estimates/${estimateId}`, infoForm);
@@ -92,7 +93,7 @@ export function EstimateDetailPage() {
       load();
       toast("Client information updated.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save this information.");
+      await notify(err instanceof ApiError ? err.message : "Could not save this information.");
     } finally {
       setInfoSaving(false);
     }
@@ -137,7 +138,7 @@ export function EstimateDetailPage() {
       setDirty(false);
       toast("Estimate saved.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not save these lines.");
+      await notify(err instanceof ApiError ? err.message : "Could not save these lines.");
     } finally {
       setSaving(false);
     }
@@ -159,7 +160,7 @@ export function EstimateDetailPage() {
       setTotals(res.totals);
       toast("Lines rebuilt from the fee schedule.");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not rebuild.");
+      await notify(err instanceof ApiError ? err.message : "Could not rebuild.");
     } finally {
       setBusy(false);
     }
@@ -174,7 +175,7 @@ export function EstimateDetailPage() {
       toast("Estimate approved.");
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not approve.");
+      await notify(err instanceof ApiError ? err.message : "Could not approve.");
     } finally {
       setBusy(false);
     }
@@ -189,7 +190,7 @@ export function EstimateDetailPage() {
       toast("Client created from this estimate.");
       navigate(`/clients/${res.clientId}`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not convert this estimate.");
+      await notify(err instanceof ApiError ? err.message : "Could not convert this estimate.");
     } finally {
       setBusy(false);
     }
@@ -220,7 +221,7 @@ export function EstimateDetailPage() {
       else window.open(url, "_blank");
     } catch (err) {
       win?.close();
-      alert(err instanceof ApiError ? err.message : "Could not generate the PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate the PDF.");
     } finally {
       setViewing(false);
     }
@@ -233,7 +234,7 @@ export function EstimateDetailPage() {
       await ensureSaved();
       await downloadFile(`/estimates/${estimateId}/print`, `Estimate_${estimate?.estimate_number || estimateId}.pdf`);
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not generate the PDF.");
+      await notify(err instanceof ApiError ? err.message : "Could not generate the PDF.");
     } finally {
       setPrinting(false);
     }

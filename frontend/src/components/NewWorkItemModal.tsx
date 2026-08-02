@@ -71,6 +71,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invalidField, setInvalidField] = useState<"taskName" | "dueDate" | null>(null);
 
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
@@ -110,9 +111,10 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
 
   async function handleSubmit() {
     const isInternal = mode === "task" && internalTask;
+    setInvalidField(null);
     if (!isInternal && selected.size === 0) { setError("Select at least one client."); return; }
-    if (mode === "task" && !taskName.trim()) { setError("Task name is required."); return; }
-    if (mode === "task" && !dueDate) { setError("Due date is required."); return; }
+    if (mode === "task" && !taskName.trim()) { setError("Task name is required."); setInvalidField("taskName"); return; }
+    if (mode === "task" && !dueDate) { setError("Due date is required."); setInvalidField("dueDate"); return; }
     const resolvedRequestedItem = requestedItem === OTHER ? requestedItemOther.trim() : requestedItem;
     if (mode === "request" && !resolvedRequestedItem) { setError("Requested item is required."); return; }
     if (file && file.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Use the Attachment Link field instead.`); return; }
@@ -264,8 +266,26 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
                 {taskTypeOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-            <div className="field"><label>Task Name</label><input required value={taskName} onChange={(e) => setTaskName(e.target.value)} placeholder="e.g. May bank reconciliation" /></div>
-            <div className="field"><label>Due Date</label><input type="date" required value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+            <div className={`field ${invalidField === "taskName" ? "invalid" : ""}`}>
+              <label>Task Name</label>
+              <input
+                aria-invalid={invalidField === "taskName" ? "true" : undefined}
+                value={taskName}
+                onChange={(e) => { setTaskName(e.target.value); if (invalidField === "taskName") setInvalidField(null); }}
+                placeholder="e.g. May bank reconciliation"
+              />
+              {invalidField === "taskName" && <p className="field-error">Task name is required.</p>}
+            </div>
+            <div className={`field ${invalidField === "dueDate" ? "invalid" : ""}`}>
+              <label>Due Date</label>
+              <input
+                type="date"
+                aria-invalid={invalidField === "dueDate" ? "true" : undefined}
+                value={dueDate}
+                onChange={(e) => { setDueDate(e.target.value); if (invalidField === "dueDate") setInvalidField(null); }}
+              />
+              {invalidField === "dueDate" && <p className="field-error">Due date is required.</p>}
+            </div>
             <div className="field">
               <label>Assigned To</label>
               <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>

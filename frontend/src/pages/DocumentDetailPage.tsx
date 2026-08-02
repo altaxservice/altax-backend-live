@@ -10,7 +10,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
-import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
@@ -29,6 +29,7 @@ export function DocumentDetailPage() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
+  const notify = useNotify();
   const [searchParams] = useSearchParams();
   const [request, setRequest] = useState<DocumentRequest | null>(null);
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
@@ -85,7 +86,7 @@ export function DocumentDetailPage() {
       toast("Document request deleted.");
       navigate("/documents");
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not delete this request.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this request.");
     } finally {
       setDeleting(false);
     }
@@ -98,7 +99,7 @@ export function DocumentDetailPage() {
       await api.post(`/documents/requests/${requestId}/status`, { status });
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not update status.");
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setStatusSaving(false);
     }
@@ -176,7 +177,7 @@ export function DocumentDetailPage() {
       loadUploads();
       load();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : "Could not remove this file.");
+      await notify(err instanceof ApiError ? err.message : "Could not remove this file.");
     } finally {
       setRemovingId(null);
     }
