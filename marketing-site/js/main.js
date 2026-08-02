@@ -338,6 +338,150 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const manageCard = document.getElementById('manage-card');
+  if (manageCard) {
+    const loadingEl = document.getElementById('manage-loading');
+    const notFoundEl = document.getElementById('manage-notfound');
+    const titleEl = document.getElementById('manage-title');
+    const whenEl = document.getElementById('manage-when');
+    const statusEl = document.getElementById('manage-form-status');
+    const actionsEl = document.getElementById('manage-actions');
+    const cancelBtn = document.getElementById('manage-cancel-btn');
+    const rescheduleBtn = document.getElementById('manage-reschedule-btn');
+    const reschedulePanel = document.getElementById('manage-reschedule-panel');
+    const dateInput = document.getElementById('manage-date');
+    const slotsEl = document.getElementById('manage-slots');
+    const confirmRescheduleBtn = document.getElementById('manage-confirm-reschedule-btn');
+    const pastNoticeEl = document.getElementById('manage-past-notice');
+    const token = new URLSearchParams(window.location.search).get('token') || '';
+    let selectedSlot = null;
+
+    function showStatus(kind, message) {
+      statusEl.className = 'form-status ' + kind;
+      statusEl.textContent = message;
+      statusEl.style.display = 'block';
+    }
+
+    function renderAppointment(appt) {
+      titleEl.textContent = appt.title;
+      const when = new Date(appt.startTime).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'full', timeStyle: 'short' });
+      whenEl.textContent = when + ' ET · ' + appt.status;
+      if (!appt.canManage) {
+        actionsEl.style.display = 'none';
+        reschedulePanel.style.display = 'none';
+        pastNoticeEl.style.display = 'block';
+      }
+    }
+
+    async function loadAppointment() {
+      if (!token) {
+        loadingEl.style.display = 'none';
+        notFoundEl.style.display = 'block';
+        return;
+      }
+      try {
+        const res = await fetch('/public/appointments/manage/' + encodeURIComponent(token));
+        if (!res.ok) throw new Error('not found');
+        const data = await res.json();
+        loadingEl.style.display = 'none';
+        manageCard.style.display = 'block';
+        renderAppointment(data);
+      } catch (err) {
+        loadingEl.style.display = 'none';
+        notFoundEl.style.display = 'block';
+      }
+    }
+    loadAppointment();
+
+    cancelBtn.addEventListener('click', async () => {
+      if (!window.confirm(t('manage.confirmCancel') || 'Cancel this appointment?')) return;
+      cancelBtn.disabled = true;
+      try {
+        const res = await fetch('/public/appointments/manage/' + encodeURIComponent(token) + '/cancel', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        showStatus('success', t('manage.cancelledMessage') || 'Your appointment has been cancelled.');
+        actionsEl.style.display = 'none';
+        reschedulePanel.style.display = 'none';
+      } catch (err) {
+        showStatus('error', (err && err.message) || t('manage.errorMessage') || 'Something went wrong. Please try again, or call us directly.');
+        cancelBtn.disabled = false;
+      }
+    });
+
+    rescheduleBtn.addEventListener('click', () => {
+      reschedulePanel.style.display = reschedulePanel.style.display === 'none' ? 'block' : 'none';
+      if (reschedulePanel.style.display === 'block' && dateInput && !dateInput.value) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const maxDate = new Date();
+        maxDate.setDate(maxDate.getDate() + 60);
+        dateInput.min = todayStr;
+        dateInput.max = maxDate.toISOString().slice(0, 10);
+        dateInput.value = todayStr;
+        loadRescheduleSlots();
+      }
+    });
+
+    function renderRescheduleSlots(slots) {
+      slotsEl.innerHTML = '';
+      selectedSlot = null;
+      confirmRescheduleBtn.disabled = true;
+      if (!slots.length) {
+        const empty = document.createElement('span');
+        empty.className = 'book-slots-empty';
+        empty.textContent = t('book.noSlots') || 'No open times that day — try another date.';
+        slotsEl.appendChild(empty);
+        return;
+      }
+      slots.forEach((iso) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'book-slot';
+        btn.textContent = new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+        btn.addEventListener('click', () => {
+          selectedSlot = iso;
+          slotsEl.querySelectorAll('.book-slot').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          confirmRescheduleBtn.disabled = false;
+        });
+        slotsEl.appendChild(btn);
+      });
+    }
+
+    async function loadRescheduleSlots() {
+      slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
+      confirmRescheduleBtn.disabled = true;
+      try {
+        const res = await fetch('/public/appointments/availability?date=' + encodeURIComponent(dateInput.value));
+        const data = await res.json();
+        renderRescheduleSlots(data.slots || []);
+      } catch (err) {
+        slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.noSlots') || 'No open times that day — try another date.') + '</span>';
+      }
+    }
+    if (dateInput) dateInput.addEventListener('change', loadRescheduleSlots);
+
+    confirmRescheduleBtn.addEventListener('click', async () => {
+      if (!selectedSlot) return;
+      confirmRescheduleBtn.disabled = true;
+      try {
+        const res = await fetch('/public/appointments/manage/' + encodeURIComponent(token) + '/reschedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startTime: selectedSlot }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        showStatus('success', t('manage.rescheduledMessage') || 'Your appointment has been rescheduled.');
+        reschedulePanel.style.display = 'none';
+        loadAppointment();
+      } catch (err) {
+        showStatus('error', (err && err.message) || t('manage.errorMessage') || 'Something went wrong. Please try again, or call us directly.');
+        confirmRescheduleBtn.disabled = false;
+      }
+    });
+  }
+
   document.querySelectorAll('.newsletter-form').forEach((form) => {
     form.addEventListener('submit', (e) => {
       e.preventDefault();

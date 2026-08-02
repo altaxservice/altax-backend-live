@@ -1,13 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import { ErrorBanner } from "./ErrorBanner";
+
+function addMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  const hh = Math.floor((total % (24 * 60)) / 60);
+  const mm = total % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
 
 /**
  * Book an appointment — with an existing client (pulls their email/phone
  * automatically) or a brand-new contact by name/email/phone. Confirms by
  * email+SMS on save when Notify is on, and a day-before reminder goes out
- * automatically (see appointments.routes.ts's hourly cron).
+ * automatically (see appointments.routes.ts's hourly cron). Default start/end
+ * time follows Calendar Settings (business start hour + slot length) rather
+ * than a hardcoded guess.
  */
 export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
   clients: Client[]; defaultDate?: string; onClose: () => void; onDone: () => void;
@@ -15,10 +25,20 @@ export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
   const today = defaultDate || new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     title: "", clientId: "", contactName: "", contactEmail: "", contactPhone: "",
-    date: today, startTime: "09:00", endTime: "09:30", location: "", notes: "", assignedTo: "", notifyClient: true,
+    date: today, startTime: "09:00", endTime: "10:00", location: "", notes: "", assignedTo: "", notifyClient: true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ businessStartHour: number; slotMinutes: number }>("/appointment-settings")
+      .then((s) => {
+        const start = `${String(s.businessStartHour).padStart(2, "0")}:00`;
+        setForm((f) => ({ ...f, startTime: start, endTime: addMinutes(start, s.slotMinutes) }));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedClient = clients.find((c) => c.client_id === form.clientId);
 

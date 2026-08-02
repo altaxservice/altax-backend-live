@@ -34,7 +34,7 @@ export default defineConfig({
         // installed would otherwise get the cached login-page shell instead of their PDF.
         // Mirrors the identical carve-out in src/server.ts's own SPA-vs-API catch-all.
         navigateFallbackDenylist: [
-          /^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/book$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/,
+          /^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/book$/, /^\/manage-appointment$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/,
           /^\/public\/contracts\//, /^\/public\/invoices\//,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for

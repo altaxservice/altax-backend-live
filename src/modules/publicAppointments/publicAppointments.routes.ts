@@ -1,37 +1,30 @@
 /**
- * Public, no-login appointment booking — the marketing site's "Book a
- * Consultation" button (previously an external Google Calendar link) and
- * the /book page linked from SMS/WhatsApp greeting messages. Creates a real
- * row in the same altax.v3_appointments table the staff Calendar reads, via
- * appointments.routes.ts's shared createAppointment() — so a public booking
- * shows up on the team calendar exactly like one a staff member books
- * directly, gets the same email/SMS confirmation and day-before reminder.
+ * Public, no-login appointment booking and self-service management — the
+ * marketing site's "Book a Consultation" button (previously an external
+ * Google Calendar link), the /book page linked from SMS/WhatsApp greeting
+ * messages, and the /manage-appointment page linked from every confirmation
+ * and reminder so a client can cancel or reschedule without logging in.
+ * Creates/updates real rows in the same altax.v3_appointments table the
+ * staff Calendar reads, via appointments.routes.ts's shared
+ * createAppointment()/notifyAppointment() — so a public booking behaves
+ * exactly like one a staff member makes directly. All booking rules
+ * (bookable weekdays, hours, slot length, how far ahead) come from
+ * appointmentSettings.ts, editable via the Calendar page's Settings tab.
  */
 import { Router, Request, Response } from "express";
-import { query } from "../../config/db";
+import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
-import { createAppointment } from "../appointments/appointments.routes";
+import { logAudit } from "../../common/audit";
+import { createAppointment, notifyAppointment } from "../appointments/appointments.routes";
+import { getAppointmentSettings, isBookableWeekday, type AppointmentSettings } from "../../common/appointmentSettings";
 
 export const publicAppointmentsRouter = Router();
 
-// Mon-Fri, 9:00 AM - 5:00 PM America/New_York, 30-minute slots — a fixed
-// business-hours default since there's no per-staff public scheduling yet
-// (every appointment is firm-wide, matching the internal Calendar's own
-// firm-wide-not-per-assignee model).
-const BUSINESS_START_HOUR = 9;
-const BUSINESS_END_HOUR = 17;
-const SLOT_MINUTES = 30;
-const MAX_DAYS_AHEAD = 60;
-
 const availabilityLimiter = rateLimit({ name: "public-appointments-availability", windowMs: 5 * 60 * 1000, max: 60 });
 const bookLimiter = rateLimit({ name: "public-appointments-book", windowMs: 15 * 60 * 1000, max: 8 });
-
-function isWeekend(y: number, m: number, d: number): boolean {
-  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return day === 0 || day === 6;
-}
+const manageLimiter = rateLimit({ name: "public-appointments-manage", windowMs: 15 * 60 * 1000, max: 20 });
 
 /** Builds the ET wall-clock offset for a given date (handles EST/EDT) via Intl, avoiding a timezone-data dependency. */
 function etOffsetMinutes(y: number, m: number, d: number, hour: number): number {
@@ -50,41 +43,55 @@ function slotToUtcIso(y: number, m: number, d: number, hour: number, minute: num
   return new Date(utcMs).toISOString();
 }
 
-publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
-  const dateStr = String(req.query.date || "").trim();
-  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return res.status(400).json({ error: "date is required as YYYY-MM-DD." });
-  const [, yStr, moStr, dStr] = m;
-  const y = Number(yStr), mo = Number(moStr), d = Number(dStr);
-
+/** Real open slots for one calendar date, honoring Calendar Settings (bookable weekdays, hours, slot length, booking horizon) and already-booked appointments. Shared by the availability endpoint and the reschedule flow. */
+async function computeAvailableSlots(y: number, mo: number, d: number, settings: AppointmentSettings, excludeAppointmentId?: string): Promise<string[]> {
   const today = new Date();
   const requested = new Date(Date.UTC(y, mo - 1, d));
   const daysAhead = Math.floor((requested.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
-  if (daysAhead < 0 || daysAhead > MAX_DAYS_AHEAD) return res.json({ slots: [] });
-  if (isWeekend(y, mo, d)) return res.json({ slots: [] });
+  if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return [];
+  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  if (!isBookableWeekday(settings, jsDay)) return [];
 
   const dayStartIso = slotToUtcIso(y, mo, d, 0, 0);
   const dayEndIso = slotToUtcIso(y, mo, d, 23, 59);
+  const params: any[] = [dayStartIso, dayEndIso];
+  let excludeClause = "";
+  if (excludeAppointmentId) { excludeClause = "AND appointment_id <> $3"; params.push(excludeAppointmentId); }
   const booked = await query<any>(
     `SELECT start_time, end_time FROM altax.v3_appointments
-      WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1`,
-    [dayStartIso, dayEndIso]
+      WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 ${excludeClause}`,
+    params
   );
   const bookedRanges = booked.map((b: any) => ({ start: new Date(b.start_time).getTime(), end: new Date(b.end_time).getTime() }));
 
   const slots: string[] = [];
   const nowMs = Date.now();
-  for (let hour = BUSINESS_START_HOUR; hour < BUSINESS_END_HOUR; hour++) {
-    for (let minute = 0; minute < 60; minute += SLOT_MINUTES) {
+  for (let hour = settings.businessStartHour; hour < settings.businessEndHour; hour++) {
+    for (let minute = 0; minute < 60; minute += settings.slotMinutes) {
       const startIso = slotToUtcIso(y, mo, d, hour, minute);
       const startMs = new Date(startIso).getTime();
-      const endMs = startMs + SLOT_MINUTES * 60 * 1000;
+      const endMs = startMs + settings.slotMinutes * 60 * 1000;
       if (startMs <= nowMs) continue;
       const overlaps = bookedRanges.some((r) => startMs < r.end && endMs > r.start);
       if (!overlaps) slots.push(startIso);
     }
   }
-  res.json({ slots });
+  return slots;
+}
+
+function parseDateParam(raw: unknown): { y: number; mo: number; d: number } | null {
+  const m = String(raw || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+}
+
+publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const parsed = parseDateParam(req.query.date);
+  if (!parsed) return res.status(400).json({ error: "date is required as YYYY-MM-DD." });
+  const settings = await getAppointmentSettings();
+  const excludeAppointmentId = String(req.query.excludeAppointmentId || "").trim() || undefined;
+  const slots = await computeAvailableSlots(parsed.y, parsed.mo, parsed.d, settings, excludeAppointmentId);
+  res.json({ slots, slotMinutes: settings.slotMinutes });
 }));
 
 publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Request, res: Response) => {
@@ -105,7 +112,8 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   if (!Number.isFinite(startMs) || startMs <= Date.now()) {
     return res.status(400).json({ error: "That time slot is no longer valid — please pick another." });
   }
-  const endTime = new Date(startMs + SLOT_MINUTES * 60 * 1000).toISOString();
+  const settings = await getAppointmentSettings();
+  const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
 
   // Re-check the slot is still open right before booking — two visitors could
   // otherwise both grab the same slot between loading availability and submitting.
@@ -152,4 +160,80 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   }
 
   res.status(201).json({ ok: true });
+}));
+
+/** Looks up an appointment by its manage_token — never by appointment_id, so this can't be used to probe/enumerate other people's bookings. Only a live, still-Scheduled, still-future appointment can be managed. */
+async function findManageableAppointment(token: string): Promise<any | null> {
+  if (!token) return null;
+  const appt = await queryOne<any>(
+    `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+       LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+      WHERE a.manage_token = $1`,
+    [token]
+  );
+  if (!appt) return null;
+  return { ...appt, client_name: appt.linked_client_name || appt.contact_name };
+}
+
+publicAppointmentsRouter.get("/manage/:token", manageLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const appt = await findManageableAppointment(req.params.token);
+  if (!appt) return res.status(404).json({ error: "Appointment not found." });
+  const canManage = appt.status === "Scheduled" && new Date(appt.start_time).getTime() > Date.now();
+  res.json({
+    title: appt.title, startTime: appt.start_time, endTime: appt.end_time, status: appt.status,
+    contactName: appt.contact_name, canManage,
+  });
+}));
+
+publicAppointmentsRouter.post("/manage/:token/cancel", manageLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const appt = await findManageableAppointment(req.params.token);
+  if (!appt) return res.status(404).json({ error: "Appointment not found." });
+  if (appt.status !== "Scheduled") return res.status(400).json({ error: "This appointment is no longer active." });
+  if (new Date(appt.start_time).getTime() <= Date.now()) return res.status(400).json({ error: "This appointment has already passed." });
+
+  await query(`UPDATE altax.v3_appointments SET status = 'Cancelled', updated_at = now() WHERE appointment_id = $1`, [appt.appointment_id]);
+  await logAudit("Calendar", "CANCEL_APPOINTMENT", appt.appointment_id, "Status", appt.status, "Cancelled",
+    `Appointment "${appt.title}" cancelled by the client via the manage-appointment link.`, "Public Manage Link");
+  try {
+    await notifyAppointment(appt, "Appointment Cancelled", "Public Manage Link", req);
+  } catch {
+    // Best-effort — the cancellation itself already succeeded and is logged above.
+  }
+  res.json({ ok: true });
+}));
+
+publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const appt = await findManageableAppointment(req.params.token);
+  if (!appt) return res.status(404).json({ error: "Appointment not found." });
+  if (appt.status !== "Scheduled") return res.status(400).json({ error: "This appointment is no longer active." });
+  if (new Date(appt.start_time).getTime() <= Date.now()) return res.status(400).json({ error: "This appointment has already passed." });
+
+  const startTime = String((req.body || {}).startTime || "").trim();
+  const startMs = new Date(startTime).getTime();
+  if (!startTime || !Number.isFinite(startMs) || startMs <= Date.now()) {
+    return res.status(400).json({ error: "That time slot is no longer valid — please pick another." });
+  }
+  const settings = await getAppointmentSettings();
+  const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
+
+  const clash = await query<any>(
+    `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,
+    [appt.appointment_id, startTime, endTime]
+  );
+  if (clash.length) return res.status(409).json({ error: "That time slot was just booked by someone else — please pick another." });
+
+  await query(
+    `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, updated_at = now() WHERE appointment_id = $1`,
+    [appt.appointment_id, startTime, endTime]
+  );
+  await logAudit("Calendar", "UPDATE_APPOINTMENT", appt.appointment_id, "", "", appt.title,
+    `Appointment "${appt.title}" rescheduled by the client via the manage-appointment link.`, "Public Manage Link");
+
+  const updated = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appt.appointment_id]);
+  try {
+    await notifyAppointment({ ...updated, client_name: appt.client_name }, "Appointment Confirmation", "Public Manage Link", req);
+  } catch {
+    // Best-effort — the reschedule itself already succeeded and is logged above.
+  }
+  res.json({ ok: true });
 }));

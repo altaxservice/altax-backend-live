@@ -35,6 +35,7 @@ import { remindersRouter, runReminders } from "./modules/reminders/reminders.rou
 import { appointmentsRouter, runAppointmentReminders } from "./modules/appointments/appointments.routes";
 import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
+import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
 import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
@@ -159,6 +160,7 @@ const MARKETING_PAGES: Record<string, string> = {
   "/news": "news.html",
   "/contact": "contact.html",
   "/book": "book.html",
+  "/manage-appointment": "manage-appointment.html",
   "/privacy": "privacy.html",
   "/sms-terms": "sms-terms.html",
   "/accessibility": "accessibility.html",
@@ -254,6 +256,7 @@ app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/appointments", appointmentsRouter);
 app.use("/firm-settings", firmSettingsRouter);
+app.use("/appointment-settings", appointmentSettingsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
 app.use("/public/messages", publicMessageRouter);

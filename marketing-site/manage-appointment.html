@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Your Appointment — AL TAX SERVICE</title>
+<script>try{if(localStorage.getItem('altax_lang')==='ar'){document.documentElement.lang='ar';document.documentElement.dir='rtl';}}catch(e){}</script>
+<link rel="icon" href="/images/logo.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo">
+      <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
+    </a>
+    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    <ul class="nav-links">
+      <li class="lang-toggle">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">عربي</button>
+      </li>
+      <li><a href="/" data-i18n="nav.home">Home</a></li>
+      <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
+      <li><a href="tel:+14438354492" class="btn btn-primary btn-sm" data-i18n="nav.callUs">Call Us</a></li>
+    </ul>
+  </div>
+</header>
+
+<section class="section section-white">
+  <div class="container" style="max-width: 640px;">
+    <div class="contact-form-card" id="manage-loading">
+      <p data-i18n="manage.loading">Loading your appointment…</p>
+    </div>
+
+    <div class="contact-form-card" id="manage-notfound" style="display:none;">
+      <h3 data-i18n="manage.notFoundHeading">We couldn't find that appointment</h3>
+      <p data-i18n="manage.notFoundBody">This link may have expired or the appointment may already be gone. Please contact us directly if you need help.</p>
+    </div>
+
+    <div class="contact-form-card" id="manage-card" style="display:none;">
+      <span class="eyebrow" data-i18n="manage.eyebrow">Manage Your Appointment</span>
+      <h3 id="manage-title" style="margin-top: 0.4rem;"></h3>
+      <p id="manage-when" class="muted" style="color: var(--color-text-soft);"></p>
+      <div id="manage-form-status" class="form-status" style="display:none;" role="status"></div>
+
+      <div id="manage-actions" style="display:flex; gap: 0.8rem; margin: 1.4rem 0;">
+        <button type="button" id="manage-cancel-btn" class="btn btn-outline" data-i18n="manage.cancelBtn">Cancel Appointment</button>
+        <button type="button" id="manage-reschedule-btn" class="btn btn-primary" data-i18n="manage.rescheduleBtn">Reschedule</button>
+      </div>
+
+      <div id="manage-reschedule-panel" style="display:none;">
+        <div class="field">
+          <label for="manage-date" data-i18n="book.dateLabel">Date</label>
+          <input type="date" id="manage-date">
+        </div>
+        <div class="field">
+          <label data-i18n="book.timeLabel">Available Times (Eastern)</label>
+          <div id="manage-slots" class="book-slots"><span class="book-slots-empty" data-i18n="book.pickDate">Pick a date to see open times.</span></div>
+        </div>
+        <button type="button" id="manage-confirm-reschedule-btn" class="btn btn-primary" style="width:100%; justify-content:center;" disabled><span data-i18n="manage.confirmRescheduleBtn">Confirm New Time</span></button>
+      </div>
+
+      <div id="manage-past-notice" class="form-status" style="display:none;" data-i18n="manage.pastNotice">This appointment has already passed or is no longer active.</div>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-bottom">
+      <span data-i18n="footer.copyright">&copy; 2026 AL TAX SERVICE. All rights reserved.</span>
+      <div class="footer-legal">
+        <a href="/privacy" data-i18n="footer.privacyPolicy">Privacy Policy</a>
+        <a href="/sms-terms" data-i18n="footer.smsTerms">SMS &amp; WhatsApp Terms</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="js/translations.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

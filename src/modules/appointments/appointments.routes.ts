@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
@@ -6,6 +7,9 @@ import { logAudit } from "../../common/audit";
 import { sendEmail, sendSms, NotConfiguredError } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
+import { bodyToDirectionalHtml } from "../communications/communications.routes";
+import { publicBaseUrl } from "../../common/publicUrl";
+import { getAppointmentSettings, bookableWeekdayLabel } from "../../common/appointmentSettings";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -80,14 +84,15 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
 
   const notifyClient = input.notifyClient !== false;
   const appointmentId = `APT-${idSuffix()}`;
+  const manageToken = crypto.randomBytes(24).toString("hex");
   await query(
     `INSERT INTO altax.v3_appointments
        (appointment_id, title, client_id, contact_name, contact_email, contact_phone,
-        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13)`,
+        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by, manage_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14)`,
     [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
       input.startTime, input.endTime, input.location?.trim() || null, input.notes?.trim() || null,
-      input.assignedTo?.trim() || null, notifyClient, input.createdBy]
+      input.assignedTo?.trim() || null, notifyClient, input.createdBy, manageToken]
   );
 
   const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
@@ -108,14 +113,66 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
+export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled";
+
 /**
- * Sends the confirmation or reminder email/SMS for an appointment and logs it to
- * v3_communications (source_system='Appointments'), matching reminders.routes.ts's
- * sendAndLog convention — attempt the real send, but always write the log row so
- * the client's Communications history has a record even if the send itself failed
- * (e.g. email not configured yet in this environment).
+ * Builds the full bilingual body: the resolved per-appointment template text,
+ * then (for Confirmation/Reminder only — a cancellation notice doesn't need
+ * re-stating the policy) the duration/weekly-schedule line, office
+ * location+map link, and the admin-edited policy text from Calendar Settings,
+ * then a manage-appointment link the client can use to cancel or reschedule
+ * without logging in. English and Arabic are joined with the "\n\n---\n\n"
+ * divider bodyToDirectionalHtml (communications.routes.ts) expects, so each
+ * language block renders with its own correct text direction.
  */
-async function notifyAppointment(appt: any, templateName: "Appointment Confirmation" | "Appointment Reminder", actorEmail: string, req?: Request): Promise<void> {
+async function buildAppointmentMessage(
+  appt: any, resolved: { subject: string; message_english: string; message_arabic: string },
+  includeDetails: boolean, manageUrl: string
+): Promise<{ subject: string; english: string; arabic: string }> {
+  if (!includeDetails) {
+    return { subject: resolved.subject, english: resolved.message_english, arabic: resolved.message_arabic };
+  }
+  const settings = await getAppointmentSettings();
+
+  const english = [
+    resolved.message_english,
+    `${settings.slotMinutes} min appointment`,
+    `Available weekly on ${bookableWeekdayLabel(settings, "en")}`,
+    "",
+    settings.locationName,
+    settings.locationAddress,
+    settings.locationMapUrl,
+    "",
+    settings.policyMessageEn,
+    manageUrl ? `\nNeed to cancel or reschedule? ${manageUrl}` : "",
+  ].filter(Boolean).join("\n");
+
+  const arabic = [
+    resolved.message_arabic,
+    `مدة الموعد ${settings.slotMinutes} دقيقة`,
+    `متاح أسبوعيًا أيام ${bookableWeekdayLabel(settings, "ar")}`,
+    "",
+    settings.locationName,
+    settings.locationAddress,
+    settings.locationMapUrl,
+    "",
+    settings.policyMessageAr,
+    manageUrl ? `\nهل تحتاج لإلغاء الموعد أو إعادة جدولته؟ ${manageUrl}` : "",
+  ].filter(Boolean).join("\n");
+
+  return { subject: resolved.subject, english, arabic };
+}
+
+/**
+ * Sends the confirmation, reminder, or cancellation email/SMS for an appointment
+ * and logs it to v3_communications (source_system='Appointments'), matching
+ * reminders.routes.ts's sendAndLog convention — attempt the real send, but
+ * always write the log row so the client's Communications history has a
+ * record even if the send itself failed (e.g. email not configured yet in
+ * this environment). Exported so the public cancel/reschedule flow
+ * (publicAppointments.routes.ts) can send the same kind of notice.
+ */
+export async function notifyAppointment(appt: any, templateName: AppointmentNoticeType, actorEmail: string, req?: Request): Promise<void> {
   const email = appt.contact_email || null;
   const phone = appt.contact_phone || null;
   if (!email && !phone) return;
@@ -129,10 +186,14 @@ async function notifyAppointment(appt: any, templateName: "Appointment Confirmat
     appointmentLocationAr: appt.location ? ` في ${appt.location}` : "",
     clientName: appt.contact_name || appt.client_name || "",
   };
-  const resolved = await resolveTemplate(templateName, appt.client_id || "", "", "", extra);
-  if (!resolved) return;
+  const resolvedTemplate = await resolveTemplate(templateName, appt.client_id || "", "", "", extra);
+  if (!resolvedTemplate) return;
+  const includeDetails = templateName !== "Appointment Cancelled";
+  const base = publicBaseUrl(req);
+  const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
+  const resolved = await buildAppointmentMessage(appt, resolvedTemplate, includeDetails, manageUrl);
 
-  const marker = templateName === "Appointment Reminder" ? "REM" : "CONF";
+  const marker = templateName === "Appointment Reminder" ? "REM" : templateName === "Appointment Cancelled" ? "CANCEL" : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
   if (email) channels.push({ channel: "Email", to: email });
   if (phone) channels.push({ channel: "SMS", to: phone });
@@ -145,9 +206,14 @@ async function notifyAppointment(appt: any, templateName: "Appointment Confirmat
     let sendError: string | undefined;
     try {
       if (channel === "Email") {
-        await sendEmail({ to, subject: resolved.subject, html: await wrapEmailHtml(`<p>${resolved.message_english.replace(/\n/g, "<br>")}</p>`, req) });
+        await sendEmail({ to, subject: resolved.subject, html: await wrapEmailHtml(bodyToDirectionalHtml(`${resolved.english}\n\n---\n\n${resolved.arabic}`), req) });
       } else {
-        await sendSms({ to, body: `AL TAX SERVICE: ${resolved.message_english}` });
+        // SMS stays short — the full policy/location text only goes in the email (see
+        // SMS_INLINE_MAX_CHARS convention in communications.routes.ts) — but the manage
+        // link still goes out here too, since that's how an SMS/WhatsApp recipient
+        // actually cancels or reschedules without calling the office.
+        const smsBody = manageUrl ? `${resolvedTemplate.message_english} Manage: ${manageUrl}` : resolvedTemplate.message_english;
+        await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
       }
       sent = true;
     } catch (err: any) {
@@ -160,7 +226,7 @@ async function notifyAppointment(appt: any, templateName: "Appointment Confirmat
           message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
        VALUES ($1,$2,$3,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Appointments',$11)`,
       [`COM-${idSuffix()}`, appt.client_id || null, appt.contact_name || appt.client_name || null,
-        channel, resolved.subject, resolved.message_english, resolved.message_arabic,
+        channel, resolved.subject, resolved.english, resolved.arabic,
         to, actorEmail, status, `APPT-${marker}-${appt.appointment_id}-${channel}`]
     );
   }

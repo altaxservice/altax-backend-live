@@ -389,6 +389,20 @@ const TRANSLATIONS = {
   "book.successMessage": { en: "Your appointment is confirmed — check your email/text for details.", ar: "تم تأكيد موعدكم — يرجى مراجعة بريدكم الإلكتروني أو رسائلكم النصية للتفاصيل." },
   "book.errorMessage": { en: "Something went wrong booking your appointment. Please try again, or call us directly.", ar: "حدث خطأ أثناء حجز موعدكم. يرجى المحاولة مرة أخرى، أو الاتصال بنا مباشرة." },
 
+  // ---------- Manage Appointment page ----------
+  "manage.loading": { en: "Loading your appointment…", ar: "جارٍ تحميل موعدكم…" },
+  "manage.notFoundHeading": { en: "We couldn't find that appointment", ar: "لم نتمكن من العثور على هذا الموعد" },
+  "manage.notFoundBody": { en: "This link may have expired or the appointment may already be gone. Please contact us directly if you need help.", ar: "قد يكون هذا الرابط منتهي الصلاحية أو أن الموعد لم يعد موجودًا. يرجى التواصل معنا مباشرة إذا احتجتم للمساعدة." },
+  "manage.eyebrow": { en: "Manage Your Appointment", ar: "إدارة موعدكم" },
+  "manage.cancelBtn": { en: "Cancel Appointment", ar: "إلغاء الموعد" },
+  "manage.rescheduleBtn": { en: "Reschedule", ar: "إعادة الجدولة" },
+  "manage.confirmRescheduleBtn": { en: "Confirm New Time", ar: "تأكيد الوقت الجديد" },
+  "manage.pastNotice": { en: "This appointment has already passed or is no longer active.", ar: "هذا الموعد قد مضى بالفعل أو لم يعد نشطًا." },
+  "manage.confirmCancel": { en: "Cancel this appointment?", ar: "هل تريد إلغاء هذا الموعد؟" },
+  "manage.cancelledMessage": { en: "Your appointment has been cancelled.", ar: "تم إلغاء موعدكم." },
+  "manage.rescheduledMessage": { en: "Your appointment has been rescheduled.", ar: "تمت إعادة جدولة موعدكم." },
+  "manage.errorMessage": { en: "Something went wrong. Please try again, or call us directly.", ar: "حدث خطأ ما. يرجى المحاولة مرة أخرى، أو الاتصال بنا مباشرة." },
+
   // ---------- Shared: calendar tags / dynamic bits / form alerts ----------
   "calendar.nextUp": { en: "Next Up", ar: "القادم" },
   "calendar.tagIndividual": { en: "Individual", ar: "فردي" },

@@ -149,7 +149,7 @@ const ARABIC_CHARS = /[؀-ۿݐ-ݿ]/;
  * divider and gives each resulting block its own dir="rtl"/"ltr" based on whether it's
  * actually Arabic text, rather than guessing from which language came first.
  */
-function bodyToDirectionalHtml(body: string): string {
+export function bodyToDirectionalHtml(body: string): string {
   const blocks = body.split(/\n\n---\n\n/);
   return blocks
     .map((block) => {

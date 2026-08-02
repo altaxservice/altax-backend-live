@@ -6,6 +6,8 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { isOpenTask, isOverdue, isDueWeek } from "../components/TaskCells";
 import { NewAppointmentModal } from "../components/NewAppointmentModal";
+import { CalendarSettingsPanel } from "../components/CalendarSettingsPanel";
+import { useAuth } from "../auth/AuthContext";
 
 /**
  * Practice Management: calendar + staff capacity — task due dates (from the same
@@ -13,8 +15,10 @@ import { NewAppointmentModal } from "../components/NewAppointmentModal";
  * appointments.routes.ts) on one month grid. Capacity groups by the raw
  * assigned_to string, matching TasksListPage.tsx's own staffLoadCounts (no alias
  * resolution there either — this stays consistent with that existing behavior).
+ * Settings (admin-only) controls the public booking rules — see
+ * CalendarSettingsPanel.tsx.
  */
-const VIEWS = ["Calendar", "Capacity"] as const;
+const VIEWS = ["Calendar", "Capacity", "Settings"] as const;
 type View = (typeof VIEWS)[number];
 
 function ymd(d: Date): string {
@@ -33,6 +37,8 @@ function fmtApptTime(a: Appointment): string {
 
 export function TaskCalendarPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [appointments, setAppointments] = useState<Appointment[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -147,7 +153,7 @@ export function TaskCalendarPage() {
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {view === "Calendar" && <button className="btn btn-sm btn-primary" onClick={() => setShowNewAppt(true)}>+ New Appointment</button>}
-          {VIEWS.map((v) => (
+          {VIEWS.filter((v) => v !== "Settings" || isAdmin).map((v) => (
             <button key={v} className={`btn btn-sm ${view === v ? "btn-primary" : ""}`} onClick={() => setView(v)}>{v}</button>
           ))}
         </div>
@@ -309,6 +315,8 @@ export function TaskCalendarPage() {
           </div>
         </div>
       )}
+
+      {view === "Settings" && isAdmin && <CalendarSettingsPanel />}
 
       {showNewAppt && (
         <NewAppointmentModal
