@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
@@ -6,6 +6,7 @@ import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
 import { IdleLogout } from "./components/IdleLogout";
 import { NavigationMemory } from "./components/NavigationMemory";
+import { StaleServiceWorkerRecovery } from "./components/StaleServiceWorkerRecovery";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
@@ -113,7 +114,7 @@ function App() {
               </Route>
             </Route>
           </Route>
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<StaleServiceWorkerRecovery />} />
         </Routes>
         </ToastProvider>
         </SelectedClientProvider>
