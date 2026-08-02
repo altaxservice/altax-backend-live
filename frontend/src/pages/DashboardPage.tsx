@@ -356,9 +356,19 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const waiting = openTasks.filter(isWaiting);
   const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
   const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
+  // One ranked list instead of showing the same overdue tasks twice (once here, once
+  // in a since-removed "Needs Attention" panel): overdue first, then due-soon, then
+  // everything else — isOverdue/isDueSoon are mutually exclusive day-ranges, so this
+  // never duplicates a task.
+  const priorityTasks = [...overdue, ...dueSoon, ...openTasks.filter((t) => !isOverdue(t) && !isDueSoon(t))];
 
   return (
     <div>
+      {overdue.length > 0 && (
+        <div className="alert-strip">
+          <strong>{overdue.length}</strong> of {openTasks.length} open tasks are overdue.
+        </div>
+      )}
       <FilterBar
         selects={[
           { label: "Service", value: service, options: serviceOptions, onChange: setService },
@@ -380,7 +390,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <div className="metric-value">{clients.filter((c) => String(c.status || "").toLowerCase() === "active").length}</div>
           <div className="metric-note">{clients.length} total records</div>
         </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/tasks")}>
+        <button type="button" className={`metric metric-clickable${overdue.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/tasks")}>
           <div className="metric-label">Open Tasks</div>
           <div className="metric-value">{openTasks.length}</div>
           <div className="metric-note">{overdue.length} overdue</div>
@@ -398,15 +408,12 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       </div>
 
       <div className="command-grid">
-        <CommandPanel title="Priority Work Queue" note={`${openTasks.length} visible`} action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
-          <TaskRows tasks={openTasks.slice(0, 12)} empty="No priority tasks." onChanged={onChanged} />
+        <CommandPanel title="Priority Work Queue" note={`${openTasks.length} visible, ranked by urgency`} action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+          <TaskRows tasks={priorityTasks.slice(0, 12)} empty="No priority tasks." onChanged={onChanged} />
         </CommandPanel>
         <div className="command-stack">
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />
-          </CommandPanel>
-          <CommandPanel title="Needs Attention" note={`${Math.min(overdue.length + dueSoon.length, 6)} visible`}>
-            <AttentionRows tasks={[...overdue, ...dueSoon].slice(0, 6)} empty="No urgent work right now." />
           </CommandPanel>
         </div>
       </div>

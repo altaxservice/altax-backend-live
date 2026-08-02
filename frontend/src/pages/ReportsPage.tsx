@@ -12,6 +12,14 @@ import type { MdFilingResult } from "../api/calculators";
 const TABS = ["Firm Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
+/** Groups the flat 10-tab strip into labeled clusters — a flat row this long wrapped
+ * unpredictably and gave no visual signal it was still one control. */
+const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
+  { label: "Financials", tabs: ["Firm Overview", "P&L", "Balance Sheet", "Trial Balance", "AR Aging"] },
+  { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee"] },
+  { label: "Client-Facing", tabs: ["Client Message", "Sales, Tax & Payroll Report"] },
+];
+
 /** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists (Firm Overview, AR Aging — both firm-wide, not per-client, so they have their own PDF/CSV buttons instead of using this map). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
@@ -462,10 +470,21 @@ export function ReportsPage() {
 
   return (
     <div>
-      <div className="no-print" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20 }}>
-        {visibleTabs.map((t) => (
-          <div key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", color: tab === t ? "var(--ink)" : "var(--muted)", borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent" }}>{t}</div>
-        ))}
+      <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 24, borderBottom: "1px solid var(--line)", marginBottom: 20, paddingBottom: 6 }}>
+        {TAB_GROUPS.map((group) => {
+          const groupTabs = group.tabs.filter((t) => (visibleTabs as readonly Tab[]).includes(t));
+          if (!groupTabs.length) return null;
+          return (
+            <div key={group.label}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>{group.label}</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {groupTabs.map((t) => (
+                  <div key={t} onClick={() => setTab(t)} style={{ padding: "6px 12px", fontSize: 14, fontWeight: 500, cursor: "pointer", borderRadius: 8, color: tab === t ? "var(--ink)" : "var(--muted)", background: tab === t ? "var(--teal-soft)" : "transparent" }}>{t}</div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {tab === "AR Aging" && <ArAgingTab />}

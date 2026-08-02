@@ -17,7 +17,10 @@
   --blue: #1d4ed8;
   --blue-soft: #dbeafe;
   --focus: #c9962f;
+  --critical-strong: #8a1c14;
+  --critical-strong-soft: #fbe9e6;
   --shadow: 0 14px 40px rgba(20, 31, 43, 0.08);
+  --serif: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
 }
 
 * { box-sizing: border-box; }
@@ -29,6 +32,12 @@ html, body {
   background: var(--surface);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
 }
+
+/* One typeface (Inter) was doing every job — page title, KPI number, table header,
+   and body text all signaled hierarchy through size/weight alone. A serif display
+   face on headings and KPI numerals gives those two a distinct visual register
+   without touching body/table text, which stays on Inter for density and legibility. */
+h1, h2, h3, h4 { font-family: var(--serif); font-weight: 700; }
 
 #root { min-height: 100vh; }
 
@@ -251,6 +260,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 .metric {
   min-height: 90px;
   border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
   padding: 14px 16px;
@@ -259,8 +269,29 @@ select.action-menu { color: var(--muted); font-weight: 600; }
      which made the dashboard KPI numbers look like links on phones. */
   color: var(--ink);
 }
+/* Marks the one KPI tile tied to the alert strip above — not everything on the
+   dashboard can be urgent, so only this tile gets the treatment. */
+.metric-critical { border-left-color: var(--critical-strong); }
+
+/* Full-width banner shown only when something on the dashboard actually needs
+   attention (e.g. a real overdue count) — deliberately not present when there's
+   nothing urgent, so it stays meaningful instead of becoming wallpaper. */
+.alert-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--critical-strong);
+  background: var(--critical-strong-soft);
+  color: var(--critical-strong);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.alert-strip strong { font-family: var(--serif); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .metric-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
-.metric-value { margin-top: 8px; font-size: 32px; font-weight: 850; }
+.metric-value { margin-top: 8px; font-size: 32px; font-weight: 850; font-family: var(--serif); font-variant-numeric: tabular-nums; }
 .metric-note { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 /* Exactly-three-tile variant (client dashboard) — repeat(4) left a visibly empty
@@ -323,7 +354,7 @@ table { width: 100%; min-width: 620px; border-collapse: collapse; }
 /* Wraps every raw <table> so it scrolls horizontally on narrow viewports instead of
    squashing cell text unreadably — table's own min-width above is what triggers this. */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-th, td { text-align: left; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
+th, td { text-align: left; padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 th { background: var(--surface); color: var(--muted); font-weight: 800; text-transform: uppercase; font-size: 11px; letter-spacing: 0.02em; white-space: nowrap; }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--teal); }
