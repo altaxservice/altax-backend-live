@@ -16,6 +16,7 @@
   --green-soft: #dcfce7;
   --blue: #1d4ed8;
   --blue-soft: #dbeafe;
+  --focus: #c9962f;
   --shadow: 0 14px 40px rgba(20, 31, 43, 0.08);
 }
 
@@ -35,6 +36,16 @@ a { color: inherit; }
 
 button, input, select, textarea { font-family: inherit; font-size: inherit; }
 button { cursor: pointer; }
+
+/* Global keyboard-focus ring — previously left to each browser's own default (or
+   nothing, on some inputs whose border-color-only focus style is too subtle to spot
+   at a glance). A dedicated color keeps it from being read as "primary action" (teal)
+   or "danger" (red). */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 
 /* ---- Buttons ---- */
 .btn {
@@ -249,7 +260,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
   color: var(--ink);
 }
 .metric-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
-.metric-value { margin-top: 8px; font-size: 24px; font-weight: 850; }
+.metric-value { margin-top: 8px; font-size: 32px; font-weight: 850; }
 .metric-note { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 /* Exactly-three-tile variant (client dashboard) — repeat(4) left a visibly empty
@@ -805,6 +816,15 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   .metric-grid-3 .metric-label { font-size: 10px; }
   .metric-grid-3 .metric-value { font-size: 18px; margin-top: 6px; }
   .metric-grid-3 .metric-note { font-size: 10.5px; margin-top: 4px; }
+
+  /* .work-card (Command Center's Priority Work Queue / Document Requests / Billing
+     Watch) and .attention-item (Needs Attention) are flex rows with justify-content:
+     space-between — on a phone-width screen that squeezes the title/client text into
+     a track too narrow to hold a whole word, so it wraps letter-by-letter instead of
+     at word boundaries. Stack instead, same fix already proven on .table-scroll's
+     card-table conversion above. */
+  .work-card, .attention-item { flex-direction: column; align-items: stretch; gap: 8px; }
+  .work-card-side { justify-content: flex-start; }
 
   /* Client/employee get the bottom tab bar as their primary mobile nav instead of
      the hamburger drawer — a redundant second way to reach the same 4-5 destinations
