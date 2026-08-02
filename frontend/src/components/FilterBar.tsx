@@ -25,10 +25,22 @@ export function activeViewDates(): { start: string; end: string } {
   return { start: fmt(start), end: fmt(end) };
 }
 
-/** Mirrors legacy's renderFilters(): a row of Service/Status/Staff-style selects, an optional From/To period range, plus Refresh/Export/action buttons, sitting under the page title. Each page configures which pieces it needs — legacy only shows the period range on Tasks/Billing/Documents/Communications/Accounting/Reports (periodFilteredViews()), not every page. */
-export function FilterBar({ selects = [], period, onRefresh, refreshing, onExportCsv, children }: { selects?: SelectFilter[]; period?: PeriodFilter; onRefresh?: () => void; refreshing?: boolean; onExportCsv?: () => void; children?: ReactNode }) {
+export interface SearchFilter {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+/** Mirrors legacy's renderFilters(): a row of Service/Status/Staff-style selects, an optional From/To period range, plus Refresh/Export/action buttons, sitting under the page title. Each page configures which pieces it needs — legacy only shows the period range on Tasks/Billing/Documents/Communications/Accounting/Reports (periodFilteredViews()), not every page. `search` folds a page's own search box into this same row instead of it sitting in a separate row above — one less band of toolbar before the list starts. */
+export function FilterBar({ search, selects = [], period, onRefresh, refreshing, onExportCsv, children }: { search?: SearchFilter; selects?: SelectFilter[]; period?: PeriodFilter; onRefresh?: () => void; refreshing?: boolean; onExportCsv?: () => void; children?: ReactNode }) {
   return (
     <div className="filter-band">
+      {search && (
+        <label className="filter-control" style={{ minWidth: 200 }}>
+          Search
+          <input type="text" value={search.value} placeholder={search.placeholder} onChange={(e) => search.onChange(e.target.value)} />
+        </label>
+      )}
       {selects.map((f) => (
         <label className="filter-control" key={f.label}>
           {f.label}

@@ -289,17 +289,6 @@ export function TasksListPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        {!isArchivedView && (
-          <input
-            placeholder="Search tasks…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 220 }}
-          />
-        )}
-      </div>
-
       {clientIdFilter && (
         <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
           <span>Showing tasks for <strong>{filtered[0]?.client_name || clientIdFilter}</strong> only.</span>
@@ -309,6 +298,7 @@ export function TasksListPage() {
 
       {canManage && (
         <FilterBar
+          search={!isArchivedView ? { value: search, onChange: setSearch, placeholder: "Task, client, owner…" } : undefined}
           selects={[
             { label: "Staff", value: staffFilter, options: staffOptions, onChange: setStaffFilter },
             { label: "Service", value: serviceFilter, options: serviceOptions, onChange: setServiceFilter },
@@ -338,7 +328,7 @@ export function TasksListPage() {
         </FilterBar>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "10px 0 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, margin: "0 0 12px" }}>
         <div className="quick-tabs">
           {LIVE_TABS.map((t) => (
             <button key={t} type="button" className={`quick-tab ${quickTab === t ? "active" : ""}`} onClick={() => goToTab(t)}>{t}</button>
@@ -353,7 +343,7 @@ export function TasksListPage() {
       </div>
 
       {canManage && !isArchivedView && (
-        <div className="metric-grid" style={{ marginBottom: 16 }}>
+        <div className="metric-grid" style={{ marginBottom: 12 }}>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Open Tasks</div>
             <div className="metric-value">{openTasksAll.length}</div>

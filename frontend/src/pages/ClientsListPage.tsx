@@ -56,22 +56,24 @@ function responsibleCell(c: Client): { primary: string; secondary: string; empty
 }
 
 /**
- * Collapses the old Service/Sales Tax/Payroll columns into one compact badge
- * list — each of those 3 columns was blank ("—"/"N/A") for a large share of
- * 141 rows, so showing them as 3 always-present columns was mostly noise.
- * Only badges for what's actually set on this client render; a client with
- * none shows a single muted dash instead of three separate ones.
+ * Collapses the old Service/Sales Tax/Payroll columns into one compact cell —
+ * each of those 3 columns was blank ("—"/"N/A") for a large share of 141
+ * rows, so showing them as 3 always-present columns was mostly noise. One
+ * lead badge (what kind of engagement this is) plus a single muted detail
+ * line — not three stacked same-color pills, which is what actually made
+ * this column (and every row it sat in) feel dense: three ~24px pills per
+ * row versus one pill and one line of text.
  */
-function complianceBadges(c: Client): { label: string; key: string }[] {
-  const badges: { label: string; key: string }[] = [];
-  if (c.service_type) badges.push({ key: "service", label: c.service_type });
+function complianceInfo(c: Client): { lead: string | null; detail: string } {
+  const lead = c.service_type || null;
+  const details: string[] = [];
   if (c.sales_tax_frequency && String(c.sales_tax_frequency).toLowerCase() !== "n/a") {
-    badges.push({ key: "sales", label: `Sales Tax: ${c.sales_tax_frequency}` });
+    details.push(`Sales Tax: ${c.sales_tax_frequency}`);
   }
   if (c.payroll_enabled) {
-    badges.push({ key: "payroll", label: `Payroll${c.payroll_frequency ? `: ${c.payroll_frequency}` : ""}` });
+    details.push(`Payroll${c.payroll_frequency ? `: ${c.payroll_frequency}` : ""}`);
   }
-  return badges;
+  return { lead, detail: details.join(" · ") };
 }
 
 export function ClientsListPage() {
@@ -290,19 +292,14 @@ export function ClientsListPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            placeholder="Search clients…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 260 }}
-          />
-          {canCreate && <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Client"}</button>}
+      {canCreate && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <button className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Client"}</button>
         </div>
-      </div>
+      )}
 
       <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: "Name, ID, email, phone…" }}
         selects={[
           { label: "Status", value: statusFilter, options: statuses, onChange: setStatusFilter },
           { label: "Owner", value: ownerFilter, options: owners, onChange: setOwnerFilter },
@@ -313,7 +310,7 @@ export function ClientsListPage() {
         refreshing={refreshing}
         onExportCsv={handleExport}
       />
-      <div className="quick-tabs" style={{ margin: "10px 0 16px" }}>
+      <div className="quick-tabs" style={{ margin: "0 0 16px" }}>
         {QUICK_TABS.map((t) => (
           <button key={t.key} type="button" className={`quick-tab ${quickTab === t.key ? "active" : ""}`} onClick={() => setQuickTab(t.key)}>
             {t.label}
@@ -712,12 +709,13 @@ export function ClientsListPage() {
                     <td className="muted">{c.assigned_to || "—"}</td>
                     <td>
                       {(() => {
-                        const badges = complianceBadges(c);
-                        if (!badges.length) return <span className="muted">—</span>;
+                        const { lead, detail } = complianceInfo(c);
+                        if (!lead && !detail) return <span className="muted">—</span>;
                         return (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                            {badges.map((b) => <span key={b.key} className="badge">{b.label}</span>)}
-                          </div>
+                          <>
+                            {lead && <span className="badge">{lead}</span>}
+                            {detail && <div className="cell-sub">{detail}</div>}
+                          </>
                         );
                       })()}
                     </td>
