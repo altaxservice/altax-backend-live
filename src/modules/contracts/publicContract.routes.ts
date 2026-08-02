@@ -10,15 +10,20 @@ import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
+import { rateLimit } from "../../common/rateLimit";
 import { generateContractPdf } from "./contractPdf";
 
 export const publicContractRouter = Router();
+
+// Defense in depth alongside the token's own entropy (24 random bytes) — matches
+// the dedicated limiters on the other public share-link routers.
+const contractLimiter = rateLimit({ name: "public-contract", windowMs: 15 * 60 * 1000, max: 20 });
 
 async function findByToken(token: string) {
   return queryOne<any>(`SELECT * FROM altax.v3_client_contracts WHERE share_token = $1`, [token]);
 }
 
-publicContractRouter.get("/:token", asyncHandler(async (req: Request, res: Response) => {
+publicContractRouter.get("/:token", contractLimiter, asyncHandler(async (req: Request, res: Response) => {
   const contract = await findByToken(req.params.token);
   if (!contract) return res.status(404).json({ error: "This link is invalid or has expired." });
   if (contract.status === "Void") return res.status(410).json({ error: "This contract has been voided and is no longer available for signature." });
@@ -34,7 +39,7 @@ publicContractRouter.get("/:token", asyncHandler(async (req: Request, res: Respo
 }));
 
 /** Click-to-sign: typed name + explicit agreement, with timestamp + IP captured as the audit trail — the standard basic e-signature pattern (ESIGN Act does not require a hand-drawn signature). */
-publicContractRouter.post("/:token/sign", asyncHandler(async (req: Request, res: Response) => {
+publicContractRouter.post("/:token/sign", contractLimiter, asyncHandler(async (req: Request, res: Response) => {
   const contract = await findByToken(req.params.token);
   if (!contract) return res.status(404).json({ error: "This link is invalid or has expired." });
   if (contract.status === "Void") return res.status(410).json({ error: "This contract has been voided and can no longer be signed." });
@@ -62,7 +67,7 @@ publicContractRouter.post("/:token/sign", asyncHandler(async (req: Request, res:
   res.json({ ok: true });
 }));
 
-publicContractRouter.get("/:token/pdf", asyncHandler(async (req: Request, res: Response) => {
+publicContractRouter.get("/:token/pdf", contractLimiter, asyncHandler(async (req: Request, res: Response) => {
   const contract = await findByToken(req.params.token);
   if (!contract) return res.status(404).json({ error: "This link is invalid or has expired." });
 

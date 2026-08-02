@@ -10,8 +10,13 @@
 import { Router, Request, Response } from "express";
 import { queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
+import { rateLimit } from "../../common/rateLimit";
 
 export const publicMessageRouter = Router();
+
+// Defense in depth alongside the token's own entropy (24 random bytes) — matches
+// the dedicated limiters on the other public share-link routers.
+const messageLimiter = rateLimit({ name: "public-message", windowMs: 15 * 60 * 1000, max: 30 });
 
 /**
  * A link this old is far more likely forwarded/leaked than still being actively
@@ -24,7 +29,7 @@ export const publicMessageRouter = Router();
  */
 const LINK_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
-publicMessageRouter.get("/:token", asyncHandler(async (req: Request, res: Response) => {
+publicMessageRouter.get("/:token", messageLimiter, asyncHandler(async (req: Request, res: Response) => {
   const row = await queryOne<any>(
     `SELECT subject, message_english, message_arabic, client_name, sent_at, channel
        FROM altax.v3_communications WHERE share_token = $1`,
