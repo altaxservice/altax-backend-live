@@ -27,6 +27,80 @@ function idSuffix(): string {
   return `${ts}-${Math.floor(100 + Math.random() * 900)}`;
 }
 
+export interface CreateAppointmentInput {
+  title: string;
+  clientId?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  startTime: string;
+  endTime: string;
+  location?: string | null;
+  notes?: string | null;
+  assignedTo?: string | null;
+  notifyClient?: boolean;
+  createdBy: string;
+  /** Skips the confirmation send (still creates + logs) — used when a caller wants to send it separately. */
+  req?: Request;
+}
+
+/**
+ * Shared appointment-creation logic — used by the internal staff "+ New
+ * Appointment" route below AND the public self-service booking form
+ * (publicAppointments.routes.ts), so both entry points create the exact same
+ * kind of row, get the exact same email/SMS confirmation, and show up on the
+ * one shared staff Calendar. A client match by email (best-effort, only when
+ * exactly one client has that email on file) lets a public booking from an
+ * existing client still land tagged to their record instead of a bare contact.
+ */
+export async function createAppointment(input: CreateAppointmentInput): Promise<{ appointmentId: string }> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Title is required.");
+  if (!input.startTime || !input.endTime) throw new Error("Start and end time are required.");
+  if (new Date(input.endTime) < new Date(input.startTime)) throw new Error("End time can't be before start time.");
+
+  let clientId = input.clientId || null;
+  let contactName = input.contactName?.trim() || null;
+  let contactEmail = input.contactEmail?.trim() || null;
+  let contactPhone = input.contactPhone?.trim() || null;
+
+  let client: any = null;
+  if (clientId) {
+    client = await queryOne<any>(`SELECT client_id, client_name, email, phone FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    if (!client) throw new Error("Client not found.");
+  } else if (contactEmail) {
+    const matches = await query<any>(`SELECT client_id, client_name, email, phone FROM altax.v3_clients WHERE lower(email) = lower($1)`, [contactEmail]);
+    if (matches.length === 1) { client = matches[0]; clientId = client.client_id; }
+  }
+  if (client) {
+    if (!contactName) contactName = client.client_name;
+    if (!contactEmail) contactEmail = client.email || null;
+    if (!contactPhone) contactPhone = client.phone || null;
+  }
+
+  const notifyClient = input.notifyClient !== false;
+  const appointmentId = `APT-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_appointments
+       (appointment_id, title, client_id, contact_name, contact_email, contact_phone,
+        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13)`,
+    [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
+      input.startTime, input.endTime, input.location?.trim() || null, input.notes?.trim() || null,
+      input.assignedTo?.trim() || null, notifyClient, input.createdBy]
+  );
+
+  const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
+  if (notifyClient && appt) {
+    await notifyAppointment({ ...appt, client_name: client?.client_name }, "Appointment Confirmation", input.createdBy, input.req);
+  }
+
+  await logAudit("Calendar", "CREATE_APPOINTMENT", appointmentId, "", "", title,
+    `Appointment "${title}" scheduled by ${input.createdBy}.`, input.createdBy);
+
+  return { appointmentId };
+}
+
 function fmtDate(d: Date): string {
   return d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric", year: "numeric" });
 }
@@ -142,48 +216,19 @@ appointmentsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHan
 
 appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
-  const title = String(body.title || "").trim();
-  const startTime = String(body.startTime || "").trim();
-  const endTime = String(body.endTime || "").trim();
-  if (!title) return res.status(400).json({ error: "Title is required." });
-  if (!startTime || !endTime) return res.status(400).json({ error: "Start and end time are required." });
-  if (new Date(endTime) < new Date(startTime)) return res.status(400).json({ error: "End time can't be before start time." });
-
-  const clientId = String(body.clientId || "").trim() || null;
-  let contactName = String(body.contactName || "").trim() || null;
-  let contactEmail = String(body.contactEmail || "").trim() || null;
-  let contactPhone = String(body.contactPhone || "").trim() || null;
-
-  let client: any = null;
-  if (clientId) {
-    client = await queryOne<any>(`SELECT client_id, client_name, email, phone FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-    if (!client) return res.status(404).json({ error: "Client not found." });
-    if (!contactName) contactName = client.client_name;
-    if (!contactEmail) contactEmail = client.email || null;
-    if (!contactPhone) contactPhone = client.phone || null;
+  try {
+    const { appointmentId } = await createAppointment({
+      title: String(body.title || ""), clientId: String(body.clientId || "").trim() || null,
+      contactName: body.contactName, contactEmail: body.contactEmail, contactPhone: body.contactPhone,
+      startTime: String(body.startTime || ""), endTime: String(body.endTime || ""),
+      location: body.location, notes: body.notes, assignedTo: body.assignedTo,
+      notifyClient: body.notifyClient !== false, createdBy: req.user!.email, req,
+    });
+    res.status(201).json({ ok: true, appointmentId });
+  } catch (err: any) {
+    const notFound = err?.message === "Client not found.";
+    res.status(notFound ? 404 : 400).json({ error: err?.message || "Could not create this appointment." });
   }
-
-  const notifyClient = body.notifyClient !== false;
-  const appointmentId = `APT-${idSuffix()}`;
-  await query(
-    `INSERT INTO altax.v3_appointments
-       (appointment_id, title, client_id, contact_name, contact_email, contact_phone,
-        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13)`,
-    [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
-      startTime, endTime, String(body.location || "").trim() || null, String(body.notes || "").trim() || null,
-      String(body.assignedTo || "").trim() || null, notifyClient, req.user!.email]
-  );
-
-  const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
-  if (notifyClient && appt) {
-    await notifyAppointment({ ...appt, client_name: client?.client_name }, "Appointment Confirmation", req.user!.email, req);
-  }
-
-  await logAudit("Calendar", "CREATE_APPOINTMENT", appointmentId, "", "", title,
-    `Appointment "${title}" scheduled by ${req.user!.email}.`, req.user!.email);
-
-  res.status(201).json({ ok: true, appointmentId });
 }));
 
 appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

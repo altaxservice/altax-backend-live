@@ -30,6 +30,7 @@ import { timeTrackingRouter } from "./modules/timeTracking/timeTracking.routes";
 import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
+import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
 import { appointmentsRouter, runAppointmentReminders } from "./modules/appointments/appointments.routes";
 import { runWeeklyBackupEmail } from "./common/autoBackup";
@@ -157,6 +158,7 @@ const MARKETING_PAGES: Record<string, string> = {
   "/resources": "resources.html",
   "/news": "news.html",
   "/contact": "contact.html",
+  "/book": "book.html",
   "/privacy": "privacy.html",
   "/sms-terms": "sms-terms.html",
   "/accessibility": "accessibility.html",
@@ -248,6 +250,7 @@ app.use("/time-tracking", timeTrackingRouter);
 app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/public/contact", publicContactRouter);
+app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/appointments", appointmentsRouter);
 app.use("/firm-settings", firmSettingsRouter);

@@ -372,6 +372,23 @@ const TRANSLATIONS = {
   "contact.reasonPlaceholder": { en: "Tell us a bit about what you need...", ar: "أخبرنا قليلًا عمّا تحتاجه..." },
   "contact.submit": { en: "Submit", ar: "إرسال" },
 
+  // ---------- Book a Consultation page ----------
+  "book.eyebrow": { en: "Book a Consultation", ar: "احجز استشارة" },
+  "book.heading": { en: "Pick a time that works for you", ar: "اختر الوقت الذي يناسبك" },
+  "book.lead": { en: "Choose a date and an open time slot below, and we'll confirm your free consultation by email and text right away.", ar: "اختر تاريخًا ووقتًا متاحًا أدناه، وسنؤكد استشارتكم المجانية عبر البريد الإلكتروني والرسائل النصية فورًا." },
+  "book.hoursNote": { en: "Appointments are available Monday–Friday, 9:00 AM – 5:00 PM Eastern.", ar: "المواعيد متاحة من الاثنين إلى الجمعة، من الساعة 9:00 صباحًا حتى 5:00 مساءً بتوقيت شرق أمريكا." },
+  "book.formHeading": { en: "Schedule your free consultation", ar: "حدد موعد استشارتك المجانية" },
+  "book.dateLabel": { en: "Date", ar: "التاريخ" },
+  "book.timeLabel": { en: "Available Times (Eastern)", ar: "الأوقات المتاحة (بتوقيت شرق أمريكا)" },
+  "book.pickDate": { en: "Pick a date to see open times.", ar: "اختر تاريخًا لعرض الأوقات المتاحة." },
+  "book.loading": { en: "Loading…", ar: "جارٍ التحميل…" },
+  "book.noSlots": { en: "No open times that day — try another date.", ar: "لا توجد أوقات متاحة في ذلك اليوم — جرّب تاريخًا آخر." },
+  "book.nameLabel": { en: "Full name *", ar: "الاسم الكامل *" },
+  "book.reasonLabel": { en: "What would you like to discuss? (optional)", ar: "ما الذي ترغب في مناقشته؟ (اختياري)" },
+  "book.submit": { en: "Confirm Appointment", ar: "تأكيد الموعد" },
+  "book.successMessage": { en: "Your appointment is confirmed — check your email/text for details.", ar: "تم تأكيد موعدكم — يرجى مراجعة بريدكم الإلكتروني أو رسائلكم النصية للتفاصيل." },
+  "book.errorMessage": { en: "Something went wrong booking your appointment. Please try again, or call us directly.", ar: "حدث خطأ أثناء حجز موعدكم. يرجى المحاولة مرة أخرى، أو الاتصال بنا مباشرة." },
+
   // ---------- Shared: calendar tags / dynamic bits / form alerts ----------
   "calendar.nextUp": { en: "Next Up", ar: "القادم" },
   "calendar.tagIndividual": { en: "Individual", ar: "فردي" },

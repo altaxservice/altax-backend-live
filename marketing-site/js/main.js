@@ -238,6 +238,106 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const bookDateInput = document.getElementById('book-date');
+  if (bookDateInput) {
+    const slotsEl = document.getElementById('book-slots');
+    const bookForm = document.getElementById('book-form');
+    const bookStatusEl = document.getElementById('book-form-status');
+    const bookSubmitBtn = document.getElementById('book-submit-btn');
+    const bookSubmitLabel = bookSubmitBtn ? bookSubmitBtn.querySelector('span') : null;
+    let selectedSlot = null;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 60);
+    bookDateInput.min = todayStr;
+    bookDateInput.max = maxDate.toISOString().slice(0, 10);
+    bookDateInput.value = todayStr;
+
+    function renderSlots(slots) {
+      slotsEl.innerHTML = '';
+      selectedSlot = null;
+      bookForm.style.display = 'none';
+      if (!slots.length) {
+        const empty = document.createElement('span');
+        empty.className = 'book-slots-empty';
+        empty.textContent = t('book.noSlots') || 'No open times that day — try another date.';
+        slotsEl.appendChild(empty);
+        return;
+      }
+      slots.forEach((iso) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'book-slot';
+        btn.textContent = new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+        btn.addEventListener('click', () => {
+          selectedSlot = iso;
+          slotsEl.querySelectorAll('.book-slot').forEach((b) => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          bookForm.style.display = 'block';
+        });
+        slotsEl.appendChild(btn);
+      });
+    }
+
+    async function loadSlots() {
+      slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
+      bookForm.style.display = 'none';
+      try {
+        const res = await fetch('/public/appointments/availability?date=' + encodeURIComponent(bookDateInput.value));
+        const data = await res.json();
+        renderSlots(data.slots || []);
+      } catch (err) {
+        slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.noSlots') || 'No open times that day — try another date.') + '</span>';
+      }
+    }
+
+    bookDateInput.addEventListener('change', loadSlots);
+    loadSlots();
+
+    bookForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!selectedSlot) return;
+      const payload = {
+        name: document.getElementById('book-name').value.trim(),
+        email: document.getElementById('book-email').value.trim(),
+        phone: document.getElementById('book-phone').value.trim(),
+        reason: document.getElementById('book-reason').value.trim(),
+        startTime: selectedSlot,
+        website: document.getElementById('book-website').value, // honeypot
+      };
+      if (bookStatusEl) bookStatusEl.style.display = 'none';
+      if (bookSubmitBtn) bookSubmitBtn.disabled = true;
+      if (bookSubmitLabel) bookSubmitLabel.textContent = t('contact.sending');
+      try {
+        const res = await fetch('/public/appointments/book', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        if (bookStatusEl) {
+          bookStatusEl.className = 'form-status success';
+          bookStatusEl.textContent = t('book.successMessage') || 'Your appointment is confirmed — check your email/text for details.';
+          bookStatusEl.style.display = 'block';
+        }
+        bookForm.reset();
+        bookForm.style.display = 'none';
+        loadSlots();
+      } catch (err) {
+        if (bookStatusEl) {
+          bookStatusEl.className = 'form-status error';
+          bookStatusEl.textContent = (err && err.message) || t('book.errorMessage') || 'Something went wrong booking your appointment. Please try again, or call us directly.';
+          bookStatusEl.style.display = 'block';
+        }
+      } finally {
+        if (bookSubmitBtn) bookSubmitBtn.disabled = false;
+        if (bookSubmitLabel) bookSubmitLabel.textContent = t('book.submit');
+      }
+    });
+  }
+
   document.querySelectorAll('.newsletter-form').forEach((form) => {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
