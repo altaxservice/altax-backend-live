@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ContractBodyText } from "../components/ContractBodyText";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { PublicPageShell } from "../components/PublicPageShell";
 
 interface PublicContract {
   contract_id: string; title: string; rendered_body: string; effective_date: string | null;
@@ -70,8 +71,8 @@ export function PublicContractPage() {
 
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
-  if (error) return <div style={pageStyle}><ErrorBanner error={error} /></div>;
-  if (!contract) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
+  if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
+  if (!contract) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
 
   const isSigned = contract.status === "Signed";
   // Plain links, not the app's usual authed blob-fetch pattern (viewFile/downloadFile) —
@@ -81,6 +82,7 @@ export function PublicContractPage() {
   const pdfUrl = resolveFileUrl(`/public/contracts/${token}/pdf`);
 
   return (
+    <PublicPageShell>
     <div style={pageStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 12 }}>
         <div>
@@ -143,5 +145,6 @@ export function PublicContractPage() {
         )
       )}
     </div>
+    </PublicPageShell>
   );
 }

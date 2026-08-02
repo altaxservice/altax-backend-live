@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { PublicPageShell } from "../components/PublicPageShell";
 
 interface PublicLineItem {
   line_item_id: string; service_date: string | null; product_name: string | null; description: string | null;
@@ -64,8 +65,8 @@ export function PublicInvoicePage() {
 
   const pageStyle = { maxWidth: 720, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
-  if (error) return <div style={pageStyle}><ErrorBanner error={error} /></div>;
-  if (!invoice) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
+  if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
+  if (!invoice) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
 
   const lineItems = invoice.lineItems || [];
   // Plain links, not the app's usual authed blob-fetch pattern (viewFile/downloadFile) —
@@ -74,6 +75,7 @@ export function PublicInvoicePage() {
   const pdfUrl = resolveFileUrl(`/public/invoices/${token}/print`);
 
   return (
+    <PublicPageShell>
     <div style={pageStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
@@ -164,5 +166,6 @@ export function PublicInvoicePage() {
       )}
       {invoice.client_note && <p className="muted" style={{ fontSize: 13 }}>{invoice.client_note}</p>}
     </div>
+    </PublicPageShell>
   );
 }

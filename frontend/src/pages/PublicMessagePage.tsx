@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { PublicPageShell } from "../components/PublicPageShell";
 
 interface PublicMessage {
   subject: string;
@@ -39,14 +40,15 @@ export function PublicMessagePage() {
 
   const pageStyle = { maxWidth: 640, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
 
-  if (error) return <div style={pageStyle}><ErrorBanner error={error} /></div>;
-  if (!message) return <div style={pageStyle}><div className="spinner-wrap">Loading…</div></div>;
+  if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
+  if (!message) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
 
   const hasEnglish = !!message.messageEnglish;
   const hasArabic = !!message.messageArabic;
   const body = lang === "arabic" ? message.messageArabic : message.messageEnglish;
 
   return (
+    <PublicPageShell>
     <div style={pageStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
         <div>
@@ -74,5 +76,6 @@ export function PublicMessagePage() {
         {body || <span className="muted">No message text.</span>}
       </div>
     </div>
+    </PublicPageShell>
   );
 }
