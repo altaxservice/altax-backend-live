@@ -118,31 +118,48 @@ vaultRouter.post("/:clientId", asyncHandler(async (req: AuthedRequest, res: Resp
   const secret = String(body.secret ?? "");
   if (!category) return res.status(400).json({ error: "Category is required." });
   if (!label) return res.status(400).json({ error: "Label is required." });
-  if (!secret) return res.status(400).json({ error: "A secret value is required." });
 
   const secretId = String(body.secretId || "").trim() || `SEC-${idSuffix()}`;
   const existing = await queryOne<any>(
     `SELECT secret_id FROM altax.v3_client_secrets WHERE secret_id = $1 AND client_id = $2`,
     [secretId, clientId]
   );
+  if (!existing && !secret) return res.status(400).json({ error: "A secret value is required." });
 
-  const encryptedPayload = encryptValue(secret);
-  const last4 = secret.replace(/\D/g, "").slice(-4) || null;
-  const fields = [
+  const metaFields = [
     category, String(body.jurisdiction || "").trim() || null, String(body.agencyName || "").trim() || null,
-    label, String(body.portalUrl || "").trim() || null, encryptedPayload, last4,
+    label, String(body.portalUrl || "").trim() || null,
     String(body.status || "Active").trim(), req.user!.email,
   ];
 
   if (existing) {
-    await query(
-      `UPDATE altax.v3_client_secrets SET
-         category=$3, jurisdiction=$4, agency_name=$5, label=$6, portal_url=$7, encrypted_payload=$8,
-         last4_hint=$9, status=$10, updated_at=now(), updated_by=$11
-       WHERE secret_id=$1 AND client_id=$2`,
-      [secretId, clientId, ...fields]
-    );
+    // Editing an existing item never requires re-entering the secret — its value is
+    // never sent back to the browser outside an individually-audited Reveal, so a
+    // plain "fix the label" edit shouldn't force a value rotation. Only touch
+    // encrypted_payload/last4_hint when a new value was actually typed in.
+    if (secret) {
+      const encryptedPayload = encryptValue(secret);
+      const last4 = secret.replace(/\D/g, "").slice(-4) || null;
+      await query(
+        `UPDATE altax.v3_client_secrets SET
+           category=$3, jurisdiction=$4, agency_name=$5, label=$6, portal_url=$7, encrypted_payload=$8,
+           last4_hint=$9, status=$10, updated_at=now(), updated_by=$11
+         WHERE secret_id=$1 AND client_id=$2`,
+        [secretId, clientId, ...metaFields.slice(0, 5), encryptedPayload, last4, ...metaFields.slice(5)]
+      );
+    } else {
+      await query(
+        `UPDATE altax.v3_client_secrets SET
+           category=$3, jurisdiction=$4, agency_name=$5, label=$6, portal_url=$7,
+           status=$8, updated_at=now(), updated_by=$9
+         WHERE secret_id=$1 AND client_id=$2`,
+        [secretId, clientId, ...metaFields]
+      );
+    }
   } else {
+    const encryptedPayload = encryptValue(secret);
+    const last4 = secret.replace(/\D/g, "").slice(-4) || null;
+    const fields = [...metaFields.slice(0, 5), encryptedPayload, last4, ...metaFields.slice(5)];
     await query(
       `INSERT INTO altax.v3_client_secrets
          (secret_id, client_id, client_name, category, jurisdiction, agency_name, label, portal_url,

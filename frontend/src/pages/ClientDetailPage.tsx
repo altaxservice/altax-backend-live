@@ -1838,6 +1838,7 @@ function VaultSection({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: "", label: "", agencyName: "", secret: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const revealTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1869,8 +1870,9 @@ function VaultSection({ clientId }: { clientId: string }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post(`/vault/${clientId}`, form);
+      await api.post(`/vault/${clientId}`, editingId ? { ...form, secretId: editingId } : form);
       setShowForm(false);
+      setEditingId(null);
       setForm({ category: "", label: "", agencyName: "", secret: "" });
       load();
     } catch (err) {
@@ -1878,6 +1880,18 @@ function VaultSection({ clientId }: { clientId: string }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleEditStart(s: VaultSecret) {
+    setEditingId(s.secret_id);
+    setForm({ category: s.category, label: s.label, agencyName: s.agency_name || "", secret: "" });
+    setShowForm(true);
+  }
+
+  function handleFormCancel() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ category: "", label: "", agencyName: "", secret: "" });
   }
 
   async function handleReveal(secretId: string) {
@@ -1913,7 +1927,7 @@ function VaultSection({ clientId }: { clientId: string }) {
         <h2 style={{ fontSize: 15, margin: 0 }}>Secure Vault</h2>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="btn btn-sm" onClick={toggleLog}>{showLog ? "Hide Access Log" : "Access Log"}</button>
-          <button className="btn btn-sm" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Secret"}</button>
+          <button className="btn btn-sm" onClick={() => (showForm ? handleFormCancel() : setShowForm(true))}>{showForm ? "Cancel" : "Add Secret"}</button>
         </div>
       </div>
       <p className="muted" style={{ marginBottom: 12 }}>
@@ -1947,8 +1961,17 @@ function VaultSection({ clientId }: { clientId: string }) {
           <div className="field"><label>Category</label><input required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
           <div className="field"><label>Label</label><input required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
           <div className="field"><label>Agency Name</label><input value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
-          <div className="field"><label>Secret Value</label><input type="password" required value={form.secret} onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))} /></div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Secret"}</button>
+          <div className="field">
+            <label>Secret Value</label>
+            <input
+              type="password"
+              required={!editingId}
+              value={form.secret}
+              onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
+              placeholder={editingId ? "Leave blank to keep the current value" : undefined}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Save Secret"}</button>
         </form>
       )}
       {secrets && secrets.length === 0 && <p className="muted">No secrets stored for this client.</p>}
@@ -1961,6 +1984,7 @@ function VaultSection({ clientId }: { clientId: string }) {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-sm" onClick={() => handleReveal(s.secret_id)}>{revealed[s.secret_id] ? "Refresh" : "Reveal"}</button>
+              <button className="btn btn-sm" onClick={() => handleEditStart(s)}>Edit</button>
               <button className="btn btn-sm btn-danger" onClick={() => handleDelete(s.secret_id)}>Delete</button>
             </div>
           </div>
