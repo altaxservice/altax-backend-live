@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useToast } from "../components/Toast";
 import { US_STATES } from "../utils/clientOptions";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm } from "../components/ConfirmProvider";
 
 /**
  * Firm Portal Credentials — the firm's own agency logins (EFTPS, MD Tax Connect,
@@ -49,6 +50,7 @@ const EMPTY_FORM = {
 
 export function FirmPortalsPage() {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [portals, setPortals] = useState<FirmPortal[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -129,7 +131,8 @@ export function FirmPortalsPage() {
   }
 
   async function handleDelete(p: FirmPortal) {
-    if (!confirm(`Delete the saved credential for "${p.portal_name}"? The password cannot be recovered.`)) return;
+    const ok = await confirmDialog({ title: "Delete credential", message: `"${p.portal_name}" — the password cannot be recovered.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/firm-portals/${p.portal_id}/delete`, {});
       toast("Portal credential deleted.");

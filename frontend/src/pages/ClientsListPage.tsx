@@ -9,6 +9,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmProvider";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -81,6 +82,7 @@ export function ClientsListPage() {
   const { user } = useAuth();
   const { setSelectedClient } = useSelectedClient();
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [searchParams, setSearchParams] = useSearchParams();
   const [clients, setClients] = useState<Client[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -203,7 +205,8 @@ export function ClientsListPage() {
       return;
     }
     if (action === "archive") {
-      if (!confirm(`Archive ${c.client_name}? This disables their portal and deactivates their portal users.`)) return;
+      const ok = await confirmDialog({ title: "Archive client", message: `Archive ${c.client_name}? This disables their portal and deactivates their portal users.`, confirmLabel: "Archive", danger: true });
+      if (!ok) return;
       try {
         await api.post(`/clients/${c.client_id}/archive`, {});
         toast(`${c.client_name} archived.`);

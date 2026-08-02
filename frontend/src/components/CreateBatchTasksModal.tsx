@@ -6,6 +6,7 @@ import { clientMatchesRule } from "../utils/ruleMatch";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { useConfirm } from "./ConfirmProvider";
 
 interface PreviewResult {
   wouldCreate: number;
@@ -27,6 +28,7 @@ function ruleSortKey(ruleId: string): [number, string] {
 /** Mirrors legacy's "Create Batch Tasks" modal — reachable from both the Tasks toolbar and each Rules row's "Run Batch" button. */
 export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [ruleId, setRuleId] = useState(initialRuleId || rules[0]?.rule_id || "");
   const [clients, setClients] = useState<Client[]>([]);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
@@ -146,7 +148,8 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
   async function handleCommit() {
     if (!ruleId || !preview) return;
-    if (!confirm(`Create ${preview.wouldCreate} task(s)? This can't be easily undone in bulk.`)) return;
+    const ok = await confirmDialog({ title: "Create batch tasks", message: `Create ${preview.wouldCreate} task(s)? This can't be easily undone in bulk.` });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {

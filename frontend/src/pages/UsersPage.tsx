@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -30,6 +31,8 @@ function inviteStatusColor(status: string): string | undefined {
 }
 
 export function UsersPage() {
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [users, setUsers] = useState<PortalUser[] | null>(null);
   const [employees, setEmployees] = useState<EmployeeOption[] | null>(null);
   const [options, setOptions] = useState<WebOptions | null>(null);
@@ -110,7 +113,8 @@ export function UsersPage() {
   }
 
   async function handleDeactivate(userId: string) {
-    if (!confirm("Deactivate this portal user?")) return;
+    const ok = await confirmDialog({ title: "Deactivate user", message: "Deactivate this portal user?", confirmLabel: "Deactivate", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/users/${userId}/deactivate`, {});
       load();
@@ -142,7 +146,8 @@ export function UsersPage() {
         const res = await api.post<{ userId: string; inviteLink?: string; generatedNewToken: boolean; inviteEmailed?: boolean; inviteEmailError?: string }>(`/users/${userId}/resend-invite`, {});
         setInviteInfo({ ...res, note: res.generatedNewToken ? "A new invite link was issued." : "The existing invite link is still valid." });
       } else if (action === "reset-invite") {
-        if (!confirm("Reset this user's invite? This clears their current password and they must set a new one.")) return;
+        const ok = await confirmDialog({ title: "Reset invite", message: "This clears their current password and they must set a new one." });
+        if (!ok) return;
         const res = await api.post<{ userId: string; inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>(`/users/${userId}/reset-invite`, {});
         setInviteInfo({ ...res, note: "Password was cleared." });
       } else if (action === "temp-password") {
@@ -152,7 +157,8 @@ export function UsersPage() {
         // The recovery path for a lost/replaced phone. Safe because 2FA is
         // mandatory: clearing it forces fresh enrollment at the next sign-in
         // rather than leaving the account with password-only access.
-        if (!confirm("Reset this user's two-factor authentication?\n\nTheir current authenticator will stop working and they'll be asked to set up a new one the next time they sign in.")) return;
+        const ok = await confirmDialog({ title: "Reset two-factor authentication", message: "Their current authenticator will stop working and they'll be asked to set up a new one the next time they sign in." });
+        if (!ok) return;
         await api.post(`/users/${userId}/2fa/reset`, {});
         alert("Two-factor authentication reset. The user will set up a new authenticator at their next sign-in.");
       }
@@ -163,7 +169,11 @@ export function UsersPage() {
   }
 
   async function handleDelete(userId: string, name: string) {
-    const confirmValue = prompt(`Permanently delete "${name}"? This cannot be undone. Type DELETE USER to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete user",
+      message: `"${name}" — this cannot be undone. Type DELETE USER to confirm.`,
+      placeholder: "DELETE USER",
+    });
     if (confirmValue === null) return;
     try {
       await api.post(`/users/${userId}/delete`, { confirm: confirmValue });

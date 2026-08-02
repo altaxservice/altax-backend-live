@@ -16,6 +16,7 @@ import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
@@ -31,6 +32,8 @@ export function TasksListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -171,11 +174,16 @@ export function TasksListPage() {
     if (selected.size === 0) return;
     let confirmValue: string | undefined;
     if (action === "delete") {
-      const typed = prompt(`Permanently delete ${selected.size} selected task(s)? This cannot be undone. Type DELETE SELECTED to confirm.`);
+      const typed = await promptFor({
+        title: "Permanently delete tasks",
+        message: `${selected.size} selected task(s) — this cannot be undone. Type DELETE SELECTED to confirm.`,
+        placeholder: "DELETE SELECTED",
+      });
       if (typed === null) return;
       confirmValue = typed;
-    } else if (!confirm(`${action === "complete" ? "Complete" : "Void"} ${selected.size} selected task(s)?`)) {
-      return;
+    } else {
+      const ok = await confirmDialog({ title: action === "complete" ? "Complete tasks" : "Void tasks", message: `${action === "complete" ? "Complete" : "Void"} ${selected.size} selected task(s)?` });
+      if (!ok) return;
     }
     setBulkBusy(true);
     try {
@@ -227,7 +235,7 @@ export function TasksListPage() {
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
     if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
-      const reason = prompt("Reason for voiding this task?");
+      const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
       if (reason === null) return;
       try {
         await api.post(`/tasks/${task.task_id}/void`, { reason });
@@ -238,10 +246,14 @@ export function TasksListPage() {
       }
     }
     if (action === "delete-task") {
-      const confirm = prompt(`Permanently delete "${task.task_name}"? This cannot be undone. Type DELETE TASK to confirm.`);
-      if (confirm === null) return;
+      const confirmValue = await promptFor({
+        title: "Permanently delete task",
+        message: `"${task.task_name}" — this cannot be undone. Type DELETE TASK to confirm.`,
+        placeholder: "DELETE TASK",
+      });
+      if (confirmValue === null) return;
       try {
-        await api.post(`/tasks/${task.task_id}/delete`, { confirm });
+        await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
         toast("Task deleted.");
         load();
       } catch (err) {

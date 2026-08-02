@@ -8,6 +8,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
+import { usePrompt } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -41,6 +42,7 @@ function CommandPanel({ title, note, action, children }: { title: React.ReactNod
 
 function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: Task[]; empty: string; statusEditable?: boolean; onChanged?: () => void }) {
   const navigate = useNavigate();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
@@ -67,7 +69,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
     if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
-      const reason = prompt("Reason for voiding this task?");
+      const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
       if (reason === null) return;
       try {
         await api.post(`/tasks/${task.task_id}/void`, { reason });
@@ -77,10 +79,14 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
       }
     }
     if (action === "delete-task") {
-      const confirm = prompt(`Permanently delete "${task.task_name}"? This cannot be undone. Type DELETE TASK to confirm.`);
-      if (confirm === null) return;
+      const confirmValue = await promptFor({
+        title: "Permanently delete task",
+        message: `"${task.task_name}" — this cannot be undone. Type DELETE TASK to confirm.`,
+        placeholder: "DELETE TASK",
+      });
+      if (confirmValue === null) return;
       try {
-        await api.post(`/tasks/${task.task_id}/delete`, { confirm });
+        await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
         onChanged?.();
       } catch (err) {
         alert(err instanceof ApiError ? err.message : "Could not delete this task.");

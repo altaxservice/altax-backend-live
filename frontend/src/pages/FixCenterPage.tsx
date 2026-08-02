@@ -21,11 +21,12 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
   const style = STATUS_STYLE[check.status];
   const [rotating, setRotating] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [typedConfirm, setTypedConfirm] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleRotate() {
-    const typed = window.prompt('This will sign everyone out immediately, including you. Type "ROTATE LOGIN KEY" to confirm.');
+    const typed = typedConfirm.trim();
     if (typed !== "ROTATE LOGIN KEY") return;
     setRotating(true);
     setError(null);
@@ -54,7 +55,7 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
           <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>{check.detail}</p>
         </div>
         {check.fixAction === "rotate-jwt-secret" && (
-          <button type="button" className="btn" disabled={rotating} onClick={() => setConfirmOpen(true)}>
+          <button type="button" className="btn" disabled={rotating} onClick={() => { setTypedConfirm(""); setConfirmOpen(true); }}>
             {rotating ? "Rotating…" : "Fix Now"}
           </button>
         )}
@@ -64,8 +65,15 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
           <p style={{ marginTop: 0, fontSize: 13 }}>
             This immediately signs out every logged-in user, including you — everyone must log in again. Type <strong>ROTATE LOGIN KEY</strong> to confirm.
           </p>
+          <input
+            type="text"
+            value={typedConfirm}
+            placeholder="ROTATE LOGIN KEY"
+            onChange={(e) => setTypedConfirm(e.target.value)}
+            style={{ marginBottom: 10, width: "100%", maxWidth: 320 }}
+          />
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" className="btn btn-primary" disabled={rotating} onClick={handleRotate}>{rotating ? "Rotating…" : "I understand, rotate now"}</button>
+            <button type="button" className="btn btn-primary" disabled={rotating || typedConfirm.trim() !== "ROTATE LOGIN KEY"} onClick={handleRotate}>{rotating ? "Rotating…" : "I understand, rotate now"}</button>
             <button type="button" className="btn" onClick={() => setConfirmOpen(false)}>Cancel</button>
           </div>
         </div>

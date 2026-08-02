@@ -8,6 +8,7 @@ import { isOpenTask, isOverdue, isDueWeek } from "../components/TaskCells";
 import { NewAppointmentModal } from "../components/NewAppointmentModal";
 import { CalendarSettingsPanel } from "../components/CalendarSettingsPanel";
 import { useAuth } from "../auth/AuthContext";
+import { useConfirm } from "../components/ConfirmProvider";
 
 /**
  * Practice Management: calendar + staff capacity — task due dates (from the same
@@ -37,6 +38,7 @@ function fmtApptTime(a: Appointment): string {
 
 export function TaskCalendarPage() {
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -109,7 +111,8 @@ export function TaskCalendarPage() {
   }, [openTasks]);
 
   async function handleCancelAppointment(id: string) {
-    if (!confirm("Cancel this appointment?")) return;
+    const ok = await confirmDialog({ title: "Cancel appointment", message: "Cancel this appointment?" });
+    if (!ok) return;
     try {
       await api.post(`/appointments/${id}/cancel`, {});
       loadAppointments();
@@ -118,7 +121,8 @@ export function TaskCalendarPage() {
     }
   }
   async function handleDeleteAppointment(id: string) {
-    if (!confirm("Delete this appointment? This can't be undone.")) return;
+    const ok = await confirmDialog({ title: "Delete appointment", message: "This can't be undone.", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/appointments/${id}/delete`, {});
       loadAppointments();

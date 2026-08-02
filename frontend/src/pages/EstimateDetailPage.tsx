@@ -8,6 +8,7 @@ import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
 import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 /**
  * The estimate builder.
@@ -23,6 +24,8 @@ export function EstimateDetailPage() {
   const { estimateId } = useParams<{ estimateId: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [lines, setLines] = useState<EstimateLine[]>([]);
   const [totals, setTotals] = useState<EstimateTotals | null>(null);
@@ -147,7 +150,8 @@ export function EstimateDetailPage() {
   }
 
   async function handleRebuild() {
-    if (!confirm("Rebuild the lines from the fee schedule? Any edits to the lines will be lost.")) return;
+    const ok = await confirmDialog({ title: "Rebuild lines", message: "Any edits to the lines will be lost.", confirmLabel: "Rebuild", danger: true });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await api.post<{ lines: EstimateLine[]; totals: EstimateTotals }>(`/estimates/${estimateId}/rebuild`, {});
@@ -162,7 +166,7 @@ export function EstimateDetailPage() {
   }
 
   async function handleApprove() {
-    const method = prompt("How did the client approve? (Phone, Email, In person, Signed)", "Phone");
+    const method = await promptFor({ title: "Approve estimate", message: "How did the client approve? (Phone, Email, In person, Signed)", defaultValue: "Phone" });
     if (!method) return;
     setBusy(true);
     try {
@@ -177,7 +181,8 @@ export function EstimateDetailPage() {
   }
 
   async function handleConvert() {
-    if (!confirm("Create the client, invoice and setup tasks from this estimate?")) return;
+    const ok = await confirmDialog({ title: "Convert estimate", message: "Create the client, invoice and setup tasks from this estimate?" });
+    if (!ok) return;
     setBusy(true);
     try {
       const res = await api.post<{ clientId: string }>(`/estimates/${estimateId}/convert`, {});

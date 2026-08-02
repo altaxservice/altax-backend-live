@@ -16,6 +16,7 @@ import { ActionMenu, type ActionMenuOption } from "../components/ActionMenu";
 import { useAuth } from "../auth/AuthContext";
 import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -214,6 +215,7 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
 ];
 
 function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const promptFor = usePrompt();
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
@@ -387,11 +389,11 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
    * rather than a plain OK/Cancel.
    */
   async function handleDeleteSale(sale: any) {
-    const typed = prompt(
-      `Delete the sale dated ${fmtDate(sale.sale_date)} for ${fmtMoney(sale.gross_sales)}?\n\n` +
-      `Its sales revenue and sales tax payable entries will be reversed in the General Ledger. This cannot be undone.\n\n` +
-      `Type DELETE to confirm.`
-    );
+    const typed = await promptFor({
+      title: "Delete sale",
+      message: `${fmtDate(sale.sale_date)} for ${fmtMoney(sale.gross_sales)} — its sales revenue and sales tax payable entries will be reversed in the General Ledger. This cannot be undone. Type DELETE to confirm.`,
+      placeholder: "DELETE",
+    });
     if (typed === null) return;
     try {
       const res = await api.post<{ glLinesRemoved: number }>(`/accounting/sales/${sale.sale_id}/delete`, { confirm: typed });
@@ -707,6 +709,7 @@ function SalesRow({ label, value, bold }: { label: string; value: string; bold?:
 }
 
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+  const promptFor = usePrompt();
   const [viewingPayCheck, setViewingPayCheck] = useState<any | null>(null);
   // Edit/delete live here as well as on the Paychecks tab. Sending someone to
   // another tab to correct the row they are already looking at is the kind of
@@ -854,10 +857,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   }
 
   async function handleDelete(p: any) {
-    const typed = prompt(
-      `Permanently delete the paycheck for ${p.employee} on ${fmtDate(p.pay_date)} (net ${fmtMoney(p.net_pay)})?\n\n` +
-      `Its payroll journal entries will be removed too. This cannot be undone.\n\nType DELETE PAYCHECK to confirm.`
-    );
+    const typed = await promptFor({
+      title: "Permanently delete paycheck",
+      message: `${p.employee} on ${fmtDate(p.pay_date)} (net ${fmtMoney(p.net_pay)}) — its payroll journal entries will be removed too. This cannot be undone. Type DELETE PAYCHECK to confirm.`,
+      placeholder: "DELETE PAYCHECK",
+    });
     if (typed === null) return;
     setDeleting(p.paycheck_id);
     try {
@@ -1524,6 +1528,8 @@ function ImportTab({ clientId }: { clientId: string }) {
  */
 function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersChanged }: { clientId: string; clientState?: string | null; workerType: "Employee" | "Contractor"; onWorkersChanged?: () => void }) {
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isContractorTab = workerType === "Contractor";
@@ -1568,7 +1574,8 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   }
 
   async function handleArchive(emp: Employee) {
-    if (!confirm(`Archive ${emp.employee_name}? Past payroll/1099 history is kept, but they'll drop off active lists.`)) return;
+    const ok = await confirmDialog({ title: "Archive worker", message: `Archive ${emp.employee_name}? Past payroll/1099 history is kept, but they'll drop off active lists.`, confirmLabel: "Archive", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/accounting/employees/${emp.employee_id}/archive`, {});
       load();
@@ -1579,7 +1586,11 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   }
 
   async function handleDelete(emp: Employee) {
-    const confirmValue = prompt(`Permanently delete "${emp.employee_name}"? This cannot be undone and only works if they have no payroll/1099 history. Type DELETE EMPLOYEE to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete worker",
+      message: `"${emp.employee_name}" — this cannot be undone and only works if they have no payroll/1099 history. Type DELETE EMPLOYEE to confirm.`,
+      placeholder: "DELETE EMPLOYEE",
+    });
     if (confirmValue === null) return;
     try {
       await api.post(`/accounting/employees/${emp.employee_id}/delete`, { confirm: confirmValue });
@@ -2005,6 +2016,7 @@ function jeTotal(entry: any, side: "debit" | "credit"): number {
 }
 
 function ManualJeTab({ clientId }: { clientId: string }) {
+  const promptFor = usePrompt();
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
@@ -2042,11 +2054,11 @@ function ManualJeTab({ clientId }: { clientId: string }) {
    * leave the ledger permanently out of balance.
    */
   async function handleDeleteJe(entry: any) {
-    const typed = prompt(
-      `Delete journal entry ${entry.ref || entry.journalEntryId} dated ${fmtDate(entry.entryDate)}?\n\n` +
-      `All ${entry.lines.length} line(s) and their general-ledger postings will be removed. This cannot be undone.\n\n` +
-      `Type DELETE to confirm.`
-    );
+    const typed = await promptFor({
+      title: "Delete journal entry",
+      message: `${entry.ref || entry.journalEntryId} dated ${fmtDate(entry.entryDate)} — all ${entry.lines.length} line(s) and their general-ledger postings will be removed. This cannot be undone. Type DELETE to confirm.`,
+      placeholder: "DELETE",
+    });
     if (typed === null) return;
     try {
       const res = await api.post<{ linesRemoved: number; glLinesRemoved: number }>(
@@ -2383,6 +2395,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
 }
 
 function PaychecksTab({ clientId }: { clientId: string }) {
+  const promptFor = usePrompt();
   const [viewingCheck, setViewingCheck] = useState<any | null>(null);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -2421,7 +2434,11 @@ function PaychecksTab({ clientId }: { clientId: string }) {
   }
 
   async function handleDelete(p: any) {
-    const confirmValue = prompt(`Permanently delete this paycheck for ${p.employee} (${fmtDate(p.pay_date)})? This cannot be undone. Type DELETE PAYCHECK to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete paycheck",
+      message: `${p.employee} (${fmtDate(p.pay_date)}) — this cannot be undone. Type DELETE PAYCHECK to confirm.`,
+      placeholder: "DELETE PAYCHECK",
+    });
     if (confirmValue === null) return;
     setDeleting(p.paycheck_id);
     try {
@@ -2996,6 +3013,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
 const TAX_RATE_FORM_DEFAULTS = { rateId: "", rateType: "", rate: "", scope: "Global", clientId: "", employeeEmployer: "", wageCap: "", state: "", notes: "", active: true };
 
 function TaxRatesTab() {
+  const confirmDialog = useConfirm();
   const [rates, setRates] = useState<TaxRate[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -3057,7 +3075,8 @@ function TaxRatesTab() {
   // rowId is tax_rate_row_id (the DB surrogate PK), NOT rate_id — rate_id can be
   // shared by multiple rows (one per state/client), so it can't identify a single row.
   async function handleDeactivate(rowId: string) {
-    if (!confirm("Deactivate this tax rate?")) return;
+    const ok = await confirmDialog({ title: "Deactivate tax rate", message: "Deactivate this tax rate?" });
+    if (!ok) return;
     await api.post(`/accounting/tax-rates/${rowId}/deactivate`, {}).catch((e) => alert(e.message));
     load();
   }
@@ -3188,6 +3207,7 @@ const CATEGORY_FORM_DEFAULTS = {
  * withholding rates, which this doesn't touch.
  */
 function SalesCategoriesSection() {
+  const confirmDialog = useConfirm();
   const [categories, setCategories] = useState<SalesTaxCategoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -3235,7 +3255,8 @@ function SalesCategoriesSection() {
   }
 
   async function handleDeactivate(categoryId: string) {
-    if (!confirm("Deactivate this category? It will stop appearing in Sales Input.")) return;
+    const ok = await confirmDialog({ title: "Deactivate category", message: "It will stop appearing in Sales Input." });
+    if (!ok) return;
     await api.post(`/accounting/sales-categories/${categoryId}/deactivate`, {}).catch((e) => alert(e.message));
     load();
   }
@@ -3244,7 +3265,8 @@ function SalesCategoriesSection() {
     load();
   }
   async function handleDelete(categoryId: string, categoryName: string) {
-    if (!confirm(`Permanently delete "${categoryName}"? This cannot be undone.`)) return;
+    const ok = await confirmDialog({ title: "Permanently delete category", message: `"${categoryName}" — this cannot be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/accounting/sales-categories/${categoryId}/delete`, {});
       load();
@@ -3504,6 +3526,7 @@ interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; book
  * GL entries for the same account on the right; select one of each and Match.
  */
 function BankRecTab({ clientId }: { clientId: string }) {
+  const confirmDialog = useConfirm();
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
   const [accountName, setAccountName] = useState("");
   const [data, setData] = useState<BankRecData | null>(null);
@@ -3601,7 +3624,8 @@ function BankRecTab({ clientId }: { clientId: string }) {
   }
 
   async function handleDeleteLine(lineId: string) {
-    if (!confirm("Delete this bank statement line? (If it's matched, the GL entry stays — it just becomes unmatched again.)")) return;
+    const ok = await confirmDialog({ title: "Delete bank statement line", message: "If it's matched, the GL entry stays — it just becomes unmatched again.", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/bank-rec/${lineId}/delete`, {});
       load();
@@ -3730,6 +3754,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
 }
 
 function CoaTab() {
+  const confirmDialog = useConfirm();
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -3770,7 +3795,8 @@ function CoaTab() {
   }
 
   async function handleDeactivate(accountId: string) {
-    if (!confirm("Deactivate this account?")) return;
+    const ok = await confirmDialog({ title: "Deactivate account", message: "Deactivate this account?" });
+    if (!ok) return;
     await api.post(`/accounting/coa/${accountId}/deactivate`, {}).catch((e) => alert(e.message));
     load();
   }

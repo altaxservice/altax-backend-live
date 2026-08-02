@@ -9,6 +9,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useToast } from "../components/Toast";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -57,6 +58,8 @@ export function DocumentsListPage() {
   const navigate = useNavigate();
   const { setSelectedClient } = useSelectedClient();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
@@ -141,7 +144,8 @@ export function DocumentsListPage() {
   );
 
   async function handleRemoveUpload(uploadId: string) {
-    if (!confirm("Revoke this file? It will disappear from the client's/employee's portal too, not just from here.")) return;
+    const ok = await confirmDialog({ title: "Revoke file", message: "It will disappear from the client's/employee's portal too, not just from here.", confirmLabel: "Revoke", danger: true });
+    if (!ok) return;
     setRemovingId(uploadId);
     try {
       await api.post(`/documents/uploads/${uploadId}/remove`, {});
@@ -197,7 +201,11 @@ export function DocumentsListPage() {
     if (action === "upload") return navigate(`/documents/${request.request_id}?open=upload`);
     if (action === "edit") return navigate(`/documents/${request.request_id}`);
     if (action === "delete-request") {
-      const confirmValue = prompt(`Permanently delete "${request.requested_item}"? This cannot be undone. Type DELETE DOCUMENT to confirm.`);
+      const confirmValue = await promptFor({
+        title: "Permanently delete document request",
+        message: `"${request.requested_item}" — this cannot be undone. Type DELETE DOCUMENT to confirm.`,
+        placeholder: "DELETE DOCUMENT",
+      });
       if (confirmValue === null) return;
       try {
         await api.post(`/documents/requests/${request.request_id}/delete`, { confirm: confirmValue });
@@ -211,7 +219,11 @@ export function DocumentsListPage() {
 
   async function handleBulkDelete() {
     if (selected.size === 0) return;
-    const confirmValue = prompt(`Permanently delete ${selected.size} selected document request(s)? This cannot be undone. Type DELETE SELECTED to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete document requests",
+      message: `${selected.size} selected document request(s) — this cannot be undone. Type DELETE SELECTED to confirm.`,
+      placeholder: "DELETE SELECTED",
+    });
     if (confirmValue === null) return;
     setBulkBusy(true);
     try {

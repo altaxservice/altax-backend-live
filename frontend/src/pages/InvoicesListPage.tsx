@@ -15,6 +15,7 @@ import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { AddRecurringModal } from "../components/AddRecurringModal";
 import { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 export { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 
@@ -38,6 +39,8 @@ export function InvoicesListPage() {
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { setSelectedClient } = useSelectedClient();
 
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
@@ -153,7 +156,8 @@ export function InvoicesListPage() {
   }
 
   async function handleVoid(invoiceId: string) {
-    if (!confirm("Void this invoice? This cannot be undone.")) return;
+    const ok = await confirmDialog({ title: "Void invoice", message: "This cannot be undone.", confirmLabel: "Void", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/billing/invoices/${invoiceId}/void`, {});
       toast("Invoice voided.");
@@ -164,7 +168,11 @@ export function InvoicesListPage() {
   }
 
   async function handleDelete(invoiceId: string) {
-    const confirmValue = prompt(`Permanently delete invoice ${invoiceId}? This cannot be undone. Type DELETE INVOICE to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete invoice",
+      message: `Invoice ${invoiceId} — this cannot be undone. Type DELETE INVOICE to confirm.`,
+      placeholder: "DELETE INVOICE",
+    });
     if (confirmValue === null) return;
     try {
       await api.post(`/billing/invoices/${invoiceId}/delete`, { confirm: confirmValue });
@@ -176,7 +184,8 @@ export function InvoicesListPage() {
   }
 
   async function handleArchiveSchedule(id: string) {
-    if (!confirm("Archive this recurring billing schedule? It will stop creating future invoices.")) return;
+    const ok = await confirmDialog({ title: "Archive schedule", message: "It will stop creating future invoices.", confirmLabel: "Archive", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/billing/recurring/${id}/archive`, {});
       toast("Schedule archived.");
@@ -187,7 +196,8 @@ export function InvoicesListPage() {
   }
 
   async function handleUseScheduleNow(id: string) {
-    if (!confirm("Create an invoice from this schedule right now?")) return;
+    const ok = await confirmDialog({ title: "Create invoice now", message: "Create an invoice from this schedule right now?" });
+    if (!ok) return;
     try {
       const res = await api.post<{ invoiceId: string }>(`/billing/recurring/${id}/run-now`, {});
       toast(`Invoice ${res.invoiceId} created.`);
@@ -222,7 +232,8 @@ export function InvoicesListPage() {
   }
 
   async function handleSkipNextDate(id: string) {
-    if (!confirm("Skip this schedule's next occurrence? No invoice will be created for that date.")) return;
+    const ok = await confirmDialog({ title: "Skip next occurrence", message: "No invoice will be created for that date." });
+    if (!ok) return;
     try {
       await api.post(`/billing/recurring/${id}/skip`, {});
       toast("Next occurrence skipped.");
@@ -233,7 +244,11 @@ export function InvoicesListPage() {
   }
 
   async function handleDeleteSchedule(id: string) {
-    const confirmValue = prompt("Permanently delete this recurring billing schedule? This cannot be undone. Type DELETE SCHEDULE to confirm.");
+    const confirmValue = await promptFor({
+      title: "Permanently delete schedule",
+      message: "This cannot be undone. Type DELETE SCHEDULE to confirm.",
+      placeholder: "DELETE SCHEDULE",
+    });
     if (confirmValue === null) return;
     try {
       await api.post(`/billing/recurring/${id}/delete`, { confirm: confirmValue });

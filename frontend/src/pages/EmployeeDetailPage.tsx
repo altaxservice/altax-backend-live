@@ -10,6 +10,7 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
 import type { DocumentRequest } from "../api/types2";
 import type { GovFormFiling } from "../api/govForms";
@@ -545,6 +546,8 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
  */
 function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: string; formType: "W4" | "W9"; title: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
@@ -635,7 +638,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
   }
 
   async function handleVoid(f: GovFormFiling) {
-    const reason = prompt(`Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?`);
+    const reason = await promptFor({ title: "Void filing", message: `Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?` });
     if (reason === null) return;
     setBusy(`void-${f.filing_id}`);
     try {
@@ -650,7 +653,8 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
   }
 
   async function handleDelete(f: GovFormFiling) {
-    if (!confirm(`Delete this draft ${title}? This can't be undone.`)) return;
+    const ok = await confirmDialog({ title: "Delete draft", message: `Delete this draft ${title}? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     setBusy(`delete-${f.filing_id}`);
     try {
       await api.post(`/gov-forms/${f.filing_id}/delete`, {});
@@ -798,6 +802,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
  */
 function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientName }: { employeeId: string; employeeName: string; clientId: string; clientName: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -822,7 +827,13 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
   const archived = (uploads || []).filter((u) => u.hidden_from_staff);
 
   async function handleRevoke(uploadId: string) {
-    if (!confirm(`Revoke this file? It will disappear from ${employeeName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`)) return;
+    const ok = await confirmDialog({
+      title: "Revoke file",
+      message: `It will disappear from ${employeeName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`,
+      confirmLabel: "Revoke",
+      danger: true,
+    });
+    if (!ok) return;
     setRemovingId(uploadId);
     try {
       await api.post(`/documents/uploads/${uploadId}/remove`, {});

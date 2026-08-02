@@ -755,6 +755,7 @@ const CONTRACT_STATUS_COLOR: Record<string, string> = {
  */
 function ClientDocumentsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -782,7 +783,8 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
   const archivedUploads = (uploads || []).filter((u) => u.hidden_from_staff);
 
   async function handleRevoke(uploadId: string) {
-    if (!confirm(`Revoke this file? It will disappear from ${clientName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`)) return;
+    const ok = await confirmDialog({ title: "Revoke file", message: `Revoke this file? It will disappear from ${clientName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`, confirmLabel: "Revoke", danger: true });
+    if (!ok) return;
     setRemovingId(uploadId);
     try {
       await api.post(`/documents/uploads/${uploadId}/remove`, {});
@@ -981,6 +983,8 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
 
 function ContractsSection({ clientId, clientServices }: { clientId: string; clientServices: string[] }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [contracts, setContracts] = useState<ClientContract[] | null>(null);
@@ -1073,7 +1077,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   }
 
   async function handleVoid(c: ClientContract) {
-    const reason = prompt(`Reason for voiding "${c.title}"?`);
+    const reason = await promptFor({ title: "Void contract", message: `Reason for voiding "${c.title}"?` });
     if (reason === null) return;
     setBusy(`void-${c.contract_id}`);
     try {
@@ -1088,7 +1092,8 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
   }
 
   async function handleDelete(c: ClientContract) {
-    if (!confirm(`Delete the draft "${c.title}"? This can't be undone.`)) return;
+    const ok = await confirmDialog({ title: "Delete draft contract", message: `Delete the draft "${c.title}"? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     setBusy(`delete-${c.contract_id}`);
     try {
       await api.post(`/contracts/${c.contract_id}/delete`, {});
@@ -1329,6 +1334,8 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
  */
 function PoaFilingsSection({ clientId }: { clientId: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<PoaFiling[] | null>(null);
@@ -1398,7 +1405,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
   }
 
   async function handleVoid(f: PoaFiling) {
-    const reason = prompt(`Reason for voiding ${FORM_LABELS[f.form_type]}?`);
+    const reason = await promptFor({ title: "Void filing", message: `Reason for voiding ${FORM_LABELS[f.form_type]}?` });
     if (reason === null) return;
     setBusy(`void-${f.filing_id}`);
     try {
@@ -1413,7 +1420,8 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
   }
 
   async function handleDelete(f: PoaFiling) {
-    if (!confirm(`Delete this draft ${FORM_LABELS[f.form_type]}? This can't be undone.`)) return;
+    const ok = await confirmDialog({ title: "Delete draft filing", message: `Delete this draft ${FORM_LABELS[f.form_type]}? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     setBusy(`delete-${f.filing_id}`);
     try {
       await api.post(`/poa-forms/${f.filing_id}/delete`, {});
@@ -1547,6 +1555,8 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
  */
 function GovFormsSection({ clientId }: { clientId: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
@@ -1616,7 +1626,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   }
 
   async function handleVoid(f: GovFormFiling) {
-    const reason = prompt(`Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?`);
+    const reason = await promptFor({ title: "Void filing", message: `Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?` });
     if (reason === null) return;
     setBusy(`void-${f.filing_id}`);
     try {
@@ -1631,7 +1641,8 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   }
 
   async function handleDelete(f: GovFormFiling) {
-    if (!confirm(`Delete this draft ${GOV_FORM_LABELS[f.form_type]}? This can't be undone.`)) return;
+    const ok = await confirmDialog({ title: "Delete draft filing", message: `Delete this draft ${GOV_FORM_LABELS[f.form_type]}? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     setBusy(`delete-${f.filing_id}`);
     try {
       await api.post(`/gov-forms/${f.filing_id}/delete`, {});
@@ -2223,6 +2234,7 @@ function fmtMoney(v: unknown): string {
  */
 function ClientBillingSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
@@ -2242,7 +2254,8 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
   useEffect(loadUnbilledTime, [clientId]);
 
   async function handleCreateFromTime() {
-    if (!confirm(`Create an invoice for ${unbilledTime?.count} approved billable time ${unbilledTime?.count === 1 ? "entry" : "entries"} (${fmtMoney(unbilledTime?.amount)})?`)) return;
+    const ok = await confirmDialog({ title: "Create invoice from time", message: `Create an invoice for ${unbilledTime?.count} approved billable time ${unbilledTime?.count === 1 ? "entry" : "entries"} (${fmtMoney(unbilledTime?.amount)})?` });
+    if (!ok) return;
     setCreatingFromTime(true);
     try {
       const res = await api.post<{ invoiceId: string }>("/billing/invoices/from-time", { clientId });
@@ -2383,6 +2396,7 @@ const ACTIVITY_TYPES = ["Phone Call", "In-Person Meeting", "Video Call", "Voicem
  */
 function ClientActivitySection({ clientId }: { clientId: string }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [rows, setRows] = useState<ActivityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -2415,7 +2429,8 @@ function ClientActivitySection({ clientId }: { clientId: string }) {
 
   async function handleDelete(row: ActivityRow) {
     if (row.source !== "log") return;
-    if (!confirm("Delete this activity entry?")) return;
+    const ok = await confirmDialog({ title: "Delete activity entry", message: "Delete this activity entry?", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/clients/${clientId}/activity/${row.id}/delete`, {});
       load();

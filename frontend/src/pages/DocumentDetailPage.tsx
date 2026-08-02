@@ -10,6 +10,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateOnly } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
@@ -26,6 +27,8 @@ export function DocumentDetailPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [searchParams] = useSearchParams();
   const [request, setRequest] = useState<DocumentRequest | null>(null);
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
@@ -70,7 +73,11 @@ export function DocumentDetailPage() {
 
   async function handleDelete() {
     if (!requestId || !request) return;
-    const confirmValue = prompt(`Permanently delete "${request.requested_item}"? This cannot be undone. Type DELETE DOCUMENT to confirm.`);
+    const confirmValue = await promptFor({
+      title: "Permanently delete document request",
+      message: `"${request.requested_item}" — this cannot be undone. Type DELETE DOCUMENT to confirm.`,
+      placeholder: "DELETE DOCUMENT",
+    });
     if (confirmValue === null) return;
     setDeleting(true);
     try {
@@ -160,7 +167,8 @@ export function DocumentDetailPage() {
   }
 
   async function handleRemoveFile(uploadId: string) {
-    if (!confirm("Remove this file? It stays in the audit trail but will no longer be visible or listed here.")) return;
+    const ok = await confirmDialog({ title: "Remove file", message: "It stays in the audit trail but will no longer be visible or listed here.", confirmLabel: "Remove", danger: true });
+    if (!ok) return;
     setRemovingId(uploadId);
     try {
       await api.post(`/documents/uploads/${uploadId}/remove`, {});

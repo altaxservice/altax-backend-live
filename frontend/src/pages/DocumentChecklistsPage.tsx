@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FIRM_SERVICES } from "../utils/clientOptions";
+import { useConfirm } from "../components/ConfirmProvider";
 
 interface ChecklistItem { item_id: string; document_name: string; sort_order: number }
 interface Checklist { checklist_id: string; name: string; client_type: string | null; service_key: string | null; active: boolean; items: ChecklistItem[] }
@@ -17,6 +18,7 @@ const CLIENT_TYPES = ["", "Business", "Individual"];
  * here currently match that client.
  */
 export function DocumentChecklistsPage() {
+  const confirmDialog = useConfirm();
   const [checklists, setChecklists] = useState<Checklist[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -48,7 +50,8 @@ export function DocumentChecklistsPage() {
   }
 
   async function handleDeleteChecklist(id: string) {
-    if (!confirm("Delete this checklist template? Clients who already have progress against it keep their existing rows.")) return;
+    const ok = await confirmDialog({ title: "Delete checklist template", message: "Clients who already have progress against it keep their existing rows.", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/checklists/${id}/delete`, {});
       load();

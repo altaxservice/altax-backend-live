@@ -12,6 +12,7 @@ import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -28,6 +29,8 @@ export function InvoiceDetailPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -135,8 +138,8 @@ export function InvoiceDetailPage() {
   }
 
   async function handleReverse(paymentId: string) {
-    const reason = prompt("Reason for reversing this payment?");
-    if (!reason) return;
+    const reason = await promptFor({ title: "Reverse payment", message: "Reason for reversing this payment?" });
+    if (reason === null) return;
     try {
       await api.post(`/billing/payments/${paymentId}/reverse`, { reason });
       load();
@@ -162,7 +165,8 @@ export function InvoiceDetailPage() {
 
   async function handleVoid() {
     if (!invoiceId) return;
-    if (!confirm("Void this invoice? This cannot be undone.")) return;
+    const ok = await confirmDialog({ title: "Void invoice", message: "This cannot be undone.", confirmLabel: "Void", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/billing/invoices/${invoiceId}/void`, {});
       navigate("/billing");

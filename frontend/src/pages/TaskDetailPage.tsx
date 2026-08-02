@@ -11,6 +11,7 @@ import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
+import { usePrompt } from "../components/ConfirmProvider";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -58,6 +59,7 @@ function toDateInput(value: unknown): string {
 }
 
 export function TaskDetailPage() {
+  const promptFor = usePrompt();
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -138,7 +140,7 @@ export function TaskDetailPage() {
 
   async function handleVoid() {
     if (!taskId) return;
-    const reason = prompt("Reason for voiding this task?");
+    const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
     if (reason === null) return;
     try {
       await api.post(`/tasks/${taskId}/void`, { reason });

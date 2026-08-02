@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { PortalUser } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { useConfirm } from "./ConfirmProvider";
 
 interface RequestResult {
   pendingEmail: string;
@@ -32,6 +33,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
   onDone: () => void;
 }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [user, setUser] = useState<PortalUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState("");
@@ -77,7 +79,8 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
 
   async function handleCancelPending() {
     if (!user) return;
-    if (!confirm("Cancel the pending email change? The client keeps signing in with their current address.")) return;
+    const ok = await confirmDialog({ title: "Cancel pending change", message: "The client keeps signing in with their current address." });
+    if (!ok) return;
     setSaving(true);
     try {
       await api.post(`/users/${user.user_id}/cancel-email-change`, {});

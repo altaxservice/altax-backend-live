@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type FeeItem } from "../api/estimates";
 
@@ -24,6 +25,7 @@ const EMPTY: Partial<FeeItem> & { unit_cost: string; unit_price: string } = {
 
 export function FeeSchedulePage() {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [items, setItems] = useState<FeeItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<(Partial<FeeItem> & Record<string, unknown>) | null>(null);
@@ -86,7 +88,8 @@ export function FeeSchedulePage() {
   }
 
   async function handleDeactivate(item: FeeItem) {
-    if (!confirm(`Deactivate "${item.name}"? It stays on estimates that already use it.`)) return;
+    const ok = await confirmDialog({ title: "Deactivate fee item", message: `"${item.name}" — it stays on estimates that already use it.`, confirmLabel: "Deactivate" });
+    if (!ok) return;
     try {
       await api.post(`/estimates/fee-items/${item.fee_item_id}/delete`, {});
       toast("Fee deactivated.");

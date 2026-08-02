@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useConfirm } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -1160,6 +1161,7 @@ function ArAgingTab() {
 
 function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: string; to: string }) {
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
   const [data, setData] = useState<TrialBalanceData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1193,7 +1195,8 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
    * only part of their lines" from a diagnosis into a button.
    */
   async function handleRepost(refId: string) {
-    if (!confirm(`Repost all ledger lines for ${refId} from its paycheck? The paycheck itself is not changed.`)) return;
+    const ok = await confirmDialog({ title: "Repost ledger lines", message: `Repost all ledger lines for ${refId} from its paycheck? The paycheck itself is not changed.` });
+    if (!ok) return;
     setReposting(refId);
     setRepostNote(null);
     try {

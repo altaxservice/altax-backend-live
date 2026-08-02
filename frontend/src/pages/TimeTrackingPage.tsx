@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { useConfirm } from "../components/ConfirmProvider";
 import type { Client } from "../api/types";
 
 interface TimeEntry {
@@ -31,6 +32,7 @@ const money = (n: number | string | null | undefined) => `$${(Number(n) || 0).to
  * direct API calls.
  */
 export function TimeTrackingPage() {
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
@@ -88,7 +90,8 @@ export function TimeTrackingPage() {
   }
 
   async function handleDelete(entryId: string) {
-    if (!confirm("Delete this time entry?")) return;
+    const ok = await confirmDialog({ title: "Delete time entry", message: "Delete this time entry?", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/time-tracking/entries/${entryId}/delete`, {});
       load();
