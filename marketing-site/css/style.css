@@ -42,7 +42,15 @@ body {
   color: var(--color-text);
   background: var(--color-cream);
   -webkit-font-smoothing: antialiased;
+  /* Sticky footer: on a short page (e.g. an expired-link notice with no
+     other content), the cream body background used to fill the rest of the
+     viewport below the dark footer instead of the footer itself reaching the
+     bottom edge. */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
+.site-footer { margin-top: auto; }
 
 img { max-width: 100%; display: block; }
 a { color: inherit; }
