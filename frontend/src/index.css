@@ -16,7 +16,12 @@
   --green-soft: #dcfce7;
   --blue: #1d4ed8;
   --blue-soft: #dbeafe;
-  --focus: #c9962f;
+  /* The marketing site's own gold (--color-gold-dark in marketing-site/css/style.css)
+     — reused here, not reinvented, so the app's one gold touch (focus rings) is
+     genuinely the same brand color a visitor already saw on the public site and
+     login screen, not a look-alike. Verified ~3.5:1 against white, meeting the
+     3:1 WCAG minimum for non-text UI component contrast. */
+  --focus: #a9834a;
   --critical-strong: #8a1c14;
   --critical-strong-soft: #fbe9e6;
   --shadow: 0 14px 40px rgba(20, 31, 43, 0.08);
@@ -71,6 +76,25 @@ textarea:focus-visible, [tabindex]:focus-visible {
 }
 .btn:hover { border-color: var(--teal); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Was previously ad hoc per component (some swapped their own label to "Saving…",
+   most didn't show anything at all while a request was in flight). One class gives
+   every button this for free — pair with `disabled` on the same element, existing
+   label text (e.g. "Saving…") stays and just gains a spinner ahead of it. */
+.btn-loading { pointer-events: none; opacity: 0.85; }
+.btn-loading::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn-loading::before { animation: none; border-top-color: currentColor; opacity: 0.5; }
+}
 .btn-primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 .btn-primary:hover { opacity: 0.92; border-color: var(--teal); }
 .btn-danger { color: var(--red); }

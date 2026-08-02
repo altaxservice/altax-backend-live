@@ -475,7 +475,7 @@ export function ClientDetailPage() {
             );
           })}
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+            <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
             <button type="button" className="btn" onClick={() => { setEditing(false); setSearchParams({}); }}>Cancel</button>
           </div>
         </form>
@@ -2001,7 +2001,7 @@ function VaultSection({ clientId }: { clientId: string }) {
               placeholder={editingId ? "Leave blank to keep the current value" : undefined}
             />
           </div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Save Secret"}</button>
+          <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Save Secret"}</button>
         </form>
       )}
       {secrets && secrets.length === 0 && <p className="muted">No secrets stored for this client.</p>}
@@ -2158,7 +2158,7 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
               Default for Invoices
             </label>
           </div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+          <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
         </form>
       )}
       {methods && methods.length === 0 && <p className="muted">No payment methods on file.</p>}
