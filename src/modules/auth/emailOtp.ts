@@ -20,6 +20,7 @@
  * within its lifetime.
  */
 import crypto from "crypto";
+import { escapeHtml } from "../../common/html";
 
 export const OTP_TTL_MINUTES = 10;
 export const OTP_MAX_ATTEMPTS = 5;
@@ -57,7 +58,7 @@ export function isOtpExpired(expiresAt: unknown): boolean {
 
 export function loginCodeEmailBody(code: string, firmName: string): string {
   return `
-    <p>Here is your sign-in code for ${firmName}:</p>
+    <p>Here is your sign-in code for ${escapeHtml(firmName)}:</p>
     <p style="font-size:30px;font-weight:800;letter-spacing:7px;margin:18px 0;font-family:ui-monospace,Menlo,monospace;">${code}</p>
     <p>It expires in ${OTP_TTL_MINUTES} minutes and can be used once.</p>
     <p style="color:#666;font-size:13px;">

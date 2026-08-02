@@ -9,6 +9,7 @@ import { canAccessClient } from "../../common/assignment";
 import { getFirmProfile } from "../../common/firmProfile";
 import { sendEmail } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
+import { escapeHtml } from "../../common/html";
 import { substitutePlaceholders } from "../templates/templates.routes";
 import { generateContractPdf } from "./contractPdf";
 import {
@@ -342,7 +343,7 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
       await sendEmail({
         to: client.email,
         subject: `${contract.title} — please review and sign`,
-        html: await wrapEmailHtml(`<p>Hello ${client.client_name},</p><p>Please review and sign your <strong>${contract.title}</strong>:</p>${buttonHtml}<p>Thank you.</p>`, req),
+        html: await wrapEmailHtml(`<p>Hello ${escapeHtml(client.client_name)},</p><p>Please review and sign your <strong>${escapeHtml(contract.title)}</strong>:</p>${buttonHtml}<p>Thank you.</p>`, req),
       });
       emailed = true;
     } catch (err) {

@@ -1,6 +1,7 @@
 import { query } from "../config/db";
 import { sendEmail } from "./notifications";
 import { getFirmProfile } from "./firmProfile";
+import { escapeHtml } from "./html";
 
 /** Same admin-lookup shape as autoBackup.ts's backupRecipients — kept as its own small
  * copy rather than a shared import since the two modules have no other coupling and
@@ -14,10 +15,6 @@ async function activeAdminEmails(): Promise<string[]> {
   if (emails.length > 0) return emails;
   const firm = await getFirmProfile().catch(() => null);
   return firm?.email ? [String(firm.email)] : [];
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
 }
 
 /**

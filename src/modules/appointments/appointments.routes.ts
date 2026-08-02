@@ -9,6 +9,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { getAppointmentSettings, bookableWeekdayLabel } from "../../common/appointmentSettings";
+import { escapeHtml } from "../../common/html";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -110,10 +111,6 @@ function fmtDate(d: Date): string {
 }
 function fmtTime(d: Date): string {
   return d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] as string));
 }
 
 export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled";

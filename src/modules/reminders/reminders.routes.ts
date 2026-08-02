@@ -7,6 +7,7 @@ import { normalizeText } from "../../common/assignment";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { resolveTemplate } from "../templates/templates.routes";
 import { wrapEmailHtml } from "../../common/emailTemplate";
+import { escapeHtml } from "../../common/html";
 
 /**
  * Automated reminders — the piece communications.routes.ts's module doc comment
@@ -87,7 +88,7 @@ async function sendAndLog(opts: {
   let sent = false;
   let sendError: string | undefined;
   try {
-    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${opts.bodyEnglish.replace(/\n/g, "<br>")}</p>`, req) });
+    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
     sent = true;
   } catch (err: any) {
     sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
