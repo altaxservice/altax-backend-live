@@ -1273,11 +1273,20 @@ billingRouter.post("/recurring/:recurringBillingId/delete", requireAuth, require
  * creation itself; each schedule's outcome (emailSent/emailSkippedReason) is reported
  * back in `created` so staff can see exactly what happened per client.
  */
-billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const runDate = dateOnly(body.runDate);
+/**
+ * The actual recurring-billing sweep, extracted from the route below so both
+ * the manual "Run Recurring Billing" button and the nightly cron (server.ts)
+ * share one implementation instead of drifting. `actor` stands in for
+ * req.user! — pass a role:"admin" actor for unattended/system runs so
+ * canAccessClient sees every client, same as a real admin clicking the button.
+ */
+export async function runRecurringBillingSweep(
+  actor: { email: string; role: string; clientId?: string },
+  opts: { runDate?: string; clientId?: string; req?: AuthedRequest } = {}
+): Promise<{ created: any[]; skipped: number; errors: string[] }> {
+  const runDate = dateOnly(opts.runDate);
   const runDateString = dateString(runDate);
-  const clientFilter = String(body.clientId || "").trim();
+  const clientFilter = String(opts.clientId || "").trim();
 
   const schedules = await query<any>(`SELECT * FROM altax.v3_recurring_billing`);
   const created: any[] = [];
@@ -1289,7 +1298,7 @@ billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"),
     if (["archived", "inactive", "paused", "void", "no", "false"].includes(status)) { skipped++; continue; }
     if (schedule.auto_create_invoice === false) { skipped++; continue; }
     if (clientFilter && schedule.client_id !== clientFilter) { skipped++; continue; }
-    if (!(await canAccessClient(req.user!, schedule.client_id))) { skipped++; continue; }
+    if (!(await canAccessClient(actor, schedule.client_id))) { skipped++; continue; }
 
     const nextRun = dateOnly(schedule.next_run_date || schedule.start_date || runDate);
     if (nextRun.getTime() > runDate.getTime()) { skipped++; continue; }
@@ -1326,7 +1335,7 @@ billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"),
       [schedule.recurring_billing_id, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
     );
     await logAudit("Billing", "RUN_RECURRING_BILLING", schedule.recurring_billing_id, "InvoiceID", "", invoiceId,
-      `Recurring invoice created by ${req.user!.email}.`, req.user!.email);
+      `Recurring invoice created by ${actor.email}.`, actor.email);
 
     let emailSent = false;
     let emailSkippedReason: string | null = null;
@@ -1342,12 +1351,12 @@ billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"),
             to: client.email, subject: `Invoice ${invoiceId} from AL Tax Service`,
             html: await invoiceEmailHtml({
               message: `Please find your recurring invoice attached. Total due: $${amount.toFixed(2)}.`,
-              invoiceId, invoiceDate: runDateString, dueDate, balanceDue: amount, req,
+              invoiceId, invoiceDate: runDateString, dueDate, balanceDue: amount, req: opts.req,
             }),
             attachments: [{ filename: `Invoice_${invoiceId}.pdf`, content: Buffer.from(built!.pdfBytes) }],
           });
           emailSent = true;
-          await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "email: sent (auto)", `Recurring auto-send by schedule ${schedule.recurring_billing_id}.`, req.user!.email);
+          await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "email: sent (auto)", `Recurring auto-send by schedule ${schedule.recurring_billing_id}.`, actor.email);
         } catch (err: any) {
           emailSkippedReason = err?.message || "Send failed.";
         }
@@ -1357,7 +1366,13 @@ billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"),
     created.push({ invoiceId, recurringBillingId: schedule.recurring_billing_id, clientId: schedule.client_id, amount, emailSent, emailSkippedReason });
   }
 
-  res.json({ ok: true, created, skipped, errors });
+  return { created, skipped, errors };
+}
+
+billingRouter.post("/recurring/run", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const result = await runRecurringBillingSweep(req.user!, { runDate: body.runDate, clientId: body.clientId, req });
+  res.json({ ok: true, ...result });
 }));
 
 /**

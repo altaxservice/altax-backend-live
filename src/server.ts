@@ -14,7 +14,7 @@ import { govFormsRouter } from "./modules/govForms/govForms.routes";
 import { calculatorsRouter } from "./modules/calculators/calculators.routes";
 import { tasksRouter } from "./modules/tasks/tasks.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
-import { billingRouter } from "./modules/billing/billing.routes";
+import { billingRouter, runRecurringBillingSweep } from "./modules/billing/billing.routes";
 import { communicationsRouter } from "./modules/communications/communications.routes";
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
@@ -323,6 +323,20 @@ cron.schedule("0 * * * *", () => {
 });
 // eslint-disable-next-line no-console
 console.log("Appointment reminders scheduled hourly.");
+
+// Daily recurring-billing sweep — previously this only ran when a staff member
+// remembered to click "Run Recurring Billing," so a forgotten click meant a late
+// invoice. 6:00AM ET, before the 6:30 digest, so today's newly-created invoices
+// can show up in it. The sweep itself is idempotent per schedule/period (see
+// runRecurringBillingSweep's doc comment), so a schedule already run today is a
+// no-op rather than a duplicate invoice — safe to also run manually the same day.
+cron.schedule("0 6 * * *", () => {
+  runRecurringBillingSweep({ email: "System (Recurring Billing Job)", role: "admin" }).catch((err) => {
+    alertAdmins("Recurring billing sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except
