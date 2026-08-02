@@ -250,6 +250,7 @@ export interface VaultSecret {
   category: string;
   jurisdiction: string | null;
   agency_name: string | null;
+  username: string | null;
   label: string;
   portal_url: string | null;
   last4_hint: string | null;

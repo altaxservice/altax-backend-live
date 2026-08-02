@@ -87,7 +87,7 @@ vaultRouter.get("/:clientId", asyncHandler(async (req: AuthedRequest, res: Respo
   }
 
   const rows = await query(
-    `SELECT secret_id, category, jurisdiction, agency_name, label, portal_url, last4_hint, status,
+    `SELECT secret_id, category, jurisdiction, agency_name, username, label, portal_url, last4_hint, status,
             created_at, created_by, updated_at, updated_by
        FROM altax.v3_client_secrets
       WHERE client_id = $1 AND lower(status) <> 'deleted'
@@ -128,7 +128,7 @@ vaultRouter.post("/:clientId", asyncHandler(async (req: AuthedRequest, res: Resp
 
   const metaFields = [
     category, String(body.jurisdiction || "").trim() || null, String(body.agencyName || "").trim() || null,
-    label, String(body.portalUrl || "").trim() || null,
+    String(body.username || "").trim() || null, label, String(body.portalUrl || "").trim() || null,
     String(body.status || "Active").trim(), req.user!.email,
   ];
 
@@ -142,16 +142,16 @@ vaultRouter.post("/:clientId", asyncHandler(async (req: AuthedRequest, res: Resp
       const last4 = secret.replace(/\D/g, "").slice(-4) || null;
       await query(
         `UPDATE altax.v3_client_secrets SET
-           category=$3, jurisdiction=$4, agency_name=$5, label=$6, portal_url=$7, encrypted_payload=$8,
-           last4_hint=$9, status=$10, updated_at=now(), updated_by=$11
+           category=$3, jurisdiction=$4, agency_name=$5, username=$6, label=$7, portal_url=$8, encrypted_payload=$9,
+           last4_hint=$10, status=$11, updated_at=now(), updated_by=$12
          WHERE secret_id=$1 AND client_id=$2`,
-        [secretId, clientId, ...metaFields.slice(0, 5), encryptedPayload, last4, ...metaFields.slice(5)]
+        [secretId, clientId, ...metaFields.slice(0, 6), encryptedPayload, last4, ...metaFields.slice(6)]
       );
     } else {
       await query(
         `UPDATE altax.v3_client_secrets SET
-           category=$3, jurisdiction=$4, agency_name=$5, label=$6, portal_url=$7,
-           status=$8, updated_at=now(), updated_by=$9
+           category=$3, jurisdiction=$4, agency_name=$5, username=$6, label=$7, portal_url=$8,
+           status=$9, updated_at=now(), updated_by=$10
          WHERE secret_id=$1 AND client_id=$2`,
         [secretId, clientId, ...metaFields]
       );
@@ -159,12 +159,12 @@ vaultRouter.post("/:clientId", asyncHandler(async (req: AuthedRequest, res: Resp
   } else {
     const encryptedPayload = encryptValue(secret);
     const last4 = secret.replace(/\D/g, "").slice(-4) || null;
-    const fields = [...metaFields.slice(0, 5), encryptedPayload, last4, ...metaFields.slice(5)];
+    const fields = [...metaFields.slice(0, 6), encryptedPayload, last4, ...metaFields.slice(6)];
     await query(
       `INSERT INTO altax.v3_client_secrets
-         (secret_id, client_id, client_name, category, jurisdiction, agency_name, label, portal_url,
+         (secret_id, client_id, client_name, category, jurisdiction, agency_name, username, label, portal_url,
           encrypted_payload, last4_hint, status, created_by, updated_by, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,'Node Web App',$1)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13,'Node Web App',$1)`,
       [secretId, clientId, client.client_name, ...fields]
     );
   }

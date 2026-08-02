@@ -1837,7 +1837,7 @@ function VaultSection({ clientId }: { clientId: string }) {
   const [secrets, setSecrets] = useState<VaultSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ category: "", label: "", agencyName: "", secret: "" });
+  const [form, setForm] = useState({ category: "", label: "", agencyName: "", username: "", secret: "" });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
@@ -1873,7 +1873,7 @@ function VaultSection({ clientId }: { clientId: string }) {
       await api.post(`/vault/${clientId}`, editingId ? { ...form, secretId: editingId } : form);
       setShowForm(false);
       setEditingId(null);
-      setForm({ category: "", label: "", agencyName: "", secret: "" });
+      setForm({ category: "", label: "", agencyName: "", username: "", secret: "" });
       load();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not save this secret.");
@@ -1884,14 +1884,14 @@ function VaultSection({ clientId }: { clientId: string }) {
 
   function handleEditStart(s: VaultSecret) {
     setEditingId(s.secret_id);
-    setForm({ category: s.category, label: s.label, agencyName: s.agency_name || "", secret: "" });
+    setForm({ category: s.category, label: s.label, agencyName: s.agency_name || "", username: s.username || "", secret: "" });
     setShowForm(true);
   }
 
   function handleFormCancel() {
     setShowForm(false);
     setEditingId(null);
-    setForm({ category: "", label: "", agencyName: "", secret: "" });
+    setForm({ category: "", label: "", agencyName: "", username: "", secret: "" });
   }
 
   async function handleReveal(secretId: string) {
@@ -1961,8 +1961,9 @@ function VaultSection({ clientId }: { clientId: string }) {
           <div className="field"><label>Category</label><input required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
           <div className="field"><label>Label</label><input required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
           <div className="field"><label>Agency Name</label><input value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
+          <div className="field"><label>User ID / Username</label><input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. the login username, not the password" /></div>
           <div className="field">
-            <label>Secret Value</label>
+            <label>Secret Value / Password</label>
             <input
               type="password"
               required={!editingId}
@@ -1981,6 +1982,7 @@ function VaultSection({ clientId }: { clientId: string }) {
             <div>
               <strong>{s.label}</strong>
               <span className="muted"> · {s.category}</span>
+              {s.username && <span className="muted"> · User ID: {s.username}</span>}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-sm" onClick={() => handleReveal(s.secret_id)}>{revealed[s.secret_id] ? "Refresh" : "Reveal"}</button>
