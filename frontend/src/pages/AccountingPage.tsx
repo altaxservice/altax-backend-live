@@ -3516,6 +3516,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const [matching, setMatching] = useState(false);
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [offsetAccount, setOffsetAccount] = useState("");
+  const [autoMatching, setAutoMatching] = useState(false);
 
   useEffect(() => {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa")
@@ -3582,6 +3583,34 @@ function BankRecTab({ clientId }: { clientId: string }) {
     }
   }
 
+  async function handleAutoMatch() {
+    if (!accountName) return;
+    setAutoMatching(true);
+    try {
+      const res = await api.post<{ matched: number; remaining: number }>(
+        `/bank-rec/${clientId}/auto-match?accountName=${encodeURIComponent(accountName)}`, {}
+      );
+      load();
+      alert(res.matched
+        ? `Auto-matched ${res.matched} line(s) by exact amount + nearest date. ${res.remaining} line(s) still need a manual look.`
+        : "No exact amount matches were found — everything unmatched needs a manual look.");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not auto-match.");
+    } finally {
+      setAutoMatching(false);
+    }
+  }
+
+  async function handleDeleteLine(lineId: string) {
+    if (!confirm("Delete this bank statement line? (If it's matched, the GL entry stays — it just becomes unmatched again.)")) return;
+    try {
+      await api.post(`/bank-rec/${lineId}/delete`, {});
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this line.");
+    }
+  }
+
   const assetAccounts = (accounts || []).filter((a) => a.account_type === "Asset" && a.active);
   const nonBankAccounts = (accounts || []).filter((a) => a.active);
   const difference = data ? Math.round((data.bookBalance - data.clearedBalance) * 100) / 100 : 0;
@@ -3596,9 +3625,12 @@ function BankRecTab({ clientId }: { clientId: string }) {
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <FileDropInput file={file} onChange={setFile} accept=".csv,.xls,.xlsx" hint="your bank's own statement export (.csv/.xls/.xlsx)" />
+          <FileDropInput file={file} onChange={setFile} accept=".csv,.xls,.xlsx,.pdf" hint="your bank's own statement export (.csv/.xls/.xlsx/.pdf)" />
         </div>
         <button className="btn btn-primary" disabled={!file || uploading} onClick={handleUpload}>{uploading ? "Uploading…" : "Upload Statement"}</button>
+        <button className="btn" disabled={!data?.bankLines.some((b) => !b.matched_gl_entry_id) || autoMatching} onClick={handleAutoMatch} title="Matches by exact amount + nearest date, within 10 days — not a guess.">
+          {autoMatching ? "Auto-Matching…" : "Auto-Match"}
+        </button>
       </div>
 
       {error && <ErrorBanner error={error} />}
@@ -3637,9 +3669,12 @@ function BankRecTab({ clientId }: { clientId: string }) {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                       <span style={{ fontWeight: 700 }}>{fmtMoney(b.amount)}</span>
-                      <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
-                        {creatingFor === b.line_id ? "Cancel" : "New Entry"}
-                      </button>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
+                          {creatingFor === b.line_id ? "Cancel" : "New Entry"}
+                        </button>
+                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteLine(b.line_id); }}>Delete</button>
+                      </div>
                     </div>
                   </div>
                   {creatingFor === b.line_id && (

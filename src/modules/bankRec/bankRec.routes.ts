@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { appendGl } from "../../common/accountingHelpers";
 import { readWorkbookRows } from "../../common/xlsxReader";
+import { extractPdfText, parsePdfBankLines } from "../../common/pdfBankReader";
 
 /**
  * Manual bank reconciliation — staff upload a bank's own CSV/Excel statement
@@ -112,14 +113,30 @@ bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncH
   const sizeBytes = Math.ceil((fileBase64.length * 3) / 4);
   if (sizeBytes > MAX_UPLOAD_BYTES) return res.status(400).json({ error: "That file is too large — uploads are limited to 8MB." });
 
-  let rows: string[][];
-  try {
-    rows = readWorkbookRows(Buffer.from(fileBase64, "base64"));
-  } catch {
-    return res.status(400).json({ error: "Could not read this file." });
-  }
+  const fileBuffer = Buffer.from(fileBase64, "base64");
+  const isPdf = fileBuffer.subarray(0, 5).toString("latin1") === "%PDF-";
 
-  const parsed = parseBankCsv(rows);
+  let parsed: { lines: { date: string; description: string; amount: number }[]; error?: string };
+  if (isPdf) {
+    let text: string;
+    try {
+      text = await extractPdfText(fileBuffer);
+    } catch {
+      return res.status(400).json({ error: "Could not read this PDF." });
+    }
+    parsed = { lines: parsePdfBankLines(text) };
+    if (!parsed.lines.length) {
+      return res.status(400).json({ error: "Could not find any transaction lines in this PDF. Try a CSV/Excel export instead, or review the statement and enter lines manually." });
+    }
+  } else {
+    let rows: string[][];
+    try {
+      rows = readWorkbookRows(fileBuffer);
+    } catch {
+      return res.status(400).json({ error: "Could not read this file." });
+    }
+    parsed = parseBankCsv(rows);
+  }
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   if (!parsed.lines.length) return res.status(400).json({ error: "No transaction rows were found in this file." });
 
@@ -180,6 +197,78 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
     bookBalance: Number(bookBalanceRow?.balance || 0),
     clearedBalance: Number(clearedBalanceRow?.balance || 0),
   });
+}));
+
+/**
+ * Auto-match — deterministic amount + nearest-date matching, not an AI/LLM guess.
+ * For money, an exact-to-the-cent match is either genuinely the same transaction
+ * or a coincidence worth a human looking at — a probabilistic "AI" match would
+ * add uncertainty exactly where none is acceptable. Claims each unmatched bank
+ * line against the unmatched GL entry with the identical signed amount that's
+ * closest in date (within a 10-day window, since a debit can lag its GL posting
+ * by a few days); anything without an exact-amount match in that window is left
+ * for manual review/match or "New Entry."
+ */
+bankRecRouter.post("/:clientId/auto-match", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const accountName = String(req.query.accountName || req.body?.accountName || "").trim();
+  if (!accountName) return res.status(400).json({ error: "accountName is required." });
+
+  const bankLines = await query<any>(
+    `SELECT line_id, statement_date, amount FROM altax.v3_bank_statement_lines
+      WHERE client_id = $1 AND account_name = $2 AND matched_gl_entry_id IS NULL
+      ORDER BY statement_date ASC`,
+    [clientId, accountName]
+  );
+  const glCandidates = await query<any>(
+    `SELECT gl_entry_id, entry_date, (debit - credit) AS amount
+       FROM altax.v3_gl_entries g
+      WHERE client_id = $1 AND account = $2
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines b WHERE b.matched_gl_entry_id = g.gl_entry_id)`,
+    [clientId, accountName]
+  );
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const claimed = new Set<string>();
+  const matches: { lineId: string; glEntryId: string }[] = [];
+
+  for (const line of bankLines) {
+    const lineAmountCents = Math.round(Number(line.amount) * 100);
+    const lineDate = new Date(line.statement_date).getTime();
+    let best: any = null;
+    let bestDiff = Infinity;
+    for (const g of glCandidates) {
+      if (claimed.has(g.gl_entry_id)) continue;
+      if (Math.round(Number(g.amount) * 100) !== lineAmountCents) continue;
+      const diff = Math.abs(new Date(g.entry_date).getTime() - lineDate);
+      if (diff > 10 * DAY_MS) continue;
+      if (diff < bestDiff) { bestDiff = diff; best = g; }
+    }
+    if (best) {
+      claimed.add(best.gl_entry_id);
+      matches.push({ lineId: line.line_id, glEntryId: best.gl_entry_id });
+    }
+  }
+
+  for (const m of matches) {
+    await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [m.lineId, m.glEntryId]);
+  }
+
+  await logAudit("Accounting", "AUTO_MATCH_BANK_REC", clientId, "Account", "", accountName,
+    `Auto-matched ${matches.length} bank line(s) for ${accountName} by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, matched: matches.length, remaining: bankLines.length - matches.length });
+}));
+
+/** Delete a bank statement line — a bad upload, a duplicate, or a footer/total row that got parsed as a transaction. Leaves any matched GL entry untouched; it just becomes unmatched again. */
+bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { lineId } = req.params;
+  const line = await queryOne<any>(`SELECT client_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
+  if (!line) return res.status(404).json({ error: "Bank statement line not found." });
+  if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  await query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
+  res.json({ ok: true });
 }));
 
 /** Match an unmatched bank line to an existing unmatched GL entry. */
