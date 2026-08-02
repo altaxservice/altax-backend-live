@@ -396,7 +396,11 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .brand-name { font-size: 16px; font-weight: 800; }
 .brand-subtitle { margin-top: 2px; color: #b8c2d0; font-size: 11px; font-weight: 700; }
-.nav-list { display: grid; gap: 6px; }
+/* flex:1 + min-height:0 lets this scroll independently inside the fixed-height
+   sidebar once the nav list (now 20+ items) is taller than the viewport — without
+   it, overflowing items rendered past the sidebar's bottom edge, onto the white
+   main-content area, keeping their light on-dark text color and going invisible. */
+.nav-list { display: grid; gap: 6px; flex: 1; overflow-y: auto; min-height: 0; }
 .nav-item {
   display: block;
   width: 100%;
