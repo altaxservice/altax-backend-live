@@ -938,7 +938,7 @@ export async function createSinglePaycheck(
 
       await db.query(
         `INSERT INTO altax.v3_paychecks
-           (paycheck_id, client_id, client_name, pay_date, employee, gross_wages, social_security_ee, medicare_ee,
+           (paycheck_id, client_id, client_name, pay_date, employee, employee_id, gross_wages, social_security_ee, medicare_ee,
             federal_withholding, state_tax, employee_taxes, net_pay, social_security_er, medicare_er, futa, suta,
             employer_taxes, total_cost, status, source_system, source_record_id, pay_period_start, pay_period_end,
             check_number, hours, rate, pay_type, employee_ssn, employee_address,
@@ -949,9 +949,9 @@ export async function createSinglePaycheck(
             bonus_pay, commission_pay, other_taxable_pay, non_taxable_reimbursement,
             pre_tax_retirement, pre_tax_health, pre_tax_hsa_fsa, post_tax_deduction, garnishment, other_deduction,
             total_pre_tax_deductions, total_post_tax_deductions, total_deductions)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'Created','Node Web App',$1,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,
-                 $38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56)`,
-        [paycheckId, client.client_id, client.client_name, payDate, employeeName, gross, ssEe, medEe, federal, state,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'Created','Node Web App',$1,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,
+                 $39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57)`,
+        [paycheckId, client.client_id, client.client_name, payDate, employeeName, employee.employee_id, gross, ssEe, medEe, federal, state,
           employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
           String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
           checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
@@ -1129,9 +1129,10 @@ accountingRouter.get("/paychecks/mine", requireAuth, requireRole("employee"), as
     `SELECT paycheck_id, pay_date, employee, client_name, gross_wages, employee_taxes, net_pay, employer_taxes, total_cost,
             pay_period_start, pay_period_end, check_number, status, printed_at
        FROM altax.v3_paychecks
-      WHERE client_id = $1 AND lower(employee) = lower($2) AND lower(status) <> 'void'
+      WHERE (employee_id = $1 OR (employee_id IS NULL AND client_id = $2 AND lower(employee) = lower($3)))
+        AND lower(status) <> 'void'
       ORDER BY pay_date DESC NULLS LAST`,
-    [employee.client_id, employee.employee_name]
+    [employeeId, employee.client_id, employee.employee_name]
   );
   res.json({ paychecks: rows });
 }));
@@ -1320,9 +1321,18 @@ accountingRouter.get("/paychecks/:paycheckId/print", requireAuth, requireRole("a
     return res.status(403).json({ error: "You do not have access to this paycheck." });
   }
   if (req.user!.role === "employee") {
-    const employee = await queryOne<any>(`SELECT employee_name FROM altax.v3_employees WHERE employee_id = $1`, [req.user!.employeeId]);
-    if (!employee || employee.employee_name.toLowerCase() !== String(paycheck.employee || "").toLowerCase()) {
-      return res.status(403).json({ error: "You do not have access to this paycheck." });
+    // Prefer the real FK; only a paycheck predating the employee_id backfill
+    // (should not exist after migration 024, kept as a safety net) falls back
+    // to the old name comparison.
+    if (paycheck.employee_id) {
+      if (paycheck.employee_id !== req.user!.employeeId) {
+        return res.status(403).json({ error: "You do not have access to this paycheck." });
+      }
+    } else {
+      const employee = await queryOne<any>(`SELECT employee_name FROM altax.v3_employees WHERE employee_id = $1`, [req.user!.employeeId]);
+      if (!employee || employee.employee_name.toLowerCase() !== String(paycheck.employee || "").toLowerCase()) {
+        return res.status(403).json({ error: "You do not have access to this paycheck." });
+      }
     }
   }
   const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [paycheck.client_id]));
