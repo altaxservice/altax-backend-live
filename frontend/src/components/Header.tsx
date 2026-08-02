@@ -135,6 +135,14 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
               <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
             </div>
           </div>
+          <button
+            type="button"
+            className="btn topbar-cmdk-hint"
+            title="Quick search everything (⌘K)"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
+          >
+            <kbd>⌘K</kbd>
+          </button>
           <div style={{ position: "relative" }} ref={userMenuRef}>
             <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
               <div>

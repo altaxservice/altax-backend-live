@@ -1,5 +1,11 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ComponentType } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import {
+  LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
+  Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
+  LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy,
+  type LucideProps,
+} from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { CreateModal } from "./CreateModal";
 import { Header } from "./Header";
@@ -10,6 +16,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "./FirmLogo";
 import { BottomTabBar } from "./BottomTabBar";
 import { InstallPrompt } from "./InstallPrompt";
+import { CommandPalette } from "./CommandPalette";
 import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 
 const CLIENT_PANEL_ROUTES = ["/tasks", "/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
@@ -25,37 +32,37 @@ function showsClientPanel(pathname: string): boolean {
 // group: rendered as a section label above the first item in each group — see
 // showGroupLabels below for why it only kicks in once the list is long enough
 // to actually need it (admin/staff), not for client/employee's short list.
-const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string }[] = [
-  { to: "/", label: "Command Center", navKey: "nav.commandCenter" },
-  { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients" },
-  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work" },
-  { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work" },
-  { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work" },
-  { to: "/rules", label: "Rules", roles: ["admin", "staff"], group: "Work" },
-  { to: "/haccp", label: "Health Permits", roles: ["admin", "staff"], group: "Work" },
-  { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools" },
-  { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools" },
-  { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools" },
-  { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools" },
-  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money" },
-  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money" },
-  { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money" },
-  { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication" },
-  { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"] },
-  { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication" },
-  { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication" },
+const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string; icon: ComponentType<LucideProps> }[] = [
+  { to: "/", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard },
+  { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users },
+  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks },
+  { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar },
+  { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock },
+  { to: "/rules", label: "Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow },
+  { to: "/haccp", label: "Health Permits", roles: ["admin", "staff"], group: "Work", icon: ClipboardCheck },
+  { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools", icon: FileText },
+  { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools", icon: Kanban },
+  { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools", icon: Receipt },
+  { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator },
+  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard },
+  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen },
+  { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money", icon: BarChart3 },
+  { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication", icon: FolderOpen },
+  { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"], icon: FileSpreadsheet },
+  { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication", icon: MessageSquare },
+  { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication", icon: LayoutTemplate },
   // Moved out of the Clients group and renamed from "Portal Access" — this page manages
   // Firm/Staff/Admin accounts too, not just client portal logins, so filing it under
   // "Clients" (and calling it something that sounds client-only) undersold and
   // misfiled it. It belongs with the other firm-administration pages.
-  { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm" },
-  { to: "/security", label: "Security", roles: ["admin"], group: "Firm" },
-  { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm" },
-  { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm" },
-  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm" },
-  { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm" },
-  { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm" },
-  { to: "/guide", label: "Guide", navKey: "nav.guide" },
+  { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog },
+  { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck },
+  { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
+  { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm", icon: Wrench },
+  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
+  { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
+  { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm", icon: ClipboardList },
+  { to: "/guide", label: "Guide", navKey: "nav.guide", icon: LifeBuoy },
 ];
 
 const TITLES: Record<string, string> = {
@@ -178,7 +185,8 @@ export function Layout() {
               <Fragment key={item.to}>
                 {showLabel && <div className="nav-group-label">{item.group}</div>}
                 <NavLink to={item.to} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                  {item.navKey ? t(item.navKey) : item.label}
+                  <item.icon size={17} strokeWidth={2} aria-hidden="true" />
+                  <span>{item.navKey ? t(item.navKey) : item.label}</span>
                 </NavLink>
               </Fragment>
             );
@@ -202,6 +210,7 @@ export function Layout() {
         </div>
       </div>
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} />}
+      <CommandPalette />
       <BottomTabBar />
     </div>
   );
