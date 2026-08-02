@@ -163,9 +163,18 @@ vaultRouter.post("/:clientId", asyncHandler(async (req: AuthedRequest, res: Resp
 /**
  * Reveal one secret's plaintext — decrypts server-side, individually audited. This
  * is the ONLY route in this backend that returns decrypted vault content.
+ *
+ * Requires a one-line reason (?reason=), stored on the audit row instead of the
+ * generic "Secret revealed to admin." note — the vault only had one admin account
+ * touching it in practice, so a bare timestamp answered "who/when" but never "why."
+ * A required reason turns the access log into something actually useful to review
+ * later, not just a compliance checkbox nobody reads.
  */
 vaultRouter.get("/:clientId/:secretId/reveal", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId, secretId } = req.params;
+  const reason = String(req.query.reason || "").trim();
+  if (!reason) return res.status(400).json({ error: "A reason is required to reveal this secret." });
+
   const row = await queryOne<any>(
     `SELECT * FROM altax.v3_client_secrets WHERE secret_id = $1 AND client_id = $2 AND lower(status) <> 'deleted'`,
     [secretId, clientId]
@@ -183,10 +192,29 @@ vaultRouter.get("/:clientId/:secretId/reveal", asyncHandler(async (req: AuthedRe
     return res.status(500).json({ error: "Could not decrypt this value." });
   }
 
-  await vaultAudit(req.user!.email, clientId, row.client_name, secretId, row.category, "REVEAL", "EncryptedPayload", "Success", "Secret revealed to admin.");
-  await logAudit("Secure Vault", "REVEAL", secretId, "", "", "", `Secret revealed by ${req.user!.email}.`, req.user!.email);
+  await vaultAudit(req.user!.email, clientId, row.client_name, secretId, row.category, "REVEAL", "EncryptedPayload", "Success", `Reason: ${reason}`);
+  await logAudit("Secure Vault", "REVEAL", secretId, "", "", "", `Secret revealed by ${req.user!.email}. Reason: ${reason}`, req.user!.email);
 
   res.json({ secretId, label: row.label, secret: plaintext });
+}));
+
+/**
+ * Recent access-log entries for this client's vault — powers the "who viewed
+ * what, when, and why" panel on the Vault tab. The log itself already existed
+ * (every route above writes to it); nothing previously surfaced it back to an
+ * admin without querying the database directly.
+ */
+vaultRouter.get("/:clientId/access-log", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  const rows = await query(
+    `SELECT id, logged_at, user_email, secret_id, category, action, result, note
+       FROM altax.v3_secret_access_log
+      WHERE client_id = $1
+      ORDER BY logged_at DESC
+      LIMIT 100`,
+    [clientId]
+  );
+  res.json({ entries: rows });
 }));
 
 /**

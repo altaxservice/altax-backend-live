@@ -1823,6 +1823,16 @@ function EmployerTaxFormsSection({ clientId }: { clientId: string }) {
   );
 }
 
+/** How long a revealed secret stays on screen before auto-hiding — long enough to
+ *  read and copy, short enough that it doesn't just sit exposed if the tab is left
+ *  open. Refreshing the reveal restarts the clock. */
+const VAULT_REVEAL_TIMEOUT_MS = 25_000;
+
+interface VaultAccessLogEntry {
+  id: number; logged_at: string; user_email: string; secret_id: string | null;
+  category: string | null; action: string; result: string; note: string | null;
+}
+
 function VaultSection({ clientId }: { clientId: string }) {
   const [secrets, setSecrets] = useState<VaultSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1830,6 +1840,9 @@ function VaultSection({ clientId }: { clientId: string }) {
   const [form, setForm] = useState({ category: "", label: "", agencyName: "", secret: "" });
   const [saving, setSaving] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const revealTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [showLog, setShowLog] = useState(false);
+  const [log, setLog] = useState<VaultAccessLogEntry[] | null>(null);
 
   function load() {
     api.get<{ secrets: VaultSecret[] }>(`/vault/${clientId}`)
@@ -1837,6 +1850,20 @@ function VaultSection({ clientId }: { clientId: string }) {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the vault."));
   }
   useEffect(load, [clientId]);
+  // Timers are per-secret and only ever cleared/replaced on unmount — nothing here
+  // depends on component state, so an empty cleanup-only effect is correct.
+  useEffect(() => () => { Object.values(revealTimers.current).forEach(clearTimeout); }, []);
+
+  function loadLog() {
+    api.get<{ entries: VaultAccessLogEntry[] }>(`/vault/${clientId}/access-log`)
+      .then((res) => setLog(res.entries))
+      .catch(() => setLog([]));
+  }
+  function toggleLog() {
+    const next = !showLog;
+    setShowLog(next);
+    if (next && !log) loadLog();
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -1854,9 +1881,17 @@ function VaultSection({ clientId }: { clientId: string }) {
   }
 
   async function handleReveal(secretId: string) {
+    const reason = prompt("Why are you revealing this secret? (required, logged with this access)");
+    if (reason === null) return;
+    if (!reason.trim()) { alert("A reason is required."); return; }
     try {
-      const res = await api.get<{ secret: string }>(`/vault/${clientId}/${secretId}/reveal`);
+      const res = await api.get<{ secret: string }>(`/vault/${clientId}/${secretId}/reveal?reason=${encodeURIComponent(reason.trim())}`);
       setRevealed((prev) => ({ ...prev, [secretId]: res.secret }));
+      clearTimeout(revealTimers.current[secretId]);
+      revealTimers.current[secretId] = setTimeout(() => {
+        setRevealed((prev) => { const next = { ...prev }; delete next[secretId]; return next; });
+      }, VAULT_REVEAL_TIMEOUT_MS);
+      if (showLog) loadLog();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Could not decrypt this secret.");
     }
@@ -1874,12 +1909,39 @@ function VaultSection({ clientId }: { clientId: string }) {
 
   return (
     <div className="card">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8 }}>
         <h2 style={{ fontSize: 15, margin: 0 }}>Secure Vault</h2>
-        <button className="btn btn-sm" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Secret"}</button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn btn-sm" onClick={toggleLog}>{showLog ? "Hide Access Log" : "Access Log"}</button>
+          <button className="btn btn-sm" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "Add Secret"}</button>
+        </div>
       </div>
-      <p className="muted" style={{ marginBottom: 12 }}>Encrypted server-side. Every view is logged. Vault records are excluded from profiles, notes, exports, and statement PDFs.</p>
+      <p className="muted" style={{ marginBottom: 12 }}>
+        Encrypted server-side. Every view is logged and requires a reason, and auto-hides after {VAULT_REVEAL_TIMEOUT_MS / 1000}s.
+        Vault records are excluded from profiles, notes, exports, and statement PDFs.
+      </p>
       {error && <ErrorBanner error={error} />}
+      {showLog && (
+        <div style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
+          {!log ? (
+            <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+          ) : log.length === 0 ? (
+            <p className="muted" style={{ fontSize: 12.5 }}>No access recorded yet.</p>
+          ) : (
+            <div style={{ display: "grid", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+              {log.map((entry) => (
+                <div key={entry.id} style={{ fontSize: 12, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>
+                    <strong>{entry.action}</strong>{entry.category ? ` · ${entry.category}` : ""} — {entry.user_email}
+                    {entry.note && <span className="muted"> ({entry.note})</span>}
+                  </span>
+                  <span className="muted" style={{ whiteSpace: "nowrap" }}>{new Date(entry.logged_at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
           <div className="field"><label>Category</label><input required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
@@ -1903,9 +1965,12 @@ function VaultSection({ clientId }: { clientId: string }) {
             </div>
           </div>
           {revealed[s.secret_id] && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontFamily: "monospace", background: "var(--surface)", padding: 8, borderRadius: 6 }}>
-              <span>{revealed[s.secret_id]}</span>
-              <button type="button" className="btn btn-sm" onClick={() => navigator.clipboard.writeText(revealed[s.secret_id])}>Copy</button>
+            <div style={{ marginTop: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "monospace", background: "var(--surface)", padding: 8, borderRadius: 6 }}>
+                <span>{revealed[s.secret_id]}</span>
+                <button type="button" className="btn btn-sm" onClick={() => navigator.clipboard.writeText(revealed[s.secret_id])}>Copy</button>
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Hides automatically in {VAULT_REVEAL_TIMEOUT_MS / 1000}s.</div>
             </div>
           )}
         </div>
