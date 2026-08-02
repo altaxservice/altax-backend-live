@@ -31,6 +31,7 @@ import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
+import { appointmentsRouter, runAppointmentReminders } from "./modules/appointments/appointments.routes";
 import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
@@ -248,6 +249,7 @@ app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/public/contact", publicContactRouter);
 app.use("/reminders", remindersRouter);
+app.use("/appointments", appointmentsRouter);
 app.use("/firm-settings", firmSettingsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
@@ -303,6 +305,18 @@ cron.schedule("0 6 * * 0", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
+
+// Hourly sweep for appointment day-before reminders — checks a 23-25 hour-ahead
+// window each run (see runAppointmentReminders's doc comment), so an appointment
+// gets its one reminder sometime in the 24 hours before it regardless of which
+// hourly tick catches it, without ever double-sending (reminder_sent_at gate).
+cron.schedule("0 * * * *", () => {
+  runAppointmentReminders("System (Appointment Reminder Job)").catch((err) => {
+    alertAdmins("Appointment reminders job failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+});
+// eslint-disable-next-line no-console
+console.log("Appointment reminders scheduled hourly.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

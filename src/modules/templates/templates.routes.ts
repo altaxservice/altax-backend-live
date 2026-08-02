@@ -17,9 +17,12 @@ export const templatesRouter = Router();
  * template with the same name creates/updates a v3_templates row that overrides it.
  */
 export const BUILT_IN: { name: string; category: string; subject: string; english: string; arabic: string }[] = [
-  { name: "Appointment Reminder", category: "Communications", subject: "Appointment reminder",
-    english: "Hello {{clientName}},\n\nThis is a reminder of your upcoming appointment with AL TAX SERVICE. Please let us know if you need to reschedule.\n\nThank you.",
-    arabic: "مرحباً {{clientName}}،\n\nهذا تذكير بموعدكم القادم مع AL TAX SERVICE. يرجى إعلامنا إذا احتجتم إلى إعادة جدولة الموعد.\n\nشكراً لكم." },
+  { name: "Appointment Confirmation", category: "Communications", subject: "Appointment confirmed: {{appointmentTitle}}",
+    english: "Hello {{clientName}},\n\nYour appointment \"{{appointmentTitle}}\" is confirmed for {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}}.\n\nPlease let us know if you need to reschedule.\n\nThank you.",
+    arabic: "مرحباً {{clientName}}،\n\nتم تأكيد موعدكم \"{{appointmentTitle}}\" بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}}.\n\nيرجى إعلامنا إذا احتجتم إلى إعادة جدولة الموعد.\n\nشكراً لكم." },
+  { name: "Appointment Reminder", category: "Communications", subject: "Appointment reminder: {{appointmentTitle}}",
+    english: "Hello {{clientName}},\n\nThis is a reminder of your upcoming appointment \"{{appointmentTitle}}\" on {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}} with AL TAX SERVICE. Please let us know if you need to reschedule.\n\nThank you.",
+    arabic: "مرحباً {{clientName}}،\n\nهذا تذكير بموعدكم القادم \"{{appointmentTitle}}\" بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}} مع AL TAX SERVICE. يرجى إعلامنا إذا احتجتم إلى إعادة جدولة الموعد.\n\nشكراً لكم." },
   { name: "Bank Statement Request", category: "Communications", subject: "Bank statement needed",
     english: "Hello {{clientName}},\n\nTo continue with your bookkeeping/reconciliation, we need a copy of your recent bank statement(s). Please upload them through your client portal or reply to this message.\n\nThank you.",
     arabic: "مرحباً {{clientName}}،\n\nلمتابعة أعمال المحاسبة والتسوية الخاصة بكم، نحتاج إلى نسخة من كشف/كشوفات حسابكم المصرفي الأخيرة. يرجى رفعها عبر بوابة العميل أو الرد على هذه الرسالة.\n\nشكراً لكم." },
@@ -135,7 +138,10 @@ export function substitutePlaceholders(text: string, client: any | null, extra?:
     periodLabel: "", periodLabelAr: "", periodSummary: "", periodSummaryAr: "",
     ...extra,
   };
-  const blankable = new Set(["{{periodLabel}}", "{{periodLabelAr}}", "{{periodSummary}}", "{{periodSummaryAr}}"]);
+  const blankable = new Set([
+    "{{periodLabel}}", "{{periodLabelAr}}", "{{periodSummary}}", "{{periodSummaryAr}}",
+    "{{appointmentLocation}}", "{{appointmentLocationAr}}",
+  ]);
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     const value = values[key];
     return value !== undefined && value !== "" ? value : blankable.has(match) ? "" : match;

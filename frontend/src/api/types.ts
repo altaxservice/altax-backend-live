@@ -101,3 +101,22 @@ export interface Task {
   first_file_url?: string | null;
   [key: string]: unknown;
 }
+
+export interface Appointment {
+  appointment_id: string;
+  title: string;
+  client_id: string | null;
+  client_name: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  start_time: string;
+  end_time: string;
+  location: string | null;
+  notes: string | null;
+  assigned_to: string | null;
+  status: "Scheduled" | "Completed" | "Cancelled";
+  notify_client: boolean;
+  reminder_sent_at: string | null;
+  created_by: string | null;
+}
