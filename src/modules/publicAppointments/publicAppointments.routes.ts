@@ -85,6 +85,25 @@ function parseDateParam(raw: unknown): { y: number; mo: number; d: number } | nu
   return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
 }
 
+/**
+ * The display-safe subset of Calendar Settings — what the public /book page's
+ * "Appointments are available ..." hours note reads, so it can never drift
+ * from the real bookable-weekday/hours configuration admins set on the
+ * Calendar page's Settings tab (previously that line was a hardcoded string
+ * in book.html, so changing Settings silently stopped matching the page).
+ * Deliberately excludes the policy text and internal fields — this is only
+ * what the booking page itself needs to display.
+ */
+publicAppointmentsRouter.get("/settings", availabilityLimiter, asyncHandler(async (_req: Request, res: Response) => {
+  const settings = await getAppointmentSettings();
+  res.json({
+    bookableWeekdays: settings.bookableWeekdays,
+    businessStartHour: settings.businessStartHour,
+    businessEndHour: settings.businessEndHour,
+    slotMinutes: settings.slotMinutes,
+  });
+}));
+
 publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
   const parsed = parseDateParam(req.query.date);
   if (!parsed) return res.status(400).json({ error: "date is required as YYYY-MM-DD." });

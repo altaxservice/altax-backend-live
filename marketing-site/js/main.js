@@ -247,6 +247,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookSubmitLabel = bookSubmitBtn ? bookSubmitBtn.querySelector('span') : null;
     let selectedSlot = null;
 
+    let apptSettings = null;
+    const WEEKDAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    const WEEKDAY_NAMES = {
+      en: { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' },
+      ar: { mon: 'الاثنين', tue: 'الثلاثاء', wed: 'الأربعاء', thu: 'الخميس', fri: 'الجمعة', sat: 'السبت', sun: 'الأحد' },
+    };
+    function fmtHour12(h) {
+      const period = h < 12 ? 'AM' : 'PM';
+      const hour12 = h % 12 === 0 ? 12 : h % 12;
+      return hour12 + ':00 ' + period;
+    }
+    function renderHoursNote() {
+      const noteEl = document.getElementById('book-hours-note');
+      if (!noteEl) return;
+      if (!apptSettings) {
+        noteEl.textContent = t('book.hoursNote') || 'Appointments are available Monday–Friday, 9:00 AM – 5:00 PM Eastern.';
+        return;
+      }
+      const lang = getLang();
+      const names = WEEKDAY_NAMES[lang] || WEEKDAY_NAMES.en;
+      const days = WEEKDAY_ORDER.filter((k) => apptSettings.bookableWeekdays[k]).map((k) => names[k]);
+      const dayList = days.join(lang === 'ar' ? '، ' : ', ');
+      const hours = fmtHour12(apptSettings.businessStartHour) + ' – ' + fmtHour12(apptSettings.businessEndHour);
+      noteEl.textContent = lang === 'ar'
+        ? ('المواعيد متاحة أيام ' + dayList + '، من الساعة ' + hours + ' بتوقيت شرق أمريكا.')
+        : ('Appointments are available ' + dayList + ', ' + hours + ' Eastern.');
+    }
+    fetch('/public/appointments/settings').then((r) => r.json()).then((data) => { apptSettings = data; renderHoursNote(); }).catch(() => { renderHoursNote(); });
+    document.querySelectorAll('.lang-toggle button').forEach((btn) => btn.addEventListener('click', renderHoursNote));
+
     const todayStr = new Date().toISOString().slice(0, 10);
     const maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + 60);
