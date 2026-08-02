@@ -87,6 +87,16 @@ export function TimeTrackingPage() {
     }
   }
 
+  async function handleDelete(entryId: string) {
+    if (!confirm("Delete this time entry?")) return;
+    try {
+      await api.post(`/time-tracking/entries/${entryId}/delete`, {});
+      load();
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Could not delete this entry.");
+    }
+  }
+
   if (error) return <ErrorBanner error={error} />;
 
   const totalHours = (entries || []).reduce((s, e) => s + Number(e.hours), 0);
@@ -164,32 +174,37 @@ export function TimeTrackingPage() {
                 <th style={{ textAlign: "right" }}>Rate</th>
                 <th>Status</th>
                 <th>Billed</th>
-                {isAdmin && <th>Actions</th>}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((e) => (
-                <tr key={e.time_entry_id}>
-                  <td>{e.entry_date}</td>
-                  {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_email}</td>}
-                  <td>{e.client_name || <span className="muted">—</span>}</td>
-                  <td style={{ textAlign: "right" }}>{Number(e.hours).toFixed(2)}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>{e.description || "—"}</td>
-                  <td style={{ textAlign: "right" }}>{e.billable ? money(e.hourly_rate) : "—"}</td>
-                  <td><StatusBadge status={e.status} /></td>
-                  <td>{e.billed ? <span className="muted" style={{ fontSize: 12 }}>On {e.invoice_id}</span> : e.billable ? "Unbilled" : "—"}</td>
-                  {isAdmin && (
+              {(entries || []).map((e) => {
+                const isOwner = e.user_email === user?.email;
+                const canDelete = !e.billed && (isAdmin || (isOwner && e.status === "Submitted"));
+                return (
+                  <tr key={e.time_entry_id}>
+                    <td>{e.entry_date}</td>
+                    {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_email}</td>}
+                    <td>{e.client_name || <span className="muted">—</span>}</td>
+                    <td style={{ textAlign: "right" }}>{Number(e.hours).toFixed(2)}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>{e.description || "—"}</td>
+                    <td style={{ textAlign: "right" }}>{e.billable ? money(e.hourly_rate) : "—"}</td>
+                    <td><StatusBadge status={e.status} /></td>
+                    <td>{e.billed ? <span className="muted" style={{ fontSize: 12 }}>On {e.invoice_id}</span> : e.billable ? "Unbilled" : "—"}</td>
                     <td>
-                      {e.status === "Submitted" && (
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button className="btn btn-sm" onClick={() => handleDecision(e.time_entry_id, "approve")}>Approve</button>
-                          <button className="btn btn-sm" onClick={() => handleDecision(e.time_entry_id, "reject")}>Reject</button>
-                        </div>
-                      )}
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {isAdmin && e.status === "Submitted" && (
+                          <>
+                            <button className="btn btn-sm" onClick={() => handleDecision(e.time_entry_id, "approve")}>Approve</button>
+                            <button className="btn btn-sm" onClick={() => handleDecision(e.time_entry_id, "reject")}>Reject</button>
+                          </>
+                        )}
+                        {canDelete && <button className="btn btn-sm" onClick={() => handleDelete(e.time_entry_id)}>Delete</button>}
+                      </div>
                     </td>
-                  )}
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
               {!entries?.length && (
                 <tr><td colSpan={isAdmin ? 9 : 7} className="muted" style={{ textAlign: "center", padding: 24 }}>No time entries yet.</td></tr>
               )}

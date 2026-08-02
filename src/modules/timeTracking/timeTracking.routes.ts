@@ -122,6 +122,25 @@ timeTrackingRouter.patch("/entries/:timeEntryId", asyncHandler(async (req: Authe
   res.json({ ok: true, timeEntryId });
 }));
 
+/** Delete a time entry — owner may while it's still Submitted; admin any time — except a billed entry, which stays a permanent record once it's on a real invoice. */
+timeTrackingRouter.post("/entries/:timeEntryId/delete", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { timeEntryId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_time_entries WHERE time_entry_id = $1`, [timeEntryId]);
+  if (!existing) return res.status(404).json({ error: "Time entry not found." });
+
+  const isAdmin = req.user!.role === "admin";
+  const isOwner = existing.user_email === req.user!.email;
+  if (!isAdmin && !isOwner) return res.status(403).json({ error: "You do not have access to this time entry." });
+  if (!isAdmin && existing.status !== "Submitted") {
+    return res.status(400).json({ error: "This entry has already been decided and can no longer be deleted." });
+  }
+  if (existing.billed) return res.status(400).json({ error: "This entry is already on an invoice and can't be deleted." });
+
+  await query(`DELETE FROM altax.v3_time_entries WHERE time_entry_id = $1`, [timeEntryId]);
+  await logAudit("Time Tracking", "DELETE_ENTRY", timeEntryId, "", "", "", `Time entry deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 /** Approve a time entry — admin only. */
 timeTrackingRouter.post("/entries/:timeEntryId/approve", requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { timeEntryId } = req.params;
