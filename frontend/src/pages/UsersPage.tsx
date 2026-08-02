@@ -194,8 +194,7 @@ export function UsersPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Users &amp; Access</h1>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16 }}>
         <button className="btn btn-primary" onClick={startCreate}>Add User</button>
       </div>
 

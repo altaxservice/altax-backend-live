@@ -41,7 +41,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money" },
   { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money" },
   { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication" },
-  { to: "/my-tax-forms", label: "My Tax Forms", roles: ["employee"] },
+  { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"] },
   { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication" },
   { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication" },
   // Moved out of the Clients group and renamed from "Portal Access" — this page manages
@@ -83,7 +83,7 @@ const TITLES: Record<string, string> = {
   "/firm-settings": "Firm Settings",
   "/list-settings": "List Settings",
   "/document-checklists": "Document Checklists",
-  "/firm-portals": "Firm Portal Credentials",
+  "/firm-portals": "Portal Credentials",
   "/guide": "Guide",
 };
 
@@ -95,6 +95,7 @@ const TITLE_KEYS: Record<string, string> = {
   "/documents": "nav.documents",
   "/communications": "nav.communications",
   "/guide": "nav.guide",
+  "/my-tax-forms": "nav.myTaxForms",
 };
 
 function titleForPath(pathname: string): string {

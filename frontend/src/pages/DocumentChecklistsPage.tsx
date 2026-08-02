@@ -84,7 +84,6 @@ export function DocumentChecklistsPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Document Checklists</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             Required-document templates by client type and/or service. Every client whose type/services match a template gets its items on their Documents tab automatically.
           </p>

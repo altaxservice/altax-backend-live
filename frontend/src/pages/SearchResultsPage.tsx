@@ -40,7 +40,6 @@ export function SearchResultsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Search Results</h1>
       <p className="muted" style={{ marginBottom: 20 }}>{q ? `Results for "${q}"` : "Enter a search term above."}</p>
 
       {error && <ErrorBanner error={error} />}

@@ -72,7 +72,6 @@ export function EstimatesListPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Estimates</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             Quote a new business, then turn an approved quote into a client, invoice and task list in one step.
           </p>

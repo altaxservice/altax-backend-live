@@ -289,8 +289,7 @@ export function TasksListPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Tasks</h1>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
         {!isArchivedView && (
           <input
             placeholder="Search tasks…"

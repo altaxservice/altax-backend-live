@@ -100,7 +100,7 @@ export function RulesPage() {
     <div>
       <div className="portal-banner" style={{ marginBottom: 20 }}>
         <div className="topbar-eyebrow">Automation Rules</div>
-        <h2>Task Rules</h2>
+        <h2>Rules</h2>
         <p>Use rules to create batch work for clients with the same service, frequency, and filing/payment requirements.</p>
       </div>
       {error && <ErrorBanner error={error} />}
@@ -183,7 +183,7 @@ export function RulesPage() {
       {rules && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px 8px" }}>
-            <h2 style={{ fontSize: 15, margin: 0 }}>Task Rules</h2>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Rules</h2>
             <span className="muted" style={{ fontSize: 12 }}>{filteredRules.length} rules</span>
           </div>
           <div className="table-scroll">

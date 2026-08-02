@@ -148,7 +148,6 @@ export function TaskCalendarPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Calendar</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>Open tasks and appointments, in one place, plus who's carrying the most work.</p>
         </div>
         <div style={{ display: "flex", gap: 6 }}>

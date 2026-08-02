@@ -79,12 +79,12 @@ export function PipelinePage() {
   }
 
   if (error) return <ErrorBanner error={error} />;
+  if (!estimates) return <div className="spinner-wrap">Loading…</div>;
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Pipeline</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             The same estimates as Estimates, viewed as a sales funnel. Move a card with its stage buttons.
           </p>

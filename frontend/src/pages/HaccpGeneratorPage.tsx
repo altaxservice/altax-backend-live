@@ -265,9 +265,6 @@ export function HaccpGeneratorPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>HACCP Plan Generator</h1>
-      </div>
       <p className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
         Generate a business-specific HACCP food-safety plan, compliant with Maryland COMAR 10.15.03 and the applicable local health department. Not tied to an existing client — use this for a brand-new business's health permit application or an existing business's renewal.
       </p>

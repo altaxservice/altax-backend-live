@@ -290,8 +290,7 @@ export function ClientsListPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Clients</h1>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 10 }}>
           <input
             placeholder="Search clients…"

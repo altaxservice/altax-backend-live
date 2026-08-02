@@ -26,7 +26,6 @@ const money = (n: number | null | undefined): string =>
 export function CalculatorsPage() {
   return (
     <div>
-      <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Calculators</h1>
       <p className="muted" style={{ margin: "0 0 16px", fontSize: 13 }}>
         Quick math for the counter — nothing here is saved.
       </p>

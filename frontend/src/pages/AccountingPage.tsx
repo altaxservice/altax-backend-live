@@ -55,8 +55,7 @@ export function AccountingPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: 0 }}>Accounting</h1>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div className="field" style={{ maxWidth: 320, margin: 0 }}>
           <label htmlFor="acct-client">Client</label>
           <select id="acct-client" value={clientId} onChange={(e) => handleClientChange(e.target.value)}>

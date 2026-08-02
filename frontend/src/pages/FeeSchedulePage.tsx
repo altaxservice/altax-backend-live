@@ -107,7 +107,6 @@ export function FeeSchedulePage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Fee Schedule</h1>
           <p className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 640 }}>
             Every amount an estimate can use. Change a fee here and all future estimates follow — estimates already
             sent keep the amounts they were built with.

@@ -105,7 +105,6 @@ export function TimeTrackingPage() {
   return (
     <div>
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Time Tracking</h1>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
           Log hours against a client to bill them for it, or leave the client blank for internal time.
         </p>

@@ -244,13 +244,7 @@ export function DocumentsListPage() {
 
   return (
     <div dir={dir}>
-      {/* Clients skip the in-page h1 — the topbar already reads "Documents"/"المستندات",
-          so the repeat was pure vertical waste on phones. */}
-      {canManage && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Documents</h1>
-        </div>
-      )}
+      {/* No in-page h1 for any role — the topbar already reads "Documents"/"المستندات". */}
 
       {scopedClientId && (
         <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
