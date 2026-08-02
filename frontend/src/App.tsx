@@ -4,6 +4,7 @@ import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
+import { ConfirmProvider } from "./components/ConfirmProvider";
 import { IdleLogout } from "./components/IdleLogout";
 import { NavigationMemory } from "./components/NavigationMemory";
 import { StaleServiceWorkerRecovery } from "./components/StaleServiceWorkerRecovery";
@@ -55,6 +56,7 @@ function App() {
         <LanguageProvider>
         <SelectedClientProvider>
         <ToastProvider>
+        <ConfirmProvider>
         <IdleLogout />
         <NavigationMemory />
         <Routes>
@@ -116,6 +118,7 @@ function App() {
           </Route>
           <Route path="*" element={<StaleServiceWorkerRecovery />} />
         </Routes>
+        </ConfirmProvider>
         </ToastProvider>
         </SelectedClientProvider>
         </LanguageProvider>

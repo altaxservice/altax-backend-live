@@ -11,6 +11,7 @@ import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
@@ -162,6 +163,8 @@ export function ClientDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [searchParams, setSearchParams] = useSearchParams();
   const [client, setClient] = useState<Client | null>(null);
   const [summary, setSummary] = useState<ClientSummary | null>(null);
@@ -259,7 +262,7 @@ export function ClientDetailPage() {
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
     if (action === "request-doc") return setRequestDocTask(task);
     if (action === "void-task") {
-      const reason = prompt("Reason for voiding this task?");
+      const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
       if (reason === null) return;
       try {
         await api.post(`/tasks/${task.task_id}/void`, { reason });
@@ -270,7 +273,11 @@ export function ClientDetailPage() {
       }
     }
     if (action === "delete-task") {
-      const confirmValue = prompt(`Permanently delete "${task.task_name}"? This cannot be undone. Type DELETE TASK to confirm.`);
+      const confirmValue = await promptFor({
+        title: "Permanently delete task",
+        message: `"${task.task_name}" — this cannot be undone. Type DELETE TASK to confirm.`,
+        placeholder: "DELETE TASK",
+      });
       if (confirmValue === null) return;
       try {
         await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
@@ -321,7 +328,13 @@ export function ClientDetailPage() {
 
   async function handleArchive() {
     if (!clientId || !client) return;
-    if (!confirm(`Archive ${client.client_name}? This disables their portal and deactivates their portal users.`)) return;
+    const ok = await confirmDialog({
+      title: "Archive client",
+      message: `Archive ${client.client_name}? This disables their portal and deactivates their portal users.`,
+      confirmLabel: "Archive",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/clients/${clientId}/archive`, {});
       toast(`${client.client_name} archived.`);
@@ -1839,6 +1852,8 @@ interface VaultAccessLogEntry {
 }
 
 function VaultSection({ clientId }: { clientId: string }) {
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [secrets, setSecrets] = useState<VaultSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -1900,11 +1915,14 @@ function VaultSection({ clientId }: { clientId: string }) {
   }
 
   async function handleReveal(secretId: string) {
-    const reason = prompt("Why are you revealing this secret? (required, logged with this access)");
+    const reason = await promptFor({
+      title: "Reveal secret",
+      message: "Why are you revealing this secret? This is required and logged with this access.",
+      placeholder: "e.g. Logging into MD Tax Connect for the client",
+    });
     if (reason === null) return;
-    if (!reason.trim()) { alert("A reason is required."); return; }
     try {
-      const res = await api.get<{ secret: string }>(`/vault/${clientId}/${secretId}/reveal?reason=${encodeURIComponent(reason.trim())}`);
+      const res = await api.get<{ secret: string }>(`/vault/${clientId}/${secretId}/reveal?reason=${encodeURIComponent(reason)}`);
       setRevealed((prev) => ({ ...prev, [secretId]: res.secret }));
       clearTimeout(revealTimers.current[secretId]);
       revealTimers.current[secretId] = setTimeout(() => {
@@ -1917,7 +1935,13 @@ function VaultSection({ clientId }: { clientId: string }) {
   }
 
   async function handleDelete(secretId: string) {
-    if (!confirm("Delete this vault item? The encrypted value cannot be recovered afterward.")) return;
+    const ok = await confirmDialog({
+      title: "Delete vault item",
+      message: "The encrypted value cannot be recovered afterward.",
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/vault/${clientId}/${secretId}/delete`, {});
       load();
@@ -2022,6 +2046,7 @@ const PAYMENT_METHOD_FORM_DEFAULTS = {
 };
 
 function PaymentMethodsSection({ clientId }: { clientId: string }) {
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [methods, setMethods] = useState<PaymentMethod[] | null>(null);
@@ -2069,7 +2094,8 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
   }
 
   async function handleDelete(paymentMethodId: string) {
-    if (!confirm("Delete this payment method?")) return;
+    const ok = await confirmDialog({ title: "Delete payment method", message: "This can't be undone.", confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     try {
       await api.post(`/payment-methods/${clientId}/${paymentMethodId}/delete`, {});
       load();
