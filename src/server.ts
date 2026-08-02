@@ -72,8 +72,10 @@ app.use(helmet({
 
 // The app is same-origin in production (marketing site, portals, and API all served
 // from altaxgroup.com by this one process) — cross-origin requests should only ever
-// come from local dev (frontend on :5173 hitting this backend on :4000) or the
-// Railway-assigned subdomain during the window before the custom domain was live.
+// come from local dev (frontend on :5173 hitting this backend on :4000). The
+// Railway-assigned *.up.railway.app subdomain was allowed here too during the
+// window before the custom domain went live — removed now that it's live,
+// since that's a shared public PaaS domain anyone can claim a subdomain on.
 // Default cors() reflects any origin; an explicit allow-list closes that off without
 // breaking the one legitimate cross-origin case (dev).
 const ALLOWED_ORIGINS = new Set([
@@ -87,11 +89,6 @@ app.use(cors({
   origin(origin, callback) {
     // No Origin header (same-origin requests, curl, server-to-server) — allow.
     if (!origin || ALLOWED_ORIGINS.has(origin)) return callback(null, true);
-    try {
-      if (/\.up\.railway\.app$/.test(new URL(origin).hostname)) return callback(null, true);
-    } catch {
-      // Malformed Origin header — fall through to rejection below.
-    }
     callback(new Error("Not allowed by CORS"));
   },
 }));
