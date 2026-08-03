@@ -229,20 +229,20 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
         {error && <ErrorBanner error={error} />}
 
         <div className="form-grid">
-          <div className="field"><label>Client</label><select value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={isEdit}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
-          <div className="field"><label>Customer Type</label><input value={customerType} onChange={(e) => setCustomerType(e.target.value)} placeholder="Business / Individual" /></div>
-          <div className="field"><label>Invoice Date</label><input type="date" value={invoiceDate} onChange={(e) => { setInvoiceDate(e.target.value); handleTermsChange(terms); }} /></div>
-          <div className="field"><label>Terms</label><select value={terms} onChange={(e) => handleTermsChange(e.target.value)}>{TERMS_OPTIONS.map((t) => <option key={t}>{t}</option>)}</select></div>
-          <div className="field"><label>Due Date</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
-          <div className="field"><label>Status</label><select value={status} onChange={(e) => setStatus(e.target.value)}><option>Unpaid</option><option>Partial</option><option>Paid</option><option>Void</option></select></div>
+          <div className="field"><label htmlFor="inv-ed-client">Client</label><select id="inv-ed-client" value={clientId} onChange={(e) => setClientId(e.target.value)} disabled={isEdit}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
+          <div className="field"><label htmlFor="inv-ed-customer-type">Customer Type</label><input id="inv-ed-customer-type" value={customerType} onChange={(e) => setCustomerType(e.target.value)} placeholder="Business / Individual" /></div>
+          <div className="field"><label htmlFor="inv-ed-invoice-date">Invoice Date</label><input id="inv-ed-invoice-date" type="date" value={invoiceDate} onChange={(e) => { setInvoiceDate(e.target.value); handleTermsChange(terms); }} /></div>
+          <div className="field"><label htmlFor="inv-ed-terms">Terms</label><select id="inv-ed-terms" value={terms} onChange={(e) => handleTermsChange(e.target.value)}>{TERMS_OPTIONS.map((t) => <option key={t}>{t}</option>)}</select></div>
+          <div className="field"><label htmlFor="inv-ed-due-date">Due Date</label><input id="inv-ed-due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-status">Status</label><select id="inv-ed-status" value={status} onChange={(e) => setStatus(e.target.value)}><option>Unpaid</option><option>Partial</option><option>Paid</option><option>Void</option></select></div>
         </div>
 
         <div className="form-grid">
-          <div className="field"><label>Bill To</label><textarea rows={3} value={billTo} onChange={(e) => setBillTo(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-bill-to">Bill To</label><textarea id="inv-ed-bill-to" rows={3} value={billTo} onChange={(e) => setBillTo(e.target.value)} /></div>
           <div className="field">
-            <label>Ship To <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}><input type="checkbox" checked={sameAsBillTo} onChange={(e) => setSameAsBillTo(e.target.checked)} style={{ marginRight: 4 }} />Same as Bill To</span></label>
+            <label htmlFor="inv-ed-ship-to">Ship To <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}><input type="checkbox" checked={sameAsBillTo} onChange={(e) => setSameAsBillTo(e.target.checked)} style={{ marginRight: 4 }} />Same as Bill To</span></label>
             {sameAsBillTo ? (
-              <textarea rows={3} value={shipTo} disabled />
+              <textarea id="inv-ed-ship-to" rows={3} value={shipTo} disabled />
             ) : (
               <AddressFields
                 idPrefix="ship-to"
@@ -256,13 +256,13 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
               />
             )}
           </div>
-          <div className="field"><label>Ship From (firm address)</label><textarea rows={3} value={shipFrom} onChange={(e) => setShipFrom(e.target.value)} placeholder="AL Tax Service address" /></div>
+          <div className="field"><label htmlFor="inv-ed-ship-from">Ship From (firm address)</label><textarea id="inv-ed-ship-from" rows={3} value={shipFrom} onChange={(e) => setShipFrom(e.target.value)} placeholder="AL Tax Service address" /></div>
         </div>
 
         <div className="form-grid">
-          <div className="field"><label>Ship Via</label><input value={shipVia} onChange={(e) => setShipVia(e.target.value)} placeholder="USPS, UPS, hand delivered…" /></div>
-          <div className="field"><label>Shipping Date</label><input type="date" value={shippingDate} onChange={(e) => setShippingDate(e.target.value)} /></div>
-          <div className="field"><label>Tracking No.</label><input value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-ship-via">Ship Via</label><input id="inv-ed-ship-via" value={shipVia} onChange={(e) => setShipVia(e.target.value)} placeholder="USPS, UPS, hand delivered…" /></div>
+          <div className="field"><label htmlFor="inv-ed-shipping-date">Shipping Date</label><input id="inv-ed-shipping-date" type="date" value={shippingDate} onChange={(e) => setShippingDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-tracking-number">Tracking No.</label><input id="inv-ed-tracking-number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} /></div>
         </div>
 
         <div className="form-section-title">Product or Service</div>
@@ -308,8 +308,8 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
           <div className="card" style={{ marginBottom: 16 }}>
             <h3 style={{ fontSize: 13, margin: "0 0 10px" }}>New Product / Service</h3>
             <div className="form-grid">
-              <div className="field"><label>Name</label><input value={quickAddForm.name} onChange={(e) => setQuickAddForm((f) => ({ ...f, name: e.target.value }))} /></div>
-              <div className="field"><label>Rate</label><input type="number" step="0.01" value={quickAddForm.rate} onChange={(e) => setQuickAddForm((f) => ({ ...f, rate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-ed-quick-add-name">Name</label><input id="inv-ed-quick-add-name" value={quickAddForm.name} onChange={(e) => setQuickAddForm((f) => ({ ...f, name: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-ed-quick-add-rate">Rate</label><input id="inv-ed-quick-add-rate" type="number" step="0.01" value={quickAddForm.rate} onChange={(e) => setQuickAddForm((f) => ({ ...f, rate: e.target.value }))} /></div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
                 <input type="checkbox" checked={quickAddForm.taxable} onChange={(e) => setQuickAddForm((f) => ({ ...f, taxable: e.target.checked }))} />
                 Taxable
@@ -323,36 +323,36 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
         )}
 
         <div className="form-grid">
-          <div className="field"><label>Payment Instructions</label><textarea rows={2} value={paymentInstructions} onChange={(e) => setPaymentInstructions(e.target.value)} placeholder="Tell your client how you want to get paid." /></div>
-          <div className="field"><label>Note to Client</label><textarea rows={2} value={clientNote} onChange={(e) => setClientNote(e.target.value)} /></div>
-          <div className="field"><label>Internal Notes (hidden)</label><textarea rows={2} value={internalNote} onChange={(e) => setInternalNote(e.target.value)} placeholder="Only visible to staff." /></div>
+          <div className="field"><label htmlFor="inv-ed-payment-instructions">Payment Instructions</label><textarea id="inv-ed-payment-instructions" rows={2} value={paymentInstructions} onChange={(e) => setPaymentInstructions(e.target.value)} placeholder="Tell your client how you want to get paid." /></div>
+          <div className="field"><label htmlFor="inv-ed-client-note">Note to Client</label><textarea id="inv-ed-client-note" rows={2} value={clientNote} onChange={(e) => setClientNote(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-internal-note">Internal Notes (hidden)</label><textarea id="inv-ed-internal-note" rows={2} value={internalNote} onChange={(e) => setInternalNote(e.target.value)} placeholder="Only visible to staff." /></div>
         </div>
 
         <div className="form-section-title">Totals</div>
         <div className="form-grid">
           <div className="field">
-            <label>Discount</label>
+            <label htmlFor="inv-ed-discount-mode">Discount</label>
             <div style={{ display: "flex", gap: 6 }}>
-              <select value={discountMode} onChange={(e) => setDiscountMode(e.target.value as "percent" | "amount")} style={{ width: 70 }}><option value="percent">%</option><option value="amount">$</option></select>
+              <select id="inv-ed-discount-mode" value={discountMode} onChange={(e) => setDiscountMode(e.target.value as "percent" | "amount")} style={{ width: 70 }}><option value="percent">%</option><option value="amount">$</option></select>
               {discountMode === "percent" ? (
-                <input type="number" min="0" step="0.01" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+                <input aria-label="Discount percent" type="number" min="0" step="0.01" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
               ) : (
-                <input type="number" min="0" step="0.01" value={discountAmountInput} onChange={(e) => setDiscountAmountInput(e.target.value)} />
+                <input aria-label="Discount amount" type="number" min="0" step="0.01" value={discountAmountInput} onChange={(e) => setDiscountAmountInput(e.target.value)} />
               )}
             </div>
           </div>
           <div className="field">
-            <label>Sales Tax</label>
-            <select value={taxMode} onChange={(e) => setTaxMode(e.target.value as "auto" | "manual" | "none")}>
+            <label htmlFor="inv-ed-tax-mode">Sales Tax</label>
+            <select id="inv-ed-tax-mode" value={taxMode} onChange={(e) => setTaxMode(e.target.value as "auto" | "manual" | "none")}>
               <option value="auto">Automatic Calculation</option>
               <option value="manual">Manual Rate</option>
               <option value="none">No Tax</option>
             </select>
           </div>
-          {taxMode === "manual" && <div className="field"><label>Tax Rate %</label><input type="number" min="0" step="0.001" value={manualTaxRate} onChange={(e) => setManualTaxRate(e.target.value)} /></div>}
-          <div className="field"><label>Shipping</label><input type="number" min="0" step="0.01" value={shippingAmount} onChange={(e) => setShippingAmount(e.target.value)} /></div>
-          <div className="field"><label>Deposit</label><input type="number" min="0" step="0.01" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} /></div>
-          <div className="field"><label>Amount Paid</label><input type="number" min="0" step="0.01" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} /></div>
+          {taxMode === "manual" && <div className="field"><label htmlFor="inv-ed-manual-tax-rate">Tax Rate %</label><input id="inv-ed-manual-tax-rate" type="number" min="0" step="0.001" value={manualTaxRate} onChange={(e) => setManualTaxRate(e.target.value)} /></div>}
+          <div className="field"><label htmlFor="inv-ed-shipping-amount">Shipping</label><input id="inv-ed-shipping-amount" type="number" min="0" step="0.01" value={shippingAmount} onChange={(e) => setShippingAmount(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-deposit-amount">Deposit</label><input id="inv-ed-deposit-amount" type="number" min="0" step="0.01" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} /></div>
+          <div className="field"><label htmlFor="inv-ed-amount-paid">Amount Paid</label><input id="inv-ed-amount-paid" type="number" min="0" step="0.01" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} /></div>
         </div>
 
         <div style={{ marginLeft: "auto", maxWidth: 260, fontSize: 13 }}>

@@ -90,58 +90,58 @@ export function GenerateW9Modal({ employeeId, onClose, onDone }: { employeeId: s
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} />
+                <label htmlFor="w9-name">Name</label>
+                <input id="w9-name" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Business name <span className="muted">(if different)</span></label>
-                <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+                <label htmlFor="w9-business-name">Business name <span className="muted">(if different)</span></label>
+                <input id="w9-business-name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
               </div>
             </div>
             <div className="field">
-              <label>Federal tax classification</label>
-              <select value={taxClassification} onChange={(e) => setTaxClassification(e.target.value)}>
+              <label htmlFor="w9-tax-classification">Federal tax classification</label>
+              <select id="w9-tax-classification" value={taxClassification} onChange={(e) => setTaxClassification(e.target.value)}>
                 {meta.w9TaxClassifications.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             {taxClassification === "LLC" && (
               <div className="field" style={{ maxWidth: 200 }}>
-                <label>LLC tax classification (C, S, or P)</label>
-                <input maxLength={1} value={llcTaxClassificationCode} onChange={(e) => setLlcTaxClassificationCode(e.target.value.toUpperCase())} />
+                <label htmlFor="w9-llc-code">LLC tax classification (C, S, or P)</label>
+                <input id="w9-llc-code" maxLength={1} value={llcTaxClassificationCode} onChange={(e) => setLlcTaxClassificationCode(e.target.value.toUpperCase())} />
               </div>
             )}
             {taxClassification === "Other" && (
               <div className="field">
-                <label>Describe</label>
-                <input value={otherClassificationText} onChange={(e) => setOtherClassificationText(e.target.value)} />
+                <label htmlFor="w9-other-classification">Describe</label>
+                <input id="w9-other-classification" value={otherClassificationText} onChange={(e) => setOtherClassificationText(e.target.value)} />
               </div>
             )}
             <div className="field">
-              <label>Address</label>
-              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+              <label htmlFor="w9-address">Address</label>
+              <input id="w9-address" value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>City</label>
-                <input value={city} onChange={(e) => setCity(e.target.value)} />
+                <label htmlFor="w9-city">City</label>
+                <input id="w9-city" value={city} onChange={(e) => setCity(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>State</label>
-                <input value={state} onChange={(e) => setState(e.target.value)} />
+                <label htmlFor="w9-state">State</label>
+                <input id="w9-state" value={state} onChange={(e) => setState(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>ZIP</label>
-                <input value={zip} onChange={(e) => setZip(e.target.value)} />
+                <label htmlFor="w9-zip">ZIP</label>
+                <input id="w9-zip" value={zip} onChange={(e) => setZip(e.target.value)} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>SSN <span className="muted">(if applicable)</span></label>
-                <input value={ssn} onChange={(e) => setSsn(e.target.value)} placeholder="XXX-XX-XXXX" />
+                <label htmlFor="w9-ssn">SSN <span className="muted">(if applicable)</span></label>
+                <input id="w9-ssn" value={ssn} onChange={(e) => setSsn(e.target.value)} placeholder="XXX-XX-XXXX" />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>EIN <span className="muted">(if applicable)</span></label>
-                <input value={ein} onChange={(e) => setEin(e.target.value)} placeholder="XX-XXXXXXX" />
+                <label htmlFor="w9-ein">EIN <span className="muted">(if applicable)</span></label>
+                <input id="w9-ein" value={ein} onChange={(e) => setEin(e.target.value)} placeholder="XX-XXXXXXX" />
               </div>
             </div>
 

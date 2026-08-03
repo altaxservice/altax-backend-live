@@ -96,44 +96,44 @@ export function CalendarSettingsPanel() {
 
       <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div className="field">
-          <label>Slot Length</label>
-          <select value={settings.slotMinutes} onChange={(e) => setSettings((s) => s && { ...s, slotMinutes: Number(e.target.value) })}>
+          <label htmlFor="cal-slot-minutes">Slot Length</label>
+          <select id="cal-slot-minutes" value={settings.slotMinutes} onChange={(e) => setSettings((s) => s && { ...s, slotMinutes: Number(e.target.value) })}>
             {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
           </select>
         </div>
         <div className="field">
-          <label>Start Time</label>
-          <select value={settings.businessStartHour} onChange={(e) => setSettings((s) => s && { ...s, businessStartHour: Number(e.target.value) })}>
+          <label htmlFor="cal-start-hour">Start Time</label>
+          <select id="cal-start-hour" value={settings.businessStartHour} onChange={(e) => setSettings((s) => s && { ...s, businessStartHour: Number(e.target.value) })}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
           </select>
         </div>
         <div className="field">
-          <label>End Time</label>
-          <select value={settings.businessEndHour} onChange={(e) => setSettings((s) => s && { ...s, businessEndHour: Number(e.target.value) })}>
+          <label htmlFor="cal-end-hour">End Time</label>
+          <select id="cal-end-hour" value={settings.businessEndHour} onChange={(e) => setSettings((s) => s && { ...s, businessEndHour: Number(e.target.value) })}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
           </select>
         </div>
       </div>
 
       <div className="field">
-        <label>Booking Horizon (days ahead someone can book)</label>
-        <input type="number" min={1} max={365} value={settings.maxDaysAhead} onChange={(e) => setSettings((s) => s && { ...s, maxDaysAhead: Number(e.target.value) || 1 })} style={{ maxWidth: 120 }} />
+        <label htmlFor="cal-max-days-ahead">Booking Horizon (days ahead someone can book)</label>
+        <input id="cal-max-days-ahead" type="number" min={1} max={365} value={settings.maxDaysAhead} onChange={(e) => setSettings((s) => s && { ...s, maxDaysAhead: Number(e.target.value) || 1 })} style={{ maxWidth: 120 }} />
       </div>
 
-      <div className="field"><label>Location Name</label><input value={settings.locationName} onChange={(e) => setSettings((s) => s && { ...s, locationName: e.target.value })} /></div>
-      <div className="field"><label>Location Address</label><input value={settings.locationAddress} onChange={(e) => setSettings((s) => s && { ...s, locationAddress: e.target.value })} /></div>
+      <div className="field"><label htmlFor="cal-location-name">Location Name</label><input id="cal-location-name" value={settings.locationName} onChange={(e) => setSettings((s) => s && { ...s, locationName: e.target.value })} /></div>
+      <div className="field"><label htmlFor="cal-location-address">Location Address</label><input id="cal-location-address" value={settings.locationAddress} onChange={(e) => setSettings((s) => s && { ...s, locationAddress: e.target.value })} /></div>
       <div className="field">
-        <label>Directions / Map Link (optional)</label>
-        <input value={settings.locationMapUrl} onChange={(e) => setSettings((s) => s && { ...s, locationMapUrl: e.target.value })} placeholder="https://maps.google.com/?cid=..." />
+        <label htmlFor="cal-location-map-url">Directions / Map Link (optional)</label>
+        <input id="cal-location-map-url" value={settings.locationMapUrl} onChange={(e) => setSettings((s) => s && { ...s, locationMapUrl: e.target.value })} placeholder="https://maps.google.com/?cid=..." />
       </div>
 
       <div className="field">
-        <label>Policy Message — English</label>
-        <textarea rows={8} value={settings.policyMessageEn} onChange={(e) => setSettings((s) => s && { ...s, policyMessageEn: e.target.value })} />
+        <label htmlFor="cal-policy-en">Policy Message — English</label>
+        <textarea id="cal-policy-en" rows={8} value={settings.policyMessageEn} onChange={(e) => setSettings((s) => s && { ...s, policyMessageEn: e.target.value })} />
       </div>
       <div className="field">
-        <label>Policy Message — Arabic</label>
-        <textarea rows={8} dir="rtl" value={settings.policyMessageAr} onChange={(e) => setSettings((s) => s && { ...s, policyMessageAr: e.target.value })} />
+        <label htmlFor="cal-policy-ar">Policy Message — Arabic</label>
+        <textarea id="cal-policy-ar" rows={8} dir="rtl" value={settings.policyMessageAr} onChange={(e) => setSettings((s) => s && { ...s, policyMessageAr: e.target.value })} />
       </div>
 
       <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Calendar Settings"}</button>

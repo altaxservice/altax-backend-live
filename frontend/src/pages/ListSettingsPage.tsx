@@ -134,7 +134,7 @@ export function ListSettingsPage() {
     });
   }
 
-  if (error) return <ErrorBanner error={error} />;
+  if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!categories) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -153,7 +153,16 @@ export function ListSettingsPage() {
             <div
               className="command-panel-header"
               style={{ cursor: "pointer" }}
+              role="button"
+              tabIndex={0}
+              aria-expanded={isOpen}
               onClick={() => { setOpen(isOpen ? null : cat.category); setNewValue(""); setEditing(null); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpen(isOpen ? null : cat.category); setNewValue(""); setEditing(null);
+                }
+              }}
             >
               <div>
                 <h2 className="command-panel-title" style={{ fontSize: 15 }}>{cat.label}</h2>
@@ -163,7 +172,7 @@ export function ListSettingsPage() {
                   {cat.customized ? "" : " · factory defaults"}
                 </div>
               </div>
-              <span className="muted">{isOpen ? "▾" : "▸"}</span>
+              <span className="muted" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
             </div>
 
             {isOpen && (

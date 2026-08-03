@@ -537,8 +537,8 @@ export function ReportsPage() {
               </select>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
-              <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-              <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-from">From</label><input id="rep-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+              <div className="field" style={{ margin: 0 }}><label htmlFor="rep-to">To</label><input id="rep-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
             </div>
           </div>
 
@@ -997,7 +997,7 @@ export function ReportsPage() {
               {summaryTableError && <ErrorBanner error={summaryTableError} style={{ margin: 16 }} />}
               {!messageLoading && periodMessage && (
                 <div style={{ padding: 16 }}>
-                  <div className="field"><label>Subject</label><input readOnly value={periodMessage.subject} /></div>
+                  <div className="field"><label htmlFor="rep-period-subject">Subject</label><input id="rep-period-subject" readOnly value={periodMessage.subject} /></div>
                   {!summaryTableLoading && summaryTable && (
                     <div style={{ margin: "12px 0 16px" }}>
                       <SummaryTable sections={summaryTable} />

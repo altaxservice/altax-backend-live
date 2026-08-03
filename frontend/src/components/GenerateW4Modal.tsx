@@ -112,40 +112,40 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>First name</label>
-                <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                <label htmlFor="w4-first-name">First name</label>
+                <input id="w4-first-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Last name</label>
-                <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                <label htmlFor="w4-last-name">Last name</label>
+                <input id="w4-last-name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
               </div>
             </div>
             <div className="field">
-              <label>Address</label>
-              <input value={address} onChange={(e) => setAddress(e.target.value)} />
+              <label htmlFor="w4-address">Address</label>
+              <input id="w4-address" value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>City</label>
-                <input value={city} onChange={(e) => setCity(e.target.value)} />
+                <label htmlFor="w4-city">City</label>
+                <input id="w4-city" value={city} onChange={(e) => setCity(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>State</label>
-                <input value={state} onChange={(e) => setState(e.target.value)} />
+                <label htmlFor="w4-state">State</label>
+                <input id="w4-state" value={state} onChange={(e) => setState(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>ZIP</label>
-                <input value={zip} onChange={(e) => setZip(e.target.value)} />
+                <label htmlFor="w4-zip">ZIP</label>
+                <input id="w4-zip" value={zip} onChange={(e) => setZip(e.target.value)} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>SSN</label>
-                <input value={ssn} onChange={(e) => setSsn(e.target.value)} />
+                <label htmlFor="w4-ssn">SSN</label>
+                <input id="w4-ssn" value={ssn} onChange={(e) => setSsn(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Filing status</label>
-                <select value={filingStatus} onChange={(e) => setFilingStatus(e.target.value)}>
+                <label htmlFor="w4-filing-status">Filing status</label>
+                <select id="w4-filing-status" value={filingStatus} onChange={(e) => setFilingStatus(e.target.value)}>
                   {meta.w4FilingStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
@@ -158,42 +158,42 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>Step 3(a) — Qualifying children amount</label>
-                <input type="number" step="0.01" value={qualifyingChildrenAmount} onChange={(e) => setQualifyingChildrenAmount(e.target.value)} />
+                <label htmlFor="w4-qualifying-children">Step 3(a) — Qualifying children amount</label>
+                <input id="w4-qualifying-children" type="number" step="0.01" value={qualifyingChildrenAmount} onChange={(e) => setQualifyingChildrenAmount(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Step 3(b) — Other dependents amount</label>
-                <input type="number" step="0.01" value={otherDependentsAmount} onChange={(e) => setOtherDependentsAmount(e.target.value)} />
+                <label htmlFor="w4-other-dependents">Step 3(b) — Other dependents amount</label>
+                <input id="w4-other-dependents" type="number" step="0.01" value={otherDependentsAmount} onChange={(e) => setOtherDependentsAmount(e.target.value)} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>4(a) Other income</label>
-                <input type="number" step="0.01" value={otherIncome} onChange={(e) => setOtherIncome(e.target.value)} />
+                <label htmlFor="w4-other-income">4(a) Other income</label>
+                <input id="w4-other-income" type="number" step="0.01" value={otherIncome} onChange={(e) => setOtherIncome(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>4(b) Deductions</label>
-                <input type="number" step="0.01" value={deductions} onChange={(e) => setDeductions(e.target.value)} />
+                <label htmlFor="w4-deductions">4(b) Deductions</label>
+                <input id="w4-deductions" type="number" step="0.01" value={deductions} onChange={(e) => setDeductions(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>4(c) Extra withholding</label>
-                <input type="number" step="0.01" value={extraWithholding} onChange={(e) => setExtraWithholding(e.target.value)} />
+                <label htmlFor="w4-extra-withholding">4(c) Extra withholding</label>
+                <input id="w4-extra-withholding" type="number" step="0.01" value={extraWithholding} onChange={(e) => setExtraWithholding(e.target.value)} />
               </div>
             </div>
 
             <div className="field" style={{ marginTop: 10 }}>
-              <label>Employer name &amp; address</label>
-              <input value={employerName} onChange={(e) => setEmployerName(e.target.value)} placeholder="Employer name" />
-              <input style={{ marginTop: 6 }} value={employerAddress} onChange={(e) => setEmployerAddress(e.target.value)} placeholder="Employer address" />
+              <label htmlFor="w4-employer-name">Employer name &amp; address</label>
+              <input id="w4-employer-name" value={employerName} onChange={(e) => setEmployerName(e.target.value)} placeholder="Employer name" />
+              <input aria-label="Employer address" style={{ marginTop: 6 }} value={employerAddress} onChange={(e) => setEmployerAddress(e.target.value)} placeholder="Employer address" />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
-                <label>First date of employment</label>
-                <input type="date" value={firstDateOfEmployment} onChange={(e) => setFirstDateOfEmployment(e.target.value)} />
+                <label htmlFor="w4-first-date-employment">First date of employment</label>
+                <input id="w4-first-date-employment" type="date" value={firstDateOfEmployment} onChange={(e) => setFirstDateOfEmployment(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
-                <label>Employer EIN</label>
-                <input value={employerEin} onChange={(e) => setEmployerEin(e.target.value)} />
+                <label htmlFor="w4-employer-ein">Employer EIN</label>
+                <input id="w4-employer-ein" value={employerEin} onChange={(e) => setEmployerEin(e.target.value)} />
               </div>
             </div>
 

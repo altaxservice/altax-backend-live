@@ -168,16 +168,16 @@ function CategoryLinesEditor({ lines, setLines, categories, clientState }: {
         <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
           <div className="field" style={{ margin: 0 }}>
             {i === 0 && <label>Category</label>}
-            <select value={line.categoryId} onChange={(e) => updateLine(i, { categoryId: e.target.value })}>
+            <select aria-label={i === 0 ? undefined : `Category, row ${i + 1}`} value={line.categoryId} onChange={(e) => updateLine(i, { categoryId: e.target.value })}>
               <option value="">Select a category…</option>
               {sorted.map((c) => <option key={c.category_id} value={c.category_id}>{c.category_name}{c.state ? ` (${c.state})` : ""}</option>)}
             </select>
           </div>
           <div className="field" style={{ margin: 0 }}>
             {i === 0 && <label>Taxable Amount</label>}
-            <input type="number" step="0.01" value={line.taxableAmount} onChange={(e) => updateLine(i, { taxableAmount: e.target.value })} />
+            <input type="number" step="0.01" aria-label={i === 0 ? undefined : `Taxable amount, row ${i + 1}`} value={line.taxableAmount} onChange={(e) => updateLine(i, { taxableAmount: e.target.value })} />
           </div>
-          <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(i)}>✕</button>
+          <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(i)} aria-label={`Remove row ${i + 1}`}>✕</button>
         </div>
       ))}
       <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, { ...EMPTY_SALES_LINE }])}>+ Add Category</button>
@@ -477,7 +477,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           )}
           {error && <ErrorBanner error={error} />}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Date</label><input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-sale-date">Date</label><input id="acct-se-sale-date" type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
             <div className="field">
               <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
               <input type="number" step="0.01" value={form.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
@@ -495,10 +495,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
-            <div className="field"><label>Adjustments</label><input type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
-            <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-adjustments">Adjustments</label><input id="acct-se-adjustments" type="number" step="0.01" value={form.adjustments} onChange={(e) => setForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-payment-date">Payment Date</label><input id="acct-se-payment-date" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-notes">Notes</label><textarea id="acct-se-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Sales Input"}</button>
             <button type="button" className="btn btn-sm" onClick={handleClearForm} disabled={saving}>Cancel / Clear</button>
@@ -643,7 +643,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <strong>Edit sales record — {fmtDate(editing.sale_date)}</strong>
             {editError && <ErrorBanner error={editError} />}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>Date</label><input type="date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-sale-date">Date</label><input id="acct-se-edit-sale-date" type="date" value={editForm.saleDate} onChange={(e) => setEditForm((f) => ({ ...f, saleDate: e.target.value }))} /></div>
               <div className="field">
                 <label>Gross Sales <span className="muted">(auto, from lines below)</span></label>
                 <input type="number" step="0.01" value={editForm.grossSales} readOnly disabled style={{ background: "var(--line)", opacity: 0.7 }} />
@@ -661,10 +661,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
-              <div className="field"><label>Adjustments</label><input type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
-              <div className="field"><label>Payment Date</label><input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-adjustments">Adjustments</label><input id="acct-se-edit-adjustments" type="number" step="0.01" value={editForm.adjustments} onChange={(e) => setEditForm((f) => ({ ...f, adjustments: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-payment-date">Payment Date</label><input id="acct-se-edit-payment-date" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             </div>
-            <div className="field"><label>Notes</label><textarea value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-notes">Notes</label><textarea id="acct-se-edit-notes" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} /></div>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save & Recalculate"}</button>
               <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
@@ -960,32 +960,32 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                 <option>Hourly</option><option>Salary</option><option>Other</option>
               </select>
             </div>
-            <div className="field"><label>Period Start</label><input type="date" value={form.payPeriodStart} onChange={(e) => setForm((f) => ({ ...f, payPeriodStart: e.target.value }))} /></div>
-            <div className="field"><label>Period End</label><input type="date" value={form.payPeriodEnd} onChange={(e) => setForm((f) => ({ ...f, payPeriodEnd: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pay-period-start">Period Start</label><input id="acct-se-pay-period-start" type="date" value={form.payPeriodStart} onChange={(e) => setForm((f) => ({ ...f, payPeriodStart: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pay-period-end">Period End</label><input id="acct-se-pay-period-end" type="date" value={form.payPeriodEnd} onChange={(e) => setForm((f) => ({ ...f, payPeriodEnd: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Check Number (leave blank to auto-assign)</label><input value={form.checkNumber} onChange={(e) => setForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-check-number">Check Number (leave blank to auto-assign)</label><input id="acct-se-check-number" value={form.checkNumber} onChange={(e) => setForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
 
           <SubLabel>Earnings</SubLabel>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={form.regularHours} onChange={(e) => setForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
-            <div className="field"><label>Regular Rate</label><input type="number" step="0.01" value={form.regularRate} onChange={(e) => setForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
-            <div className="field"><label>Overtime Hours</label><input type="number" step="0.01" value={form.overtimeHours} onChange={(e) => setForm((f) => ({ ...f, overtimeHours: e.target.value }))} /></div>
-            <div className="field"><label>Overtime Rate (defaults to 1.5×)</label><input type="number" step="0.01" value={form.overtimeRate} onChange={(e) => setForm((f) => ({ ...f, overtimeRate: e.target.value }))} /></div>
-            <div className="field"><label>Bonus Pay</label><input type="number" step="0.01" value={form.bonusPay} onChange={(e) => setForm((f) => ({ ...f, bonusPay: e.target.value }))} /></div>
-            <div className="field"><label>Commission Pay</label><input type="number" step="0.01" value={form.commissionPay} onChange={(e) => setForm((f) => ({ ...f, commissionPay: e.target.value }))} /></div>
-            <div className="field"><label>Other Taxable Pay</label><input type="number" step="0.01" value={form.otherTaxablePay} onChange={(e) => setForm((f) => ({ ...f, otherTaxablePay: e.target.value }))} /></div>
-            <div className="field"><label>Non-taxable Reimbursement</label><input type="number" step="0.01" value={form.nonTaxableReimbursement} onChange={(e) => setForm((f) => ({ ...f, nonTaxableReimbursement: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-regular-hours">Regular Hours</label><input id="acct-se-regular-hours" type="number" step="0.01" value={form.regularHours} onChange={(e) => setForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-regular-rate">Regular Rate</label><input id="acct-se-regular-rate" type="number" step="0.01" value={form.regularRate} onChange={(e) => setForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-overtime-hours">Overtime Hours</label><input id="acct-se-overtime-hours" type="number" step="0.01" value={form.overtimeHours} onChange={(e) => setForm((f) => ({ ...f, overtimeHours: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-overtime-rate">Overtime Rate (defaults to 1.5×)</label><input id="acct-se-overtime-rate" type="number" step="0.01" value={form.overtimeRate} onChange={(e) => setForm((f) => ({ ...f, overtimeRate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-bonus-pay">Bonus Pay</label><input id="acct-se-bonus-pay" type="number" step="0.01" value={form.bonusPay} onChange={(e) => setForm((f) => ({ ...f, bonusPay: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-commission-pay">Commission Pay</label><input id="acct-se-commission-pay" type="number" step="0.01" value={form.commissionPay} onChange={(e) => setForm((f) => ({ ...f, commissionPay: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-other-taxable-pay">Other Taxable Pay</label><input id="acct-se-other-taxable-pay" type="number" step="0.01" value={form.otherTaxablePay} onChange={(e) => setForm((f) => ({ ...f, otherTaxablePay: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-non-taxable-reimbursement">Non-taxable Reimbursement</label><input id="acct-se-non-taxable-reimbursement" type="number" step="0.01" value={form.nonTaxableReimbursement} onChange={(e) => setForm((f) => ({ ...f, nonTaxableReimbursement: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Or Gross Wages (overrides all earnings above)</label><input type="number" step="0.01" value={form.grossWages} onChange={(e) => setForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-gross-wages">Or Gross Wages (overrides all earnings above)</label><input id="acct-se-gross-wages" type="number" step="0.01" value={form.grossWages} onChange={(e) => setForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
 
           <SubLabel>Deductions</SubLabel>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Pre-tax Retirement</label><input type="number" step="0.01" value={form.preTaxRetirement} onChange={(e) => setForm((f) => ({ ...f, preTaxRetirement: e.target.value }))} /></div>
-            <div className="field"><label>Pre-tax Health</label><input type="number" step="0.01" value={form.preTaxHealth} onChange={(e) => setForm((f) => ({ ...f, preTaxHealth: e.target.value }))} /></div>
-            <div className="field"><label>Pre-tax HSA/FSA</label><input type="number" step="0.01" value={form.preTaxHsaFsa} onChange={(e) => setForm((f) => ({ ...f, preTaxHsaFsa: e.target.value }))} /></div>
-            <div className="field"><label>Post-tax Deduction</label><input type="number" step="0.01" value={form.postTaxDeduction} onChange={(e) => setForm((f) => ({ ...f, postTaxDeduction: e.target.value }))} /></div>
-            <div className="field"><label>Garnishment</label><input type="number" step="0.01" value={form.garnishment} onChange={(e) => setForm((f) => ({ ...f, garnishment: e.target.value }))} /></div>
-            <div className="field"><label>Other Deduction</label><input type="number" step="0.01" value={form.otherDeduction} onChange={(e) => setForm((f) => ({ ...f, otherDeduction: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pre-tax-retirement">Pre-tax Retirement</label><input id="acct-se-pre-tax-retirement" type="number" step="0.01" value={form.preTaxRetirement} onChange={(e) => setForm((f) => ({ ...f, preTaxRetirement: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pre-tax-health">Pre-tax Health</label><input id="acct-se-pre-tax-health" type="number" step="0.01" value={form.preTaxHealth} onChange={(e) => setForm((f) => ({ ...f, preTaxHealth: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-pre-tax-hsa-fsa">Pre-tax HSA/FSA</label><input id="acct-se-pre-tax-hsa-fsa" type="number" step="0.01" value={form.preTaxHsaFsa} onChange={(e) => setForm((f) => ({ ...f, preTaxHsaFsa: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-post-tax-deduction">Post-tax Deduction</label><input id="acct-se-post-tax-deduction" type="number" step="0.01" value={form.postTaxDeduction} onChange={(e) => setForm((f) => ({ ...f, postTaxDeduction: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-garnishment">Garnishment</label><input id="acct-se-garnishment" type="number" step="0.01" value={form.garnishment} onChange={(e) => setForm((f) => ({ ...f, garnishment: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-other-deduction">Other Deduction</label><input id="acct-se-other-deduction" type="number" step="0.01" value={form.otherDeduction} onChange={(e) => setForm((f) => ({ ...f, otherDeduction: e.target.value }))} /></div>
           </div>
 
           <SubLabel>Tax overrides (leave blank to auto-calculate)</SubLabel>
@@ -998,8 +998,8 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             processor here whenever you have them.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Federal Withholding</label><input type="number" step="0.01" value={form.federalWithholding} onChange={(e) => setForm((f) => ({ ...f, federalWithholding: e.target.value }))} /></div>
-            <div className="field"><label>{clientState || "State"} Withholding</label><input type="number" step="0.01" value={form.stateTax} onChange={(e) => setForm((f) => ({ ...f, stateTax: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-federal-withholding">Federal Withholding</label><input id="acct-se-federal-withholding" type="number" step="0.01" value={form.federalWithholding} onChange={(e) => setForm((f) => ({ ...f, federalWithholding: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-state-tax">{clientState || "State"} Withholding</label><input id="acct-se-state-tax" type="number" step="0.01" value={form.stateTax} onChange={(e) => setForm((f) => ({ ...f, stateTax: e.target.value }))} /></div>
           </div>
 
           <SubLabel>Payment</SubLabel>
@@ -1013,7 +1013,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           {!payrollDefault && paymentMethods.length === 0 && (
             <p className="muted" style={{ marginTop: -6, fontSize: 12 }}>This client has no payment methods on file — add one under Client Detail → Payment Methods first.</p>
           )}
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-notes-2">Notes</label><textarea id="acct-se-notes-2" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
 
           {previewError && <p className="muted" style={{ fontSize: 12, color: "var(--red)" }}>{previewError}</p>}
           {preview && (
@@ -1056,12 +1056,12 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
               Taxes, net pay and the payroll journal entries are recalculated from scratch when you save.
             </p>
             {editError && <ErrorBanner error={editError} />}
-            <div className="field"><label>Pay Date</label><input type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-pay-date">Pay Date</label><input id="acct-se-edit-pay-date" type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
-              <div className="field"><label>Regular Rate</label><input type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-regular-hours">Regular Hours</label><input id="acct-se-edit-regular-hours" type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-regular-rate">Regular Rate</label><input id="acct-se-edit-regular-rate" type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
             </div>
-            <div className="field"><label>Or Gross Wages (leave blank to recalculate from hours × rate)</label><input type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-gross-wages">Or Gross Wages (leave blank to recalculate from hours × rate)</label><input id="acct-se-edit-gross-wages" type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save & Recalculate"}</button>
               <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
@@ -1288,7 +1288,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
             {mode === "employees" ? (
               <>
-                <div className="field"><label>Pay Date (applies to newly checked employees, still editable per row)</label><input type="date" value={sharedPayDate} onChange={(e) => applySharedPayDate(e.target.value)} /></div>
+                <div className="field"><label htmlFor="acct-rr-shared-pay-date">Pay Date (applies to newly checked employees, still editable per row)</label><input id="acct-rr-shared-pay-date" type="date" value={sharedPayDate} onChange={(e) => applySharedPayDate(e.target.value)} /></div>
                 <div className="form-section-title">Employees</div>
                 <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 14 }}>
                   {activeEmployees.map((e) => (
@@ -1717,13 +1717,13 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       {showForm && (
         <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 460, marginBottom: 20 }}>
           {error && <ErrorBanner error={error} />}
-          <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-          <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
+          <div className="field"><label htmlFor="acct-l-employee-name">Name</label><input id="acct-l-employee-name" required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-l-pay-type">Pay Type</label><select id="acct-l-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Pay Rate</label><input type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
-            <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-l-pay-rate">Pay Rate</label><input id="acct-l-pay-rate" type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-l-default-hours">Default Hours</label><input id="acct-l-default-hours" type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-l-default-gross-wages">Default Gross Wages</label><input id="acct-l-default-gross-wages" type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
           <div className="field">
             <label>Pay Frequency (drives withholding calculation)</label>
             <select value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))}>
@@ -1732,10 +1732,10 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
             </select>
           </div>
           {isContractorTab && (
-            <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
+            <div className="field"><label htmlFor="acct-l-service-category">Service Category</label><input id="acct-l-service-category" value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
           )}
-          <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
-          <div className="field"><label>Phone</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-l-email">Email</label><input id="acct-l-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-l-phone">Phone</label><input id="acct-l-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
           <AddressFields
             idPrefix="emp"
             showStateField={false}
@@ -1934,18 +1934,18 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             </select>
           </div>
           {contractors.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No contractor profiles yet — use "Add Contractor" above first.</p>}
-          <div className="field"><label>Amount</label><input type="number" step="0.01" required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-          <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-amount">Amount</label><input id="acct-se-amount" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-payment-date-2">Payment Date</label><input id="acct-se-payment-date-2" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Method</label><select value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
+            <div className="field"><label htmlFor="acct-se-method">Method</label><select id="acct-se-method" value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
             <div className="field">
               <label>1099 Eligible</label>
               <select value={form.eligible1099 ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
                 <option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
-            <div className="field"><label>Check #</label><input value={form.checkNumber} onChange={(e) => setForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
-            <div className="field"><label>Confirmation #</label><input value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-check-number-2">Check #</label><input id="acct-se-check-number-2" value={form.checkNumber} onChange={(e) => setForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-confirmation-number">Confirmation #</label><input id="acct-se-confirmation-number" value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
           </div>
           <div className="field">
             <label>Payment Profile (bank info for the check)</label>
@@ -1954,8 +1954,8 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
               {paymentMethods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name} ({m.method_type})</option>)}
             </select>
           </div>
-          <div className="field"><label>Expense Category</label><input value={form.expenseCategory} onChange={(e) => setForm((f) => ({ ...f, expenseCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
-          <div className="field"><label>Memo</label><input value={form.memo} onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-expense-category">Expense Category</label><input id="acct-se-expense-category" value={form.expenseCategory} onChange={(e) => setForm((f) => ({ ...f, expenseCategory: e.target.value }))} placeholder="e.g. Contract Labor" /></div>
+          <div className="field"><label htmlFor="acct-se-memo">Memo</label><input id="acct-se-memo" value={form.memo} onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Record Payment"}</button>
         </form>
       </Panel>
@@ -1981,18 +1981,18 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
           <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16 }}>
             <strong>Edit payment — {editing.contractor_name}</strong>
             {editError && <ErrorBanner error={editError} />}
-            <div className="field"><label>Amount</label><input type="number" step="0.01" required value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-            <div className="field"><label>Payment Date</label><input type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-amount">Amount</label><input id="acct-se-edit-amount" type="number" step="0.01" required value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-payment-date-2">Payment Date</label><input id="acct-se-edit-payment-date-2" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>Method</label><select value={editForm.method} onChange={(e) => setEditForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
+              <div className="field"><label htmlFor="acct-se-edit-method">Method</label><select id="acct-se-edit-method" value={editForm.method} onChange={(e) => setEditForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
               <div className="field">
                 <label>1099 Eligible</label>
                 <select value={editForm.eligible1099 ? "yes" : "no"} onChange={(e) => setEditForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
                   <option value="yes">Yes</option><option value="no">No</option>
                 </select>
               </div>
-              <div className="field"><label>Check #</label><input value={editForm.checkNumber} onChange={(e) => setEditForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
-              <div className="field"><label>Confirmation #</label><input value={editForm.confirmationNumber} onChange={(e) => setEditForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-check-number">Check #</label><input id="acct-se-edit-check-number" value={editForm.checkNumber} onChange={(e) => setEditForm((f) => ({ ...f, checkNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="acct-se-edit-confirmation-number">Confirmation #</label><input id="acct-se-edit-confirmation-number" value={editForm.confirmationNumber} onChange={(e) => setEditForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
             </div>
             <div className="field">
               <label>Payment Profile</label>
@@ -2001,8 +2001,8 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
                 {paymentMethods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name} ({m.method_type})</option>)}
               </select>
             </div>
-            <div className="field"><label>Expense Category</label><input value={editForm.expenseCategory} onChange={(e) => setEditForm((f) => ({ ...f, expenseCategory: e.target.value }))} /></div>
-            <div className="field"><label>Memo</label><input value={editForm.memo} onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-expense-category">Expense Category</label><input id="acct-se-edit-expense-category" value={editForm.expenseCategory} onChange={(e) => setEditForm((f) => ({ ...f, expenseCategory: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-memo">Memo</label><input id="acct-se-edit-memo" value={editForm.memo} onChange={(e) => setEditForm((f) => ({ ...f, memo: e.target.value }))} /></div>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save & Recalculate"}</button>
               <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
@@ -2212,10 +2212,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           {error && <ErrorBanner error={error} />}
           {success && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>{success}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <div className="field"><label>Entry Date</label><input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
-            <div className="field"><label>Reference</label><input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Auto if left blank" /></div>
-            <div className="field"><label>Description</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
-            <div className="field"><label>Notes</label><input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Falls back to per-line memo" /></div>
+            <div className="field"><label htmlFor="acct-cej-entry-date">Entry Date</label><input id="acct-cej-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="acct-cej-ref">Reference</label><input id="acct-cej-ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Auto if left blank" /></div>
+            <div className="field"><label htmlFor="acct-cej-description">Description</label><input id="acct-cej-description" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+            <div className="field"><label htmlFor="acct-cej-notes">Notes</label><input id="acct-cej-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Falls back to per-line memo" /></div>
           </div>
           {lines.map((line, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.5fr auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
@@ -2575,12 +2575,12 @@ function PaychecksTab({ clientId }: { clientId: string }) {
         <form onSubmit={handleSaveEdit} className="card" style={{ margin: 16, maxWidth: 460 }}>
           <strong>Edit paycheck — {editing.employee}</strong>
           {error && <ErrorBanner error={error} />}
-          <div className="field"><label>Pay Date</label><input type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-edit-pay-date-2">Pay Date</label><input id="acct-se-edit-pay-date-2" type="date" value={editForm.payDate} onChange={(e) => setEditForm((f) => ({ ...f, payDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div className="field"><label>Regular Hours</label><input type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
-            <div className="field"><label>Regular Rate</label><input type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-regular-hours-2">Regular Hours</label><input id="acct-se-edit-regular-hours-2" type="number" step="0.01" value={editForm.regularHours} onChange={(e) => setEditForm((f) => ({ ...f, regularHours: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-regular-rate-2">Regular Rate</label><input id="acct-se-edit-regular-rate-2" type="number" step="0.01" value={editForm.regularRate} onChange={(e) => setEditForm((f) => ({ ...f, regularRate: e.target.value }))} /></div>
           </div>
-          <div className="field"><label>Or Gross Wages (leave blank to recalculate from hours × rate)</label><input type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-edit-gross-wages-2">Or Gross Wages (leave blank to recalculate from hours × rate)</label><input id="acct-se-edit-gross-wages-2" type="number" step="0.01" value={editForm.grossWages} onChange={(e) => setEditForm((f) => ({ ...f, grossWages: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save & Recalculate"}</button>
             <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
@@ -2921,7 +2921,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
                 <option>Top</option><option>Middle</option><option>Bottom</option>
               </select>
             </div>
-            <div className="field"><label>Paper Stock</label><input value={form.paperStock} onChange={(e) => setForm((f) => ({ ...f, paperStock: e.target.value }))} placeholder="e.g. Deluxe 3-per-page" /></div>
+            <div className="field"><label htmlFor="acct-cst-paper-stock">Paper Stock</label><input id="acct-cst-paper-stock" value={form.paperStock} onChange={(e) => setForm((f) => ({ ...f, paperStock: e.target.value }))} placeholder="e.g. Deluxe 3-per-page" /></div>
           </div>
           {CHECK_SETTING_FIELD_PAIRS.map(([label, xKey, yKey]) => (
             <div key={label} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -2929,7 +2929,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
               <div className="field"><label>{label} Y</label><input type="number" step="0.1" value={form[yKey]} onChange={(e) => setForm((f) => ({ ...f, [yKey]: e.target.value }))} /></div>
             </div>
           ))}
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-cst-notes">Notes</label><textarea id="acct-cst-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Check Settings"}</button>
         </form>
       </Panel>
@@ -3182,9 +3182,9 @@ function TaxRatesTab() {
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.rateId ? `Edit ${form.rateId}` : "New Rate"}</h2>
           {saveError && <ErrorBanner error={saveError} />}
-          <div className="field"><label>Rate Type</label><input required value={form.rateType} onChange={(e) => setForm((f) => ({ ...f, rateType: e.target.value }))} placeholder="e.g. Sales Tax 6" /></div>
-          <div className="field"><label>Rate (decimal, e.g. 0.06 = 6%)</label><input type="number" step="0.0001" required value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} /></div>
-          <div className="field"><label>Scope</label><select value={form.scope} onChange={(e) => setForm((f) => ({ ...f, scope: e.target.value, clientId: e.target.value === "Global" ? "" : f.clientId }))}><option>Global</option><option>Client</option></select></div>
+          <div className="field"><label htmlFor="acct-se-rate-type">Rate Type</label><input id="acct-se-rate-type" required value={form.rateType} onChange={(e) => setForm((f) => ({ ...f, rateType: e.target.value }))} placeholder="e.g. Sales Tax 6" /></div>
+          <div className="field"><label htmlFor="acct-se-rate">Rate (decimal, e.g. 0.06 = 6%)</label><input id="acct-se-rate" type="number" step="0.0001" required value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-scope">Scope</label><select id="acct-se-scope" value={form.scope} onChange={(e) => setForm((f) => ({ ...f, scope: e.target.value, clientId: e.target.value === "Global" ? "" : f.clientId }))}><option>Global</option><option>Client</option></select></div>
           {form.scope === "Client" && (
             <div className="field">
               <label>Client</label>
@@ -3194,8 +3194,8 @@ function TaxRatesTab() {
               </select>
             </div>
           )}
-          <div className="field"><label>Side</label><select value={form.employeeEmployer} onChange={(e) => setForm((f) => ({ ...f, employeeEmployer: e.target.value }))}><option value="">—</option><option value="Employee">Employee</option><option value="Employer">Employer</option><option value="Both">Both</option></select></div>
-          <div className="field"><label>Wage Cap</label><input type="number" step="0.01" value={form.wageCap} onChange={(e) => setForm((f) => ({ ...f, wageCap: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-employee-employer">Side</label><select id="acct-se-employee-employer" value={form.employeeEmployer} onChange={(e) => setForm((f) => ({ ...f, employeeEmployer: e.target.value }))}><option value="">—</option><option value="Employee">Employee</option><option value="Employer">Employer</option><option value="Both">Both</option></select></div>
+          <div className="field"><label htmlFor="acct-se-wage-cap">Wage Cap</label><input id="acct-se-wage-cap" type="number" step="0.01" value={form.wageCap} onChange={(e) => setForm((f) => ({ ...f, wageCap: e.target.value }))} /></div>
           <div className="field">
             <label>State</label>
             <select value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
@@ -3207,7 +3207,7 @@ function TaxRatesTab() {
               {US_STATES.map((s) => <option key={s}>{s}</option>)}
             </select>
           </div>
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-notes-3">Notes</label><textarea id="acct-se-notes-3" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
         </form>
       )}
@@ -3381,8 +3381,8 @@ function SalesCategoriesSection() {
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.categoryId ? `Edit ${form.categoryName}` : "New Category"}</h2>
           {saveError && <ErrorBanner error={saveError} />}
-          <div className="field"><label>Category Name</label><input required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
-          <div className="field"><label>Tax Rate (%)</label><input required type="number" step="0.01" min="0" value={form.ratePercent} onChange={(e) => setForm((f) => ({ ...f, ratePercent: e.target.value }))} placeholder="e.g. 6 for 6%" /></div>
+          <div className="field"><label htmlFor="acct-se-category-name">Category Name</label><input id="acct-se-category-name" required value={form.categoryName} onChange={(e) => setForm((f) => ({ ...f, categoryName: e.target.value }))} placeholder="e.g. Prepared Food" /></div>
+          <div className="field"><label htmlFor="acct-se-rate-percent">Tax Rate (%)</label><input id="acct-se-rate-percent" required type="number" step="0.01" min="0" value={form.ratePercent} onChange={(e) => setForm((f) => ({ ...f, ratePercent: e.target.value }))} placeholder="e.g. 6 for 6%" /></div>
           <div className="field">
             <label>State <span className="muted">(blank = any state)</span></label>
             <select value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
@@ -3390,9 +3390,9 @@ function SalesCategoriesSection() {
               {US_STATES.map((s) => <option key={s}>{s}</option>)}
             </select>
           </div>
-          <div className="field"><label>Filing Box Label <span className="muted">(optional)</span></label><input value={form.filingBoxLabel} onChange={(e) => setForm((f) => ({ ...f, filingBoxLabel: e.target.value }))} /></div>
-          <div className="field"><label>Display Order</label><input type="number" value={form.displayOrder} onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))} /></div>
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-filing-box-label">Filing Box Label <span className="muted">(optional)</span></label><input id="acct-se-filing-box-label" value={form.filingBoxLabel} onChange={(e) => setForm((f) => ({ ...f, filingBoxLabel: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-display-order">Display Order</label><input id="acct-se-display-order" type="number" value={form.displayOrder} onChange={(e) => setForm((f) => ({ ...f, displayOrder: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-notes-4">Notes</label><textarea id="acct-se-notes-4" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
         </form>
       )}
@@ -3911,14 +3911,14 @@ function CoaTab() {
       {showForm && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 420, marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.accountId ? `Edit ${form.accountId}` : "New Account"}</h2>
-          <div className="field"><label>Account Name</label><input required value={form.accountName} onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))} /></div>
-          <div className="field"><label>Account Type</label><select value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option>Asset</option><option>Liability</option><option>Equity</option><option>Revenue</option><option>Expense</option><option>COGS</option></select></div>
-          <div className="field"><label>Detail Type</label><input value={form.detailType} onChange={(e) => setForm((f) => ({ ...f, detailType: e.target.value }))} placeholder="e.g. Checking, Accounts Receivable" /></div>
-          <div className="field"><label>Normal Balance</label><select value={form.normalBalance} onChange={(e) => setForm((f) => ({ ...f, normalBalance: e.target.value }))}><option>Debit</option><option>Credit</option></select></div>
-          <div className="field"><label>Opening Balance</label><input type="number" step="0.01" value={form.openingBalance} onChange={(e) => setForm((f) => ({ ...f, openingBalance: e.target.value }))} /></div>
-          <div className="field"><label>Sub-account Of</label><input value={form.subAccountOf} onChange={(e) => setForm((f) => ({ ...f, subAccountOf: e.target.value }))} placeholder="Parent account name (optional)" /></div>
-          <div className="field"><label>Tax Line</label><input value={form.taxLine} onChange={(e) => setForm((f) => ({ ...f, taxLine: e.target.value }))} /></div>
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-account-name">Account Name</label><input id="acct-se-account-name" required value={form.accountName} onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-account-type">Account Type</label><select id="acct-se-account-type" value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option>Asset</option><option>Liability</option><option>Equity</option><option>Revenue</option><option>Expense</option><option>COGS</option></select></div>
+          <div className="field"><label htmlFor="acct-se-detail-type">Detail Type</label><input id="acct-se-detail-type" value={form.detailType} onChange={(e) => setForm((f) => ({ ...f, detailType: e.target.value }))} placeholder="e.g. Checking, Accounts Receivable" /></div>
+          <div className="field"><label htmlFor="acct-se-normal-balance">Normal Balance</label><select id="acct-se-normal-balance" value={form.normalBalance} onChange={(e) => setForm((f) => ({ ...f, normalBalance: e.target.value }))}><option>Debit</option><option>Credit</option></select></div>
+          <div className="field"><label htmlFor="acct-se-opening-balance">Opening Balance</label><input id="acct-se-opening-balance" type="number" step="0.01" value={form.openingBalance} onChange={(e) => setForm((f) => ({ ...f, openingBalance: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-sub-account-of">Sub-account Of</label><input id="acct-se-sub-account-of" value={form.subAccountOf} onChange={(e) => setForm((f) => ({ ...f, subAccountOf: e.target.value }))} placeholder="Parent account name (optional)" /></div>
+          <div className="field"><label htmlFor="acct-se-tax-line">Tax Line</label><input id="acct-se-tax-line" value={form.taxLine} onChange={(e) => setForm((f) => ({ ...f, taxLine: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-notes-5">Notes</label><textarea id="acct-se-notes-5" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
         </form>
       )}

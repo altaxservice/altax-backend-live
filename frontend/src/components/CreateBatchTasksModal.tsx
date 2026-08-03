@@ -184,8 +184,8 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
         {error && <ErrorBanner error={error} />}
 
         <div className="field">
-          <label>Rule</label>
-          <select value={ruleId} onChange={(e) => setRuleId(e.target.value)}>
+          <label htmlFor="batch-rule">Rule</label>
+          <select id="batch-rule" value={ruleId} onChange={(e) => setRuleId(e.target.value)}>
             {sortedRules.map((r) => (
               <option key={r.rule_id} value={r.rule_id}>
                 {r.rule_id} - {r.task_type}{r.trigger_column ? ` (${r.trigger_column} ${r.trigger_value})` : ""}
@@ -265,20 +265,20 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
         </div>
 
         <div className="form-grid">
-          <div className="field"><label>Period Label</label><input value={periodLabel} onChange={(e) => { setPeriodLabel(e.target.value); setPreview(null); }} placeholder="e.g. June 2026" /></div>
-          <div className="field"><label>Agency Due Date</label><input type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setPreview(null); }} /></div>
-          <div className="field"><label>Period Start</label><input type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreview(null); }} /></div>
-          <div className="field"><label>Period End</label><input type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-period-label">Period Label</label><input id="batch-period-label" value={periodLabel} onChange={(e) => { setPeriodLabel(e.target.value); setPreview(null); }} placeholder="e.g. June 2026" /></div>
+          <div className="field"><label htmlFor="batch-due-date">Agency Due Date</label><input id="batch-due-date" type="date" value={dueDate} onChange={(e) => { setDueDate(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-period-start">Period Start</label><input id="batch-period-start" type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-period-end">Period End</label><input id="batch-period-end" type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreview(null); }} /></div>
           <div className="field">
-            <label>Assigned To</label>
-            <select value={assignedTo} onChange={(e) => { setAssignedTo(e.target.value); setPreview(null); }}>
+            <label htmlFor="batch-assigned-to">Assigned To</label>
+            <select id="batch-assigned-to" value={assignedTo} onChange={(e) => { setAssignedTo(e.target.value); setPreview(null); }}>
               <option value="">Use client default staff</option>
               {staffOptions.map((o) => <option key={o}>{o}</option>)}
             </select>
           </div>
-          <div className="field"><label>Staff Due Date</label><input type="date" value={staffDueDate} onChange={(e) => { setStaffDueDate(e.target.value); setPreview(null); }} /></div>
+          <div className="field"><label htmlFor="batch-staff-due-date">Staff Due Date</label><input id="batch-staff-due-date" type="date" value={staffDueDate} onChange={(e) => { setStaffDueDate(e.target.value); setPreview(null); }} /></div>
         </div>
-        <div className="field"><label>Notes</label><textarea rows={2} value={notes} onChange={(e) => { setNotes(e.target.value); setPreview(null); }} /></div>
+        <div className="field"><label htmlFor="batch-notes">Notes</label><textarea id="batch-notes" rows={2} value={notes} onChange={(e) => { setNotes(e.target.value); setPreview(null); }} /></div>
 
         <p className="muted" style={{ fontSize: 12.5 }}>
           {selected.size} selected client(s). {preview

@@ -1206,16 +1206,16 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                 {generatingFor === key && (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "flex-end" }}>
                     <div className="field" style={{ maxWidth: 130 }}>
-                      <label>Fee</label>
-                      <input placeholder="e.g. 400" value={genForm.feeAmount} onChange={(e) => setGenForm((f) => ({ ...f, feeAmount: e.target.value }))} />
+                      <label htmlFor={`cd-gen-fee-${key}`}>Fee</label>
+                      <input id={`cd-gen-fee-${key}`} placeholder="e.g. 400" value={genForm.feeAmount} onChange={(e) => setGenForm((f) => ({ ...f, feeAmount: e.target.value }))} />
                     </div>
                     <div className="field" style={{ maxWidth: 160 }}>
-                      <label>Fee Note</label>
-                      <input placeholder="e.g. per month" value={genForm.feeDescription} onChange={(e) => setGenForm((f) => ({ ...f, feeDescription: e.target.value }))} />
+                      <label htmlFor={`cd-gen-fee-note-${key}`}>Fee Note</label>
+                      <input id={`cd-gen-fee-note-${key}`} placeholder="e.g. per month" value={genForm.feeDescription} onChange={(e) => setGenForm((f) => ({ ...f, feeDescription: e.target.value }))} />
                     </div>
                     <div className="field" style={{ maxWidth: 150 }}>
-                      <label>Effective Date</label>
-                      <input type="date" value={genForm.effectiveDate} onChange={(e) => setGenForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
+                      <label htmlFor={`cd-gen-effective-date-${key}`}>Effective Date</label>
+                      <input id={`cd-gen-effective-date-${key}`} type="date" value={genForm.effectiveDate} onChange={(e) => setGenForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
                     </div>
                     <button type="button" className="btn btn-primary btn-sm" disabled={busy === `gen-${key}`} onClick={() => handleGenerate(key)}>
                       {busy === `gen-${key}` ? "Creating…" : "Create Draft"}
@@ -1312,12 +1312,12 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
                     <td colSpan={5} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
-                          <label>Signer's Full Legal Name</label>
-                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerName: e.target.value }))} />
+                          <label htmlFor={`cd-contract-signer-name-${c.contract_id}`}>Signer's Full Legal Name</label>
+                          <input id={`cd-contract-signer-name-${c.contract_id}`} value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerName: e.target.value }))} />
                         </div>
                         <div className="field" style={{ maxWidth: 160 }}>
-                          <label>Title (optional)</label>
-                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerTitle: e.target.value }))} />
+                          <label htmlFor={`cd-contract-signer-title-${c.contract_id}`}>Title (optional)</label>
+                          <input id={`cd-contract-signer-title-${c.contract_id}`} placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((f) => ({ ...f, signerTitle: e.target.value }))} />
                         </div>
                         <button
                           type="button" className="btn btn-primary btn-sm"
@@ -1509,12 +1509,12 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
                     <td colSpan={6} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
-                          <label>Signer's Full Legal Name</label>
-                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                          <label htmlFor={`cd-poa-signer-name-${f.filing_id}`}>Signer's Full Legal Name</label>
+                          <input id={`cd-poa-signer-name-${f.filing_id}`} value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
                         </div>
                         <div className="field" style={{ maxWidth: 160 }}>
-                          <label>Title (optional)</label>
-                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                          <label htmlFor={`cd-poa-signer-title-${f.filing_id}`}>Title (optional)</label>
+                          <input id={`cd-poa-signer-title-${f.filing_id}`} placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
                         </div>
                         <button
                           type="button" className="btn btn-primary btn-sm"
@@ -1536,14 +1536,14 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
                     <td colSpan={6} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 200 }}>
-                          <label>Sent Via</label>
-                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                          <label htmlFor={`cd-poa-submitted-via-${f.filing_id}`}>Sent Via</label>
+                          <select id={`cd-poa-submitted-via-${f.filing_id}`} value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
                             {SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
                           </select>
                         </div>
                         <div className="field" style={{ maxWidth: 260 }}>
-                          <label>Note (optional)</label>
-                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                          <label htmlFor={`cd-poa-submitted-note-${f.filing_id}`}>Note (optional)</label>
+                          <input id={`cd-poa-submitted-note-${f.filing_id}`} value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
                         </div>
                         <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
                           {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm Submitted"}
@@ -1730,12 +1730,12 @@ function GovFormsSection({ clientId }: { clientId: string }) {
                     <td colSpan={5} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
-                          <label>Signer's Full Legal Name</label>
-                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                          <label htmlFor={`cd-gf-signer-name-${f.filing_id}`}>Signer's Full Legal Name</label>
+                          <input id={`cd-gf-signer-name-${f.filing_id}`} value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
                         </div>
                         <div className="field" style={{ maxWidth: 160 }}>
-                          <label>Title (optional)</label>
-                          <input placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                          <label htmlFor={`cd-gf-signer-title-${f.filing_id}`}>Title (optional)</label>
+                          <input id={`cd-gf-signer-title-${f.filing_id}`} placeholder="e.g. Owner" value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
                         </div>
                         <button
                           type="button" className="btn btn-primary btn-sm"
@@ -1757,14 +1757,14 @@ function GovFormsSection({ clientId }: { clientId: string }) {
                     <td colSpan={5} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 200 }}>
-                          <label>Sent Via</label>
-                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                          <label htmlFor={`cd-gf-submitted-via-${f.filing_id}`}>Sent Via</label>
+                          <select id={`cd-gf-submitted-via-${f.filing_id}`} value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
                             {GOV_SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
                           </select>
                         </div>
                         <div className="field" style={{ maxWidth: 260 }}>
-                          <label>Note (optional)</label>
-                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                          <label htmlFor={`cd-gf-submitted-note-${f.filing_id}`}>Note (optional)</label>
+                          <input id={`cd-gf-submitted-note-${f.filing_id}`} value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
                         </div>
                         <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
                           {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm Submitted"}
@@ -2027,13 +2027,14 @@ function VaultSection({ clientId }: { clientId: string }) {
       )}
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
-          <div className="field"><label>Category</label><input required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
-          <div className="field"><label>Label</label><input required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
-          <div className="field"><label>Agency Name</label><input value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
-          <div className="field"><label>User ID / Username</label><input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. the login username, not the password" /></div>
+          <div className="field"><label htmlFor="cd-secret-category">Category</label><input id="cd-secret-category" required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
+          <div className="field"><label htmlFor="cd-secret-label">Label</label><input id="cd-secret-label" required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
+          <div className="field"><label htmlFor="cd-secret-agency-name">Agency Name</label><input id="cd-secret-agency-name" value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="cd-secret-username">User ID / Username</label><input id="cd-secret-username" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. the login username, not the password" /></div>
           <div className="field">
-            <label>Secret Value / Password</label>
+            <label htmlFor="cd-secret-value">Secret Value / Password</label>
             <input
+              id="cd-secret-value"
               type="password"
               required={!editingId}
               value={form.secret}
@@ -2165,26 +2166,26 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
           {form.paymentMethodId && <strong style={{ display: "block", marginBottom: 8, fontSize: 13 }}>Editing {form.methodName}</strong>}
-          <div className="field"><label>Method Name</label><input required value={form.methodName} onChange={(e) => setForm((f) => ({ ...f, methodName: e.target.value }))} placeholder="e.g. Chase Checking" /></div>
-          <div className="field"><label>Type</label><select value={form.methodType} onChange={(e) => setForm((f) => ({ ...f, methodType: e.target.value }))}><option>ACH</option><option>Check</option><option>Wire</option><option>Credit Card</option></select></div>
-          <div className="field"><label>Phone</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Contact for this payment method" /></div>
+          <div className="field"><label htmlFor="cd-pm-method-name">Method Name</label><input id="cd-pm-method-name" required value={form.methodName} onChange={(e) => setForm((f) => ({ ...f, methodName: e.target.value }))} placeholder="e.g. Chase Checking" /></div>
+          <div className="field"><label htmlFor="cd-pm-method-type">Type</label><select id="cd-pm-method-type" value={form.methodType} onChange={(e) => setForm((f) => ({ ...f, methodType: e.target.value }))}><option>ACH</option><option>Check</option><option>Wire</option><option>Credit Card</option></select></div>
+          <div className="field"><label htmlFor="cd-pm-phone">Phone</label><input id="cd-pm-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Contact for this payment method" /></div>
           {isBankType && (
             <>
               {form.paymentMethodId && <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave bank fields blank to keep the numbers already on file — only fill them in to replace them.</p>}
-              <div className="field"><label>Bank Name{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
-              <div className="field"><label>Routing Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
-              <div className="field"><label>Account Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
-              <div className="field"><label>Confirm Account Number</label><input value={form.confirmAccountNumber} onChange={(e) => setForm((f) => ({ ...f, confirmAccountNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-bank-name">Bank Name{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-bank-name" value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-routing-number">Routing Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-routing-number" value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-account-number">Account Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-account-number" value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-confirm-account-number">Confirm Account Number</label><input id="cd-pm-confirm-account-number" value={form.confirmAccountNumber} onChange={(e) => setForm((f) => ({ ...f, confirmAccountNumber: e.target.value }))} /></div>
             </>
           )}
           {isCardType && (
             <>
-              <div className="field"><label>Cardholder Name</label><input value={form.cardholderName} onChange={(e) => setForm((f) => ({ ...f, cardholderName: e.target.value }))} /></div>
-              <div className="field"><label>Card Brand</label><select value={form.cardBrand} onChange={(e) => setForm((f) => ({ ...f, cardBrand: e.target.value }))}>{CARD_BRANDS.map((b) => <option key={b}>{b}</option>)}</select></div>
-              <div className="field"><label>Last 4 Digits</label><input value={form.cardLast4} maxLength={4} onChange={(e) => setForm((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "") }))} placeholder="1234" /></div>
+              <div className="field"><label htmlFor="cd-pm-cardholder-name">Cardholder Name</label><input id="cd-pm-cardholder-name" value={form.cardholderName} onChange={(e) => setForm((f) => ({ ...f, cardholderName: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-card-brand">Card Brand</label><select id="cd-pm-card-brand" value={form.cardBrand} onChange={(e) => setForm((f) => ({ ...f, cardBrand: e.target.value }))}>{CARD_BRANDS.map((b) => <option key={b}>{b}</option>)}</select></div>
+              <div className="field"><label htmlFor="cd-pm-card-last4">Last 4 Digits</label><input id="cd-pm-card-last4" value={form.cardLast4} maxLength={4} onChange={(e) => setForm((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "") }))} placeholder="1234" /></div>
               <div className="form-grid">
-                <div className="field"><label>Expiry Month</label><select value={form.cardExpMonth} onChange={(e) => setForm((f) => ({ ...f, cardExpMonth: e.target.value }))}><option value="">—</option>{EXP_MONTHS.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}</select></div>
-                <div className="field"><label>Expiry Year</label><select value={form.cardExpYear} onChange={(e) => setForm((f) => ({ ...f, cardExpYear: e.target.value }))}><option value="">—</option>{EXP_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}</select></div>
+                <div className="field"><label htmlFor="cd-pm-card-exp-month">Expiry Month</label><select id="cd-pm-card-exp-month" value={form.cardExpMonth} onChange={(e) => setForm((f) => ({ ...f, cardExpMonth: e.target.value }))}><option value="">—</option>{EXP_MONTHS.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}</select></div>
+                <div className="field"><label htmlFor="cd-pm-card-exp-year">Expiry Year</label><select id="cd-pm-card-exp-year" value={form.cardExpYear} onChange={(e) => setForm((f) => ({ ...f, cardExpYear: e.target.value }))}><option value="">—</option>{EXP_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}</select></div>
               </div>
               <p className="muted" style={{ fontSize: 12 }}>No payment processor is connected, so this can't be charged from here — it's a reference for staff only. We never ask for or store the full card number or CVV.</p>
             </>
@@ -2481,14 +2482,14 @@ function ClientActivitySection({ clientId }: { clientId: string }) {
       {adding && (
         <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div className="field" style={{ margin: 0, maxWidth: 180 }}>
-            <label>Type</label>
-            <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
+            <label htmlFor="cd-activity-type">Type</label>
+            <select id="cd-activity-type" value={activityType} onChange={(e) => setActivityType(e.target.value)}>
               {ACTIVITY_TYPES.map((t) => <option key={t}>{t}</option>)}
             </select>
           </div>
           <div className="field" style={{ margin: 0, flex: 1, minWidth: 220 }}>
-            <label>Note</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called about Q3 estimate" />
+            <label htmlFor="cd-activity-note">Note</label>
+            <input id="cd-activity-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called about Q3 estimate" />
           </div>
           <button type="button" className="btn btn-primary btn-sm" disabled={saving || !note.trim()} onClick={handleAdd}>{saving ? "Saving…" : "Save"}</button>
         </div>

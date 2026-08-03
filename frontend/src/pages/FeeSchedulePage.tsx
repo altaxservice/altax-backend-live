@@ -111,7 +111,7 @@ export function FeeSchedulePage() {
     return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
   }
 
-  if (error) return <ErrorBanner error={error} />;
+  if (error) return <ErrorBanner error={error} onRetry={load} />;
 
   return (
     <div>
@@ -201,7 +201,11 @@ export function FeeSchedulePage() {
                 );
               })}
               {!filtered.length && (
-                <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>No fees match these filters.</td></tr>
+                <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 24 }}>
+                  {items && items.length === 0
+                    ? "No fees in the schedule yet. Add one to get started."
+                    : "No fees match these filters."}
+                </td></tr>
               )}
             </tbody>
           </table>

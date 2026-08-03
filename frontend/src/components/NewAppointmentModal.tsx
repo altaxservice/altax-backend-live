@@ -78,21 +78,21 @@ export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
         <div className="modal-header"><h2 id="new-appointment-title">New Appointment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">
-          <label>Title</label>
-          <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Tax review" />
+          <label htmlFor="appt-title">Title</label>
+          <input id="appt-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Tax review" />
         </div>
         <div className="field">
-          <label>Client (optional)</label>
-          <select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}>
+          <label htmlFor="appt-client">Client (optional)</label>
+          <select id="appt-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}>
             <option value="">No client — new contact</option>
             {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
           </select>
         </div>
         {!form.clientId && (
           <div className="form-grid">
-            <div className="field"><label>Contact Name</label><input value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} /></div>
-            <div className="field"><label>Contact Email</label><input type="email" value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} /></div>
-            <div className="field"><label>Contact Phone</label><input value={form.contactPhone} onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="appt-contact-name">Contact Name</label><input id="appt-contact-name" value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="appt-contact-email">Contact Email</label><input id="appt-contact-email" type="email" value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="appt-contact-phone">Contact Phone</label><input id="appt-contact-phone" value={form.contactPhone} onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))} /></div>
           </div>
         )}
         {selectedClient && (
@@ -101,20 +101,20 @@ export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
           </p>
         )}
         <div className="form-grid">
-          <div className="field"><label>Date</label><input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
-          <div className="field"><label>Start Time</label><input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} /></div>
-          <div className="field"><label>End Time</label><input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} /></div>
-          <div className="field"><label>Location (optional)</label><input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Office, video call, etc." /></div>
-          <div className="field"><label>Assigned Staff (optional)</label><input value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="appt-date">Date</label><input id="appt-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="appt-start-time">Start Time</label><input id="appt-start-time" type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="appt-end-time">End Time</label><input id="appt-end-time" type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="appt-location">Location (optional)</label><input id="appt-location" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Office, video call, etc." /></div>
+          <div className="field"><label htmlFor="appt-assigned-to">Assigned Staff (optional)</label><input id="appt-assigned-to" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))} /></div>
           <div className="field">
-            <label>Notify</label>
-            <select value={form.notifyClient ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, notifyClient: e.target.value === "yes" }))}>
+            <label htmlFor="appt-notify">Notify</label>
+            <select id="appt-notify" value={form.notifyClient ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, notifyClient: e.target.value === "yes" }))}>
               <option value="yes">Email + SMS confirmation &amp; reminder</option>
               <option value="no">No — internal only</option>
             </select>
           </div>
         </div>
-        <div className="field"><label>Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="appt-notes">Notes</label><textarea id="appt-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={saving} onClick={handleSubmit}>{saving ? "Saving…" : "Book Appointment"}</button>

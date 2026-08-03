@@ -116,23 +116,23 @@ export function TimeTrackingPage() {
 
       <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div className="field" style={{ margin: 0 }}>
-          <label>Date</label>
-          <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
+          <label htmlFor="tt-entry-date">Date</label>
+          <input id="tt-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
         </div>
         <div className="field" style={{ margin: 0, minWidth: 200 }}>
-          <label>Client (optional)</label>
-          <select value={clientId} onChange={(e) => { setClientId(e.target.value); if (!e.target.value) setBillable(false); }}>
+          <label htmlFor="tt-client">Client (optional)</label>
+          <select id="tt-client" value={clientId} onChange={(e) => { setClientId(e.target.value); if (!e.target.value) setBillable(false); }}>
             <option value="">Internal / no client</option>
             {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
           </select>
         </div>
         <div className="field" style={{ margin: 0, maxWidth: 100 }}>
-          <label>Hours</label>
-          <input type="number" step="0.25" min="0" value={hours} onChange={(e) => setHours(e.target.value)} />
+          <label htmlFor="tt-hours">Hours</label>
+          <input id="tt-hours" type="number" step="0.25" min="0" value={hours} onChange={(e) => setHours(e.target.value)} />
         </div>
         <div className="field" style={{ margin: 0, flex: 1, minWidth: 200 }}>
-          <label>Description</label>
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What did you work on?" />
+          <label htmlFor="tt-description">Description</label>
+          <input id="tt-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What did you work on?" />
         </div>
         {clientId && (
           <>
@@ -142,8 +142,8 @@ export function TimeTrackingPage() {
             </label>
             {billable && (
               <div className="field" style={{ margin: 0, maxWidth: 120 }}>
-                <label>Rate/hr</label>
-                <input type="number" step="0.01" min="0" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+                <label htmlFor="tt-hourly-rate">Rate/hr</label>
+                <input id="tt-hourly-rate" type="number" step="0.01" min="0" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
               </div>
             )}
           </>
@@ -159,8 +159,8 @@ export function TimeTrackingPage() {
 
       {isAdmin && (
         <div className="field" style={{ maxWidth: 260, marginBottom: 12 }}>
-          <label>Filter by Staff Email</label>
-          <input value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="Leave blank for everyone" />
+          <label htmlFor="tt-user-filter">Filter by Staff Email</label>
+          <input id="tt-user-filter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="Leave blank for everyone" />
         </div>
       )}
 

@@ -153,7 +153,7 @@ export function FirmPortalsPage() {
     }
   }
 
-  if (error) return <ErrorBanner error={error} />;
+  if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!portals) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -183,20 +183,20 @@ export function FirmPortalsPage() {
           {saveError && <ErrorBanner error={saveError} />}
 
           <div className="field">
-            <label>Portal Name *</label>
-            <input required value={form.portalName} placeholder="EFTPS" onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} />
+            <label htmlFor="fp-portal-name">Portal Name *</label>
+            <input id="fp-portal-name" required value={form.portalName} placeholder="EFTPS" onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field">
-              <label>Category</label>
-              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+              <label htmlFor="fp-category">Category</label>
+              <select id="fp-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>State / Jurisdiction</label>
-              <select value={form.jurisdiction} onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))}>
+              <label htmlFor="fp-jurisdiction">State / Jurisdiction</label>
+              <select id="fp-jurisdiction" value={form.jurisdiction} onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))}>
                 <option value="">— None / Federal —</option>
                 {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -204,35 +204,35 @@ export function FirmPortalsPage() {
           </div>
 
           <div className="field">
-            <label>Agency Name</label>
-            <input value={form.agencyName} placeholder="IRS / Comptroller of Maryland" onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} />
+            <label htmlFor="fp-agency-name">Agency Name</label>
+            <input id="fp-agency-name" value={form.agencyName} placeholder="IRS / Comptroller of Maryland" onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} />
           </div>
 
           <div className="field">
-            <label>Portal URL</label>
-            <input value={form.portalUrl} placeholder="https://www.eftps.gov" onChange={(e) => setForm((f) => ({ ...f, portalUrl: e.target.value }))} />
+            <label htmlFor="fp-portal-url">Portal URL</label>
+            <input id="fp-portal-url" value={form.portalUrl} placeholder="https://www.eftps.gov" onChange={(e) => setForm((f) => ({ ...f, portalUrl: e.target.value }))} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field">
-              <label>User ID</label>
-              <input value={form.username} autoComplete="off" onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
+              <label htmlFor="fp-username">User ID</label>
+              <input id="fp-username" value={form.username} autoComplete="off" onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
             </div>
             <div className="field">
-              <label>Password{form.portalId ? " (leave blank to keep)" : ""}</label>
-              <input type="password" value={form.password} autoComplete="new-password" onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
+              <label htmlFor="fp-password">Password{form.portalId ? " (leave blank to keep)" : ""}</label>
+              <input id="fp-password" type="password" value={form.password} autoComplete="new-password" onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
             </div>
           </div>
 
           <div className="field">
-            <label>Notes (PIN, security answers, renewal date…)</label>
-            <textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+            <label htmlFor="fp-notes">Notes (PIN, security answers, renewal date…)</label>
+            <textarea id="fp-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             {form.portalId && <div className="muted" style={{ fontSize: 11 }}>Leave blank to keep existing notes.</div>}
           </div>
 
           <div className="field">
-            <label>Status</label>
-            <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+            <label htmlFor="fp-status">Status</label>
+            <select id="fp-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
             </select>

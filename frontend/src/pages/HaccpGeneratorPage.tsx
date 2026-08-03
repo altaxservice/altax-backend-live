@@ -696,15 +696,15 @@ function HaccpTemplateForm({ businessTypeKey, onSaved, onCancel }: { businessTyp
     <form onSubmit={handleSubmit} className="card" style={{ margin: "0 16px 16px" }}>
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit: {businessTypeKey}</h2>
       {error && <ErrorBanner error={error} />}
-      <div className="field"><label>Title</label><input required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="htpl-title">Title</label><input id="htpl-title" required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
       <div className="field">
-        <label>Body</label>
-        <textarea rows={20} style={{ fontFamily: "monospace", fontSize: 12.5 }} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} />
+        <label htmlFor="htpl-body">Body</label>
+        <textarea id="htpl-body" rows={20} style={{ fontFamily: "monospace", fontSize: 12.5 }} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} />
         <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>
           Placeholders: {"{{businessName}}"}, {"{{jurisdiction}}"}, {"{{offPremisesClause}}"}.
         </div>
       </div>
-      <div className="field"><label>Internal Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="htpl-notes">Internal Notes</label><textarea id="htpl-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
       <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <input id="htpl-active" type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} style={{ width: "auto" }} />
         <label htmlFor="htpl-active" style={{ textTransform: "none", fontSize: 13 }}>Active</label>

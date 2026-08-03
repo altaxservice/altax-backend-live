@@ -238,122 +238,122 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
               <div>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Legal name of entity</label>
-                    <input value={ss4.legalName} onChange={(e) => setSs4({ ...ss4, legalName: e.target.value })} />
+                    <label htmlFor="gf-ss4-legal-name">Legal name of entity</label>
+                    <input id="gf-ss4-legal-name" value={ss4.legalName} onChange={(e) => setSs4({ ...ss4, legalName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Trade name / DBA <span className="muted">(optional)</span></label>
-                    <input value={ss4.tradeName} onChange={(e) => setSs4({ ...ss4, tradeName: e.target.value })} />
+                    <label htmlFor="gf-ss4-trade-name">Trade name / DBA <span className="muted">(optional)</span></label>
+                    <input id="gf-ss4-trade-name" value={ss4.tradeName} onChange={(e) => setSs4({ ...ss4, tradeName: e.target.value })} />
                   </div>
                 </div>
                 <div className="field">
-                  <label>Mailing address</label>
-                  <input value={ss4.mailingAddress} onChange={(e) => setSs4({ ...ss4, mailingAddress: e.target.value })} placeholder="Street, City, State ZIP" />
+                  <label htmlFor="gf-ss4-mailing-address">Mailing address</label>
+                  <input id="gf-ss4-mailing-address" value={ss4.mailingAddress} onChange={(e) => setSs4({ ...ss4, mailingAddress: e.target.value })} placeholder="Street, City, State ZIP" />
                 </div>
                 <div className="field">
-                  <label>Physical address <span className="muted">(if different from mailing)</span></label>
-                  <input value={ss4.physicalAddress} onChange={(e) => setSs4({ ...ss4, physicalAddress: e.target.value })} placeholder="Street, City, State ZIP" />
+                  <label htmlFor="gf-ss4-physical-address">Physical address <span className="muted">(if different from mailing)</span></label>
+                  <input id="gf-ss4-physical-address" value={ss4.physicalAddress} onChange={(e) => setSs4({ ...ss4, physicalAddress: e.target.value })} placeholder="Street, City, State ZIP" />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>County</label>
-                    <input value={ss4.county} onChange={(e) => setSs4({ ...ss4, county: e.target.value })} />
+                    <label htmlFor="gf-ss4-county">County</label>
+                    <input id="gf-ss4-county" value={ss4.county} onChange={(e) => setSs4({ ...ss4, county: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>State</label>
-                    <input value={ss4.state} onChange={(e) => setSs4({ ...ss4, state: e.target.value })} />
+                    <label htmlFor="gf-ss4-state">State</label>
+                    <input id="gf-ss4-state" value={ss4.state} onChange={(e) => setSs4({ ...ss4, state: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Responsible party name</label>
-                    <input value={ss4.responsiblePartyName} onChange={(e) => setSs4({ ...ss4, responsiblePartyName: e.target.value })} />
+                    <label htmlFor="gf-ss4-responsible-party-name">Responsible party name</label>
+                    <input id="gf-ss4-responsible-party-name" value={ss4.responsiblePartyName} onChange={(e) => setSs4({ ...ss4, responsiblePartyName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Responsible party SSN/ITIN/EIN</label>
-                    <input value={ss4.responsiblePartyId} onChange={(e) => setSs4({ ...ss4, responsiblePartyId: e.target.value })} />
+                    <label htmlFor="gf-ss4-responsible-party-id">Responsible party SSN/ITIN/EIN</label>
+                    <input id="gf-ss4-responsible-party-id" value={ss4.responsiblePartyId} onChange={(e) => setSs4({ ...ss4, responsiblePartyId: e.target.value })} />
                   </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Entity type</label>
-                    <select value={ss4.entityType} onChange={(e) => setSs4({ ...ss4, entityType: e.target.value, isLlc: e.target.value === "LLC" })}>
+                    <label htmlFor="gf-ss4-entity-type">Entity type</label>
+                    <select id="gf-ss4-entity-type" value={ss4.entityType} onChange={(e) => setSs4({ ...ss4, entityType: e.target.value, isLlc: e.target.value === "LLC" })}>
                       {meta.ss4EntityTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   {ss4.isLlc && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Number of LLC members</label>
-                      <input value={ss4.llcMemberCount} onChange={(e) => setSs4({ ...ss4, llcMemberCount: e.target.value })} placeholder="e.g. 1" />
+                      <label htmlFor="gf-ss4-llc-member-count">Number of LLC members</label>
+                      <input id="gf-ss4-llc-member-count" value={ss4.llcMemberCount} onChange={(e) => setSs4({ ...ss4, llcMemberCount: e.target.value })} placeholder="e.g. 1" />
                     </div>
                   )}
                   {(ss4.entityType === "Corporation" || ss4.entityType === "S Corporation") && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>State/country of incorporation</label>
-                      <input value={ss4.incorporationState} onChange={(e) => setSs4({ ...ss4, incorporationState: e.target.value })} />
+                      <label htmlFor="gf-ss4-incorporation-state">State/country of incorporation</label>
+                      <input id="gf-ss4-incorporation-state" value={ss4.incorporationState} onChange={(e) => setSs4({ ...ss4, incorporationState: e.target.value })} />
                     </div>
                   )}
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Reason for applying</label>
-                    <select value={ss4.reasonForApplying} onChange={(e) => setSs4({ ...ss4, reasonForApplying: e.target.value })}>
+                    <label htmlFor="gf-ss4-reason">Reason for applying</label>
+                    <select id="gf-ss4-reason" value={ss4.reasonForApplying} onChange={(e) => setSs4({ ...ss4, reasonForApplying: e.target.value })}>
                       {meta.ss4Reasons.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                   {ss4.reasonForApplying !== "Hired employees" && ss4.reasonForApplying !== "Purchased going business" && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Specify</label>
-                      <input value={ss4.reasonOther} onChange={(e) => setSs4({ ...ss4, reasonOther: e.target.value })} />
+                      <label htmlFor="gf-ss4-reason-other">Specify</label>
+                      <input id="gf-ss4-reason-other" value={ss4.reasonOther} onChange={(e) => setSs4({ ...ss4, reasonOther: e.target.value })} />
                     </div>
                   )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Date business started</label>
-                    <input type="date" value={ss4.dateBusinessStarted} onChange={(e) => setSs4({ ...ss4, dateBusinessStarted: e.target.value })} />
+                    <label htmlFor="gf-ss4-date-started">Date business started</label>
+                    <input id="gf-ss4-date-started" type="date" value={ss4.dateBusinessStarted} onChange={(e) => setSs4({ ...ss4, dateBusinessStarted: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Closing month of accounting year</label>
-                    <input value={ss4.closingMonth} onChange={(e) => setSs4({ ...ss4, closingMonth: e.target.value })} />
+                    <label htmlFor="gf-ss4-closing-month">Closing month of accounting year</label>
+                    <input id="gf-ss4-closing-month" value={ss4.closingMonth} onChange={(e) => setSs4({ ...ss4, closingMonth: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Employees — Agricultural</label>
-                    <input value={ss4.employeesAgricultural} onChange={(e) => setSs4({ ...ss4, employeesAgricultural: e.target.value })} />
+                    <label htmlFor="gf-ss4-employees-agricultural">Employees — Agricultural</label>
+                    <input id="gf-ss4-employees-agricultural" value={ss4.employeesAgricultural} onChange={(e) => setSs4({ ...ss4, employeesAgricultural: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Employees — Household</label>
-                    <input value={ss4.employeesHousehold} onChange={(e) => setSs4({ ...ss4, employeesHousehold: e.target.value })} />
+                    <label htmlFor="gf-ss4-employees-household">Employees — Household</label>
+                    <input id="gf-ss4-employees-household" value={ss4.employeesHousehold} onChange={(e) => setSs4({ ...ss4, employeesHousehold: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Employees — Other</label>
-                    <input value={ss4.employeesOther} onChange={(e) => setSs4({ ...ss4, employeesOther: e.target.value })} />
+                    <label htmlFor="gf-ss4-employees-other">Employees — Other</label>
+                    <input id="gf-ss4-employees-other" value={ss4.employeesOther} onChange={(e) => setSs4({ ...ss4, employeesOther: e.target.value })} />
                   </div>
                 </div>
                 <div className="field" style={{ maxWidth: 220 }}>
-                  <label>First date wages paid</label>
-                  <input type="date" value={ss4.firstWageDate} onChange={(e) => setSs4({ ...ss4, firstWageDate: e.target.value })} />
+                  <label htmlFor="gf-ss4-first-wage-date">First date wages paid</label>
+                  <input id="gf-ss4-first-wage-date" type="date" value={ss4.firstWageDate} onChange={(e) => setSs4({ ...ss4, firstWageDate: e.target.value })} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Principal activity</label>
-                    <select value={ss4.principalActivity} onChange={(e) => setSs4({ ...ss4, principalActivity: e.target.value })}>
+                    <label htmlFor="gf-ss4-principal-activity">Principal activity</label>
+                    <select id="gf-ss4-principal-activity" value={ss4.principalActivity} onChange={(e) => setSs4({ ...ss4, principalActivity: e.target.value })}>
                       {meta.ss4Activities.map((a) => <option key={a} value={a}>{a}</option>)}
                     </select>
                   </div>
                   {ss4.principalActivity === "Other" && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Specify</label>
-                      <input value={ss4.principalActivityOther} onChange={(e) => setSs4({ ...ss4, principalActivityOther: e.target.value })} />
+                      <label htmlFor="gf-ss4-principal-activity-other">Specify</label>
+                      <input id="gf-ss4-principal-activity-other" value={ss4.principalActivityOther} onChange={(e) => setSs4({ ...ss4, principalActivityOther: e.target.value })} />
                     </div>
                   )}
                 </div>
                 <div className="field">
-                  <label>Principal line of merchandise/services</label>
-                  <input value={ss4.principalMerchandise} onChange={(e) => setSs4({ ...ss4, principalMerchandise: e.target.value })} />
+                  <label htmlFor="gf-ss4-principal-merchandise">Principal line of merchandise/services</label>
+                  <input id="gf-ss4-principal-merchandise" value={ss4.principalMerchandise} onChange={(e) => setSs4({ ...ss4, principalMerchandise: e.target.value })} />
                 </div>
 
                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "6px 0" }}>
@@ -363,16 +363,16 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 6 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Applicant name</label>
-                    <input value={ss4.applicantName} onChange={(e) => setSs4({ ...ss4, applicantName: e.target.value })} />
+                    <label htmlFor="gf-ss4-applicant-name">Applicant name</label>
+                    <input id="gf-ss4-applicant-name" value={ss4.applicantName} onChange={(e) => setSs4({ ...ss4, applicantName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Applicant title</label>
-                    <input value={ss4.applicantTitle} onChange={(e) => setSs4({ ...ss4, applicantTitle: e.target.value })} />
+                    <label htmlFor="gf-ss4-applicant-title">Applicant title</label>
+                    <input id="gf-ss4-applicant-title" value={ss4.applicantTitle} onChange={(e) => setSs4({ ...ss4, applicantTitle: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Applicant phone</label>
-                    <input value={ss4.applicantPhone} onChange={(e) => setSs4({ ...ss4, applicantPhone: e.target.value })} />
+                    <label htmlFor="gf-ss4-applicant-phone">Applicant phone</label>
+                    <input id="gf-ss4-applicant-phone" value={ss4.applicantPhone} onChange={(e) => setSs4({ ...ss4, applicantPhone: e.target.value })} />
                   </div>
                 </div>
               </div>
@@ -381,55 +381,55 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
             {formType === "2553" && (
               <div>
                 <div className="field">
-                  <label>Corporation name</label>
-                  <input value={f2553.corporationName} onChange={(e) => setF2553({ ...f2553, corporationName: e.target.value })} />
+                  <label htmlFor="gf-2553-corp-name">Corporation name</label>
+                  <input id="gf-2553-corp-name" value={f2553.corporationName} onChange={(e) => setF2553({ ...f2553, corporationName: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label>Address</label>
-                  <input value={f2553.corporationAddress} onChange={(e) => setF2553({ ...f2553, corporationAddress: e.target.value })} placeholder="Street, City, State ZIP" />
+                  <label htmlFor="gf-2553-corp-address">Address</label>
+                  <input id="gf-2553-corp-address" value={f2553.corporationAddress} onChange={(e) => setF2553({ ...f2553, corporationAddress: e.target.value })} placeholder="Street, City, State ZIP" />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>EIN</label>
-                    <input value={f2553.ein} onChange={(e) => setF2553({ ...f2553, ein: e.target.value })} />
+                    <label htmlFor="gf-2553-ein">EIN</label>
+                    <input id="gf-2553-ein" value={f2553.ein} onChange={(e) => setF2553({ ...f2553, ein: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Date incorporated</label>
-                    <input type="date" value={f2553.dateIncorporated} onChange={(e) => setF2553({ ...f2553, dateIncorporated: e.target.value })} />
+                    <label htmlFor="gf-2553-date-incorporated">Date incorporated</label>
+                    <input id="gf-2553-date-incorporated" type="date" value={f2553.dateIncorporated} onChange={(e) => setF2553({ ...f2553, dateIncorporated: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>State incorporated</label>
-                    <input value={f2553.stateIncorporated} onChange={(e) => setF2553({ ...f2553, stateIncorporated: e.target.value })} />
+                    <label htmlFor="gf-2553-state-incorporated">State incorporated</label>
+                    <input id="gf-2553-state-incorporated" value={f2553.stateIncorporated} onChange={(e) => setF2553({ ...f2553, stateIncorporated: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Election effective date</label>
-                    <input type="date" value={f2553.electionEffectiveDate} onChange={(e) => setF2553({ ...f2553, electionEffectiveDate: e.target.value })} />
+                    <label htmlFor="gf-2553-election-date">Election effective date</label>
+                    <input id="gf-2553-election-date" type="date" value={f2553.electionEffectiveDate} onChange={(e) => setF2553({ ...f2553, electionEffectiveDate: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Selected tax year</label>
-                    <select value={f2553.taxYearType} onChange={(e) => setF2553({ ...f2553, taxYearType: e.target.value })}>
+                    <label htmlFor="gf-2553-tax-year-type">Selected tax year</label>
+                    <select id="gf-2553-tax-year-type" value={f2553.taxYearType} onChange={(e) => setF2553({ ...f2553, taxYearType: e.target.value })}>
                       {meta.form2553TaxYearTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   {f2553.taxYearType === "Fiscal Year" && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Fiscal year ending (month/day)</label>
-                      <input value={f2553.fiscalYearEndMonth} onChange={(e) => setF2553({ ...f2553, fiscalYearEndMonth: e.target.value })} placeholder="e.g. June 30" />
+                      <label htmlFor="gf-2553-fiscal-year-end">Fiscal year ending (month/day)</label>
+                      <input id="gf-2553-fiscal-year-end" value={f2553.fiscalYearEndMonth} onChange={(e) => setF2553({ ...f2553, fiscalYearEndMonth: e.target.value })} placeholder="e.g. June 30" />
                     </div>
                   )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Officer name</label>
-                    <input value={f2553.officerName} onChange={(e) => setF2553({ ...f2553, officerName: e.target.value })} />
+                    <label htmlFor="gf-2553-officer-name">Officer name</label>
+                    <input id="gf-2553-officer-name" value={f2553.officerName} onChange={(e) => setF2553({ ...f2553, officerName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Officer title</label>
-                    <input value={f2553.officerTitle} onChange={(e) => setF2553({ ...f2553, officerTitle: e.target.value })} />
+                    <label htmlFor="gf-2553-officer-title">Officer title</label>
+                    <input id="gf-2553-officer-title" value={f2553.officerTitle} onChange={(e) => setF2553({ ...f2553, officerTitle: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Officer phone</label>
-                    <input value={f2553.officerPhone} onChange={(e) => setF2553({ ...f2553, officerPhone: e.target.value })} />
+                    <label htmlFor="gf-2553-officer-phone">Officer phone</label>
+                    <input id="gf-2553-officer-phone" value={f2553.officerPhone} onChange={(e) => setF2553({ ...f2553, officerPhone: e.target.value })} />
                   </div>
                 </div>
 
@@ -463,58 +463,58 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
               <div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Name</label>
-                    <input value={w9.name} onChange={(e) => setW9({ ...w9, name: e.target.value })} />
+                    <label htmlFor="gf-w9-name">Name</label>
+                    <input id="gf-w9-name" value={w9.name} onChange={(e) => setW9({ ...w9, name: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Business name <span className="muted">(if different)</span></label>
-                    <input value={w9.businessName} onChange={(e) => setW9({ ...w9, businessName: e.target.value })} />
+                    <label htmlFor="gf-w9-business-name">Business name <span className="muted">(if different)</span></label>
+                    <input id="gf-w9-business-name" value={w9.businessName} onChange={(e) => setW9({ ...w9, businessName: e.target.value })} />
                   </div>
                 </div>
                 <div className="field">
-                  <label>Federal tax classification</label>
-                  <select value={w9.taxClassification} onChange={(e) => setW9({ ...w9, taxClassification: e.target.value })}>
+                  <label htmlFor="gf-w9-tax-classification">Federal tax classification</label>
+                  <select id="gf-w9-tax-classification" value={w9.taxClassification} onChange={(e) => setW9({ ...w9, taxClassification: e.target.value })}>
                     {meta.w9TaxClassifications.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 {w9.taxClassification === "LLC" && (
                   <div className="field" style={{ maxWidth: 200 }}>
-                    <label>LLC tax classification (C, S, or P)</label>
-                    <input maxLength={1} value={w9.llcTaxClassificationCode} onChange={(e) => setW9({ ...w9, llcTaxClassificationCode: e.target.value.toUpperCase() })} />
+                    <label htmlFor="gf-w9-llc-code">LLC tax classification (C, S, or P)</label>
+                    <input id="gf-w9-llc-code" maxLength={1} value={w9.llcTaxClassificationCode} onChange={(e) => setW9({ ...w9, llcTaxClassificationCode: e.target.value.toUpperCase() })} />
                   </div>
                 )}
                 {w9.taxClassification === "Other" && (
                   <div className="field">
-                    <label>Describe</label>
-                    <input value={w9.otherClassificationText} onChange={(e) => setW9({ ...w9, otherClassificationText: e.target.value })} />
+                    <label htmlFor="gf-w9-other-classification">Describe</label>
+                    <input id="gf-w9-other-classification" value={w9.otherClassificationText} onChange={(e) => setW9({ ...w9, otherClassificationText: e.target.value })} />
                   </div>
                 )}
                 <div className="field">
-                  <label>Address</label>
-                  <input value={w9.address} onChange={(e) => setW9({ ...w9, address: e.target.value })} />
+                  <label htmlFor="gf-w9-address">Address</label>
+                  <input id="gf-w9-address" value={w9.address} onChange={(e) => setW9({ ...w9, address: e.target.value })} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>City</label>
-                    <input value={w9.city} onChange={(e) => setW9({ ...w9, city: e.target.value })} />
+                    <label htmlFor="gf-w9-city">City</label>
+                    <input id="gf-w9-city" value={w9.city} onChange={(e) => setW9({ ...w9, city: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>State</label>
-                    <input value={w9.state} onChange={(e) => setW9({ ...w9, state: e.target.value })} />
+                    <label htmlFor="gf-w9-state">State</label>
+                    <input id="gf-w9-state" value={w9.state} onChange={(e) => setW9({ ...w9, state: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>ZIP</label>
-                    <input value={w9.zip} onChange={(e) => setW9({ ...w9, zip: e.target.value })} />
+                    <label htmlFor="gf-w9-zip">ZIP</label>
+                    <input id="gf-w9-zip" value={w9.zip} onChange={(e) => setW9({ ...w9, zip: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>SSN <span className="muted">(if applicable)</span></label>
-                    <input value={w9.ssn} onChange={(e) => setW9({ ...w9, ssn: e.target.value })} placeholder="XXX-XX-XXXX" />
+                    <label htmlFor="gf-w9-ssn">SSN <span className="muted">(if applicable)</span></label>
+                    <input id="gf-w9-ssn" value={w9.ssn} onChange={(e) => setW9({ ...w9, ssn: e.target.value })} placeholder="XXX-XX-XXXX" />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>EIN <span className="muted">(if applicable)</span></label>
-                    <input value={w9.ein} onChange={(e) => setW9({ ...w9, ein: e.target.value })} placeholder="XX-XXXXXXX" />
+                    <label htmlFor="gf-w9-ein">EIN <span className="muted">(if applicable)</span></label>
+                    <input id="gf-w9-ein" value={w9.ein} onChange={(e) => setW9({ ...w9, ein: e.target.value })} placeholder="XX-XXXXXXX" />
                   </div>
                 </div>
               </div>
@@ -530,59 +530,59 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Legal name of entity</label>
-                    <input value={cra.legalLastName} onChange={(e) => setCra({ ...cra, legalLastName: e.target.value })} />
+                    <label htmlFor="gf-cra-legal-name">Legal name of entity</label>
+                    <input id="gf-cra-legal-name" value={cra.legalLastName} onChange={(e) => setCra({ ...cra, legalLastName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Trade name <span className="muted">(optional)</span></label>
-                    <input value={cra.tradeName} onChange={(e) => setCra({ ...cra, tradeName: e.target.value })} />
+                    <label htmlFor="gf-cra-trade-name">Trade name <span className="muted">(optional)</span></label>
+                    <input id="gf-cra-trade-name" value={cra.tradeName} onChange={(e) => setCra({ ...cra, tradeName: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>FEIN</label>
-                    <input value={cra.fein} onChange={(e) => setCra({ ...cra, fein: e.target.value })} />
+                    <label htmlFor="gf-cra-fein">FEIN</label>
+                    <input id="gf-cra-fein" value={cra.fein} onChange={(e) => setCra({ ...cra, fein: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Responsible party SSN</label>
-                    <input value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
+                    <label htmlFor="gf-cra-ssn">Responsible party SSN</label>
+                    <input id="gf-cra-ssn" value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>SDAT Entity ID</label>
-                    <input value={cra.datEntityId} onChange={(e) => setCra({ ...cra, datEntityId: e.target.value })} />
+                    <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID</label>
+                    <input id="gf-cra-dat-entity-id" value={cra.datEntityId} onChange={(e) => setCra({ ...cra, datEntityId: e.target.value })} />
                   </div>
                 </div>
 
-                <div className="field"><label>Street address — Line 1</label><input value={cra.street1} onChange={(e) => setCra({ ...cra, street1: e.target.value })} /></div>
-                <div className="field"><label>Street address — Line 2 <span className="muted">(optional)</span></label><input value={cra.street2} onChange={(e) => setCra({ ...cra, street2: e.target.value })} /></div>
+                <div className="field"><label htmlFor="gf-cra-street1">Street address — Line 1</label><input id="gf-cra-street1" value={cra.street1} onChange={(e) => setCra({ ...cra, street1: e.target.value })} /></div>
+                <div className="field"><label htmlFor="gf-cra-street2">Street address — Line 2 <span className="muted">(optional)</span></label><input id="gf-cra-street2" value={cra.street2} onChange={(e) => setCra({ ...cra, street2: e.target.value })} /></div>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
-                  <div className="field" style={{ margin: 0 }}><label>City</label><input value={cra.city} onChange={(e) => setCra({ ...cra, city: e.target.value })} /></div>
-                  <div className="field" style={{ margin: 0 }}><label>State</label><input value={cra.state} onChange={(e) => setCra({ ...cra, state: e.target.value })} /></div>
-                  <div className="field" style={{ margin: 0 }}><label>ZIP</label><input value={cra.zip} onChange={(e) => setCra({ ...cra, zip: e.target.value })} /></div>
-                  <div className="field" style={{ margin: 0 }}><label>County</label><input value={cra.county} onChange={(e) => setCra({ ...cra, county: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-city">City</label><input id="gf-cra-city" value={cra.city} onChange={(e) => setCra({ ...cra, city: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-state">State</label><input id="gf-cra-state" value={cra.state} onChange={(e) => setCra({ ...cra, state: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-zip">ZIP</label><input id="gf-cra-zip" value={cra.zip} onChange={(e) => setCra({ ...cra, zip: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-county">County</label><input id="gf-cra-county" value={cra.county} onChange={(e) => setCra({ ...cra, county: e.target.value })} /></div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                  <div className="field" style={{ margin: 0 }}><label>Telephone</label><input value={cra.phone} onChange={(e) => setCra({ ...cra, phone: e.target.value })} /></div>
-                  <div className="field" style={{ margin: 0 }}><label>Fax <span className="muted">(optional)</span></label><input value={cra.fax} onChange={(e) => setCra({ ...cra, fax: e.target.value })} /></div>
-                  <div className="field" style={{ margin: 0 }}><label>Email</label><input value={cra.email} onChange={(e) => setCra({ ...cra, email: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-phone">Telephone</label><input id="gf-cra-phone" value={cra.phone} onChange={(e) => setCra({ ...cra, phone: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-fax">Fax <span className="muted">(optional)</span></label><input id="gf-cra-fax" value={cra.fax} onChange={(e) => setCra({ ...cra, fax: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-email">Email</label><input id="gf-cra-email" value={cra.email} onChange={(e) => setCra({ ...cra, email: e.target.value })} /></div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Reason for applying</label>
-                    <select value={cra.reason} onChange={(e) => setCra({ ...cra, reason: e.target.value })}>
+                    <label htmlFor="gf-cra-reason">Reason for applying</label>
+                    <select id="gf-cra-reason" value={cra.reason} onChange={(e) => setCra({ ...cra, reason: e.target.value })}>
                       {meta.craReasons.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Type of ownership</label>
-                    <select value={cra.ownershipType} onChange={(e) => setCra({ ...cra, ownershipType: e.target.value })}>
+                    <label htmlFor="gf-cra-ownership-type">Type of ownership</label>
+                    <select id="gf-cra-ownership-type" value={cra.ownershipType} onChange={(e) => setCra({ ...cra, ownershipType: e.target.value })}>
                       {meta.craOwnershipTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                 </div>
                 {cra.reason === "Other" && (
-                  <div className="field"><label>Specify</label><input value={cra.reasonOther} onChange={(e) => setCra({ ...cra, reasonOther: e.target.value })} /></div>
+                  <div className="field"><label htmlFor="gf-cra-reason-other">Specify</label><input id="gf-cra-reason-other" value={cra.reasonOther} onChange={(e) => setCra({ ...cra, reasonOther: e.target.value })} /></div>
                 )}
 
                 <div className="field" style={{ marginTop: 6 }}>
@@ -599,33 +599,33 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, marginTop: 6 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>NAICS code <span className="muted">(6 digit, optional)</span></label>
-                    <input value={cra.naicsCode} onChange={(e) => setCra({ ...cra, naicsCode: e.target.value })} />
+                    <label htmlFor="gf-cra-naics-code">NAICS code <span className="muted">(6 digit, optional)</span></label>
+                    <input id="gf-cra-naics-code" value={cra.naicsCode} onChange={(e) => setCra({ ...cra, naicsCode: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Business activity</label>
-                    <input value={cra.businessActivity} onChange={(e) => setCra({ ...cra, businessActivity: e.target.value })} />
+                    <label htmlFor="gf-cra-business-activity">Business activity</label>
+                    <input id="gf-cra-business-activity" value={cra.businessActivity} onChange={(e) => setCra({ ...cra, businessActivity: e.target.value })} />
                   </div>
                 </div>
                 <div className="field">
-                  <label>Product manufactured/sold or service performed</label>
-                  <input value={cra.productOrService} onChange={(e) => setCra({ ...cra, productOrService: e.target.value })} />
+                  <label htmlFor="gf-cra-product-service">Product manufactured/sold or service performed</label>
+                  <input id="gf-cra-product-service" value={cra.productOrService} onChange={(e) => setCra({ ...cra, productOrService: e.target.value })} />
                 </div>
 
                 <div className="field" style={{ marginTop: 6 }}>
-                  <label>Owner / officer / responsible party</label>
+                  <label htmlFor="gf-cra-officer-first-name">Owner / officer / responsible party</label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    <input placeholder="First name" value={cra.officerFirstName} onChange={(e) => setCra({ ...cra, officerFirstName: e.target.value })} />
-                    <input placeholder="Last name" value={cra.officerLastName} onChange={(e) => setCra({ ...cra, officerLastName: e.target.value })} />
-                    <input placeholder="Title" value={cra.officerTitle} onChange={(e) => setCra({ ...cra, officerTitle: e.target.value })} />
-                    <input placeholder="SSN" value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
-                    <input placeholder="Telephone" value={cra.officerPhone} onChange={(e) => setCra({ ...cra, officerPhone: e.target.value })} />
+                    <input id="gf-cra-officer-first-name" placeholder="First name" value={cra.officerFirstName} onChange={(e) => setCra({ ...cra, officerFirstName: e.target.value })} />
+                    <input aria-label="Officer last name" placeholder="Last name" value={cra.officerLastName} onChange={(e) => setCra({ ...cra, officerLastName: e.target.value })} />
+                    <input aria-label="Officer title" placeholder="Title" value={cra.officerTitle} onChange={(e) => setCra({ ...cra, officerTitle: e.target.value })} />
+                    <input aria-label="Officer SSN" placeholder="SSN" value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
+                    <input aria-label="Officer telephone" placeholder="Telephone" value={cra.officerPhone} onChange={(e) => setCra({ ...cra, officerPhone: e.target.value })} />
                   </div>
                 </div>
 
                 <div className="field">
-                  <label>Name of preparer <span className="muted">(if other than applicant)</span></label>
-                  <input value={cra.preparerName} onChange={(e) => setCra({ ...cra, preparerName: e.target.value })} />
+                  <label htmlFor="gf-cra-preparer-name">Name of preparer <span className="muted">(if other than applicant)</span></label>
+                  <input id="gf-cra-preparer-name" value={cra.preparerName} onChange={(e) => setCra({ ...cra, preparerName: e.target.value })} />
                 </div>
               </div>
             )}
@@ -635,17 +635,17 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                 <p className="muted" style={{ fontSize: 12 }}>For releasing (or revoking) a claim to a child's dependency exemption between two parents — not tied to this client's own business info.</p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Noncustodial parent's name</label>
-                    <input value={f8332.noncustodialParentName} onChange={(e) => setF8332({ ...f8332, noncustodialParentName: e.target.value })} />
+                    <label htmlFor="gf-8332-noncustodial-name">Noncustodial parent's name</label>
+                    <input id="gf-8332-noncustodial-name" value={f8332.noncustodialParentName} onChange={(e) => setF8332({ ...f8332, noncustodialParentName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Noncustodial parent's SSN</label>
-                    <input value={f8332.noncustodialParentSsn} onChange={(e) => setF8332({ ...f8332, noncustodialParentSsn: e.target.value })} />
+                    <label htmlFor="gf-8332-noncustodial-ssn">Noncustodial parent's SSN</label>
+                    <input id="gf-8332-noncustodial-ssn" value={f8332.noncustodialParentSsn} onChange={(e) => setF8332({ ...f8332, noncustodialParentSsn: e.target.value })} />
                   </div>
                 </div>
                 <div className="field" style={{ maxWidth: 260 }}>
-                  <label>Custodial parent's SSN <span className="muted">(the signer)</span></label>
-                  <input value={f8332.custodialParentSsn} onChange={(e) => setF8332({ ...f8332, custodialParentSsn: e.target.value })} />
+                  <label htmlFor="gf-8332-custodial-ssn">Custodial parent's SSN <span className="muted">(the signer)</span></label>
+                  <input id="gf-8332-custodial-ssn" value={f8332.custodialParentSsn} onChange={(e) => setF8332({ ...f8332, custodialParentSsn: e.target.value })} />
                 </div>
 
                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "10px 0 4px" }}>

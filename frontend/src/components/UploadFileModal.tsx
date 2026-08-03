@@ -102,27 +102,27 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
             </div>
           ) : (
             <div className="field">
-              <label>File Link (Drive, etc.)</label>
-              <input type="url" required placeholder="https://…" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} />
+              <label htmlFor="upload-file-link">File Link (Drive, etc.)</label>
+              <input id="upload-file-link" type="url" required placeholder="https://…" value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} />
             </div>
           )}
           {(mode === "link" || files.length <= 1) && (
             <div className="field">
-              <label>File Name {mode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
-              <input required={mode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
+              <label htmlFor="upload-file-name">File Name {mode === "browse" && <span className="muted">(optional — uses the file's own name)</span>}</label>
+              <input id="upload-file-name" required={mode === "link"} value={fileName} onChange={(e) => setFileName(e.target.value)} />
             </div>
           )}
           <div className="field">
-            <label>
+            <label htmlFor="upload-file-note">
               Note <span className="muted">(optional — included in the notification email)</span>
               {!showCcBcc && <button type="button" className="link-button" style={{ float: "right", fontWeight: 400 }} onClick={() => setShowCcBcc(true)}>Add Cc/Bcc</button>}
             </label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Signed engagement letter" />
+            <input id="upload-file-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Signed engagement letter" />
           </div>
           {showCcBcc && (
             <>
-              <div className="field"><label>Cc <span className="muted">(comma-separated for more than one)</span></label><input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" /></div>
-              <div className="field"><label>Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
+              <div className="field"><label htmlFor="upload-file-cc">Cc <span className="muted">(comma-separated for more than one)</span></label><input id="upload-file-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" /></div>
+              <div className="field"><label htmlFor="upload-file-bcc">Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input id="upload-file-bcc" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
             </>
           )}
           <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>

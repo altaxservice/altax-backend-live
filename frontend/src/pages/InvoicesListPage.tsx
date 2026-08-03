@@ -359,14 +359,14 @@ export function InvoicesListPage() {
       {canManage && (
         <div className="card" style={{ marginBottom: 20, padding: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div className="field" style={{ margin: 0, minWidth: 200 }}>
-            <label>Statement of Account — Client</label>
-            <select value={statementClientId} onChange={(e) => setStatementClientId(e.target.value)}>
+            <label htmlFor="inv-list-statement-client">Statement of Account — Client</label>
+            <select id="inv-list-statement-client" value={statementClientId} onChange={(e) => setStatementClientId(e.target.value)}>
               <option value="">Select a client…</option>
               {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
             </select>
           </div>
-          <div className="field" style={{ margin: 0 }}><label>From</label><input type="date" value={statementStart} onChange={(e) => setStatementStart(e.target.value)} /></div>
-          <div className="field" style={{ margin: 0 }}><label>To</label><input type="date" value={statementEnd} onChange={(e) => setStatementEnd(e.target.value)} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-start">From</label><input id="inv-list-statement-start" type="date" value={statementStart} onChange={(e) => setStatementStart(e.target.value)} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor="inv-list-statement-end">To</label><input id="inv-list-statement-end" type="date" value={statementEnd} onChange={(e) => setStatementEnd(e.target.value)} /></div>
           <button className="btn" disabled={!statementClientId || viewingStatement} onClick={handleViewStatement}>
             {viewingStatement ? "Generating…" : "View Statement"}
           </button>
@@ -625,27 +625,27 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sales-receipt-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="sales-receipt-title">Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
-        <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
+        <div className="field"><label htmlFor="sr-client">Client</label><select id="sr-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
         <div className="form-grid">
-          <div className="field"><label>Receipt Date</label><input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
-          <div className="field"><label>Amount Received</label><input type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="sr-date">Receipt Date</label><input id="sr-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="sr-amount">Amount Received</label><input id="sr-amount" type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
         </div>
-        <div className="field"><label>Description</label><input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="sr-description">Description</label><input id="sr-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} /></div>
         <div className="form-grid">
           <PaymentProfileField clientId={form.clientId} value={form.paymentProfile} onChange={(v) => setForm((f) => ({ ...f, paymentProfile: v }))} />
-          <div className="field"><label>Method</label><select value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
+          <div className="field"><label htmlFor="sr-method">Method</label><select id="sr-method" value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
         </div>
         {form.paymentProfile === MANUAL_PROFILE && (
           <div className="form-grid">
-            <div className="field"><label>Bank Name</label><input value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} placeholder="Bank on file" /></div>
-            <div className="field"><label>Account Type</label><select value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-            <div className="field"><label>Routing Number</label><input value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
-            <div className="field"><label>Account Number</label><input value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
-            <div className="field"><label>Bank Last 4</label><input value={form.bankLast4} onChange={(e) => setForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
-            <div className="field"><label>Confirmation #</label><input value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} placeholder="Optional" /></div>
+            <div className="field"><label htmlFor="sr-bank-name">Bank Name</label><input id="sr-bank-name" value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} placeholder="Bank on file" /></div>
+            <div className="field"><label htmlFor="sr-account-type">Account Type</label><select id="sr-account-type" value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
+            <div className="field"><label htmlFor="sr-routing-number">Routing Number</label><input id="sr-routing-number" value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="sr-account-number">Account Number</label><input id="sr-account-number" value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="sr-bank-last4">Bank Last 4</label><input id="sr-bank-last4" value={form.bankLast4} onChange={(e) => setForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
+            <div className="field"><label htmlFor="sr-confirmation-number">Confirmation #</label><input id="sr-confirmation-number" value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} placeholder="Optional" /></div>
           </div>
         )}
-        <div className="field"><label>Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="sr-notes">Notes</label><textarea id="sr-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
         <p className="muted" style={{ fontSize: 12 }}>Sales Receipt creates a paid firm invoice and matching payment record. It does not process cards or ACH.</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
@@ -699,31 +699,31 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
         <div className="modal-header"><h2 id="record-payment-title">Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">
-          <label>Invoice</label>
-          <select value={form.invoiceId} onChange={(e) => setForm((f) => ({ ...f, invoiceId: e.target.value }))}>
+          <label htmlFor="rp-invoice">Invoice</label>
+          <select id="rp-invoice" value={form.invoiceId} onChange={(e) => setForm((f) => ({ ...f, invoiceId: e.target.value }))}>
             <option value="">Select an open invoice…</option>
             {openInvoices.map((i) => <option key={i.invoice_id} value={i.invoice_id}>{i.invoice_id} — {clientName(i.client_id)} — Balance {fmtMoney(i.balance_due)}</option>)}
           </select>
         </div>
         <div className="form-grid">
-          <div className="field"><label>Payment Date</label><input type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
-          <div className="field"><label>Amount</label><input type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder={selectedInvoice ? String(selectedInvoice.balance_due) : ""} /></div>
+          <div className="field"><label htmlFor="rp-payment-date">Payment Date</label><input id="rp-payment-date" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="rp-amount">Amount</label><input id="rp-amount" type="number" step="0.01" min="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder={selectedInvoice ? String(selectedInvoice.balance_due) : ""} /></div>
         </div>
         <div className="form-grid">
           <PaymentProfileField clientId={selectedInvoice?.client_id || ""} value={form.paymentProfile} onChange={(v) => setForm((f) => ({ ...f, paymentProfile: v }))} />
-          <div className="field"><label>Method</label><select value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
+          <div className="field"><label htmlFor="rp-method">Method</label><select id="rp-method" value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
         </div>
         {form.paymentProfile === MANUAL_PROFILE && (
           <div className="form-grid">
-            <div className="field"><label>Bank Name</label><input value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
-            <div className="field"><label>Account Type</label><select value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-            <div className="field"><label>Routing Number</label><input value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
-            <div className="field"><label>Account Number</label><input value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
-            <div className="field"><label>Bank Last 4</label><input value={form.bankLast4} onChange={(e) => setForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
-            <div className="field"><label>Confirmation #</label><input value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rp-bank-name">Bank Name</label><input id="rp-bank-name" value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rp-account-type">Account Type</label><select id="rp-account-type" value={form.accountType} onChange={(e) => setForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
+            <div className="field"><label htmlFor="rp-routing-number">Routing Number</label><input id="rp-routing-number" value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rp-account-number">Account Number</label><input id="rp-account-number" value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rp-bank-last4">Bank Last 4</label><input id="rp-bank-last4" value={form.bankLast4} onChange={(e) => setForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
+            <div className="field"><label htmlFor="rp-confirmation-number">Confirmation #</label><input id="rp-confirmation-number" value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
           </div>
         )}
-        <div className="field"><label>Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="rp-notes">Notes</label><textarea id="rp-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={saving} onClick={handleSubmit}>{saving ? "Saving…" : "Record Payment"}</button>

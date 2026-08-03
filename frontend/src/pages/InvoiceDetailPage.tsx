@@ -228,22 +228,22 @@ export function InvoiceDetailPage() {
         <form onSubmit={handleRecordPayment} className="card" style={{ maxWidth: 500, marginBottom: 24 }}>
           {saveError && <ErrorBanner error={saveError} />}
           <div className="form-grid">
-            <div className="field"><label>Payment Date</label><input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
-            <div className="field"><label>Amount</label><input type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="inv-payment-date">Payment Date</label><input id="inv-payment-date" type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="inv-payment-amount">Amount</label><input id="inv-payment-amount" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))} /></div>
             <PaymentProfileField clientId={invoice.client_id} value={paymentForm.paymentProfile} onChange={(v) => setPaymentForm((f) => ({ ...f, paymentProfile: v }))} />
-            <div className="field"><label>Method</label><select value={paymentForm.method} onChange={(e) => setPaymentForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
+            <div className="field"><label htmlFor="inv-payment-method">Method</label><select id="inv-payment-method" value={paymentForm.method} onChange={(e) => setPaymentForm((f) => ({ ...f, method: e.target.value }))}>{METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
           </div>
           {paymentForm.paymentProfile === MANUAL_PROFILE && (
             <div className="form-grid">
-              <div className="field"><label>Bank Name</label><input value={paymentForm.bankName} onChange={(e) => setPaymentForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
-              <div className="field"><label>Account Type</label><select value={paymentForm.accountType} onChange={(e) => setPaymentForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
-              <div className="field"><label>Routing Number</label><input value={paymentForm.routingNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
-              <div className="field"><label>Account Number</label><input value={paymentForm.accountNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
-              <div className="field"><label>Bank Last 4</label><input value={paymentForm.bankLast4} onChange={(e) => setPaymentForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
-              <div className="field"><label>Confirmation #</label><input value={paymentForm.confirmationNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-bank-name">Bank Name</label><input id="inv-bank-name" value={paymentForm.bankName} onChange={(e) => setPaymentForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-account-type">Account Type</label><select id="inv-account-type" value={paymentForm.accountType} onChange={(e) => setPaymentForm((f) => ({ ...f, accountType: e.target.value }))}><option value="">Select…</option>{ACCOUNT_TYPES.map((t) => <option key={t}>{t}</option>)}</select></div>
+              <div className="field"><label htmlFor="inv-routing-number">Routing Number</label><input id="inv-routing-number" value={paymentForm.routingNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-account-number">Account Number</label><input id="inv-account-number" value={paymentForm.accountNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="inv-bank-last4">Bank Last 4</label><input id="inv-bank-last4" value={paymentForm.bankLast4} onChange={(e) => setPaymentForm((f) => ({ ...f, bankLast4: e.target.value }))} maxLength={4} /></div>
+              <div className="field"><label htmlFor="inv-confirmation-number">Confirmation #</label><input id="inv-confirmation-number" value={paymentForm.confirmationNumber} onChange={(e) => setPaymentForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
             </div>
           )}
-          <div className="field"><label>Notes</label><textarea rows={2} value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="inv-payment-notes">Notes</label><textarea id="inv-payment-notes" rows={2} value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Recording…" : "Record Payment"}</button>
         </form>
       )}

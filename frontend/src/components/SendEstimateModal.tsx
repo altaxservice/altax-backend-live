@@ -70,9 +70,9 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
-            <div className="field"><label>Email address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
-            <div className="field"><label>Subject</label><input value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-            <div className="field"><label>Message</label><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
+            <div className="field"><label htmlFor="send-estimate-email">Email address</label><input id="send-estimate-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
+            <div className="field"><label htmlFor="send-estimate-subject">Subject</label><input id="send-estimate-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+            <div className="field"><label htmlFor="send-estimate-message">Message</label><textarea id="send-estimate-message" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 
             {result && (
               <div className="card" style={{ marginTop: 8 }}>

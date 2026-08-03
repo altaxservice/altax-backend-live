@@ -131,9 +131,9 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
             </div>
 
             <div className="field">
-              <label>Representative(s) <span className="muted">(up to {maxReps})</span></label>
+              <label htmlFor="pf-add-rep">Representative(s) <span className="muted">(up to {maxReps})</span></label>
               {reps.length < maxReps && (
-                <select value="" onChange={(e) => addRepFromOption(e.target.value)}>
+                <select id="pf-add-rep" value="" onChange={(e) => addRepFromOption(e.target.value)}>
                   <option value="">+ Add a representative…</option>
                   {repOptions.map((r) => (
                     <option key={r.user_id} value={r.user_id}>
@@ -152,13 +152,13 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>Address</label>
-                    <input required value={rep.address} onChange={(e) => patchRep(i, { address: e.target.value })} placeholder="Street, City, State ZIP" />
+                    <label htmlFor={`pf-rep-address-${i}`}>Address</label>
+                    <input id={`pf-rep-address-${i}`} required value={rep.address} onChange={(e) => patchRep(i, { address: e.target.value })} placeholder="Street, City, State ZIP" />
                   </div>
                   {formType !== "8821" && (
                     <div className="field" style={{ margin: 0 }}>
-                      <label>Designation</label>
-                      <select required value={rep.designation} onChange={(e) => patchRep(i, { designation: e.target.value })}>
+                      <label htmlFor={`pf-rep-designation-${i}`}>Designation</label>
+                      <select id={`pf-rep-designation-${i}`} required value={rep.designation} onChange={(e) => patchRep(i, { designation: e.target.value })}>
                         <option value="">Select…</option>
                         {designationOptions.map((d) => <option key={d} value={d}>{d}</option>)}
                       </select>
@@ -167,22 +167,22 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
                   {formType !== "8821" && (
                     <>
                       <div className="field" style={{ margin: 0 }}>
-                        <label>Jurisdiction</label>
-                        <input value={rep.jurisdiction} onChange={(e) => patchRep(i, { jurisdiction: e.target.value })} />
+                        <label htmlFor={`pf-rep-jurisdiction-${i}`}>Jurisdiction</label>
+                        <input id={`pf-rep-jurisdiction-${i}`} value={rep.jurisdiction} onChange={(e) => patchRep(i, { jurisdiction: e.target.value })} />
                       </div>
                       <div className="field" style={{ margin: 0 }}>
-                        <label>License / Bar / PTIN Number</label>
-                        <input value={rep.licenseNumber} onChange={(e) => patchRep(i, { licenseNumber: e.target.value })} />
+                        <label htmlFor={`pf-rep-license-number-${i}`}>License / Bar / PTIN Number</label>
+                        <input id={`pf-rep-license-number-${i}`} value={rep.licenseNumber} onChange={(e) => patchRep(i, { licenseNumber: e.target.value })} />
                       </div>
                     </>
                   )}
                   <div className="field" style={{ margin: 0 }}>
-                    <label>PTIN</label>
-                    <input value={rep.ptin} onChange={(e) => patchRep(i, { ptin: e.target.value })} />
+                    <label htmlFor={`pf-rep-ptin-${i}`}>PTIN</label>
+                    <input id={`pf-rep-ptin-${i}`} value={rep.ptin} onChange={(e) => patchRep(i, { ptin: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label>CAF Number</label>
-                    <input value={rep.cafNumber} onChange={(e) => patchRep(i, { cafNumber: e.target.value })} placeholder="Leave blank if none yet" />
+                    <label htmlFor={`pf-rep-caf-number-${i}`}>CAF Number</label>
+                    <input id={`pf-rep-caf-number-${i}`} value={rep.cafNumber} onChange={(e) => patchRep(i, { cafNumber: e.target.value })} placeholder="Leave blank if none yet" />
                   </div>
                 </div>
                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5, marginTop: 8 }}>

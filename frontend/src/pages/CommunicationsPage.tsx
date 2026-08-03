@@ -371,8 +371,8 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
             </div>
           </div>
         </div>
-        <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-        <div className="field"><label>Message</label><textarea rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
+        <div className="field"><label htmlFor="comm-staff-subject">Subject</label><input id="comm-staff-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+        <div className="field"><label htmlFor="comm-staff-message">Message</label><textarea id="comm-staff-message" rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
         <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
@@ -616,29 +616,29 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         </div>
 
         <div className="field">
-          <label>Template</label>
-          <select value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
+          <label htmlFor="bulk-template">Template</label>
+          <select id="bulk-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
             <option value="">Custom</option>
             {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
           </select>
         </div>
         <div className="form-grid">
           <div className="field">
-            <label>Period Start</label>
-            <input type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+            <label htmlFor="bulk-period-start">Period Start</label>
+            <input id="bulk-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
           </div>
           <div className="field">
-            <label>Period End</label>
-            <input type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+            <label htmlFor="bulk-period-end">Period End</label>
+            <input id="bulk-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
           </div>
         </div>
-        <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+        <div className="field"><label htmlFor="bulk-subject">Subject</label><input id="bulk-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
         <div className="field">
-          <label>English Message</label>
-          <textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} />
+          <label htmlFor="bulk-message-english">English Message</label>
+          <textarea id="bulk-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} />
           <span className="muted" style={{ fontSize: 11 }}>Tokens like {"{{clientName}}"} and {"{{periodSummary}}"} are personalized per client when sent — they stay literal here in the preview.</span>
         </div>
-        <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+        <div className="field"><label htmlFor="bulk-message-arabic">Arabic Message</label><textarea id="bulk-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
         <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
@@ -771,29 +771,29 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
           {error && <ErrorBanner error={error} />}
           <SendResults results={results} />
           <div className="field">
-            <label>Template</label>
-            <select value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
+            <label htmlFor="cm-template">Template</label>
+            <select id="cm-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
               <option value="">Custom</option>
               {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
             </select>
           </div>
           <div className="form-grid">
             <div className="field">
-              <label>Period Start</label>
-              <input type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+              <label htmlFor="cm-period-start">Period Start</label>
+              <input id="cm-period-start" type="date" value={period.start} onChange={(e) => { const next = { ...period, start: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
             </div>
             <div className="field">
-              <label>Period End</label>
-              <input type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
+              <label htmlFor="cm-period-end">Period End</label>
+              <input id="cm-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
             </div>
           </div>
           <div className="form-grid">
-            <div className="field"><label>Send To</label><input value={client.email || ""} readOnly /></div>
-            <div className="field"><label>Phone Number <span className="muted">(for the Phone channel's log entry)</span></label><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
+            <div className="field"><label htmlFor="cm-send-to">Send To</label><input id="cm-send-to" value={client.email || ""} readOnly /></div>
+            <div className="field"><label htmlFor="cm-phone">Phone Number <span className="muted">(for the Phone channel's log entry)</span></label><input id="cm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
           </div>
-          <div className="field"><label>Subject</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-          <div className="field"><label>English Message</label><textarea rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
-          <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+          <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+          <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
+          <div className="field"><label htmlFor="cm-message-arabic">Arabic Message</label><textarea id="cm-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
           <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
           {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
@@ -885,8 +885,8 @@ function SelfMessages({ role, clientId, clientEmail, messages, onSent }: { role:
               ))}
             </div>
           </div>
-          <div className="field"><label>{t("communications.self.subjectLabel")}</label><input required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={isEmployee ? t("communications.self.subjectPlaceholderEmployee") : t("communications.self.subjectPlaceholder")} /></div>
-          <div className="field"><label>{t("communications.self.messageLabel")}</label><textarea rows={5} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={isEmployee ? t("communications.self.placeholderEmployee") : t("communications.self.placeholderClient")} /></div>
+          <div className="field"><label htmlFor="self-subject">{t("communications.self.subjectLabel")}</label><input id="self-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={isEmployee ? t("communications.self.subjectPlaceholderEmployee") : t("communications.self.subjectPlaceholder")} /></div>
+          <div className="field"><label htmlFor="self-message">{t("communications.self.messageLabel")}</label><textarea id="self-message" rows={5} required value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} placeholder={isEmployee ? t("communications.self.placeholderEmployee") : t("communications.self.placeholderClient")} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t("communications.self.sending") : t("communications.self.send")}</button>
         </form>
       </Panel>

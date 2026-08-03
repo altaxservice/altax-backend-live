@@ -169,8 +169,8 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
           </div>
           {showCcBcc && (
             <>
-              <div className="field"><label>Cc <span className="muted">(comma-separated for more than one)</span></label><input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" /></div>
-              <div className="field"><label>Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
+              <div className="field"><label htmlFor="up-cc">Cc <span className="muted">(comma-separated for more than one)</span></label><input id="up-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com" /></div>
+              <div className="field"><label htmlFor="up-bcc">Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input id="up-bcc" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
             </>
           )}
 

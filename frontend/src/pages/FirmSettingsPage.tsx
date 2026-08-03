@@ -171,7 +171,7 @@ export function FirmSettingsPage() {
           </div>
         </div>
 
-        <div className="field"><label>Firm Name</label><input required value={form.firmName} onChange={(e) => setForm((f) => ({ ...f, firmName: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="firm-name">Firm Name</label><input id="firm-name" required value={form.firmName} onChange={(e) => setForm((f) => ({ ...f, firmName: e.target.value }))} /></div>
 
         <AddressFields
           idPrefix="firm"
@@ -186,10 +186,10 @@ export function FirmSettingsPage() {
         />
 
         <div className="field">
-          <label>Phone</label>
-          <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: formatPhoneInput(e.target.value) }))} />
+          <label htmlFor="firm-phone">Phone</label>
+          <input id="firm-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: formatPhoneInput(e.target.value) }))} />
         </div>
-        <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
+        <div className="field"><label htmlFor="firm-email">Email</label><input id="firm-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
 
         <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Firm Settings"}</button>
 

@@ -132,41 +132,41 @@ export function RulesPage() {
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.ruleId ? `Edit ${form.ruleId}` : "New Rule"}</h2>
           <div className="form-grid">
             <div className="field">
-              <label>Task Type</label>
-              <select required value={form.taskType} onChange={(e) => setForm((f) => ({ ...f, taskType: e.target.value }))}>
+              <label htmlFor="rule-task-type">Task Type</label>
+              <select id="rule-task-type" required value={form.taskType} onChange={(e) => setForm((f) => ({ ...f, taskType: e.target.value }))}>
                 <option value="">Choose…</option>
                 {form.taskType && !(options?.taskTypes || []).includes(form.taskType) && <option value={form.taskType}>{form.taskType}</option>}
                 {(options?.taskTypes || []).map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Frequency</label>
-              <select value={form.frequency} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}>
+              <label htmlFor="rule-frequency">Frequency</label>
+              <select id="rule-frequency" value={form.frequency} onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}>
                 {FREQUENCIES.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Trigger Column</label>
-              <select value={form.triggerColumn} onChange={(e) => setForm((f) => ({ ...f, triggerColumn: e.target.value }))}>
+              <label htmlFor="rule-trigger-column">Trigger Column</label>
+              <select id="rule-trigger-column" value={form.triggerColumn} onChange={(e) => setForm((f) => ({ ...f, triggerColumn: e.target.value }))}>
                 <option value="">Manual selection (no auto-trigger)</option>
                 {TRIGGER_COLUMNS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Trigger Value</label>
+              <label htmlFor="rule-trigger-value">Trigger Value</label>
               {form.triggerColumn === "PayrollSystem" ? (
-                <select value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}>
+                <select id="rule-trigger-value" value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))}>
                   <option value="">Choose…</option>
                   {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
                 </select>
               ) : (
-                <input value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
+                <input id="rule-trigger-value" value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
               )}
             </div>
-            <div className="field"><label>Due Day</label><input value={form.dueDay} onChange={(e) => setForm((f) => ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
-            <div className="field"><label>Warning Days</label><input value={form.warningDays} onChange={(e) => setForm((f) => ({ ...f, warningDays: e.target.value }))} placeholder="14,7,3" /></div>
-            <div className="field"><label>Portal Name</label><input value={form.portalName} onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} /></div>
-            <div className="field"><label>Portal URL</label><input value={form.portalUrl} onChange={(e) => setForm((f) => ({ ...f, portalUrl: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rule-due-day">Due Day</label><input id="rule-due-day" value={form.dueDay} onChange={(e) => setForm((f) => ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
+            <div className="field"><label htmlFor="rule-warning-days">Warning Days</label><input id="rule-warning-days" value={form.warningDays} onChange={(e) => setForm((f) => ({ ...f, warningDays: e.target.value }))} placeholder="14,7,3" /></div>
+            <div className="field"><label htmlFor="rule-portal-name">Portal Name</label><input id="rule-portal-name" value={form.portalName} onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="rule-portal-url">Portal URL</label><input id="rule-portal-url" value={form.portalUrl} onChange={(e) => setForm((f) => ({ ...f, portalUrl: e.target.value }))} /></div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
               <input type="checkbox" checked={form.paymentRequired} onChange={(e) => setForm((f) => ({ ...f, paymentRequired: e.target.checked }))} />
               Payment required
@@ -180,7 +180,7 @@ export function RulesPage() {
               Active
             </label>
           </div>
-          <div className="field"><label>Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="rule-notes">Notes</label><textarea id="rule-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.ruleId ? "Save Rule" : "Create Rule"}</button>
             <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>

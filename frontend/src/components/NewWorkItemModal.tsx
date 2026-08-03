@@ -265,15 +265,16 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
         {mode === "task" ? (
           <div className="form-grid">
             <div className="field">
-              <label>Task Type</label>
-              <select value={taskType} onChange={(e) => setTaskType(e.target.value)}>
+              <label htmlFor="nwi-task-type">Task Type</label>
+              <select id="nwi-task-type" value={taskType} onChange={(e) => setTaskType(e.target.value)}>
                 {taskTypeOptions.length === 0 && <option value={taskType}>{taskType}</option>}
                 {taskTypeOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className={`field ${invalidField === "taskName" ? "invalid" : ""}`}>
-              <label>Task Name</label>
+              <label htmlFor="nwi-task-name">Task Name</label>
               <input
+                id="nwi-task-name"
                 aria-invalid={invalidField === "taskName" ? "true" : undefined}
                 value={taskName}
                 onChange={(e) => { setTaskName(e.target.value); if (invalidField === "taskName") setInvalidField(null); }}
@@ -282,8 +283,9 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
               {invalidField === "taskName" && <p className="field-error">Task name is required.</p>}
             </div>
             <div className={`field ${invalidField === "dueDate" ? "invalid" : ""}`}>
-              <label>Due Date</label>
+              <label htmlFor="nwi-due-date">Due Date</label>
               <input
+                id="nwi-due-date"
                 type="date"
                 aria-invalid={invalidField === "dueDate" ? "true" : undefined}
                 value={dueDate}
@@ -292,69 +294,69 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
               {invalidField === "dueDate" && <p className="field-error">Due date is required.</p>}
             </div>
             <div className="field">
-              <label>Assigned To</label>
-              <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+              <label htmlFor="nwi-assigned-to">Assigned To</label>
+              <select id="nwi-assigned-to" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
                 <option value="">Use client default staff</option>
                 {staffOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-            <div className="field"><label>Period</label><input value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="e.g. June 2026" /></div>
+            <div className="field"><label htmlFor="nwi-period">Period</label><input id="nwi-period" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="e.g. June 2026" /></div>
             <div className="field">
-              <label>Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <label htmlFor="nwi-priority">Priority</label>
+              <select id="nwi-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
                 {priorityOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Payment Required</label>
-              <select value={paymentRequired ? "yes" : "no"} onChange={(e) => setPaymentRequired(e.target.value === "yes")}>
+              <label htmlFor="nwi-payment-required">Payment Required</label>
+              <select id="nwi-payment-required" value={paymentRequired ? "yes" : "no"} onChange={(e) => setPaymentRequired(e.target.value === "yes")}>
                 <option value="no">No</option><option value="yes">Yes</option>
               </select>
             </div>
             <div className="field">
-              <label>Portal Name <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
-              <input value={portalName} onChange={(e) => setPortalName(e.target.value)} placeholder="e.g. EFTPS, MD Tax Connect" />
+              <label htmlFor="nwi-portal-name">Portal Name <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
+              <input id="nwi-portal-name" value={portalName} onChange={(e) => setPortalName(e.target.value)} placeholder="e.g. EFTPS, MD Tax Connect" />
             </div>
             <div className="field">
-              <label>Portal URL <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
-              <input value={portalUrl} onChange={(e) => setPortalUrl(e.target.value)} placeholder="https://…" />
+              <label htmlFor="nwi-portal-url">Portal URL <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional)</span></label>
+              <input id="nwi-portal-url" value={portalUrl} onChange={(e) => setPortalUrl(e.target.value)} placeholder="https://…" />
             </div>
           </div>
         ) : (
           <div className="form-grid">
             <div className="field">
-              <label>Request Type</label>
-              <select value={requestType} onChange={(e) => setRequestType(e.target.value)}>
+              <label htmlFor="nwi-request-type">Request Type</label>
+              <select id="nwi-request-type" value={requestType} onChange={(e) => setRequestType(e.target.value)}>
                 {requestTypeOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Priority</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <label htmlFor="nwi-request-priority">Priority</label>
+              <select id="nwi-request-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
                 {priorityOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-            <div className="field"><label>Due From Client</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+            <div className="field"><label htmlFor="nwi-request-due-date">Due From Client</label><input id="nwi-request-due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
             <div className="field">
-              <label>Assigned To</label>
-              <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+              <label htmlFor="nwi-request-assigned-to">Assigned To</label>
+              <select id="nwi-request-assigned-to" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
                 <option value="">Use client default staff</option>
                 {staffOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Requested Item</label>
-              <select value={requestedItem} onChange={(e) => setRequestedItem(e.target.value)}>
+              <label htmlFor="nwi-requested-item">Requested Item</label>
+              <select id="nwi-requested-item" value={requestedItem} onChange={(e) => setRequestedItem(e.target.value)}>
                 <option value="">Select…</option>
                 {requestedItemOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             {requestedItem === OTHER && (
-              <div className="field"><label>Other Item</label><input required value={requestedItemOther} onChange={(e) => setRequestedItemOther(e.target.value)} placeholder="Describe what's requested" /></div>
+              <div className="field"><label htmlFor="nwi-requested-item-other">Other Item</label><input id="nwi-requested-item-other" required value={requestedItemOther} onChange={(e) => setRequestedItemOther(e.target.value)} placeholder="Describe what's requested" /></div>
             )}
             <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <label>Month(s) <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional — appended to the requested item, e.g. "Bank Statement | Month(s): April, May")</span></label>
-              <select multiple value={months} onChange={(e) => setMonths(Array.from(e.target.selectedOptions).map((o) => o.value))} style={{ height: 110 }}>
+              <label htmlFor="nwi-months">Month(s) <span className="muted" style={{ textTransform: "none", fontWeight: 500 }}>(optional — appended to the requested item, e.g. "Bank Statement | Month(s): April, May")</span></label>
+              <select id="nwi-months" multiple value={months} onChange={(e) => setMonths(Array.from(e.target.selectedOptions).map((o) => o.value))} style={{ height: 110 }}>
                 {monthOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
@@ -364,10 +366,10 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
         <div className="form-section-title">Attachment</div>
         <div className="field"><label>Upload Attachment</label><FileDropInput file={file} onChange={setFile} /></div>
         <div className="form-grid">
-          <div className="field"><label>Attachment Name</label><input value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} placeholder="Optional when choosing a file" /></div>
-          <div className="field"><label>Attachment Link</label><input value={attachmentLink} onChange={(e) => setAttachmentLink(e.target.value)} placeholder="Google Drive or portal link" disabled={!!file} /></div>
+          <div className="field"><label htmlFor="nwi-attachment-name">Attachment Name</label><input id="nwi-attachment-name" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} placeholder="Optional when choosing a file" /></div>
+          <div className="field"><label htmlFor="nwi-attachment-link">Attachment Link</label><input id="nwi-attachment-link" value={attachmentLink} onChange={(e) => setAttachmentLink(e.target.value)} placeholder="Google Drive or portal link" disabled={!!file} /></div>
         </div>
-        <div className="field"><label>Notes</label><textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal notes" /></div>
+        <div className="field"><label htmlFor="nwi-notes">Notes</label><textarea id="nwi-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Internal notes" /></div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>

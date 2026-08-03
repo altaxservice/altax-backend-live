@@ -98,18 +98,18 @@ export function DocumentChecklistsPage() {
       {creating && (
         <div className="card" style={{ marginBottom: 16, padding: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div className="field" style={{ margin: 0, minWidth: 220 }}>
-            <label>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New Business Formation" />
+            <label htmlFor="checklist-name">Name</label>
+            <input id="checklist-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New Business Formation" />
           </div>
           <div className="field" style={{ margin: 0 }}>
-            <label>Client Type</label>
-            <select value={clientType} onChange={(e) => setClientType(e.target.value)}>
+            <label htmlFor="checklist-client-type">Client Type</label>
+            <select id="checklist-client-type" value={clientType} onChange={(e) => setClientType(e.target.value)}>
               {CLIENT_TYPES.map((t) => <option key={t} value={t}>{t || "Any"}</option>)}
             </select>
           </div>
           <div className="field" style={{ margin: 0, minWidth: 220 }}>
-            <label>Service</label>
-            <select value={serviceKey} onChange={(e) => setServiceKey(e.target.value)}>
+            <label htmlFor="checklist-service">Service</label>
+            <select id="checklist-service" value={serviceKey} onChange={(e) => setServiceKey(e.target.value)}>
               <option value="">Any</option>
               {FIRM_SERVICES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>

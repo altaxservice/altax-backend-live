@@ -17,10 +17,12 @@ import { suggestFix } from "../utils/errorHelp";
  * When no rule matches, this renders exactly what the plain banner did, so a
  * missing suggestion is never worse than before.
  */
-export function ErrorBanner({ error, className, style }: {
+export function ErrorBanner({ error, className, style, onRetry }: {
   error: string | null | undefined;
   className?: string;
   style?: CSSProperties;
+  /** When set, shows a "Try again" button that re-runs the page's own load(). */
+  onRetry?: () => void;
 }) {
   if (!error) return null;
   const fix = suggestFix(error);
@@ -32,6 +34,11 @@ export function ErrorBanner({ error, className, style }: {
         <div className="error-banner-fix">
           <strong>How to fix:</strong> {fix}
         </div>
+      )}
+      {onRetry && (
+        <button type="button" className="ghost-button btn-sm" style={{ marginTop: 10 }} onClick={onRetry}>
+          Try again
+        </button>
       )}
     </div>
   );

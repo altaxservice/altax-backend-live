@@ -130,6 +130,8 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
   if (loadError) return <ErrorBanner error={loadError} style={{ marginTop: 12 }} />;
   if (!meta) return <p className="muted" style={{ marginTop: 12 }}>{t("common.loading")}</p>;
 
+  const idPrefix = `mtf-${filing.filing_id}`;
+
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
       {saveError && <ErrorBanner error={saveError} />}
@@ -137,20 +139,20 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
       {filing.form_type === "W4" ? (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.firstName")}</label><input value={data.firstName || ""} onChange={(e) => set("firstName", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.lastName")}</label><input value={data.lastName || ""} onChange={(e) => set("lastName", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-first-name`}>{t("myTaxForms.firstName")}</label><input id={`${idPrefix}-first-name`} value={data.firstName || ""} onChange={(e) => set("firstName", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-last-name`}>{t("myTaxForms.lastName")}</label><input id={`${idPrefix}-last-name`} value={data.lastName || ""} onChange={(e) => set("lastName", e.target.value)} /></div>
           </div>
-          <div className="field"><label>{t("myTaxForms.address")}</label><input value={data.address || ""} onChange={(e) => set("address", e.target.value)} /></div>
+          <div className="field"><label htmlFor={`${idPrefix}-address`}>{t("myTaxForms.address")}</label><input id={`${idPrefix}-address`} value={data.address || ""} onChange={(e) => set("address", e.target.value)} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.city")}</label><input value={data.city || ""} onChange={(e) => set("city", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.state")}</label><input value={data.state || ""} onChange={(e) => set("state", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.zip")}</label><input value={data.zip || ""} onChange={(e) => set("zip", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-city`}>{t("myTaxForms.city")}</label><input id={`${idPrefix}-city`} value={data.city || ""} onChange={(e) => set("city", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-state`}>{t("myTaxForms.state")}</label><input id={`${idPrefix}-state`} value={data.state || ""} onChange={(e) => set("state", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-zip`}>{t("myTaxForms.zip")}</label><input id={`${idPrefix}-zip`} value={data.zip || ""} onChange={(e) => set("zip", e.target.value)} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.ssn")}</label><input value={data.ssn || ""} onChange={(e) => set("ssn", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-ssn`}>{t("myTaxForms.ssn")}</label><input id={`${idPrefix}-ssn`} value={data.ssn || ""} onChange={(e) => set("ssn", e.target.value)} /></div>
             <div className="field" style={{ margin: 0 }}>
-              <label>{t("myTaxForms.filingStatus")}</label>
-              <select value={data.filingStatus || meta.w4FilingStatuses[0]} onChange={(e) => set("filingStatus", e.target.value)}>
+              <label htmlFor={`${idPrefix}-filing-status`}>{t("myTaxForms.filingStatus")}</label>
+              <select id={`${idPrefix}-filing-status`} value={data.filingStatus || meta.w4FilingStatuses[0]} onChange={(e) => set("filingStatus", e.target.value)}>
                 {meta.w4FilingStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
@@ -160,42 +162,42 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
             {t("myTaxForms.multipleJobsCheckbox")}
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.step3a")}</label><input type="number" step="0.01" value={data.qualifyingChildrenAmount || ""} onChange={(e) => set("qualifyingChildrenAmount", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.step3b")}</label><input type="number" step="0.01" value={data.otherDependentsAmount || ""} onChange={(e) => set("otherDependentsAmount", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step3a`}>{t("myTaxForms.step3a")}</label><input id={`${idPrefix}-step3a`} type="number" step="0.01" value={data.qualifyingChildrenAmount || ""} onChange={(e) => set("qualifyingChildrenAmount", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step3b`}>{t("myTaxForms.step3b")}</label><input id={`${idPrefix}-step3b`} type="number" step="0.01" value={data.otherDependentsAmount || ""} onChange={(e) => set("otherDependentsAmount", e.target.value)} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.step4a")}</label><input type="number" step="0.01" value={data.otherIncome || ""} onChange={(e) => set("otherIncome", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.step4b")}</label><input type="number" step="0.01" value={data.deductions || ""} onChange={(e) => set("deductions", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.step4c")}</label><input type="number" step="0.01" value={data.extraWithholding || ""} onChange={(e) => set("extraWithholding", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4a`}>{t("myTaxForms.step4a")}</label><input id={`${idPrefix}-step4a`} type="number" step="0.01" value={data.otherIncome || ""} onChange={(e) => set("otherIncome", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4b`}>{t("myTaxForms.step4b")}</label><input id={`${idPrefix}-step4b`} type="number" step="0.01" value={data.deductions || ""} onChange={(e) => set("deductions", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-step4c`}>{t("myTaxForms.step4c")}</label><input id={`${idPrefix}-step4c`} type="number" step="0.01" value={data.extraWithholding || ""} onChange={(e) => set("extraWithholding", e.target.value)} /></div>
           </div>
         </>
       ) : (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.name")}</label><input value={data.name || ""} onChange={(e) => set("name", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.businessNameOptional")}</label><input value={data.businessName || ""} onChange={(e) => set("businessName", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-name`}>{t("myTaxForms.name")}</label><input id={`${idPrefix}-name`} value={data.name || ""} onChange={(e) => set("name", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-business-name`}>{t("myTaxForms.businessNameOptional")}</label><input id={`${idPrefix}-business-name`} value={data.businessName || ""} onChange={(e) => set("businessName", e.target.value)} /></div>
           </div>
           <div className="field">
-            <label>{t("myTaxForms.federalTaxClassification")}</label>
-            <select value={data.taxClassification || meta.w9TaxClassifications[0]} onChange={(e) => set("taxClassification", e.target.value)}>
+            <label htmlFor={`${idPrefix}-tax-classification`}>{t("myTaxForms.federalTaxClassification")}</label>
+            <select id={`${idPrefix}-tax-classification`} value={data.taxClassification || meta.w9TaxClassifications[0]} onChange={(e) => set("taxClassification", e.target.value)}>
               {meta.w9TaxClassifications.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
             </select>
           </div>
           {data.taxClassification === "LLC" && (
-            <div className="field" style={{ maxWidth: 200 }}><label>{t("myTaxForms.llcTaxClassificationCode")}</label><input maxLength={1} value={data.llcTaxClassificationCode || ""} onChange={(e) => set("llcTaxClassificationCode", e.target.value.toUpperCase())} /></div>
+            <div className="field" style={{ maxWidth: 200 }}><label htmlFor={`${idPrefix}-llc-code`}>{t("myTaxForms.llcTaxClassificationCode")}</label><input id={`${idPrefix}-llc-code`} maxLength={1} value={data.llcTaxClassificationCode || ""} onChange={(e) => set("llcTaxClassificationCode", e.target.value.toUpperCase())} /></div>
           )}
           {data.taxClassification === "Other" && (
-            <div className="field"><label>{t("myTaxForms.describe")}</label><input value={data.otherClassificationText || ""} onChange={(e) => set("otherClassificationText", e.target.value)} /></div>
+            <div className="field"><label htmlFor={`${idPrefix}-other-classification`}>{t("myTaxForms.describe")}</label><input id={`${idPrefix}-other-classification`} value={data.otherClassificationText || ""} onChange={(e) => set("otherClassificationText", e.target.value)} /></div>
           )}
-          <div className="field"><label>{t("myTaxForms.address")}</label><input value={data.address || ""} onChange={(e) => set("address", e.target.value)} /></div>
+          <div className="field"><label htmlFor={`${idPrefix}-w9-address`}>{t("myTaxForms.address")}</label><input id={`${idPrefix}-w9-address`} value={data.address || ""} onChange={(e) => set("address", e.target.value)} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.city")}</label><input value={data.city || ""} onChange={(e) => set("city", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.state")}</label><input value={data.state || ""} onChange={(e) => set("state", e.target.value)} /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.zip")}</label><input value={data.zip || ""} onChange={(e) => set("zip", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-w9-city`}>{t("myTaxForms.city")}</label><input id={`${idPrefix}-w9-city`} value={data.city || ""} onChange={(e) => set("city", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-w9-state`}>{t("myTaxForms.state")}</label><input id={`${idPrefix}-w9-state`} value={data.state || ""} onChange={(e) => set("state", e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-w9-zip`}>{t("myTaxForms.zip")}</label><input id={`${idPrefix}-w9-zip`} value={data.zip || ""} onChange={(e) => set("zip", e.target.value)} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.ssnOptional")}</label><input value={data.ssn || ""} onChange={(e) => set("ssn", e.target.value)} placeholder="XXX-XX-XXXX" /></div>
-            <div className="field" style={{ margin: 0 }}><label>{t("myTaxForms.einOptional")}</label><input value={data.ein || ""} onChange={(e) => set("ein", e.target.value)} placeholder="XX-XXXXXXX" /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-w9-ssn`}>{t("myTaxForms.ssnOptional")}</label><input id={`${idPrefix}-w9-ssn`} value={data.ssn || ""} onChange={(e) => set("ssn", e.target.value)} placeholder="XXX-XX-XXXX" /></div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`${idPrefix}-w9-ein`}>{t("myTaxForms.einOptional")}</label><input id={`${idPrefix}-w9-ein`} value={data.ein || ""} onChange={(e) => set("ein", e.target.value)} placeholder="XX-XXXXXXX" /></div>
           </div>
         </>
       )}
@@ -205,8 +207,8 @@ function FillAndSignForm({ filing, onDone }: { filing: GovFormFiling; onDone: ()
           {t("myTaxForms.signatureLegal")}
         </p>
         <div className="field" style={{ maxWidth: 320 }}>
-          <label>{t("myTaxForms.signLabel")}</label>
-          <input value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+          <label htmlFor={`${idPrefix}-signer-name`}>{t("myTaxForms.signLabel")}</label>
+          <input id={`${idPrefix}-signer-name`} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
         </div>
         <label style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: 13, margin: "8px 0" }}>
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} style={{ marginTop: 3 }} />

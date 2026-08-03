@@ -18,8 +18,8 @@ export function PaymentProfileField({ clientId, value, onChange }: { clientId: s
   const methods = usePaymentMethods(clientId);
   return (
     <div className="field">
-      <label>Payment Profile</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <label htmlFor="payment-profile">Payment Profile</label>
+      <select id="payment-profile" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value={MANUAL_PROFILE}>Use entered bank info</option>
         {methods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name} ({m.method_type})</option>)}
       </select>

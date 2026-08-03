@@ -61,7 +61,7 @@ export function SecurityPage() {
     ], data.users as unknown as Record<string, unknown>[]);
   }
 
-  if (error) return <ErrorBanner error={error} />;
+  if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!data) return <div className="spinner-wrap">Loading…</div>;
 
   return (
@@ -412,8 +412,8 @@ function RestoreControls({ onRestored }: { onRestored: () => void }) {
             </>
           )}
           <div className="field" style={{ marginTop: 10, maxWidth: 320 }}>
-            <label>Type RESTORE to confirm replacing all current data</label>
-            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESTORE" />
+            <label htmlFor="security-restore-confirm">Type RESTORE to confirm replacing all current data</label>
+            <input id="security-restore-confirm" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESTORE" />
           </div>
           <button
             type="button"

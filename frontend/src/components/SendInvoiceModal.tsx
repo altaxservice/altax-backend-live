@@ -79,20 +79,20 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
             <div className="field">
-              <label>
+              <label htmlFor="send-invoice-email">
                 Email address
                 {!showCcBcc && <button type="button" className="link-button" style={{ float: "right", fontWeight: 400 }} onClick={() => setShowCcBcc(true)}>Add Cc/Bcc</button>}
               </label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" />
+              <input id="send-invoice-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" />
             </div>
             {showCcBcc && (
               <>
-                <div className="field"><label>Cc <span className="muted">(comma-separated for more than one)</span></label><input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com, manager@example.com" /></div>
-                <div className="field"><label>Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
+                <div className="field"><label htmlFor="send-invoice-cc">Cc <span className="muted">(comma-separated for more than one)</span></label><input id="send-invoice-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="colleague@example.com, manager@example.com" /></div>
+                <div className="field"><label htmlFor="send-invoice-bcc">Bcc <span className="muted">(comma-separated, not visible to other recipients)</span></label><input id="send-invoice-bcc" value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="records@altaxgroup.com" /></div>
               </>
             )}
-            <div className="field"><label>Subject</label><input value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
-            <div className="field"><label>Message</label><textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
+            <div className="field"><label htmlFor="send-invoice-subject">Subject</label><input id="send-invoice-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
+            <div className="field"><label htmlFor="send-invoice-message">Message</label><textarea id="send-invoice-message" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 
             {results && (
               <div className="card" style={{ marginTop: 8 }}>

@@ -191,15 +191,15 @@ function ContractTemplateForm({ serviceKey, onSaved, onCancel }: { serviceKey: s
     <form onSubmit={handleSubmit} className="card" style={{ margin: "0 16px 16px" }}>
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit: {serviceKey}</h2>
       {error && <ErrorBanner error={error} />}
-      <div className="field"><label>Title</label><input required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="ctpl-title">Title</label><input id="ctpl-title" required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} /></div>
       <div className="field">
-        <label>Body</label>
-        <textarea rows={16} style={{ fontFamily: "monospace", fontSize: 12.5 }} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} />
+        <label htmlFor="ctpl-body">Body</label>
+        <textarea id="ctpl-body" rows={16} style={{ fontFamily: "monospace", fontSize: 12.5 }} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} />
         <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>
           Placeholders: {"{{clientName}}"}, {"{{firmName}}"}, {"{{effectiveDate}}"}, {"{{feeAmount}}"} (already includes the fee description, e.g. "$400.00 (per month)").
         </div>
       </div>
-      <div className="field"><label>Internal Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Not shown to clients" /></div>
+      <div className="field"><label htmlFor="ctpl-notes">Internal Notes</label><textarea id="ctpl-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Not shown to clients" /></div>
       <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <input id="ctpl-active" type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} style={{ width: "auto" }} />
         <label htmlFor="ctpl-active" style={{ textTransform: "none", fontSize: 13 }}>Active</label>
@@ -253,14 +253,14 @@ function TemplateForm({ templateName, onSaved, onCancel }: { templateName?: stri
       <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{templateName ? `Edit: ${templateName}` : "New Template"}</h2>
       {error && <ErrorBanner error={error} />}
       <div className="field">
-        <label>Template Name</label>
-        <input required disabled={!!templateName} value={form.templateName} onChange={(e) => setForm((f) => ({ ...f, templateName: e.target.value }))} />
+        <label htmlFor="tpl-name">Template Name</label>
+        <input id="tpl-name" required disabled={!!templateName} value={form.templateName} onChange={(e) => setForm((f) => ({ ...f, templateName: e.target.value }))} />
       </div>
-      <div className="field"><label>Category</label><input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} /></div>
-      <div className="field"><label>Subject</label><input value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} /></div>
-      <div className="field"><label>English Message</label><textarea rows={3} value={form.messageEnglish} onChange={(e) => setForm((f) => ({ ...f, messageEnglish: e.target.value }))} /></div>
-      <div className="field"><label>Arabic Message</label><textarea rows={3} dir="rtl" value={form.messageArabic} onChange={(e) => setForm((f) => ({ ...f, messageArabic: e.target.value }))} /></div>
-      <div className="field"><label>Notes</label><textarea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Internal notes about this template (not shown to clients)" /></div>
+      <div className="field"><label htmlFor="tpl-category">Category</label><input id="tpl-category" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="tpl-subject">Subject</label><input id="tpl-subject" value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="tpl-message-english">English Message</label><textarea id="tpl-message-english" rows={3} value={form.messageEnglish} onChange={(e) => setForm((f) => ({ ...f, messageEnglish: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="tpl-message-arabic">Arabic Message</label><textarea id="tpl-message-arabic" rows={3} dir="rtl" value={form.messageArabic} onChange={(e) => setForm((f) => ({ ...f, messageArabic: e.target.value }))} /></div>
+      <div className="field"><label htmlFor="tpl-notes">Notes</label><textarea id="tpl-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Internal notes about this template (not shown to clients)" /></div>
       <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <input id="tpl-active" type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} style={{ width: "auto" }} />
         <label htmlFor="tpl-active" style={{ textTransform: "none", fontSize: 13 }}>Active</label>

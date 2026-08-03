@@ -245,17 +245,17 @@ function SalesTaxCalculator() {
           <div key={line.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
             <div className="field" style={{ margin: 0 }}>
               {i === 0 && <label>Category</label>}
-              <select value={line.categoryId} onChange={(e) => updateLine(line.id, { categoryId: e.target.value })}>
+              <select aria-label={i === 0 ? undefined : `Category, row ${i + 1}`} value={line.categoryId} onChange={(e) => updateLine(line.id, { categoryId: e.target.value })}>
                 <option value="">Select a category…</option>
                 {categories.map((c) => <option key={c.categoryId} value={c.categoryId}>{c.categoryName}</option>)}
               </select>
             </div>
             <div className="field" style={{ margin: 0 }}>
               {i === 0 && <label>Taxable Amount</label>}
-              <input type="number" step="0.01" min="0" placeholder="0.00" value={line.taxableAmount}
+              <input type="number" step="0.01" min="0" placeholder="0.00" aria-label={i === 0 ? undefined : `Taxable amount, row ${i + 1}`} value={line.taxableAmount}
                 onChange={(e) => updateLine(line.id, { taxableAmount: e.target.value })} />
             </div>
-            <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(line.id)}>✕</button>
+            <button type="button" className="btn btn-sm" disabled={lines.length <= 1} onClick={() => removeLine(line.id)} aria-label={`Remove row ${i + 1}`}>✕</button>
           </div>
         ))}
         <button type="button" className="btn btn-sm" onClick={() => setLines((prev) => [...prev, emptySalesTaxLine()])}>+ Add Category</button>

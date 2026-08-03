@@ -317,26 +317,26 @@ export function EmployeeDetailPage() {
         editing ? (
           <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
             {saveError && <ErrorBanner error={saveError} />}
-            <div className="field"><label>Name</label><input required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-            <div className="field"><label>Worker Type</label><select value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
-            <div className="field"><label>Pay Type</label><select value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
+            <div className="field"><label htmlFor="emp-name">Name</label><input id="emp-name" required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="emp-worker-type">Worker Type</label><select id="emp-worker-type" value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
+            <div className="field"><label htmlFor="emp-pay-type">Pay Type</label><select id="emp-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field"><label>Pay Rate</label><input type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
-              <div className="field"><label>Default Hours</label><input type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="emp-pay-rate">Pay Rate</label><input id="emp-pay-rate" type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="emp-default-hours">Default Hours</label><input id="emp-default-hours" type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
             </div>
-            <div className="field"><label>Default Gross Wages</label><input type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="emp-default-gross-wages">Default Gross Wages</label><input id="emp-default-gross-wages" type="number" step="0.01" value={form.defaultGrossWages} onChange={(e) => setForm((f) => ({ ...f, defaultGrossWages: e.target.value }))} /></div>
             <div className="field">
-              <label>Pay Frequency (drives withholding calculation)</label>
-              <select value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))}>
+              <label htmlFor="emp-pay-frequency">Pay Frequency (drives withholding calculation)</label>
+              <select id="emp-pay-frequency" value={form.payFrequency} onChange={(e) => setForm((f) => ({ ...f, payFrequency: e.target.value }))}>
                 <option value="">Select…</option>
                 {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             {form.workerType === "Contractor" && (
-              <div className="field"><label>Service Category</label><input value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="emp-service-category">Service Category</label><input id="emp-service-category" value={form.serviceCategory} onChange={(e) => setForm((f) => ({ ...f, serviceCategory: e.target.value }))} /></div>
             )}
-            <div className="field"><label>Email</label><input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
-            <div className="field"><label>Phone</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="emp-email">Email</label><input id="emp-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="emp-phone">Phone</label><input id="emp-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
               <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
@@ -387,19 +387,19 @@ export function EmployeeDetailPage() {
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div className="field">
-                      <label>Frequency</label>
-                      <select value={scheduleForm.frequency} onChange={(e) => setScheduleForm((f) => ({ ...f, frequency: e.target.value }))}>
+                      <label htmlFor="emp-schedule-frequency">Frequency</label>
+                      <select id="emp-schedule-frequency" value={scheduleForm.frequency} onChange={(e) => setScheduleForm((f) => ({ ...f, frequency: e.target.value }))}>
                         {PAYROLL_AGENT_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
                       </select>
                     </div>
                     <div className="field">
-                      <label>First Pay Date</label>
-                      <input type="date" value={scheduleForm.anchorDate} onChange={(e) => setScheduleForm((f) => ({ ...f, anchorDate: e.target.value }))} />
+                      <label htmlFor="emp-schedule-anchor-date">First Pay Date</label>
+                      <input id="emp-schedule-anchor-date" type="date" value={scheduleForm.anchorDate} onChange={(e) => setScheduleForm((f) => ({ ...f, anchorDate: e.target.value }))} />
                     </div>
                   </div>
                   <div className="field" style={{ maxWidth: 160 }}>
-                    <label>Draft This Many Days Before Payday</label>
-                    <input type="number" min={0} value={scheduleForm.leadDays} onChange={(e) => setScheduleForm((f) => ({ ...f, leadDays: e.target.value }))} />
+                    <label htmlFor="emp-schedule-lead-days">Draft This Many Days Before Payday</label>
+                    <input id="emp-schedule-lead-days" type="number" min={0} value={scheduleForm.leadDays} onChange={(e) => setScheduleForm((f) => ({ ...f, leadDays: e.target.value }))} />
                   </div>
                   <button type="button" className="btn btn-primary" disabled={scheduleSaving || !scheduleForm.anchorDate} onClick={handleEnableSchedule}>
                     {scheduleSaving ? "Enabling…" : "Enable Payroll Agent"}
@@ -488,10 +488,10 @@ export function EmployeeDetailPage() {
               {sensitiveError && <ErrorBanner error={sensitiveError} />}
               <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave SSN/EIN/TIN or bank fields blank to keep the values already on file — only fill them in to replace them.</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div className="field"><label>SSN (leave blank to keep current)</label><input value={sensitiveForm.ssn} onChange={(e) => setSensitiveForm((f) => ({ ...f, ssn: e.target.value }))} /></div>
-                <div className="field"><label>EIN (leave blank to keep current)</label><input value={sensitiveForm.ein} onChange={(e) => setSensitiveForm((f) => ({ ...f, ein: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="emp-sensitive-ssn">SSN (leave blank to keep current)</label><input id="emp-sensitive-ssn" value={sensitiveForm.ssn} onChange={(e) => setSensitiveForm((f) => ({ ...f, ssn: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="emp-sensitive-ein">EIN (leave blank to keep current)</label><input id="emp-sensitive-ein" value={sensitiveForm.ein} onChange={(e) => setSensitiveForm((f) => ({ ...f, ein: e.target.value }))} /></div>
               </div>
-              <div className="field"><label>TIN (leave blank to keep current)</label><input value={sensitiveForm.tin} onChange={(e) => setSensitiveForm((f) => ({ ...f, tin: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="emp-sensitive-tin">TIN (leave blank to keep current)</label><input id="emp-sensitive-tin" value={sensitiveForm.tin} onChange={(e) => setSensitiveForm((f) => ({ ...f, tin: e.target.value }))} /></div>
               <AddressFields
                 idPrefix="emp-detail"
                 value={{ street: sensitiveForm.streetAddress, city: sensitiveForm.city, state: sensitiveForm.state, zip: sensitiveForm.zipCode }}
@@ -505,15 +505,15 @@ export function EmployeeDetailPage() {
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div className="field">
-                  <label>Federal Filing Status (drives federal withholding)</label>
-                  <select value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))}>
+                  <label htmlFor="emp-sensitive-federal-filing-status">Federal Filing Status (drives federal withholding)</label>
+                  <select id="emp-sensitive-federal-filing-status" value={sensitiveForm.federalFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, federalFilingStatus: e.target.value }))}>
                     <option value="">Select…</option>
                     {FEDERAL_FILING_STATUSES.map((s) => <option key={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="field">
-                  <label>State Filing Status (drives MD/DE withholding)</label>
-                  <select value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))}>
+                  <label htmlFor="emp-sensitive-state-filing-status">State Filing Status (drives MD/DE withholding)</label>
+                  <select id="emp-sensitive-state-filing-status" value={sensitiveForm.stateFilingStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateFilingStatus: e.target.value }))}>
                     <option value="">Select…</option>
                     {MD_FILING_STATUSES.map((s) => <option key={s}>{s}</option>)}
                   </select>
@@ -522,64 +522,64 @@ export function EmployeeDetailPage() {
               {String(sensitiveForm.state || "").trim().toUpperCase() === "MD" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div className="field">
-                    <label>Maryland County (drives local withholding)</label>
-                    <select value={sensitiveForm.county} onChange={(e) => setSensitiveForm((f) => ({ ...f, county: e.target.value }))}>
+                    <label htmlFor="emp-sensitive-county">Maryland County (drives local withholding)</label>
+                    <select id="emp-sensitive-county" value={sensitiveForm.county} onChange={(e) => setSensitiveForm((f) => ({ ...f, county: e.target.value }))}>
                       <option value="">Select…</option>
                       {MD_COUNTIES.map((c) => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                   <div className="field">
-                    <label>MD Exemptions (Form MW507)</label>
-                    <input type="number" min="0" step="1" value={sensitiveForm.mdExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, mdExemptions: e.target.value }))} placeholder="0" />
+                    <label htmlFor="emp-sensitive-md-exemptions">MD Exemptions (Form MW507)</label>
+                    <input id="emp-sensitive-md-exemptions" type="number" min="0" step="1" value={sensitiveForm.mdExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, mdExemptions: e.target.value }))} placeholder="0" />
                   </div>
                 </div>
               )}
               {String(sensitiveForm.state || "").trim().toUpperCase() === "VA" && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   <div className="field">
-                    <label>VA Exemptions (Form VA-4, personal + dependents)</label>
-                    <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
+                    <label htmlFor="emp-sensitive-va-exemptions">VA Exemptions (Form VA-4, personal + dependents)</label>
+                    <input id="emp-sensitive-va-exemptions" type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
                   </div>
                   <div className="field">
-                    <label>VA Age 65+/Blind Exemptions (Form VA-4)</label>
-                    <input type="number" min="0" step="1" value={sensitiveForm.ageBlindExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, ageBlindExemptions: e.target.value }))} placeholder="0" />
+                    <label htmlFor="emp-sensitive-va-age-blind">VA Age 65+/Blind Exemptions (Form VA-4)</label>
+                    <input id="emp-sensitive-va-age-blind" type="number" min="0" step="1" value={sensitiveForm.ageBlindExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, ageBlindExemptions: e.target.value }))} placeholder="0" />
                   </div>
                 </div>
               )}
               {String(sensitiveForm.state || "").trim().toUpperCase() === "DC" && (
                 <div className="field">
-                  <label>DC Dependents (drives DC withholding)</label>
-                  <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
+                  <label htmlFor="emp-sensitive-dc-dependents">DC Dependents (drives DC withholding)</label>
+                  <input id="emp-sensitive-dc-dependents" type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
                 </div>
               )}
               {String(sensitiveForm.state || "").trim().toUpperCase() === "DE" && (
                 <div className="field">
-                  <label>DE Exemptions ($110 credit each, drives DE withholding)</label>
-                  <input type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
+                  <label htmlFor="emp-sensitive-de-exemptions">DE Exemptions ($110 credit each, drives DE withholding)</label>
+                  <input id="emp-sensitive-de-exemptions" type="number" min="0" step="1" value={sensitiveForm.stateExemptions} onChange={(e) => setSensitiveForm((f) => ({ ...f, stateExemptions: e.target.value }))} placeholder="0" />
                 </div>
               )}
-              <div className="field"><label>W-9 Status</label><input value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>
+              <div className="field"><label htmlFor="emp-sensitive-w9-status">W-9 Status</label><input id="emp-sensitive-w9-status" value={sensitiveForm.w9Status} onChange={(e) => setSensitiveForm((f) => ({ ...f, w9Status: e.target.value }))} placeholder="e.g. Received, Pending" /></div>
               {isContractor && (
                 <>
-                  <div className="field"><label>TIN Verification Status</label><input value={sensitiveForm.tinVerificationStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, tinVerificationStatus: e.target.value }))} /></div>
-                  <div className="field"><label>Vendor Classification</label><input value={sensitiveForm.vendorClassification} onChange={(e) => setSensitiveForm((f) => ({ ...f, vendorClassification: e.target.value }))} /></div>
-                  <div className="field"><label>Contractor Payment Type</label><input value={sensitiveForm.contractorPaymentType} onChange={(e) => setSensitiveForm((f) => ({ ...f, contractorPaymentType: e.target.value }))} /></div>
-                  <div className="field"><label>Fixed Project Amount</label><input type="number" step="0.01" value={sensitiveForm.fixedProjectAmount} onChange={(e) => setSensitiveForm((f) => ({ ...f, fixedProjectAmount: e.target.value }))} /></div>
+                  <div className="field"><label htmlFor="emp-sensitive-tin-verification">TIN Verification Status</label><input id="emp-sensitive-tin-verification" value={sensitiveForm.tinVerificationStatus} onChange={(e) => setSensitiveForm((f) => ({ ...f, tinVerificationStatus: e.target.value }))} /></div>
+                  <div className="field"><label htmlFor="emp-sensitive-vendor-classification">Vendor Classification</label><input id="emp-sensitive-vendor-classification" value={sensitiveForm.vendorClassification} onChange={(e) => setSensitiveForm((f) => ({ ...f, vendorClassification: e.target.value }))} /></div>
+                  <div className="field"><label htmlFor="emp-sensitive-contractor-payment-type">Contractor Payment Type</label><input id="emp-sensitive-contractor-payment-type" value={sensitiveForm.contractorPaymentType} onChange={(e) => setSensitiveForm((f) => ({ ...f, contractorPaymentType: e.target.value }))} /></div>
+                  <div className="field"><label htmlFor="emp-sensitive-fixed-project-amount">Fixed Project Amount</label><input id="emp-sensitive-fixed-project-amount" type="number" step="0.01" value={sensitiveForm.fixedProjectAmount} onChange={(e) => setSensitiveForm((f) => ({ ...f, fixedProjectAmount: e.target.value }))} /></div>
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
                     <input type="checkbox" checked={sensitiveForm.is1099Eligible} onChange={(e) => setSensitiveForm((f) => ({ ...f, is1099Eligible: e.target.checked }))} />
                     1099 Eligible
                   </label>
                 </>
               )}
-              <div className="field"><label>Payment Method</label><input value={sensitiveForm.paymentMethod} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentMethod: e.target.value }))} placeholder="e.g. Direct Deposit, Check" /></div>
+              <div className="field"><label htmlFor="emp-sensitive-payment-method">Payment Method</label><input id="emp-sensitive-payment-method" value={sensitiveForm.paymentMethod} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentMethod: e.target.value }))} placeholder="e.g. Direct Deposit, Check" /></div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "8px 0" }}>
                 <input type="checkbox" checked={sensitiveForm.directDeposit} onChange={(e) => setSensitiveForm((f) => ({ ...f, directDeposit: e.target.checked }))} />
                 Direct Deposit
               </label>
-              <div className="field"><label>Bank Name</label><input value={sensitiveForm.paymentBankName} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentBankName: e.target.value }))} /></div>
-              <div className="field"><label>Routing Number</label><input value={sensitiveForm.paymentRoutingNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentRoutingNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
-              <div className="field"><label>Account Number</label><input value={sensitiveForm.paymentAccountNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
-              <div className="field"><label>Account Type</label><input value={sensitiveForm.paymentAccountType} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountType: e.target.value }))} placeholder="Checking / Savings" /></div>
+              <div className="field"><label htmlFor="emp-sensitive-bank-name">Bank Name</label><input id="emp-sensitive-bank-name" value={sensitiveForm.paymentBankName} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentBankName: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="emp-sensitive-routing-number">Routing Number</label><input id="emp-sensitive-routing-number" value={sensitiveForm.paymentRoutingNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentRoutingNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
+              <div className="field"><label htmlFor="emp-sensitive-account-number">Account Number</label><input id="emp-sensitive-account-number" value={sensitiveForm.paymentAccountNumber} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountNumber: e.target.value }))} placeholder="Leave blank to keep current" /></div>
+              <div className="field"><label htmlFor="emp-sensitive-account-type">Account Type</label><input id="emp-sensitive-account-type" value={sensitiveForm.paymentAccountType} onChange={(e) => setSensitiveForm((f) => ({ ...f, paymentAccountType: e.target.value }))} placeholder="Checking / Savings" /></div>
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button type="submit" className="btn btn-primary" disabled={sensitiveSaving}>{sensitiveSaving ? "Saving…" : "Save changes"}</button>
                 <button type="button" className="btn" onClick={() => setEditingSensitive(false)}>Cancel</button>
@@ -896,12 +896,12 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
                     <td colSpan={4} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 220 }}>
-                          <label>Signer's Full Legal Name</label>
-                          <input value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
+                          <label htmlFor={`emp-gov-signer-name-${f.filing_id}`}>Signer's Full Legal Name</label>
+                          <input id={`emp-gov-signer-name-${f.filing_id}`} value={signInPersonForm.signerName} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerName: e.target.value }))} />
                         </div>
                         <div className="field" style={{ maxWidth: 160 }}>
-                          <label>Title (optional)</label>
-                          <input value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
+                          <label htmlFor={`emp-gov-signer-title-${f.filing_id}`}>Title (optional)</label>
+                          <input id={`emp-gov-signer-title-${f.filing_id}`} value={signInPersonForm.signerTitle} onChange={(e) => setSignInPersonForm((s) => ({ ...s, signerTitle: e.target.value }))} />
                         </div>
                         <button
                           type="button" className="btn btn-primary btn-sm"
@@ -920,14 +920,14 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
                     <td colSpan={4} style={{ background: "var(--surface)" }}>
                       <div style={{ padding: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <div className="field" style={{ maxWidth: 200 }}>
-                          <label>Status</label>
-                          <select value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
+                          <label htmlFor={`emp-gov-submitted-via-${f.filing_id}`}>Status</label>
+                          <select id={`emp-gov-submitted-via-${f.filing_id}`} value={submitForm.submittedVia} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedVia: e.target.value }))}>
                             {GOV_SUBMIT_VIA_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
                           </select>
                         </div>
                         <div className="field" style={{ maxWidth: 260 }}>
-                          <label>Note (optional)</label>
-                          <input value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
+                          <label htmlFor={`emp-gov-submitted-note-${f.filing_id}`}>Note (optional)</label>
+                          <input id={`emp-gov-submitted-note-${f.filing_id}`} value={submitForm.submittedNote} onChange={(e) => setSubmitForm((s) => ({ ...s, submittedNote: e.target.value }))} />
                         </div>
                         <button type="button" className="btn btn-primary btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => handleSubmitted(f)}>
                           {busy === `submit-${f.filing_id}` ? "Saving…" : "Confirm"}

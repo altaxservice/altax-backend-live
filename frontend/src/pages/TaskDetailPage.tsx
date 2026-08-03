@@ -350,9 +350,9 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
               <FileDropInput file={file} onChange={setFile} />
             </div>
           ) : (
-            <div className="field" style={{ margin: 0, flex: "2 1 240px" }}><label>File Link</label><input required value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="Drive link or other URL" /></div>
+            <div className="field" style={{ margin: 0, flex: "2 1 240px" }}><label htmlFor="td-file-link">File Link</label><input id="td-file-link" required value={fileUrl} onChange={(e) => setFileUrl(e.target.value)} placeholder="Drive link or other URL" /></div>
           )}
-          <div className="field" style={{ margin: 0, flex: "1 1 160px" }}><label>File Name</label><input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder={mode === "browse" ? "Uses the file's own name" : "e.g. Draft return"} /></div>
+          <div className="field" style={{ margin: 0, flex: "1 1 160px" }}><label htmlFor="td-file-name">File Name</label><input id="td-file-name" value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder={mode === "browse" ? "Uses the file's own name" : "e.g. Draft return"} /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Attaching…" : "Attach"}</button>
         </div>
       </form>
@@ -429,16 +429,16 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
         </div>
         {mode === "message" && (
           <div className="field">
-            <label>Recipient</label>
-            <select required value={recipient} onChange={(e) => setRecipient(e.target.value)}>
+            <label htmlFor="task-thread-recipient">Recipient</label>
+            <select id="task-thread-recipient" required value={recipient} onChange={(e) => setRecipient(e.target.value)}>
               <option value="">Select a recipient…</option>
               {staff.map((s) => <option key={s.email} value={s.email}>{s.name} ({s.role})</option>)}
             </select>
           </div>
         )}
         <div className="field">
-          <label>{mode === "note" ? "Note" : "Message"}</label>
-          <textarea rows={3} required value={text} onChange={(e) => setText(e.target.value)} placeholder={mode === "note" ? "Internal note — not sent to anyone." : "Message text"} />
+          <label htmlFor="task-thread-text">{mode === "note" ? "Note" : "Message"}</label>
+          <textarea id="task-thread-text" rows={3} required value={text} onChange={(e) => setText(e.target.value)} placeholder={mode === "note" ? "Internal note — not sent to anyone." : "Message text"} />
         </div>
         <button type="submit" className="btn btn-primary" disabled={sending}>{sending ? "Saving…" : mode === "note" ? "Save Note" : "Send Message"}</button>
       </form>
