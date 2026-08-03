@@ -3916,6 +3916,10 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [offsetAccount, setOffsetAccount] = useState("");
   const [autoMatching, setAutoMatching] = useState(false);
+  // Book Balance and Cleared Balance are both scoped to this same cutoff —
+  // reconcile "as of" a real bank statement date, same as reconciling
+  // against a paper statement. Defaults to today.
+  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa")
@@ -3931,12 +3935,14 @@ function BankRecTab({ clientId }: { clientId: string }) {
   function load() {
     if (!accountName) return;
     setError(null);
-    api.get<BankRecData>(`/bank-rec/${clientId}?accountName=${encodeURIComponent(accountName)}`)
+    const qs = new URLSearchParams({ accountName });
+    if (asOf) qs.set("asOf", asOf);
+    api.get<BankRecData>(`/bank-rec/${clientId}?${qs.toString()}`)
       .then(setData)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load bank reconciliation."));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [clientId, accountName]);
+  useEffect(load, [clientId, accountName, asOf]);
 
   async function handleUpload() {
     if (!file || !accountName) return;
@@ -4014,6 +4020,10 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const assetAccounts = (accounts || []).filter((a) => a.account_type === "Asset" && a.active);
   const nonBankAccounts = (accounts || []).filter((a) => a.active);
   const difference = data ? Math.round((data.bookBalance - data.clearedBalance) * 100) / 100 : 0;
+  const unmatchedBank = data ? data.bankLines.filter((b) => !b.matched_gl_entry_id) : [];
+  const unmatchedGl = data ? data.glCandidates : [];
+  const unmatchedBankTotal = unmatchedBank.reduce((s, b) => s + b.amount, 0);
+  const unmatchedGlTotal = unmatchedGl.reduce((s, g) => s + g.amount, 0);
 
   return (
     <div>
@@ -4023,6 +4033,10 @@ function BankRecTab({ clientId }: { clientId: string }) {
           <select value={accountName} onChange={(e) => setAccountName(e.target.value)}>
             {assetAccounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
           </select>
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="acct-bankrec-as-of">Reconcile As Of</label>
+          <input id="acct-bankrec-as-of" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           <FileDropInput file={file} onChange={setFile} accept=".csv,.xls,.xlsx,.pdf" hint="your bank's own statement export (.csv/.xls/.xlsx/.pdf)" />
@@ -4037,13 +4051,26 @@ function BankRecTab({ clientId }: { clientId: string }) {
 
       {data && (
         <div className="metric-grid" style={{ marginBottom: 16 }}>
-          <div className="metric"><div className="metric-label">Book Balance</div><div className="metric-value">{fmtMoney(data.bookBalance)}</div></div>
-          <div className="metric"><div className="metric-label">Cleared Balance</div><div className="metric-value">{fmtMoney(data.clearedBalance)}</div></div>
+          <div className="metric"><div className="metric-label">Book Balance (as of {fmtDate(asOf)})</div><div className="metric-value">{fmtMoney(data.bookBalance)}</div></div>
+          <div className="metric"><div className="metric-label">Cleared Balance (matched)</div><div className="metric-value">{fmtMoney(data.clearedBalance)}</div></div>
           <div className="metric">
             <div className="metric-label">Difference</div>
             <div className="metric-value" style={{ color: Math.abs(difference) < 0.01 ? "var(--teal)" : "var(--red)" }}>{fmtMoney(difference)}</div>
           </div>
+          <div className="metric">
+            <div className="metric-label">Unmatched Bank Lines</div>
+            <div className="metric-value" style={{ fontSize: 18 }}>{unmatchedBank.length} · {fmtMoney(unmatchedBankTotal)}</div>
+          </div>
+          <div className="metric">
+            <div className="metric-label">Unmatched GL Entries</div>
+            <div className="metric-value" style={{ fontSize: 18 }}>{unmatchedGl.length} · {fmtMoney(unmatchedGlTotal)}</div>
+          </div>
         </div>
+      )}
+      {data && Math.abs(difference) >= 0.01 && (
+        <p className="muted" style={{ fontSize: 12, margin: "-8px 0 16px" }}>
+          Difference should equal the net of everything below still unmatched as of this date — match or create an entry for each one until it's $0.00.
+        </p>
       )}
 
       {data && (

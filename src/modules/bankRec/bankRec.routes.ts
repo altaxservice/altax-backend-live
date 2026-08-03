@@ -161,13 +161,23 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const accountName = String(req.query.accountName || "").trim();
   if (!accountName) return res.status(400).json({ error: "accountName is required." });
+  // "As of" scopes Book Balance and Cleared Balance to the SAME cutoff date
+  // (defaults to today client-side) — without this, Book Balance was every
+  // GL entry ever posted while Cleared Balance was only what happened to be
+  // matched so far, so Difference could never reach zero for an account with
+  // any real history and staff learned to ignore it. Reconciling "as of" a
+  // real statement date is what actually makes the two comparable.
+  const asOf = String(req.query.asOf || "").trim();
+  const asOfClause = asOf ? " AND entry_date <= $3" : "";
+  const asOfClauseBank = asOf ? " AND statement_date <= $3" : "";
+  const params: any[] = asOf ? [clientId, accountName, asOf] : [clientId, accountName];
 
   const bankLines = await query<any>(
     `SELECT line_id, statement_date, description, amount, matched_gl_entry_id
        FROM altax.v3_bank_statement_lines
-      WHERE client_id = $1 AND account_name = $2
+      WHERE client_id = $1 AND account_name = $2${asOfClauseBank}
       ORDER BY statement_date ASC`,
-    [clientId, accountName]
+    params
   );
 
   // GL entries for this account not yet claimed by any bank line — candidates to
@@ -176,19 +186,19 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
   const glCandidates = await query<any>(
     `SELECT gl_entry_id, entry_date, description, ref, (debit - credit) AS amount
        FROM altax.v3_gl_entries g
-      WHERE client_id = $1 AND account = $2
+      WHERE client_id = $1 AND account = $2${asOfClause}
         AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines b WHERE b.matched_gl_entry_id = g.gl_entry_id)
       ORDER BY entry_date ASC`,
-    [clientId, accountName]
+    params
   );
 
   const bookBalanceRow = await queryOne<any>(
-    `SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM altax.v3_gl_entries WHERE client_id = $1 AND account = $2`,
-    [clientId, accountName]
+    `SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM altax.v3_gl_entries WHERE client_id = $1 AND account = $2${asOfClause}`,
+    params
   );
   const clearedBalanceRow = await queryOne<any>(
-    `SELECT COALESCE(SUM(amount), 0) AS balance FROM altax.v3_bank_statement_lines WHERE client_id = $1 AND account_name = $2 AND matched_gl_entry_id IS NOT NULL`,
-    [clientId, accountName]
+    `SELECT COALESCE(SUM(amount), 0) AS balance FROM altax.v3_bank_statement_lines WHERE client_id = $1 AND account_name = $2 AND matched_gl_entry_id IS NOT NULL${asOfClauseBank}`,
+    params
   );
 
   res.json({
