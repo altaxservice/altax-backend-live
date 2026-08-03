@@ -26,13 +26,25 @@ function ineligibleReasonFor(e: PickerEmployee): string | null {
   return null;
 }
 
+interface CompanyEnrollState {
+  expanded: boolean;
+  frequency: string;
+  anchorDate: string;
+  employees: PickerEmployee[] | null;
+  selected: Set<string>;
+}
+
+function emptyCompanyState(): CompanyEnrollState {
+  return { expanded: false, frequency: "Biweekly", anchorDate: "", employees: null, selected: new Set() };
+}
+
 /**
- * "Select employees for Auto Payroll" — mirrors QuickBooks Online's own
- * enrollment picker rather than making staff visit every employee's profile
- * one at a time. One client + one pay schedule (frequency + next payday) is
- * picked once and applied to every employee checked; each still gets its
- * own independent schedule row under the hood, so editing one later never
- * touches the others.
+ * "Select Employees for Auto Payroll" — organized by company first: each
+ * client is its own expandable section rather than a dropdown you must pick
+ * before any employee ever shows up. Open a company, pick its pay schedule,
+ * check whoever should be on it. Multiple companies can be open and
+ * enrolled in the same visit, each keeping its own frequency/next-payday
+ * since two client companies essentially never share a payday.
  */
 function EnrollAutoPayrollModal({ alreadyEnrolledIds, onClose, onEnrolled }: { alreadyEnrolledIds: Set<string>; onClose: () => void; onEnrolled: () => void }) {
   const notify = useNotify();
@@ -41,11 +53,7 @@ function EnrollAutoPayrollModal({ alreadyEnrolledIds, onClose, onEnrolled }: { a
   useFocusTrap(panelRef, true);
 
   const [clients, setClients] = useState<Client[] | null>(null);
-  const [clientId, setClientId] = useState("");
-  const [employees, setEmployees] = useState<PickerEmployee[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [frequency, setFrequency] = useState<string>("Biweekly");
-  const [anchorDate, setAnchorDate] = useState("");
+  const [companies, setCompanies] = useState<Record<string, CompanyEnrollState>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,37 +61,58 @@ function EnrollAutoPayrollModal({ alreadyEnrolledIds, onClose, onEnrolled }: { a
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => setClients([]));
   }, []);
 
-  useEffect(() => {
-    if (!clientId) { setEmployees(null); return; }
-    setEmployees(null);
-    setSelected(new Set());
-    api.get<{ employees: PickerEmployee[] }>(`/accounting/employees/${clientId}`)
-      .then((res) => setEmployees(res.employees))
-      .catch(() => setEmployees([]));
-  }, [clientId]);
-
-  function toggle(id: string) {
-    setSelected((s) => {
-      const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+  function companyState(clientId: string): CompanyEnrollState {
+    return companies[clientId] || emptyCompanyState();
   }
 
+  function updateCompany(clientId: string, patch: Partial<CompanyEnrollState>) {
+    setCompanies((prev) => ({ ...prev, [clientId]: { ...companyState(clientId), ...patch } }));
+  }
+
+  function toggleExpand(clientId: string) {
+    const current = companyState(clientId);
+    const nextExpanded = !current.expanded;
+    updateCompany(clientId, { expanded: nextExpanded });
+    if (nextExpanded && current.employees === null) {
+      api.get<{ employees: PickerEmployee[] }>(`/accounting/employees/${clientId}`)
+        .then((res) => updateCompany(clientId, { employees: res.employees }))
+        .catch(() => updateCompany(clientId, { employees: [] }));
+    }
+  }
+
+  function toggleEmployee(clientId: string, employeeId: string) {
+    const current = companyState(clientId);
+    const next = new Set(current.selected);
+    next.has(employeeId) ? next.delete(employeeId) : next.add(employeeId);
+    updateCompany(clientId, { selected: next });
+  }
+
+  const totalSelected = Object.values(companies).reduce((sum, c) => sum + c.selected.size, 0);
+  const missingAnchorDate = Object.values(companies).some((c) => c.selected.size > 0 && !c.anchorDate);
+
   async function handleSubmit() {
-    if (!clientId || !selected.size || !anchorDate) return;
+    if (!totalSelected || missingAnchorDate) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.post<{ succeeded: number; failed: number; results: { employeeId: string; ok: boolean; error?: string }[] }>(
-        "/accounting/payroll-agent/schedules/bulk",
-        { clientId, employeeIds: Array.from(selected), frequency, anchorDate }
-      );
+      const entries = Object.entries(companies).filter(([, c]) => c.selected.size > 0);
+      const results = await Promise.all(entries.map(([clientId, c]) =>
+        api.post<{ succeeded: number; failed: number; results: { employeeId: string; ok: boolean; error?: string }[] }>(
+          "/accounting/payroll-agent/schedules/bulk",
+          { clientId, employeeIds: Array.from(c.selected), frequency: c.frequency, anchorDate: c.anchorDate }
+        ).catch((err) => ({
+          succeeded: 0, failed: c.selected.size,
+          results: [{ employeeId: "", ok: false, error: err instanceof ApiError ? err.message : "Request failed." }],
+        }))
+      ));
+      const succeeded = results.reduce((s, r) => s + r.succeeded, 0);
+      const failed = results.reduce((s, r) => s + r.failed, 0);
+      const failMessages = results.flatMap((r) => r.results.filter((x) => !x.ok).map((x) => x.error)).filter(Boolean);
       onEnrolled();
       onClose();
-      await notify(res.failed
-        ? `Enrolled ${res.succeeded} of ${selected.size}. ${res.failed} couldn't be enrolled: ${res.results.filter((r) => !r.ok).map((r) => r.error).join(" ")}`
-        : `Enrolled ${res.succeeded} employee${res.succeeded === 1 ? "" : "s"} in Auto-Draft Payroll.`);
+      await notify(failed
+        ? `Enrolled ${succeeded} of ${totalSelected}. ${failed} couldn't be enrolled: ${failMessages.join(" ")}`
+        : `Enrolled ${succeeded} employee${succeeded === 1 ? "" : "s"} in Auto-Draft Payroll.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not enroll these employees.");
     } finally {
@@ -91,75 +120,93 @@ function EnrollAutoPayrollModal({ alreadyEnrolledIds, onClose, onEnrolled }: { a
     }
   }
 
-  const eligible = (employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && !ineligibleReasonFor(e));
-  const ineligible = (employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && ineligibleReasonFor(e));
-  const alreadyEnrolled = (employees || []).filter((e) => alreadyEnrolledIds.has(e.employee_id));
-
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="enroll-auto-payroll-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="enroll-auto-payroll-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="enroll-auto-payroll-title">Select Employees for Auto Payroll</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+          Open a company below to set its pay schedule and pick which employees to enroll. You can enroll employees from more than one company in the same visit.
+        </p>
 
-        <div className="field">
-          <label htmlFor="enroll-client">Client</label>
-          <select id="enroll-client" value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Select a client…</option>
-            {(clients || []).map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-          </select>
-        </div>
+        {!clients ? (
+          <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
+        ) : clients.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13 }}>No clients found.</p>
+        ) : (
+          <div style={{ maxHeight: 440, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+            {clients.map((c) => {
+              const state = companyState(c.client_id);
+              const eligible = (state.employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && !ineligibleReasonFor(e));
+              const alreadyEnrolled = (state.employees || []).filter((e) => alreadyEnrolledIds.has(e.employee_id));
+              const ineligible = (state.employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && ineligibleReasonFor(e));
+              return (
+                <div key={c.client_id} style={{ borderBottom: "1px solid var(--line)" }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(c.client_id)}
+                    aria-expanded={state.expanded}
+                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                  >
+                    <span style={{ fontSize: 11, display: "inline-block", transform: state.expanded ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}>▶</span>
+                    <span style={{ fontWeight: 700, flex: 1 }}>{c.client_name}</span>
+                    {state.selected.size > 0 && <span className="status-pill status-green">{state.selected.size} selected</span>}
+                  </button>
 
-        {clientId && (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div className="field">
-                <label htmlFor="enroll-frequency">Pay schedule</label>
-                <select id="enroll-frequency" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
-                  {SCHEDULE_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="enroll-anchor-date">Next payday</label>
-                <input id="enroll-anchor-date" type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
-              </div>
-            </div>
+                  {state.expanded && (
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                        <div className="field" style={{ margin: 0 }}>
+                          <label htmlFor={`enroll-frequency-${c.client_id}`}>Pay schedule</label>
+                          <select id={`enroll-frequency-${c.client_id}`} value={state.frequency} onChange={(e) => updateCompany(c.client_id, { frequency: e.target.value })}>
+                            {SCHEDULE_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
+                          </select>
+                        </div>
+                        <div className="field" style={{ margin: 0 }}>
+                          <label htmlFor={`enroll-anchor-date-${c.client_id}`}>Next payday</label>
+                          <input id={`enroll-anchor-date-${c.client_id}`} type="date" value={state.anchorDate} onChange={(e) => updateCompany(c.client_id, { anchorDate: e.target.value })} />
+                        </div>
+                      </div>
 
-            <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "12px 0 6px" }}>
-              Who's on this schedule?
-            </div>
-            {!employees ? (
-              <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
-            ) : eligible.length === 0 && alreadyEnrolled.length === 0 && ineligible.length === 0 ? (
-              <p className="muted" style={{ fontSize: 13 }}>No employees found for this client.</p>
-            ) : (
-              <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
-                {eligible.map((e) => (
-                  <label key={e.employee_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-                    <input type="checkbox" checked={selected.has(e.employee_id)} onChange={() => toggle(e.employee_id)} />
-                    {e.employee_name}
-                  </label>
-                ))}
-                {alreadyEnrolled.map((e) => (
-                  <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
-                    <input type="checkbox" checked disabled />
-                    {e.employee_name} — already enrolled
-                  </div>
-                ))}
-                {ineligible.map((e) => (
-                  <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
-                    <input type="checkbox" disabled />
-                    {e.employee_name} — {ineligibleReasonFor(e)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+                      {state.employees === null ? (
+                        <p className="muted" style={{ fontSize: 13 }}>Loading employees…</p>
+                      ) : eligible.length === 0 && alreadyEnrolled.length === 0 && ineligible.length === 0 ? (
+                        <p className="muted" style={{ fontSize: 13 }}>No employees found for this client.</p>
+                      ) : (
+                        <div style={{ border: "1px solid var(--line)", borderRadius: 8 }}>
+                          {eligible.map((e) => (
+                            <label key={e.employee_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+                              <input type="checkbox" checked={state.selected.has(e.employee_id)} onChange={() => toggleEmployee(c.client_id, e.employee_id)} />
+                              {e.employee_name}
+                            </label>
+                          ))}
+                          {alreadyEnrolled.map((e) => (
+                            <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                              <input type="checkbox" checked disabled />
+                              {e.employee_name} — already enrolled
+                            </div>
+                          ))}
+                          {ineligible.map((e) => (
+                            <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                              <input type="checkbox" disabled />
+                              {e.employee_name} — {ineligibleReasonFor(e)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 16 }}>
+          {missingAnchorDate && totalSelected > 0 && <span className="muted" style={{ fontSize: 12.5, marginRight: "auto" }}>Set a next payday for each company you're enrolling.</span>}
           <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" disabled={submitting || !selected.size || !anchorDate} onClick={handleSubmit}>
-            {submitting ? "Enrolling…" : `Enroll${selected.size ? ` ${selected.size}` : ""} Employee${selected.size === 1 ? "" : "s"}`}
+          <button type="button" className="btn btn-primary" disabled={submitting || !totalSelected || missingAnchorDate} onClick={handleSubmit}>
+            {submitting ? "Enrolling…" : `Enroll${totalSelected ? ` ${totalSelected}` : ""} Employee${totalSelected === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>
