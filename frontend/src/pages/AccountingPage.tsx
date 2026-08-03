@@ -224,6 +224,8 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
 function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [sales, setSales] = useState<any[]>([]);
   const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
   const [form, setForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
@@ -643,7 +645,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             {viewing.notes && <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>{viewing.notes}</p>}
             <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               <button type="button" className="btn btn-sm btn-primary" onClick={() => { startEdit(viewing); setViewing(null); }}>Edit This Sale</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(viewing)}>Delete This Sale</button>
+              {isAdmin && <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(viewing)}>Delete This Sale</button>}
             </div>
           </div>
         )}
@@ -702,7 +704,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                   </td>
                   <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
                     <button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button>
-                    <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(s)}>Delete</button>
+                    {isAdmin && <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(s)}>Delete</button>}
                   </td>
                 </tr>
               ))}
@@ -750,6 +752,8 @@ function SalesRow({ label, value, bold }: { label: string; value: string; bold?:
 function PayrollTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [viewingPayCheck, setViewingPayCheck] = useState<any | null>(null);
   // Edit/delete live here as well as on the Paychecks tab. Sending someone to
   // another tab to correct the row they are already looking at is the kind of
@@ -1083,9 +1087,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button type="submit" className="btn btn-primary" disabled={editSaving}>{editSaving ? "Saving…" : "Save & Recalculate"}</button>
               <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
-              <button type="button" className="btn btn-sm btn-danger" disabled={deleting === editing.paycheck_id} onClick={() => handleDelete(editing)}>
-                {deleting === editing.paycheck_id ? "Deleting…" : "Delete"}
-              </button>
+              {isAdmin && (
+                <button type="button" className="btn btn-sm btn-danger" disabled={deleting === editing.paycheck_id} onClick={() => handleDelete(editing)}>
+                  {deleting === editing.paycheck_id ? "Deleting…" : "Delete"}
+                </button>
+              )}
             </div>
           </form>
         )}
@@ -1119,9 +1125,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               <button type="button" className="btn btn-sm" onClick={() => startEdit(viewingPayCheck)}>Edit</button>
-              <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingPayCheck.paycheck_id} onClick={() => handleDelete(viewingPayCheck)}>
-                {deleting === viewingPayCheck.paycheck_id ? "Deleting…" : "Delete"}
-              </button>
+              {isAdmin && (
+                <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingPayCheck.paycheck_id} onClick={() => handleDelete(viewingPayCheck)}>
+                  {deleting === viewingPayCheck.paycheck_id ? "Deleting…" : "Delete"}
+                </button>
+              )}
             </div>
             <p className="muted" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 0 }}>
               The Paychecks tab prints the paystub for this record.
@@ -1145,9 +1153,11 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
                       read-only card underneath the form that just appeared. */}
                   <td style={{ whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>{" "}
-                    <button type="button" className="btn btn-sm btn-danger" disabled={deleting === p.paycheck_id} onClick={() => handleDelete(p)}>
-                      {deleting === p.paycheck_id ? "…" : "Delete"}
-                    </button>
+                    {isAdmin && (
+                      <button type="button" className="btn btn-sm btn-danger" disabled={deleting === p.paycheck_id} onClick={() => handleDelete(p)}>
+                        {deleting === p.paycheck_id ? "…" : "Delete"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1462,7 +1472,22 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
       setResults(byIndex);
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not run this batch.");
+      // A batch where every row failed still comes back with a real per-row
+      // "results" array explaining why each one did — the backend just sends
+      // it alongside a 400 instead of a 2xx, so it lands here instead of the
+      // try block above. Render it the same way rather than only showing the
+      // generic top-level message and throwing away exactly the detail
+      // someone needs to fix their input and resubmit.
+      const rowResults = err instanceof ApiError && err.body && typeof err.body === "object" ? (err.body as any).results : undefined;
+      if (Array.isArray(rowResults)) {
+        const byIndex: Record<string, BatchPayrollResult> = {};
+        rowResults.forEach((r: any, i: number) => {
+          byIndex[rows[i].key] = r.ok ? { ok: true, paycheckId: r.paycheckId, netPay: Number(r.netPay) || 0 } : { ok: false, error: r.error };
+        });
+        setResults(byIndex);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Could not run this batch.");
+      }
     } finally {
       setBusy(false);
     }
@@ -1666,7 +1691,17 @@ function ImportTab({ clientId }: { clientId: string }) {
       const res = await api.post<{ results: ImportResultRow[] }>("/import/commit", { clientId, kind: preview.kind, rows });
       setResults(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not run this import.");
+      // A fully-failed import still comes back with a real per-row "results"
+      // array explaining why each one failed — the backend sends it alongside
+      // a 400 instead of a 2xx when nothing succeeded, so it lands here
+      // instead of the try block above. Render it the same way rather than
+      // only showing the generic top-level message.
+      const rowResults = err instanceof ApiError && err.body && typeof err.body === "object" ? (err.body as any).results : undefined;
+      if (Array.isArray(rowResults)) {
+        setResults(rowResults);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Could not run this import.");
+      }
     } finally {
       setBusy(false);
     }
@@ -2149,20 +2184,20 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <ErrorBanner error={error} />}
           <div className="field">
-            <label>Contractor</label>
-            <select required value={form.contractorId} onChange={(e) => setForm((f) => ({ ...f, contractorId: e.target.value }))}>
+            <label htmlFor="acct-se-contractor">Contractor</label>
+            <select id="acct-se-contractor" required value={form.contractorId} onChange={(e) => setForm((f) => ({ ...f, contractorId: e.target.value }))}>
               <option value="">Select a contractor…</option>
               {contractors.map((c) => <option key={c.employee_id} value={c.employee_id}>{c.employee_name}</option>)}
             </select>
           </div>
           {contractors.length === 0 && <p className="muted" style={{ marginTop: -6 }}>No contractor profiles yet — use "Add Contractor" above first.</p>}
           <div className="field"><label htmlFor="acct-se-amount">Amount</label><input id="acct-se-amount" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="acct-se-payment-date-2">Payment Date</label><input id="acct-se-payment-date-2" type="date" value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="acct-se-payment-date-2">Payment Date</label><input id="acct-se-payment-date-2" type="date" required value={form.paymentDate} onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label htmlFor="acct-se-method">Method</label><select id="acct-se-method" value={form.method} onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
             <div className="field">
-              <label>1099 Eligible</label>
-              <select value={form.eligible1099 ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
+              <label htmlFor="acct-se-1099-eligible">1099 Eligible</label>
+              <select id="acct-se-1099-eligible" value={form.eligible1099 ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
                 <option value="yes">Yes</option><option value="no">No</option>
               </select>
             </div>
@@ -2170,8 +2205,8 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             <div className="field"><label htmlFor="acct-se-confirmation-number">Confirmation #</label><input id="acct-se-confirmation-number" value={form.confirmationNumber} onChange={(e) => setForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
           </div>
           <div className="field">
-            <label>Payment Profile (bank info for the check)</label>
-            <select value={form.paymentMethodId} onChange={(e) => setForm((f) => ({ ...f, paymentMethodId: e.target.value }))}>
+            <label htmlFor="acct-se-payment-profile">Payment Profile (bank info for the check)</label>
+            <select id="acct-se-payment-profile" value={form.paymentMethodId} onChange={(e) => setForm((f) => ({ ...f, paymentMethodId: e.target.value }))}>
               <option value="">No bank profile — free-text method only</option>
               {paymentMethods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name} ({m.method_type})</option>)}
             </select>
@@ -2204,12 +2239,12 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             <strong>Edit payment — {editing.contractor_name}</strong>
             {editError && <ErrorBanner error={editError} />}
             <div className="field"><label htmlFor="acct-se-edit-amount">Amount</label><input id="acct-se-edit-amount" type="number" step="0.01" required value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="acct-se-edit-payment-date-2">Payment Date</label><input id="acct-se-edit-payment-date-2" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="acct-se-edit-payment-date-2">Payment Date</label><input id="acct-se-edit-payment-date-2" type="date" required value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label htmlFor="acct-se-edit-method">Method</label><select id="acct-se-edit-method" value={editForm.method} onChange={(e) => setEditForm((f) => ({ ...f, method: e.target.value }))}>{CONTRACTOR_PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></div>
               <div className="field">
-                <label>1099 Eligible</label>
-                <select value={editForm.eligible1099 ? "yes" : "no"} onChange={(e) => setEditForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
+                <label htmlFor="acct-se-edit-1099-eligible">1099 Eligible</label>
+                <select id="acct-se-edit-1099-eligible" value={editForm.eligible1099 ? "yes" : "no"} onChange={(e) => setEditForm((f) => ({ ...f, eligible1099: e.target.value === "yes" }))}>
                   <option value="yes">Yes</option><option value="no">No</option>
                 </select>
               </div>
@@ -2217,8 +2252,8 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
               <div className="field"><label htmlFor="acct-se-edit-confirmation-number">Confirmation #</label><input id="acct-se-edit-confirmation-number" value={editForm.confirmationNumber} onChange={(e) => setEditForm((f) => ({ ...f, confirmationNumber: e.target.value }))} /></div>
             </div>
             <div className="field">
-              <label>Payment Profile</label>
-              <select value={editForm.paymentMethodId} onChange={(e) => setEditForm((f) => ({ ...f, paymentMethodId: e.target.value }))}>
+              <label htmlFor="acct-se-edit-payment-profile">Payment Profile</label>
+              <select id="acct-se-edit-payment-profile" value={editForm.paymentMethodId} onChange={(e) => setEditForm((f) => ({ ...f, paymentMethodId: e.target.value }))}>
                 <option value="">No bank profile — free-text method only</option>
                 {paymentMethods.map((m) => <option key={m.payment_method_id} value={m.payment_method_id}>{m.method_name} ({m.method_type})</option>)}
               </select>
@@ -2269,15 +2304,15 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
         <Panel title="1099-NEC">
           <form onSubmit={handlePrintNec} style={{ padding: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
             <div className="field" style={{ margin: 0, minWidth: 220 }}>
-              <label>Contractor</label>
-              <select required value={necContractorId} onChange={(e) => setNecContractorId(e.target.value)}>
+              <label htmlFor="acct-se-nec-contractor">Contractor</label>
+              <select id="acct-se-nec-contractor" required value={necContractorId} onChange={(e) => setNecContractorId(e.target.value)}>
                 <option value="">Select a contractor…</option>
                 {contractors.map((c) => <option key={c.employee_id} value={c.employee_id}>{c.employee_name}</option>)}
               </select>
             </div>
             <div className="field" style={{ margin: 0 }}>
-              <label>Tax Year</label>
-              <input type="number" value={necYear} onChange={(e) => setNecYear(e.target.value)} style={{ width: 90 }} />
+              <label htmlFor="acct-se-nec-year">Tax Year</label>
+              <input id="acct-se-nec-year" type="number" value={necYear} onChange={(e) => setNecYear(e.target.value)} style={{ width: 90 }} />
             </div>
             <button type="button" className="btn" disabled={viewingNec || !necContractorId} onClick={handleViewNec}>{viewingNec ? "Generating…" : "View 1099-NEC"}</button>
             <button type="submit" className="btn btn-primary" disabled={printingNec || !necContractorId}>{printingNec ? "Generating…" : "Download 1099-NEC"}</button>
@@ -2296,6 +2331,8 @@ function jeTotal(entry: any, side: "debit" | "credit"): number {
 function ManualJeTab({ clientId }: { clientId: string }) {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
@@ -2445,7 +2482,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
                 <label>Account</label>
                 <select required value={line.account} onChange={(e) => updateLine(i, { account: e.target.value })}>
                   <option value="">Choose…</option>
-                  {accounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+                  {line.account && !accounts.some((a) => a.active && a.account_name === line.account) && (
+                    <option value={line.account}>{line.account} (Inactive)</option>
+                  )}
+                  {accounts.filter((a) => a.active).map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
                 </select>
               </div>
               {/* A line with both Debit and Credit filled isn't a real entry — it's
@@ -2503,14 +2543,22 @@ function ManualJeTab({ clientId }: { clientId: string }) {
                 </tbody>
               </table>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => startEditJe(viewingJe)}>
-              Edit This Entry
-            </button>
-            <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteJe(viewingJe)}>
-              Delete This Entry
-            </button>
-            </div>
+            {isAdmin ? (
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => startEditJe(viewingJe)}>
+                Edit This Entry
+              </button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteJe(viewingJe)}>
+                Delete This Entry
+              </button>
+              </div>
+            ) : (
+              // Editing/deleting a manual JE deletes-then-reposts under the hood, and
+              // that delete step is admin-only server-side — a staff user hitting this
+              // would post the replacement, then 403 on removing the original, leaving
+              // a duplicate posting live. Hidden here rather than left to fail partway.
+              <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>Only an admin can edit or delete a posted entry.</p>
+            )}
           </div>
         )}
         <div className="scroll-list">
@@ -2547,6 +2595,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
   const [entries, setEntries] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [viewingRef, setViewingRef] = useState<string | null>(initialRef || null);
+  const [viewingRefLines, setViewingRefLines] = useState<any[] | null>(null);
   const [accountFilter, setAccountFilter] = useState(initialAccount || "");
   // Deep links (Trial Balance rows) must not have their target hidden by the
   // default this-month window — the entry they point at can be any age.
@@ -2600,10 +2649,18 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
       filtered as unknown as Record<string, unknown>[]
     );
   }
-  // Every line of the entry the user clicked, taken from what is already loaded
-  // rather than a second fetch — the ref is the key appendGl writes for all
-  // lines of one posting.
-  const refLines = viewingRef ? entries.filter((g) => g.ref === viewingRef) : [];
+  // Every line of the entry the user clicked — fetched fresh by ref rather than
+  // read from the (possibly account-filtered) `entries` list above, so a
+  // multi-line entry can't show as short a leg or two just because the current
+  // Account filter happens to exclude one of its accounts. See the backend's
+  // GET /gl/:clientId?ref= handling for why this ignores the active filters.
+  useEffect(() => {
+    if (!viewingRef) { setViewingRefLines(null); return; }
+    api.get<{ glEntries: any[] }>(`/accounting/gl/${clientId}?ref=${encodeURIComponent(viewingRef)}`)
+      .then((r) => setViewingRefLines(r.glEntries))
+      .catch(() => setViewingRefLines([]));
+  }, [clientId, viewingRef]);
+  const refLines = viewingRefLines || [];
   const refDebit = refLines.reduce((sum, l) => sum + Number(l.debit || 0), 0);
   const refCredit = refLines.reduce((sum, l) => sum + Number(l.credit || 0), 0);
 
@@ -2651,35 +2708,41 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
             </div>
             <button type="button" className="btn btn-sm" onClick={() => setViewingRef(null)}>Close</button>
           </div>
-          <div className="table-scroll" style={{ marginTop: 10 }}>
-            <table>
-              <thead><tr><th scope="col">Account</th><th scope="col">Description</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th></tr></thead>
-              <tbody>
-                {refLines.map((l, i) => (
-                  <tr key={l.gl_entry_id || i}>
-                    <td>{l.account}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{l.description}</td>
-                    <td style={{ textAlign: "right" }}>{Number(l.debit) ? fmtMoney(l.debit) : "—"}</td>
-                    <td style={{ textAlign: "right" }}>{Number(l.credit) ? fmtMoney(l.credit) : "—"}</td>
-                  </tr>
-                ))}
-                <tr>
-                  <td style={{ fontWeight: 700 }}>Total</td>
-                  <td />
-                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refDebit)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refCredit)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p
-            className="muted"
-            style={{ fontSize: 12, marginTop: 8, color: Math.abs(refDebit - refCredit) < 0.005 ? undefined : "var(--red)", fontWeight: Math.abs(refDebit - refCredit) < 0.005 ? undefined : 700 }}
-          >
-            {Math.abs(refDebit - refCredit) < 0.005
-              ? "This entry balances."
-              : `OUT OF BALANCE by ${fmtMoney(Math.abs(refDebit - refCredit))} — see Reports → Trial Balance.`}
-          </p>
+          {viewingRefLines === null ? (
+            <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>Loading…</p>
+          ) : (
+            <>
+              <div className="table-scroll" style={{ marginTop: 10 }}>
+                <table>
+                  <thead><tr><th scope="col">Account</th><th scope="col">Description</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th></tr></thead>
+                  <tbody>
+                    {refLines.map((l, i) => (
+                      <tr key={l.gl_entry_id || i}>
+                        <td>{l.account}</td>
+                        <td className="muted" style={{ fontSize: 12 }}>{l.description}</td>
+                        <td style={{ textAlign: "right" }}>{Number(l.debit) ? fmtMoney(l.debit) : "—"}</td>
+                        <td style={{ textAlign: "right" }}>{Number(l.credit) ? fmtMoney(l.credit) : "—"}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td style={{ fontWeight: 700 }}>Total</td>
+                      <td />
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refDebit)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(refCredit)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p
+                className="muted"
+                style={{ fontSize: 12, marginTop: 8, color: Math.abs(refDebit - refCredit) < 0.005 ? undefined : "var(--red)", fontWeight: Math.abs(refDebit - refCredit) < 0.005 ? undefined : 700 }}
+              >
+                {Math.abs(refDebit - refCredit) < 0.005
+                  ? "This entry balances."
+                  : `OUT OF BALANCE by ${fmtMoney(Math.abs(refDebit - refCredit))} — see Reports → Trial Balance.`}
+              </p>
+            </>
+          )}
         </div>
       )}
       <div className="table-scroll">
@@ -2715,6 +2778,8 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
 function PaychecksTab({ clientId }: { clientId: string }) {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [viewingCheck, setViewingCheck] = useState<any | null>(null);
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -2890,9 +2955,11 @@ function PaychecksTab({ clientId }: { clientId: string }) {
               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                 <button type="button" className="btn btn-sm" onClick={() => handleView(viewingCheck)}>View Paystub</button>
                 <button type="button" className="btn btn-sm" onClick={() => { startEdit(viewingCheck); setViewingCheck(null); }}>Edit</button>
-                <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingCheck.paycheck_id} onClick={() => handleDelete(viewingCheck)}>
-                  {deleting === viewingCheck.paycheck_id ? "Deleting…" : "Delete"}
-                </button>
+                {isAdmin && (
+                  <button type="button" className="btn btn-sm btn-danger" disabled={deleting === viewingCheck.paycheck_id} onClick={() => handleDelete(viewingCheck)}>
+                    {deleting === viewingCheck.paycheck_id ? "Deleting…" : "Delete"}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2904,7 +2971,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
           <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
           <tbody>
             {paychecks.map((p) => (
-              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
+              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
@@ -2933,9 +3000,11 @@ function PaychecksTab({ clientId }: { clientId: string }) {
                     {printing === p.paycheck_id ? "Generating…" : "Download"}
                   </button>
                   <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>
-                  <button type="button" className="btn btn-sm btn-danger" disabled={deleting === p.paycheck_id} onClick={() => handleDelete(p)}>
-                    {deleting === p.paycheck_id ? "Deleting…" : "Delete"}
-                  </button>
+                  {isAdmin && (
+                    <button type="button" className="btn btn-sm btn-danger" disabled={deleting === p.paycheck_id} onClick={() => handleDelete(p)}>
+                      {deleting === p.paycheck_id ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -3028,6 +3097,17 @@ function MonthEndTab({ clientId }: { clientId: string }) {
     }
   }
 
+  async function saveNotes(item: MonthEndItem, notes: string) {
+    if (notes === (item.notes || "")) return;
+    setItems((prev) => prev && prev.map((i) => (i.item_name === item.item_name ? { ...i, notes } : i)));
+    try {
+      await api.post(`/accounting/month-end/${clientId}/items`, { period, itemName: item.item_name, category: item.category, status: item.status, notes });
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this note.");
+      load();
+    }
+  }
+
   return (
     <Panel
       title="Month-End Close Checklist"
@@ -3044,7 +3124,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
       {items && (
         <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col"></th><th scope="col">Item</th><th scope="col">Category</th><th scope="col">Completed By</th><th scope="col">Completed At</th></tr></thead>
+          <thead><tr><th scope="col"></th><th scope="col">Item</th><th scope="col">Category</th><th scope="col">Notes</th><th scope="col">Completed By</th><th scope="col">Completed At</th></tr></thead>
           <tbody>
             {items.map((item) => {
               const isDone = item.status.toLowerCase() === "done";
@@ -3053,6 +3133,16 @@ function MonthEndTab({ clientId }: { clientId: string }) {
                   <td><input type="checkbox" checked={isDone} disabled={saving === item.item_name} onChange={() => toggleItem(item)} /></td>
                   <td style={{ textDecoration: isDone ? "line-through" : "none" }}>{item.item_name}</td>
                   <td className="muted">{item.category || "—"}</td>
+                  <td>
+                    <input
+                      aria-label={`Notes for ${item.item_name}`}
+                      defaultValue={item.notes || ""}
+                      key={item.notes || ""}
+                      placeholder="Add a note…"
+                      style={{ fontSize: 12.5, width: "100%", minWidth: 140 }}
+                      onBlur={(e) => saveNotes(item, e.target.value.trim())}
+                    />
+                  </td>
                   <td className="muted">{item.completed_by || "—"}</td>
                   <td className="muted">{item.completed_at ? new Date(item.completed_at).toLocaleDateString() : "—"}</td>
                 </tr>
@@ -3129,8 +3219,11 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
     }
   }
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     setSaved(false);
+    setLoadError(null);
     api.get<{ checkSettings: CheckSettings | null }>(`/accounting/check-settings/${clientId}`).then((r) => {
       setSettings(r.checkSettings);
       if (r.checkSettings) {
@@ -3147,7 +3240,14 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
       } else {
         setForm({ ...EMPTY_CHECK_FORM });
       }
-    }).catch(() => {});
+    }).catch((err) => {
+      // A failed load used to silently leave the form at its blank default —
+      // indistinguishable from "this client has no check settings yet". Save
+      // was still enabled, so clicking it would upsert blanks over whatever
+      // calibration was actually on file. Surface the failure and block
+      // saving until a reload actually succeeds.
+      setLoadError(err instanceof ApiError ? err.message : "Could not load check settings.");
+    });
   }, [clientId]);
 
   async function handleSubmit(e: FormEvent) {
@@ -3169,6 +3269,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
       <Panel title="Check Settings" note={settings?.updated_at ? `Last updated ${fmtDate(settings.updated_at)}${settings.updated_by ? ` by ${settings.updated_by}` : ""}` : "No calibration saved yet for this client"}>
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
+          {loadError && <ErrorBanner error={loadError} />}
           {error && <ErrorBanner error={error} />}
           {saved && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>Check settings saved.</div>}
           <p className="muted" style={{ marginTop: -4 }}>
@@ -3189,7 +3290,7 @@ function CheckSettingsTab({ clientId }: { clientId: string }) {
             </div>
           ))}
           <div className="field"><label htmlFor="acct-cst-notes">Notes</label><textarea id="acct-cst-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Check Settings"}</button>
+          <button type="submit" className="btn btn-primary" disabled={saving || !!loadError} title={loadError ? "Fix the load error above before saving" : undefined}>{saving ? "Saving…" : "Save Check Settings"}</button>
         </form>
       </Panel>
       <div>
@@ -3228,7 +3329,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [form941Quarter, setForm941Quarter] = useState("1");
+  const [form941Quarter, setForm941Quarter] = useState(() => String(Math.floor(new Date().getMonth() / 3) + 1));
 
   function load() {
     setLoading(true);
@@ -3372,7 +3473,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
   );
 }
 
-const TAX_RATE_FORM_DEFAULTS = { rateId: "", rateType: "", rate: "", scope: "Global", clientId: "", employeeEmployer: "", wageCap: "", state: "", notes: "", active: true };
+const TAX_RATE_FORM_DEFAULTS = { rowId: "", rateId: "", rateType: "", rate: "", scope: "Global", clientId: "", employeeEmployer: "", wageCap: "", state: "", notes: "", active: true };
 
 function TaxRatesTab() {
   const confirmDialog = useConfirm();
@@ -3404,7 +3505,13 @@ function TaxRatesTab() {
         .some((v) => String(v || "").toLowerCase().includes(q));
     });
   }, [rates, rateSearch, showInactiveRates]);
-  useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients))
+      // Previously silent — a failed load left the Client dropdown (required
+      // for a Client-scoped rate) permanently empty with no indication why.
+      .catch((e) => notify(e instanceof ApiError ? e.message : "Could not load the client list — the Client dropdown below will be empty."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function startCreate() {
     setForm(TAX_RATE_FORM_DEFAULTS);
@@ -3413,6 +3520,7 @@ function TaxRatesTab() {
   }
   function startEdit(r: TaxRate) {
     setForm({
+      rowId: String(r.tax_rate_row_id || ""),
       rateId: r.rate_id, rateType: r.rate_type, rate: String(r.rate ?? ""), scope: r.scope || "Global",
       clientId: r.client_id || "", employeeEmployer: r.employee_employer || "", wageCap: r.wage_cap != null ? String(r.wage_cap) : "",
       state: r.state || "", notes: r.notes || "", active: r.active,
@@ -3894,7 +4002,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
   );
 }
 
-interface BankLine { line_id: string; statement_date: string; description: string | null; amount: number; matched_gl_entry_id: string | null }
+interface BankLine { line_id: string; statement_date: string; description: string | null; amount: number; matched_gl_entry_id: string | null; matched_gl_description: string | null; matched_gl_date: string | null }
 interface GlCandidate { gl_entry_id: string; entry_date: string; description: string | null; ref: string | null; amount: number }
 interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; bookBalance: number; clearedBalance: number }
 
@@ -3920,6 +4028,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [offsetAccount, setOffsetAccount] = useState("");
   const [autoMatching, setAutoMatching] = useState(false);
+  const [showMatched, setShowMatched] = useState(false);
   // Book Balance and Cleared Balance are both scoped to this same cutoff —
   // reconcile "as of" a real bank statement date, same as reconciling
   // against a paper statement. Defaults to today.
@@ -4018,6 +4127,21 @@ function BankRecTab({ clientId }: { clientId: string }) {
       load();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not delete this line.");
+    }
+  }
+
+  // Undoing a mis-click used to mean deleting the whole bank statement line —
+  // permanently destroying the record of that transaction instead of just
+  // reversing the match. Unmatch (the backend route already existed) puts
+  // both sides back in their respective unmatched lists with nothing lost.
+  async function handleUnmatch(lineId: string) {
+    const ok = await confirmDialog({ title: "Unmatch", message: "This bank line and its matched GL entry both go back to Unmatched." });
+    if (!ok) return;
+    try {
+      await api.post(`/bank-rec/${lineId}/unmatch`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not unmatch this line.");
     }
   }
 
@@ -4154,6 +4278,39 @@ function BankRecTab({ clientId }: { clientId: string }) {
               {!data.glCandidates.length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing unmatched.</p>}
             </div>
           </div>
+        </div>
+      )}
+
+      {data && (
+        <div className="card" style={{ marginTop: 12, padding: 0, overflow: "hidden" }}>
+          <div
+            style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+            onClick={() => setShowMatched((v) => !v)}
+            tabIndex={0}
+            role="button"
+            aria-expanded={showMatched}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowMatched((v) => !v); } }}
+          >
+            <span>Matched ({data.bankLines.filter((b) => b.matched_gl_entry_id).length})</span>
+            <span className="muted" aria-hidden="true">{showMatched ? "▾" : "▸"}</span>
+          </div>
+          {showMatched && (
+            <div style={{ maxHeight: 320, overflowY: "auto", borderTop: "1px solid var(--line)" }}>
+              {data.bankLines.filter((b) => b.matched_gl_entry_id).map((b) => (
+                <div key={b.line_id} style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 13 }}>{b.description || "—"} <span className="muted">→</span> {b.matched_gl_description || "—"}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>Bank: {fmtDate(b.statement_date)}{b.matched_gl_date ? ` · GL: ${fmtDate(b.matched_gl_date)}` : ""}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontWeight: 700 }}>{fmtMoney(b.amount)}</span>
+                    <button className="btn btn-sm" onClick={() => handleUnmatch(b.line_id)}>Unmatch</button>
+                  </div>
+                </div>
+              ))}
+              {!data.bankLines.some((b) => b.matched_gl_entry_id) && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing matched yet.</p>}
+            </div>
+          )}
         </div>
       )}
 

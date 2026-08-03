@@ -91,6 +91,12 @@ monthEndRouter.post("/:clientId/items", requireAuth, requireRole("admin", "staff
   if (!itemName) return res.status(400).json({ error: "itemName is required." });
   const status = String(body.status || "Not Started").trim();
   const category = String(body.category || "").trim() || null;
+  // Toggling the Done checkbox only ever sends {period, itemName, category,
+  // status} — no notes — so notes must only be touched when the caller
+  // actually included the field, same "provided vs. omitted" distinction
+  // used elsewhere in this app for partial updates. Without it, every
+  // checkbox toggle silently overwrote any existing note with NULL.
+  const notesProvided = Object.prototype.hasOwnProperty.call(body, "notes");
   const notes = String(body.notes || "").trim() || null;
   const isDone = status.toLowerCase() === "done";
 
@@ -101,12 +107,13 @@ monthEndRouter.post("/:clientId/items", requireAuth, requireRole("admin", "staff
 
   if (existing) {
     await query(
-      `UPDATE altax.v3_month_end_items SET status = $2, category = COALESCE($3, category), notes = $4,
+      `UPDATE altax.v3_month_end_items SET status = $2, category = COALESCE($3, category),
+         notes = CASE WHEN $7 THEN $4 ELSE notes END,
          completed_at = CASE WHEN $5 THEN COALESCE(completed_at, now()) ELSE NULL END,
          completed_by = CASE WHEN $5 THEN COALESCE(completed_by, $6) ELSE NULL END,
          updated_at = now()
        WHERE checklist_item_id = $1`,
-      [existing.checklist_item_id, status, category, notes, isDone, req.user!.email]
+      [existing.checklist_item_id, status, category, notes, isDone, req.user!.email, notesProvided]
     );
   } else {
     const checklistItemId = `MEI-${idSuffix()}`;

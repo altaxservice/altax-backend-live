@@ -13,9 +13,15 @@ export function resolveFileUrl(url: string | null | undefined): string {
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  // The full parsed JSON error body, when there was one — most callers only
+  // need `.message`, but a handful of routes (batch payroll, imports) return
+  // per-row detail (a `results` array) alongside a non-2xx status, which
+  // would otherwise be silently dropped on the floor.
+  body: unknown;
+  constructor(message: string, status: number, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -64,7 +70,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!res.ok) {
     if (res.status === 401) setAuthToken(null);
-    throw new ApiError(data?.error || res.statusText || "Request failed", res.status);
+    throw new ApiError(data?.error || res.statusText || "Request failed", res.status, data);
   }
   return data as T;
 }

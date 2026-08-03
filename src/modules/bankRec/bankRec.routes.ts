@@ -172,11 +172,18 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
   const asOfClauseBank = asOf ? " AND statement_date <= $3" : "";
   const params: any[] = asOf ? [clientId, accountName, asOf] : [clientId, accountName];
 
+  // matched_gl_description/matched_gl_date: only populated for already-matched
+  // lines, so the "Matched" section (see BankRecTab) can show what a line is
+  // matched to — previously matched lines were dropped from the UI entirely
+  // once matched, with no way to see or undo a match short of deleting the
+  // bank line outright (which destroys the record instead of just unmatching).
   const bankLines = await query<any>(
-    `SELECT line_id, statement_date, description, amount, matched_gl_entry_id
-       FROM altax.v3_bank_statement_lines
-      WHERE client_id = $1 AND account_name = $2${asOfClauseBank}
-      ORDER BY statement_date ASC`,
+    `SELECT b.line_id, b.statement_date, b.description, b.amount, b.matched_gl_entry_id,
+            g.description AS matched_gl_description, g.entry_date AS matched_gl_date
+       FROM altax.v3_bank_statement_lines b
+       LEFT JOIN altax.v3_gl_entries g ON g.gl_entry_id = b.matched_gl_entry_id
+      WHERE b.client_id = $1 AND b.account_name = $2${asOfClauseBank}
+      ORDER BY b.statement_date ASC`,
     params
   );
 

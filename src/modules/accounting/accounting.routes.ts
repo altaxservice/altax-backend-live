@@ -117,16 +117,25 @@ accountingRouter.post("/tax-rates", requireAuth, requireRole("admin"), asyncHand
   }
   const targetState = String(body.state || "").trim();
 
-  // Match on the SAME tuple the DB's uq_v3_tax_rates_rate_scope_client_state unique
-  // index enforces (rate_id, scope, client_id, state) — matching on rate_id alone
-  // (the pre-Stage-0 behavior) would find a Global row for a DIFFERENT state and
-  // silently overwrite it instead of creating a new state-scoped row.
-  const existing = await queryOne<any>(
-    `SELECT * FROM altax.v3_tax_rates
-      WHERE rate_id = $1 AND COALESCE(state, '') = $4
-        AND (($2 = 'Client' AND client_id = $3) OR ($2 = 'Global' AND (client_id IS NULL OR client_id = '')))`,
-    [rateId, scope, clientId, targetState]
-  );
+  // When editing an existing row, the frontend sends its own tax_rate_row_id —
+  // look that row up directly rather than re-deriving the (rate_id, scope,
+  // client_id, state) tuple from the just-submitted form values. Guessing from
+  // the submitted tuple breaks the moment an edit changes State/Scope/Client in
+  // the same save: the lookup then targets a DIFFERENT tuple than the row being
+  // edited, misses it, and silently INSERTs a new row — leaving the original
+  // active and orphaned instead of being updated.
+  const explicitRowId = String(body.rowId || "").trim();
+  const existing = explicitRowId
+    ? await queryOne<any>(`SELECT * FROM altax.v3_tax_rates WHERE tax_rate_row_id = $1`, [explicitRowId])
+    // No rowId means "create" (or a legacy caller) — match on the SAME tuple the
+    // DB's uq_v3_tax_rates_rate_scope_client_state unique index enforces, same
+    // as before, so re-submitting an unchanged tuple still upserts in place.
+    : await queryOne<any>(
+        `SELECT * FROM altax.v3_tax_rates
+          WHERE rate_id = $1 AND COALESCE(state, '') = $4
+            AND (($2 = 'Client' AND client_id = $3) OR ($2 = 'Global' AND (client_id IS NULL OR client_id = '')))`,
+        [rateId, scope, clientId, targetState]
+      );
 
   const fields = {
     scope, client_id: clientId || null, client_name: clientName || null, rate_type: rateType,
@@ -211,7 +220,7 @@ accountingRouter.post("/coa", requireAuth, requireRole("admin"), asyncHandler(as
   if (!accountName) return res.status(400).json({ error: "Account name is required." });
 
   const accountId = String(body.accountId || "").trim() || `ACCT-${idSuffix()}`;
-  const existing = await queryOne<any>(`SELECT account_id FROM altax.v3_coa WHERE account_id = $1`, [accountId]);
+  const existing = await queryOne<any>(`SELECT account_id, current_balance FROM altax.v3_coa WHERE account_id = $1`, [accountId]);
 
   const fields = {
     account_name: accountName, account_type: String(body.accountType || "Expense").trim(),
@@ -220,7 +229,13 @@ accountingRouter.post("/coa", requireAuth, requireRole("admin"), asyncHandler(as
     active: body.active === undefined ? true : Boolean(body.active),
     notes: String(body.notes || "").trim() || null,
     description: String(body.description || body.notes || "").trim() || null,
-    opening_balance: money(body.openingBalance), current_balance: money(body.currentBalance),
+    opening_balance: money(body.openingBalance),
+    // The frontend's Edit form never sends currentBalance (it's a read-only
+    // display column there, not something editable) — only treat it as a
+    // real update when the caller actually supplied it, otherwise keep
+    // whatever was already on the row. Without this, every edit (even a
+    // notes-only change) silently zeroed the account's displayed balance.
+    current_balance: body.currentBalance !== undefined ? money(body.currentBalance) : (existing ? Number(existing.current_balance) : 0),
     sub_account_of: String(body.subAccountOf || "").trim() || null, tax_line: String(body.taxLine || "").trim() || null,
   };
 
@@ -347,17 +362,22 @@ accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), as
   const rateId = categoryId;
   const rateDecimal = ratePercent / 100;
 
-  // Auto-manage the linked rate: same upsert-by-tuple pattern POST /tax-rates uses,
-  // just always Global scope/no client (a sales tax category isn't a per-client
-  // concept) and keyed to this category's own id instead of a staff-chosen one.
+  // Auto-manage the linked rate — unlike the general Tax Rates screen, rate_id
+  // here IS categoryId, so it uniquely identifies exactly one v3_tax_rates row
+  // for the lifetime of this category. The lookup deliberately does NOT filter
+  // by state: doing so (matching against whatever state was just submitted)
+  // would miss the existing row the moment an edit changes the category's
+  // State, and INSERT a second row sharing the same rate_id instead of
+  // updating — two active rows racing for the same rate_id, with
+  // lookupRate() picking whichever one happens to sort first.
   const existingRate = await queryOne<any>(
-    `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '') AND COALESCE(state, '') = $2`,
-    [rateId, state || ""]
+    `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '')`,
+    [rateId]
   );
   if (existingRate) {
     await query(
-      `UPDATE altax.v3_tax_rates SET rate_type = $2, rate = $3, active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
-      [existingRate.tax_rate_row_id, categoryName, rateDecimal]
+      `UPDATE altax.v3_tax_rates SET rate_type = $2, rate = $3, state = $4, active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
+      [existingRate.tax_rate_row_id, categoryName, rateDecimal, state]
     );
   } else {
     await query(
@@ -1654,8 +1674,14 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
         [lineId, client.client_id, client.client_name, entryDate, ref, description, line.account, line.debit,
           line.credit, line.memo || notes || description, jeId, i + 1]
       );
+      // GL linkage always uses the system-generated jeId, never the user's free-text
+      // Reference — Reference is only stored on v3_manual_je for display. Editing an
+      // entry (see the /:journalEntryId/delete route below) pre-fills Reference with
+      // the ORIGINAL entry's value, so if GL rows were keyed on that instead, the
+      // "delete the old entry" step of an edit would delete the brand-new
+      // replacement's GL postings too, since both would share the same ref.
       await appendGl(client.client_id, client.client_name, {
-        entryDate, ref, description: description || "Manual journal entry", account: line.account,
+        entryDate, ref: jeId, description: description || "Manual journal entry", account: line.account,
         debit: line.debit, credit: line.credit, source: "Manual JE", notes: line.memo || notes || description,
       }, db);
     }
@@ -1714,12 +1740,18 @@ accountingRouter.post("/journal-entries/:journalEntryId/delete", requireAuth, re
     return res.status(400).json({ error: "Type DELETE to confirm removing this journal entry." });
   }
 
-  // GL rows are keyed by the entry's ref, not its id — same key appendGl wrote.
-  const ref = lines[0].ref || journalEntryId;
+  // GL rows are keyed by journal_entry_id (see the create route above) — NOT by
+  // the user-editable Reference field, which an edit-then-replace pre-fills
+  // with the original entry's value and could otherwise collide with the
+  // brand-new replacement's own GL rows. lines[0].ref is still checked as a
+  // fallback for entries posted before this fix, whose GL rows were keyed on
+  // the (then user-supplied) ref instead.
+  const jeKey = lines[0].journal_entry_id || journalEntryId;
+  const legacyRef = lines[0].ref;
   const removedGl = await withTransaction(async (db) => {
     const removed = await db.query<any>(
-      `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Manual JE' RETURNING gl_entry_id`,
-      [ref]
+      `DELETE FROM altax.v3_gl_entries WHERE source = 'Manual JE' AND client_id = $1 AND (ref = $2 OR ref = $3) RETURNING gl_entry_id`,
+      [lines[0].client_id, jeKey, legacyRef]
     );
     await db.query(`DELETE FROM altax.v3_manual_je WHERE journal_entry_id = $1 OR jeid = $1`, [journalEntryId]);
     return removed;
@@ -2082,11 +2114,24 @@ accountingRouter.get("/gl/:clientId", requireAuth, requireRole("admin", "staff")
   const start = String(req.query.start || "").trim();
   const end = String(req.query.end || "").trim();
   const account = String(req.query.account || "").trim();
+  // Fetching one whole entry by its ref deliberately ignores start/end/account —
+  // the point is every line of that posting regardless of which account or
+  // date range happens to be selected in the list view above it. Without this,
+  // the frontend's "view whole entry" card had to reconstruct an entry's lines
+  // from whatever was already loaded in the (possibly account-filtered) list,
+  // so a multi-line entry could show as short one or more legs and falsely
+  // flag as "out of balance" whenever an Account filter was active.
+  const ref = String(req.query.ref || "").trim();
   const conditions = ["client_id = $1"];
   const params: any[] = [clientId];
-  if (start) { params.push(start); conditions.push(`entry_date >= $${params.length}`); }
-  if (end) { params.push(end); conditions.push(`entry_date <= $${params.length}`); }
-  if (account) { params.push(account); conditions.push(`account = $${params.length}`); }
+  if (ref) {
+    params.push(ref);
+    conditions.push(`ref = $${params.length}`);
+  } else {
+    if (start) { params.push(start); conditions.push(`entry_date >= $${params.length}`); }
+    if (end) { params.push(end); conditions.push(`entry_date <= $${params.length}`); }
+    if (account) { params.push(account); conditions.push(`account = $${params.length}`); }
+  }
   const rows = await query(
     `SELECT * FROM altax.v3_gl_entries WHERE ${conditions.join(" AND ")} ORDER BY entry_date DESC NULLS LAST LIMIT 2000`,
     params
