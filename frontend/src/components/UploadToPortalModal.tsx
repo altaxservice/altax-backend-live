@@ -5,6 +5,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface EmployeeOption { employee_id: string; employee_name: string }
 
@@ -29,6 +30,7 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
   onClose: () => void;
   onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(lockedClientId || "");
@@ -106,7 +108,7 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

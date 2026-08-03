@@ -7,6 +7,7 @@ import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { AddressFields } from "./AddressFields";
 import { ErrorBanner } from "./ErrorBanner";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const TERMS_OPTIONS = ["Due on receipt", "Net 15", "Net 30", "Net 60"];
 const TERMS_DAYS: Record<string, number> = { "Due on receipt": 0, "Net 15": 15, "Net 30": 30, "Net 60": 60 };
@@ -66,6 +67,10 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
   const [showRecurring, setShowRecurring] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Disabled while AddRecurringModal is open on top of this one, so Escape closes
+  // just the nested modal instead of both at once.
+  useEscapeToClose(onClose, !showRecurring);
 
   const [rows, setRows] = useState<Row[]>(() => {
     if (editing?.lineItems?.length) {
@@ -216,7 +221,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>{isEdit ? `Edit ${editing!.invoice_id}` : "Create Invoice"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 

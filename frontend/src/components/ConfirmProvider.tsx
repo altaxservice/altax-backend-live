@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useState, type FormEvent, type ReactNode } from "react";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface ConfirmOptions {
   title?: string;
@@ -103,12 +104,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const promptInvalid = pending?.kind === "prompt" && touched && pending.options.required !== false && !value.trim();
 
+  useEscapeToClose(handleCancel, Boolean(pending));
+
   return (
     <ConfirmContext.Provider value={{ confirm, promptFor, notify }}>
       {children}
       {pending && (
         <div className="modal-overlay" onClick={handleCancel}>
-          <div className="modal-panel" style={{ width: "min(440px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" style={{ width: "min(440px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{pending.kind === "notify" ? (pending.options.title || "Notice") : (pending.options.title || (pending.kind === "confirm" ? "Please confirm" : "One more thing"))}</h2>
             </div>

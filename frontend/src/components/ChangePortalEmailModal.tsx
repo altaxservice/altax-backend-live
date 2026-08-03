@@ -4,6 +4,7 @@ import type { PortalUser } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useConfirm } from "./ConfirmProvider";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface RequestResult {
   pendingEmail: string;
@@ -32,6 +33,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
   onClose: () => void;
   onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [user, setUser] = useState<PortalUser | null>(null);
@@ -99,7 +101,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 520, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 520, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Change Sign-In Email</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

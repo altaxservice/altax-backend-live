@@ -59,6 +59,6 @@ export const SUBMIT_VIA_OPTIONS = ["Mail", "Fax", "IRS Online Portal", "Hand-Del
 export const STATUS_COLOR: Record<string, string> = {
   Draft: "var(--muted)",
   Signed: "var(--teal)",
-  Submitted: "var(--good, #1a7f37)",
-  Void: "var(--danger, #cf222e)",
+  Submitted: "var(--green)",
+  Void: "var(--red)",
 };

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { RefreshCw, Download } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { money, STAGE_LABELS, stageForEstimate, type Estimate, type StageLabel } from "../api/estimates";
@@ -112,8 +113,8 @@ export function PipelinePage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
-          <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
+          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
+          <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
           <button className="btn" onClick={() => navigate("/estimates")}>View as List</button>
         </div>
       </div>

@@ -133,7 +133,7 @@ export function CommandPalette() {
 
   return (
     <div className="modal-overlay" style={{ alignItems: "flex-start", paddingTop: "10vh" }} onClick={() => setOpen(false)}>
-      <div className="modal-panel" style={{ width: "min(560px, 100%)", padding: 0, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ width: "min(560px, 100%)", padding: 0, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
           <Search size={18} color="var(--muted)" aria-hidden="true" />
           <input

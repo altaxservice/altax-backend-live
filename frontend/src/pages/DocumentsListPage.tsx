@@ -44,7 +44,7 @@ function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?:
           {/* "Revoke" (not "Remove") — this takes the file back from the client
               too, distinct from the staff-only "Archive" offered in the
               Files Shared Directly section below. */}
-          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} onClick={() => onRemove(uploadId)}>Revoke</button>
+          <button type="button" className="link-button" style={{ color: "var(--red)" }} onClick={() => onRemove(uploadId)}>Revoke</button>
         </>
       )}
       {extra > 0 && <span className="muted"> (+{extra} {t("documents.client.more")})</span>}
@@ -368,7 +368,7 @@ export function DocumentsListPage() {
                       <td data-label={t("documents.client.colAction")}>
                         <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>{t("documents.client.download")}</button>
                         {" "}
-                        <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
+                        <button type="button" className="link-button" style={{ color: "var(--red)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
                           {removingId === u.upload_id ? t("documents.client.removing") : t("documents.client.remove")}
                         </button>
                       </td>
@@ -405,7 +405,7 @@ export function DocumentsListPage() {
                       <td>{r.client_name}</td>
                       <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
-                      <td className={isOverdue(r) ? "muted" : "muted"} data-label="Due" style={isOverdue(r) ? { color: "var(--danger, #cf222e)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
+                      <td className={isOverdue(r) ? "muted" : "muted"} data-label="Due" style={isOverdue(r) ? { color: "var(--red)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status" onClick={(e) => e.stopPropagation()}>
                         {canManage ? (

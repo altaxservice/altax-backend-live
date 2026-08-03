@@ -4,6 +4,7 @@ import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -25,7 +26,7 @@ function inviteStatus(u: PortalUser): string {
 }
 
 function inviteStatusColor(status: string): string | undefined {
-  if (status === "Invite Expired" || status === "Inactive") return "var(--danger, #cf222e)";
+  if (status === "Invite Expired" || status === "Inactive") return "var(--red)";
   if (status === "Needs Invite" || status === "Temp Password") return "var(--teal)";
   return undefined;
 }
@@ -49,6 +50,8 @@ export function UsersPage() {
   const [preparerEdit, setPreparerEdit] = useState<{ userId: string; name: string; ptin: string; cafNumber: string } | null>(null);
   const [preparerSaving, setPreparerSaving] = useState(false);
   const [preparerError, setPreparerError] = useState<string | null>(null);
+
+  useEscapeToClose(() => setPreparerEdit(null), Boolean(preparerEdit));
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -254,7 +257,7 @@ export function UsersPage() {
 
       {preparerEdit && (
         <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
-          <div className="modal-panel" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>PTIN / CAF — {preparerEdit.name}</h2>
               <button className="btn btn-sm" onClick={() => setPreparerEdit(null)}>Close</button>

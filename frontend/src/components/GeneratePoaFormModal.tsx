@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { PoaRepresentative, PoaRepresentativeOption, PoaTaxMatter } from "../api/poaForms";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface Meta {
   formTypes: { value: string; label: string }[];
@@ -27,6 +28,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
   onClose: () => void;
   onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [repOptions, setRepOptions] = useState<PoaRepresentativeOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -100,7 +102,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Generate Authorization Form</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -143,7 +145,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
               <div key={i} className="card" style={{ marginBottom: 10, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <strong style={{ fontSize: 13 }}>{rep.name}</strong>
-                  <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} onClick={() => removeRep(i)}>Remove</button>
+                  <button type="button" className="link-button" style={{ color: "var(--red)" }} onClick={() => removeRep(i)}>Remove</button>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <div className="field" style={{ margin: 0 }}>

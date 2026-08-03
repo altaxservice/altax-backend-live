@@ -5,6 +5,7 @@ import { useToast } from "../components/Toast";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const TRIGGER_COLUMNS = [
   "SalesTaxFrequency", "PayrollFrequency", "PayrollSystem", "PayrollEnabled", "EFTPSEnabled", "MDWithholdingFrequency",
@@ -34,6 +35,10 @@ export function RulesPage() {
 
   const [batchRuleId, setBatchRuleId] = useState<string | null>(null);
   const [showBatchModal, setShowBatchModal] = useState(false);
+
+  // Only for the "no rules yet" fallback panel below — CreateBatchTasksModal handles
+  // its own Escape when rules exist.
+  useEscapeToClose(() => setShowBatchModal(false), showBatchModal && !!rules && rules.length === 0);
 
   function load() {
     Promise.all([
@@ -180,6 +185,8 @@ export function RulesPage() {
         </form>
       )}
 
+      {rules === null && !error && <div className="spinner-wrap">Loading rules…</div>}
+
       {rules && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px 8px" }}>
@@ -239,7 +246,7 @@ export function RulesPage() {
           <CreateBatchTasksModal rules={rules} initialRuleId={batchRuleId || undefined} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
-            <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header"><h2>Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">Add a rule first, then run a batch from it.</p>
             </div>

@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface Tile {
   label: string;
@@ -34,6 +35,7 @@ const UNAVAILABLE: Tile[] = [
 ];
 
 export function CreateModal({ onClose }: { onClose: () => void }) {
+  useEscapeToClose(onClose);
   const { user } = useAuth();
   const navigate = useNavigate();
   const available = TILES.filter((t) => !t.roles || (user && t.roles.includes(user.role)));
@@ -45,7 +47,7 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Create</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

@@ -125,8 +125,8 @@ export function IdleTimeout() {
   const secs = secondsLeft % 60;
 
   return (
-    <div className="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="idle-title">
-      <div className="modal-panel" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="idle-title">Still there?</h2>
         </div>

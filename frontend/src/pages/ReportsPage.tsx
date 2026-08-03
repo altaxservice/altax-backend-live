@@ -501,7 +501,7 @@ export function ReportsPage() {
 
   return (
     <div>
-      <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 24, borderBottom: "1px solid var(--line)", marginBottom: 20, paddingBottom: 6 }}>
+      <div className="no-print" role="tablist" style={{ display: "flex", flexWrap: "wrap", gap: 24, borderBottom: "1px solid var(--line)", marginBottom: 20, paddingBottom: 6 }}>
         {TAB_GROUPS.map((group) => {
           const groupTabs = group.tabs.filter((t) => (visibleTabs as readonly Tab[]).includes(t));
           if (!groupTabs.length) return null;
@@ -510,7 +510,12 @@ export function ReportsPage() {
               <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>{group.label}</div>
               <div style={{ display: "flex", gap: 4 }}>
                 {groupTabs.map((t) => (
-                  <div key={t} onClick={() => setTab(t)} style={{ padding: "6px 12px", fontSize: 14, fontWeight: 500, cursor: "pointer", borderRadius: 8, color: tab === t ? "var(--ink)" : "var(--muted)", background: tab === t ? "var(--teal-soft)" : "transparent" }}>{t}</div>
+                  <button
+                    key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+                    style={{ padding: "6px 12px", fontSize: 14, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "none", font: "inherit", color: tab === t ? "var(--ink)" : "var(--muted)", background: tab === t ? "var(--teal-soft)" : "transparent" }}
+                  >
+                    {t}
+                  </button>
                 ))}
               </div>
             </div>

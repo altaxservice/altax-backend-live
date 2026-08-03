@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { GovFormsMeta } from "../api/govForms";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface EmployeeIdentity {
   employee_id: string; employee_name: string; ssn: string | null;
@@ -12,6 +13,7 @@ interface EmployerIdentity { client_name: string; ein: string | null; street_add
 
 /** Generates Form W-4 for one employee — kept on file with their employer, never sent to the IRS, so there's no "submit via" step beyond marking it signed (see GovFormsSection's shared lifecycle). */
 export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: string; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
   const [meta, setMeta] = useState<GovFormsMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -92,7 +94,7 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Generate Form W-4</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

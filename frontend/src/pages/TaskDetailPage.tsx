@@ -182,19 +182,22 @@ export function TaskDetailPage() {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+      <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {DETAIL_TABS.map((t) => (
-          <div
+          <button
             key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
             style={{
-              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
               color: tab === t ? "var(--ink)" : "var(--muted)",
               borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
             }}
           >
             {t}
-          </div>
+          </button>
         ))}
       </div>
 

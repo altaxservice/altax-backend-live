@@ -4,6 +4,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 /**
  * Direct "drop a file into this client's Documents" flow — for the Clients page's
@@ -15,6 +16,7 @@ import { FileDropInput } from "./FileDropInput";
 export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
   clientId: string; clientName: string; onClose: () => void; onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const [mode, setMode] = useState<"browse" | "link">("browse");
   const [files, setFiles] = useState<File[]>([]);
@@ -79,7 +81,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Send File to {clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

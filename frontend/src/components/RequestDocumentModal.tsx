@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { WebOptions } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const OTHER = "Other";
 
@@ -26,6 +27,7 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
   onClose: () => void;
   onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const [options, setOptions] = useState<WebOptions | null>(null);
   const [requestType, setRequestType] = useState("Document Request");
@@ -71,7 +73,7 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Request Document — {employeeName || clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

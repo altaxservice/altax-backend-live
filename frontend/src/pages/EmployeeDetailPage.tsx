@@ -196,19 +196,22 @@ export function EmployeeDetailPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 4, alignItems: "center", borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+      <div role="tablist" style={{ display: "flex", gap: 4, alignItems: "center", borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {EMPLOYEE_TABS.map((t) => (
-          <div
+          <button
             key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
             style={{
-              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
               color: tab === t ? "var(--ink)" : "var(--muted)",
               borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
             }}
           >
             {t}
-          </div>
+          </button>
         ))}
         {canEdit && String(employee.status || "").toLowerCase() !== "archived" && (
           <button className="btn btn-sm" disabled={statusSaving} onClick={handleToggleStatus} style={{ marginLeft: 4 }}>
@@ -904,7 +907,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
                 <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Archive"}</button>
-                <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
+                <button type="button" className="link-button" style={{ color: "var(--red)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
               </div>
             </div>
           ))}

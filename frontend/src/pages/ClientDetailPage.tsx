@@ -494,19 +494,22 @@ export function ClientDetailPage() {
         </form>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+          <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
             {visibleTabs.map((t) => (
-              <div
+              <button
                 key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
                 onClick={() => { setTab(t); setSearchParams({ tab: t }, { replace: true }); }}
                 style={{
-                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
                   color: tab === t ? "var(--ink)" : "var(--muted)",
                   borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
                 }}
               >
                 {t}
-              </div>
+              </button>
             ))}
           </div>
 
@@ -856,7 +859,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           ) : (
             <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Archive"}</button>
           )}
-          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
+          <button type="button" className="link-button" style={{ color: "var(--red)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
         </td>
       </tr>
     );

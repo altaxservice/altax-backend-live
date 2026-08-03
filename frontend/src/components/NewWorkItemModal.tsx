@@ -6,6 +6,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 type Mode = "task" | "request";
 const OTHER = "Other";
@@ -26,6 +27,7 @@ const OTHER = "Other";
 export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, onClose, onDone }: {
   initialClientId?: string; initialTaskId?: string; initialMode?: Mode; onClose: () => void; onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const [mode, setMode] = useState<Mode>(initialMode || "task");
   const [clients, setClients] = useState<Client[]>([]);
@@ -179,7 +181,7 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>New Work Item</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

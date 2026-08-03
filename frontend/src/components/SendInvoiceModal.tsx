@@ -3,6 +3,7 @@ import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import type { Invoice } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface SendResult { channel: string; ok: boolean; error?: string }
 
@@ -19,6 +20,7 @@ interface SendResult { channel: string; ok: boolean; error?: string }
 export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
   invoice: Invoice; clientEmail: string | null; onClose: () => void;
 }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const [email, setEmail] = useState(clientEmail || "");
   const [cc, setCc] = useState("");
@@ -67,7 +69,7 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Send {invoice.invoice_id}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 
@@ -93,7 +95,7 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
               <div className="card" style={{ marginTop: 8 }}>
                 <h3 style={{ fontSize: 13, margin: "0 0 8px" }}>Send Results</h3>
                 {results.map((r) => (
-                  <div key={r.channel} style={{ fontSize: 13, padding: "3px 0", color: r.ok ? "var(--good, #1a7f37)" : "var(--danger, #cf222e)" }}>
+                  <div key={r.channel} style={{ fontSize: 13, padding: "3px 0", color: r.ok ? "var(--green)" : "var(--red)" }}>
                     {r.ok ? "✓" : "✗"} {r.channel}{r.error ? ` — ${r.error}` : " — sent"}
                   </div>
                 ))}

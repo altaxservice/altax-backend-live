@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { GovFormsMeta, ClientGovFormType } from "../api/govForms";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface ClientIdentity {
   client_id: string; client_name: string; entity_type: string | null;
@@ -44,6 +45,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
   onClose: () => void;
   onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const [meta, setMeta] = useState<GovFormsMeta | null>(null);
   const [identity, setIdentity] = useState<ClientIdentity | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -209,7 +211,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Generate Government Form</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -435,7 +437,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                         <strong style={{ fontSize: 12.5 }}>Shareholder {i + 1}</strong>
                         {shareholders.length > 1 && (
-                          <button type="button" className="link-button" style={{ color: "var(--danger, #cf222e)" }}
+                          <button type="button" className="link-button" style={{ color: "var(--red)" }}
                             onClick={() => setShareholders((prev) => prev.filter((_, j) => j !== i))}>Remove</button>
                         )}
                       </div>

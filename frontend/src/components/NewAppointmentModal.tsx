@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import { ErrorBanner } from "./ErrorBanner";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 function addMinutes(hhmm: string, minutes: number): string {
   const [h, m] = hhmm.split(":").map(Number);
@@ -22,6 +23,7 @@ function addMinutes(hhmm: string, minutes: number): string {
 export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
   clients: Client[]; defaultDate?: string; onClose: () => void; onDone: () => void;
 }) {
+  useEscapeToClose(onClose);
   const today = defaultDate || new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     title: "", clientId: "", contactName: "", contactEmail: "", contactPhone: "",
@@ -69,7 +71,7 @@ export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>New Appointment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">

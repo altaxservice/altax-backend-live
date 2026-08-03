@@ -208,7 +208,7 @@ export function TaskCalendarPage() {
                         </span>
                       )}
                       {dayAppts.length > 0 && (
-                        <span className="status-pill" style={{ fontSize: 10, background: "var(--purple-bg, #ede9fe)", color: "var(--purple, #6d28d9)" }}>
+                        <span className="status-pill" style={{ fontSize: 10, background: "var(--purple-soft)", color: "var(--purple)" }}>
                           {dayAppts.length} appt{dayAppts.length === 1 ? "" : "s"}
                         </span>
                       )}

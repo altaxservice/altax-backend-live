@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { RefreshCw, Download } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
@@ -209,24 +210,27 @@ export function CommunicationsPage() {
 
       {canManage && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-          <div className="no-print" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)" }}>
+          <div className="no-print" role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)" }}>
             {TABS.map((t) => (
-              <div
+              <button
                 key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === t.key}
                 onClick={() => setActiveTab(t.key)}
                 style={{
-                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+                  padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
                   color: activeTab === t.key ? "var(--ink)" : "var(--muted)",
                   borderBottom: activeTab === t.key ? "2px solid var(--teal)" : "2px solid transparent",
                 }}
               >
                 {t.label}
-              </div>
+              </button>
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
-            <button type="button" className="ghost-button" onClick={handleExportStaffCsv}>Export CSV</button>
+            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
+            <button type="button" className="ghost-button" onClick={handleExportStaffCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
             <RunRemindersButton onDone={load} />
           </div>
         </div>
@@ -240,16 +244,18 @@ export function CommunicationsPage() {
 
       {error && <ErrorBanner error={error} />}
 
-      {canManage && activeTab === "staff" && <StaffMessages messages={staffMessages} onSent={load} />}
+      {comms === null && !error && <div className="spinner-wrap">Loading…</div>}
+
+      {comms !== null && canManage && activeTab === "staff" && <StaffMessages messages={staffMessages} onSent={load} />}
 
       {canManage && activeTab === "bulk" && clients.length > 0 && <BulkClientMessage clients={clients} onSent={load} />}
 
-      {!canManage && user && (
+      {comms !== null && !canManage && user && (
         <SelfMessages
           role={user.role}
           clientId={user.clientId || ""}
           clientEmail={user.email}
-          messages={comms || []}
+          messages={comms}
           onSent={load}
         />
       )}

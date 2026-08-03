@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { RefreshCw, Download } from "lucide-react";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
@@ -18,6 +19,7 @@ import type { MdFilingResult } from "../api/calculators";
 import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { exportCsv } from "../components/FilterBar";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -78,19 +80,22 @@ export function AccountingPage() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
+      <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((t) => (
-          <div
+          <button
             key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             style={{
-              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer",
+              padding: "10px 16px", fontSize: 14, fontWeight: 500, cursor: "pointer", border: "none", font: "inherit", background: "transparent",
               color: tab === t ? "var(--ink)" : "var(--muted)",
               borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
             }}
           >
             {t}
-          </div>
+          </button>
         ))}
       </div>
 
@@ -507,8 +512,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
-            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
-            <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
+            <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
+            <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
           </div>
         }
       >
@@ -574,8 +579,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                   <>
                     <div style={{
                       display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 11.5, fontWeight: 700, marginBottom: 10,
-                      background: mdFiling.onTime ? "var(--good-tint, #e6f4ea)" : "var(--danger-tint, #fce8e6)",
-                      color: mdFiling.onTime ? "var(--good, #1a7f37)" : "var(--danger, #cf222e)",
+                      background: mdFiling.onTime ? "var(--green-soft)" : "var(--red-soft)",
+                      color: mdFiling.onTime ? "var(--green)" : "var(--red)",
                     }}>
                       {mdFiling.onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.monthsLate} month${mdFiling.monthsLate === 1 ? "" : "s"} past due`}
                     </div>
@@ -1170,6 +1175,7 @@ function newBatchRow(employee: string, payDate: string, employees: Employee[]): 
  * the rest, and results are shown per row instead of an all-or-nothing outcome.
  */
 function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId: string; employees: Employee[]; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
   const [mode, setMode] = useState<"employees" | "periods">("employees");
   const [sharedPayDate, setSharedPayDate] = useState("");
   const [periodsEmployee, setPeriodsEmployee] = useState("");
@@ -1257,7 +1263,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Batch Create Paychecks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -1356,7 +1362,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
                       <tr key={r.key}>
                         <td>{r.employee}</td>
                         <td>{r.payDate}</td>
-                        <td>{res?.ok ? <span style={{ color: "var(--teal)" }}>Created — net {fmtMoney(res.netPay)}</span> : <span style={{ color: "var(--danger, #b91c1c)" }}>{res?.error || "Failed"}</span>}</td>
+                        <td>{res?.ok ? <span style={{ color: "var(--teal)" }}>Created — net {fmtMoney(res.netPay)}</span> : <span style={{ color: "var(--red)" }}>{res?.error || "Failed"}</span>}</td>
                       </tr>
                     );
                   })}
@@ -1391,7 +1397,7 @@ const SOURCE_LABEL: Record<string, string> = { qbo: "QuickBooks Online", drake: 
 const ACTION_LABEL: Record<string, { text: string; color: string }> = {
   create: { text: "Will create", color: "var(--teal)" },
   update: { text: "Will update existing", color: "var(--muted)" },
-  duplicate: { text: "Already exists — skip", color: "var(--danger, #b91c1c)" },
+  duplicate: { text: "Already exists — skip", color: "var(--red)" },
 };
 
 /**
@@ -1549,7 +1555,7 @@ function ImportTab({ clientId }: { clientId: string }) {
                       <td>
                         {r.ok
                           ? <span style={{ color: "var(--teal)" }}>{r.created === false ? "Updated" : "Created"}{r.netPay != null ? ` — net ${fmtMoney(r.netPay)}` : ""}</span>
-                          : <span style={{ color: "var(--danger, #b91c1c)" }}>{r.error || "Failed"}</span>}
+                          : <span style={{ color: "var(--red)" }}>{r.error || "Failed"}</span>}
                       </td>
                     </tr>
                   ))}
@@ -2378,8 +2384,8 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
           <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
-          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>
-          <button type="button" className="ghost-button" onClick={handleExportCsv}>Export CSV</button>
+          <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
+          <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
         </div>
       }
     >
@@ -2388,7 +2394,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
         <div className="metric"><div className="metric-label">Credits</div><div className="metric-value">{fmtMoney(totalCredit)}</div></div>
         <div className="metric">
           <div className="metric-label">Difference</div>
-          <div className="metric-value" style={{ color: Math.abs(totalDebit - totalCredit) < 0.01 ? undefined : "var(--danger, #cf222e)" }}>{fmtMoney(Math.abs(totalDebit - totalCredit))}</div>
+          <div className="metric-value" style={{ color: Math.abs(totalDebit - totalCredit) < 0.01 ? undefined : "var(--red)" }}>{fmtMoney(Math.abs(totalDebit - totalCredit))}</div>
         </div>
       </div>
       {/* Clicking any line opens the WHOLE entry it belongs to, not just that
@@ -3505,8 +3511,8 @@ function BudgetTab({ clientId }: { clientId: string }) {
       {!data.accounts.length && <p className="muted">No Income/COGS/Expense accounts in the chart of accounts yet — add some on the COA tab first.</p>}
 
       {data.accounts.length > 0 && view === "Entry" && (
-        <div className="card table-wrap">
-          <table className="data-table">
+        <div className="card table-scroll">
+          <table>
             <thead>
               <tr>
                 <th>Account</th>
@@ -3535,8 +3541,8 @@ function BudgetTab({ clientId }: { clientId: string }) {
       )}
 
       {data.accounts.length > 0 && view === "Variance" && (
-        <div className="card table-wrap">
-          <table className="data-table">
+        <div className="card table-scroll">
+          <table>
             <thead>
               <tr>
                 <th>Account</th>

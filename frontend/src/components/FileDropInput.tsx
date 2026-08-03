@@ -100,7 +100,7 @@ export function FileDropInput({ file, onChange, files, onFilesChange, accept, hi
               <button
                 type="button"
                 className="link-button"
-                style={{ color: "var(--danger, #cf222e)", flexShrink: 0 }}
+                style={{ color: "var(--red)", flexShrink: 0 }}
                 onClick={() => onFilesChange!(selected.filter((_, j) => j !== i))}
               >
                 Remove

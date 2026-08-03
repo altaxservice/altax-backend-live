@@ -7,6 +7,7 @@ import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useConfirm } from "./ConfirmProvider";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 interface PreviewResult {
   wouldCreate: number;
@@ -27,6 +28,7 @@ function ruleSortKey(ruleId: string): [number, string] {
 
 /** Mirrors legacy's "Create Batch Tasks" modal — reachable from both the Tasks toolbar and each Rules row's "Run Batch" button. */
 export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [ruleId, setRuleId] = useState(initialRuleId || rules[0]?.rule_id || "");
@@ -171,7 +173,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Create Batch Tasks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -282,7 +284,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
           {" "}Assigned to: {assignedTo || "each client's assigned staff"}.
         </p>
         {!canPreview && !preview && (
-          <p className="muted" style={{ fontSize: 12, color: "var(--danger, #b91c1c)" }}>
+          <p className="muted" style={{ fontSize: 12, color: "var(--red)" }}>
             Fill in {!periodLabel && "Period Label"}{!periodLabel && !dueDate && " and "}{!dueDate && "Agency Due Date"} to review this batch.
           </p>
         )}

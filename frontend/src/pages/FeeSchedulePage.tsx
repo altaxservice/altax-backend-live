@@ -5,6 +5,7 @@ import { useToast } from "../components/Toast";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type FeeItem } from "../api/estimates";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 /**
  * The priced catalog behind every estimate.
@@ -34,6 +35,8 @@ export function FeeSchedulePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [jurisdictionFilter, setJurisdictionFilter] = useStickyState("fees.jurisdiction", "all");
   const [categoryFilter, setCategoryFilter] = useStickyState("fees.category", "all");
+
+  useEscapeToClose(() => setEditing(null), Boolean(editing));
 
   function load() {
     api.get<{ feeItems: FeeItem[] }>("/estimates/fee-items")
@@ -138,9 +141,12 @@ export function FeeSchedulePage() {
         <div className="muted" style={{ fontSize: 12, paddingBottom: 8 }}>{filtered.length} of {(items || []).length} fees</div>
       </div>
 
+      {items === null && !error && <div className="spinner-wrap">Loading fee schedule…</div>}
+
+      {items !== null && (
       <div className="card">
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="table-scroll">
+          <table>
             <thead>
               <tr>
                 <th>Fee</th>
@@ -179,7 +185,7 @@ export function FeeSchedulePage() {
                     <td data-label="Client Price" style={{ textAlign: "right" }}>
                       {price}
                       {item.amount_kind !== "percent" && margin !== 0 && (
-                        <div className="cell-sub" style={{ color: margin > 0 ? "var(--teal)" : "var(--danger, #cf222e)" }}>
+                        <div className="cell-sub" style={{ color: margin > 0 ? "var(--teal)" : "var(--red)" }}>
                           {margin > 0 ? "+" : ""}{money(margin)} margin
                         </div>
                       )}
@@ -198,10 +204,11 @@ export function FeeSchedulePage() {
           </table>
         </div>
       </div>
+      )}
 
       {editing && (
         <div className="modal-overlay" onClick={() => setEditing(null)}>
-          <div className="modal-panel" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editing.fee_item_id ? "Edit Fee" : "Add Fee"}</h2>
               <button className="btn btn-sm" onClick={() => setEditing(null)}>Close</button>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { RefreshCw, Download } from "lucide-react";
 import { api, ApiError, resolveFileUrl, getAuthToken } from "../api/client";
 import { exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -66,8 +67,8 @@ export function SecurityPage() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
-        <button className="btn" onClick={load}>Refresh</button>
-        <button className="btn" onClick={handleExport}>Export CSV</button>
+        <button className="btn" onClick={load}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" />Refresh</button>
+        <button className="btn" onClick={handleExport}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
       </div>
 
       <div className="metric-grid" style={{ marginBottom: 16 }}>

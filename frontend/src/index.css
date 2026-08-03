@@ -16,6 +16,8 @@
   --green-soft: #dcfce7;
   --blue: #1d4ed8;
   --blue-soft: #dbeafe;
+  --purple: #6d28d9;
+  --purple-soft: #ede9fe;
   /* The marketing site's own gold (--color-gold-dark in marketing-site/css/style.css)
      — reused here, not reinvented, so the app's one gold touch (focus rings) is
      genuinely the same brand color a visitor already saw on the public site and

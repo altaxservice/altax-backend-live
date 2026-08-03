@@ -5,6 +5,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type Estimate } from "../api/estimates";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 /**
  * Estimates — the pipeline of businesses being quoted.
@@ -27,6 +28,8 @@ export function EstimatesListPage() {
     street: "", city: "", state: "MD", zip: "",
     entityType: "LLC", businessType: "Restaurant / Carryout", jurisdiction: "Baltimore City", speed: "Standard",
   });
+
+  useEscapeToClose(() => setCreating(false), creating);
 
   function load() {
     api.get<{ estimates: Estimate[] }>("/estimates")
@@ -105,9 +108,12 @@ export function EstimatesListPage() {
         ))}
       </div>
 
+      {estimates === null && !error && <div className="spinner-wrap">Loading estimates…</div>}
+
+      {estimates !== null && (
       <div className="card">
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="table-scroll">
+          <table>
             <thead>
               <tr>
                 <th>Business</th>
@@ -148,10 +154,11 @@ export function EstimatesListPage() {
           </table>
         </div>
       </div>
+      )}
 
       {creating && (
         <div className="modal-overlay" onClick={() => setCreating(false)}>
-          <div className="modal-panel" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>New Estimate</h2>
               <button className="btn btn-sm" onClick={() => setCreating(false)}>Close</button>

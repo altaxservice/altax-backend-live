@@ -17,6 +17,7 @@ import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
@@ -62,6 +63,9 @@ export function TasksListPage() {
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("tasks.sortDir", "asc");
 
   const [showBatchModal, setShowBatchModal] = useState(false);
+  // Only for the "no rules yet" fallback panel below — CreateBatchTasksModal handles
+  // its own Escape when rules exist.
+  useEscapeToClose(() => setShowBatchModal(false), showBatchModal && rules.length === 0);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
   const [showNewWorkItem, setShowNewWorkItem] = useState(searchParams.get("new") === "1");
   const newWorkItemClientId = searchParams.get("clientId") || undefined;
@@ -513,7 +517,7 @@ export function TasksListPage() {
           <CreateBatchTasksModal rules={rules} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
-            <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header"><h2>Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">No task rules exist yet. Create one on the Rules page first.</p>
             </div>

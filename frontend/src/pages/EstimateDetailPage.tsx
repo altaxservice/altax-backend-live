@@ -307,7 +307,7 @@ export function EstimateDetailPage() {
           <h2 style={{ fontSize: 15, margin: 0 }}>Estimate Lines</h2>
           <div style={{ display: "flex", gap: 8 }}>
             {!locked && selectedLines.size > 0 && (
-              <button className="btn btn-sm" style={{ color: "var(--danger, #cf222e)" }} onClick={removeSelectedLines}>
+              <button className="btn btn-sm" style={{ color: "var(--red)" }} onClick={removeSelectedLines}>
                 Remove Selected ({selectedLines.size})
               </button>
             )}
@@ -323,8 +323,8 @@ export function EstimateDetailPage() {
           />
         )}
 
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="table-scroll">
+          <table>
             <thead>
               <tr>
                 {!locked && (
@@ -404,7 +404,7 @@ export function EstimateDetailPage() {
                     </td>
                     {!locked && (
                       <td style={{ textAlign: "right" }}>
-                        <button className="link-button" style={{ color: "var(--danger, #cf222e)" }}
+                        <button className="link-button" style={{ color: "var(--red)" }}
                           onClick={() => { setLines((p) => p.filter((_, j) => j !== i)); setDirty(true); }}>
                           Remove
                         </button>
@@ -444,7 +444,7 @@ export function EstimateDetailPage() {
           <Row label="Margin on pass-throughs" value={money(totals.passThroughMargin)} bold />
           <Row label="Real revenue on this job" value={money(totals.serviceTotal + totals.passThroughMargin)} bold />
           {totals.unremitted > 0 && (
-            <p style={{ fontSize: 12, marginTop: 10, color: "var(--danger, #cf222e)" }}>
+            <p style={{ fontSize: 12, marginTop: 10, color: "var(--red)" }}>
               {money(totals.unremitted)} collected for agencies is not yet marked as paid.
             </p>
           )}

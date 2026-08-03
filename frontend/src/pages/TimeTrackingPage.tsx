@@ -164,9 +164,12 @@ export function TimeTrackingPage() {
         </div>
       )}
 
+      {entries === null && !error && <div className="spinner-wrap">Loading time entries…</div>}
+
+      {entries !== null && (
       <div className="card">
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="table-scroll">
+          <table>
             <thead>
               <tr>
                 <th>Date</th>
@@ -215,6 +218,7 @@ export function TimeTrackingPage() {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

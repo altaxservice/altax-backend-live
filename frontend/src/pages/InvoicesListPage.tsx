@@ -16,6 +16,7 @@ import { AddRecurringModal } from "../components/AddRecurringModal";
 import { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
 
 export { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 
@@ -585,6 +586,7 @@ export function InvoicesListPage() {
 }
 
 function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
@@ -617,7 +619,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
@@ -652,6 +654,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
 }
 
 function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: { invoices: Invoice[]; clientName: (id: string) => string; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
@@ -687,7 +690,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2>Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">
