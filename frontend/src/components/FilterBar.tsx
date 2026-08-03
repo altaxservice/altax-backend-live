@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { RefreshCw, Download, CalendarRange } from "lucide-react";
 
 interface SelectFilter {
   label: string;
@@ -58,11 +59,16 @@ export function FilterBar({ search, selects = [], period, onRefresh, refreshing,
           <label className="filter-control">To
             <input type="date" value={period.end} onChange={(e) => period.onEndChange(e.target.value)} />
           </label>
-          <button className="ghost-button" type="button" onClick={period.onActiveView}>Active View</button>
+          <button className="ghost-button" type="button" onClick={period.onActiveView}><CalendarRange size={13} strokeWidth={2} aria-hidden="true" />Active View</button>
         </>
       )}
-      {onRefresh && <button className="ghost-button" type="button" disabled={refreshing} onClick={onRefresh}>{refreshing ? "Refreshing…" : "Refresh"}</button>}
-      {onExportCsv && <button className="ghost-button" type="button" onClick={onExportCsv}>Export CSV</button>}
+      {onRefresh && (
+        <button className="ghost-button" type="button" disabled={refreshing} onClick={onRefresh}>
+          <RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      )}
+      {onExportCsv && <button className="ghost-button" type="button" onClick={onExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>}
       {children}
     </div>
   );

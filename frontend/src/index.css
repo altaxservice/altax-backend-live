@@ -95,6 +95,12 @@ textarea:focus-visible, [tabindex]:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .btn-loading::before { animation: none; border-top-color: currentColor; opacity: 0.5; }
 }
+/* Spins an inline icon (e.g. the Refresh icon while a refresh is in flight) — same
+   rotation as .btn-loading's pseudo-element spinner, just applied to a real icon. */
+.icon-spin { animation: btn-spin 0.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .icon-spin { animation: none; }
+}
 .btn-primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 .btn-primary:hover { opacity: 0.92; border-color: var(--teal); }
 .btn-danger { color: var(--red); }
@@ -289,6 +295,7 @@ select.action-menu { color: var(--muted); font-weight: 600; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
 }
 .action-button { border: 1px solid var(--teal); background: var(--teal); color: #ffffff; }
 .ghost-button { border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
@@ -612,6 +619,14 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .topbar-cmdk-hint:hover { color: var(--ink); }
 .topbar-cmdk-hint:hover kbd { border-color: var(--focus); background: color-mix(in srgb, var(--focus) 16%, transparent); }
+
+/* Gold's second real job: the keyboard-selected row inside the ⌘K palette this
+   badge opens. Every other "selected" state in the app (active tab, active nav
+   item, hovered dropdown row) is teal — that's the general-purpose selection
+   color. This one spot is deliberately gold instead, so the accent that says
+   "there's a keyboard shortcut here" carries through into the shortcut's own
+   result list, rather than gold being a one-off badge with no follow-through. */
+.cmdk-row-active { background: color-mix(in srgb, var(--focus) 14%, transparent); border-left: 2px solid var(--focus); padding-left: 16px !important; }
 
 /* Client/employee language switch — always visible (never folded into the ⋮ tray,
    where nobody found it) and teal-accented so it reads as a real feature. Shows the

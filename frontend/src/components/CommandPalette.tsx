@@ -166,10 +166,7 @@ export function CommandPalette() {
                   className={i === activeIndex ? "cmdk-row-active" : ""}
                   onMouseEnter={() => setActiveIndex(i)}
                   onClick={() => activate(row)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "9px 18px", cursor: "pointer",
-                    background: i === activeIndex ? "var(--teal-soft)" : "transparent",
-                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 18px", cursor: "pointer" }}
                 >
                   <Icon size={15} color="var(--muted)" aria-hidden="true" style={{ flexShrink: 0 }} />
                   <div style={{ minWidth: 0 }}>
