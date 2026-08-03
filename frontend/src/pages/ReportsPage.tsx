@@ -13,6 +13,12 @@ import type { MdFilingResult } from "../api/calculators";
 const TABS = ["Financial Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
+/** Sentinel clientId value meaning "no single client — aggregate across the whole
+ * firm." Only meaningful on the Financial Overview tab; every other tab needs a
+ * real client and falls back to the "pick a client" empty state if this leaks in
+ * (see the tab-change effect below, which clears it when leaving that tab). */
+const FIRM_WIDE = "__FIRM_WIDE__";
+
 /** Groups the flat 10-tab strip into labeled clusters — a flat row this long wrapped
  * unpredictably and gave no visual signal it was still one control. */
 const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
@@ -137,10 +143,21 @@ export function ReportsPage() {
     if (user?.role !== "admin" || tab !== "Financial Overview" || !clientId) return;
     setFirmSummary(null);
     setFirmError(null);
-    api.get<FirmSummary>(`/reports/firm-summary?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`)
+    const clientQuery = clientId === FIRM_WIDE ? "" : `&clientId=${encodeURIComponent(clientId)}`;
+    api.get<FirmSummary>(`/reports/firm-summary?from=${from}&to=${to}${clientQuery}`)
       .then(setFirmSummary)
-      .catch(() => setFirmError("Could not load this client's overview."));
+      .catch(() => setFirmError(clientId === FIRM_WIDE ? "Could not load the firm-wide overview." : "Could not load this client's overview."));
   }, [user, tab, clientId, from, to]);
+
+  // FIRM_WIDE only makes sense on the Financial Overview tab. If the user picked
+  // "All Clients" there and then switches to a client-scoped tab (P&L, Payroll,
+  // etc.), fall back to whatever the app's globally-remembered client is (or
+  // empty) rather than leaving an invalid sentinel selected.
+  useEffect(() => {
+    if (tab !== "Financial Overview" && clientId === FIRM_WIDE) {
+      setClientId(globalClientId || "");
+    }
+  }, [tab, clientId, globalClientId]);
 
   useEffect(() => {
     if (!clientId || (tab !== "Payroll" && tab !== "Employee")) return;
@@ -194,7 +211,10 @@ export function ReportsPage() {
   }, [clientId, tab, from, to, mdPaidDate]);
 
   useEffect(() => {
-    if (!clientId) return;
+    // FIRM_WIDE isn't a real client — every tab that actually reads `entries`/
+    // `filtered` (P&L, Balance Sheet, etc.) requires a real client anyway, so
+    // there's nothing here for Financial Overview's firm-wide mode to use.
+    if (!clientId || clientId === FIRM_WIDE) return;
     setLoading(true);
     api.get<{ glEntries: any[] }>(`/accounting/gl/${clientId}`)
       .then((r) => setEntries(r.glEntries))
@@ -320,8 +340,13 @@ export function ReportsPage() {
 
   function handleClientChange(id: string) {
     setClientId(id);
+    // FIRM_WIDE isn't a real client — don't stomp the app's globally-remembered
+    // "last selected client" (other pages like Accounting/Billing read that).
+    if (id === FIRM_WIDE) return;
     setSelectedClient(id || null, clients.find((c) => c.client_id === id)?.client_name);
   }
+
+  const isFirmWide = tab === "Financial Overview" && clientId === FIRM_WIDE;
 
   /** Firm Overview month row -> that month's P&L. `month` is "YYYY-MM". */
   function openMonthDetail(month: string) {
@@ -377,9 +402,11 @@ export function ReportsPage() {
     const key = `firm-${mode}`;
     setReportBusy(key);
     try {
-      const path = `/reports/pdf/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`;
+      const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
+      const path = `/reports/pdf/firm-overview?from=${from}&to=${to}${clientQuery}`;
+      const filenameId = isFirmWide ? "Firm" : clientId;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, `Overview_${clientId}_${from}_${to}.pdf`);
+      else await downloadFile(path, `Overview_${filenameId}_${from}_${to}.pdf`);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
@@ -391,7 +418,9 @@ export function ReportsPage() {
     if (!clientId) return;
     setReportBusy("firm-csv");
     try {
-      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}&clientId=${encodeURIComponent(clientId)}`, `Overview_${clientId}_${from}_${to}.csv`);
+      const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
+      const filenameId = isFirmWide ? "Firm" : clientId;
+      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}${clientQuery}`, `Overview_${filenameId}_${from}_${to}.csv`);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -498,6 +527,7 @@ export function ReportsPage() {
               <label htmlFor="rep-client">Client</label>
               <select id="rep-client" value={clientId} onChange={(e) => handleClientChange(e.target.value)}>
                 <option value="">Select a client…</option>
+                {tab === "Financial Overview" && <option value={FIRM_WIDE}>All Clients (Firm-Wide)</option>}
                 {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
               </select>
             </div>
@@ -509,14 +539,14 @@ export function ReportsPage() {
 
           {!clientId && <p className="muted">Pick a client to generate their financial reports.</p>}
 
-          {clientId && client && (
+          {clientId && (client || isFirmWide) && (
             <>
               <div className="command-panel" style={{ marginBottom: 16 }}>
                 <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
                   <div>
-                    <h2 className="command-panel-title">{client.client_name}</h2>
+                    <h2 className="command-panel-title">{isFirmWide ? "All Clients (Firm-Wide)" : client!.client_name}</h2>
                     <div className="command-panel-note">
-                      {tab === "Financial Overview" ? `Revenue/expense trend from general-ledger activity, ${from} – ${to}.` : "Financial statements are generated from general-ledger activity for the selected period."}
+                      {tab === "Financial Overview" ? `Revenue/expense trend from general-ledger activity, ${from} – ${to}.${isFirmWide && firmSummary?.activeClientCount != null ? ` ${firmSummary.activeClientCount} active client${firmSummary.activeClientCount === 1 ? "" : "s"}.` : ""}` : "Financial statements are generated from general-ledger activity for the selected period."}
                     </div>
                   </div>
                   {/* "Preview / Print" rather than the old "Print Report": this opens the
@@ -534,9 +564,13 @@ export function ReportsPage() {
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
                         {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
                       </button>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
-                        {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
-                      </button>
+                      {/* No single client to email a firm-wide roll-up to — Preview/Download/
+                          CSV still work firm-wide since they don't need a recipient. */}
+                      {!isFirmWide && (
+                        <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
+                          {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
+                        </button>
+                      )}
                     </div>
                   ) : REPORT_PDF_SEGMENT[tab] && (
                     <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -580,15 +614,24 @@ export function ReportsPage() {
                   {firmSummary && (
                     <>
                       <div className="metric-grid" style={{ marginBottom: 20 }}>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
+                        {/* Revenue/Expenses/Net Profit normally drill into that ONE client's GL —
+                            not meaningful firm-wide (no single client to open), so the click is
+                            disabled in that mode rather than jumping to a broken/empty GL filter. */}
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
                         <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/billing")}><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
+                        {isFirmWide && firmSummary.activeClientCount != null && (
+                          <div className="metric"><div className="metric-label">Active Clients</div><div className="metric-value">{firmSummary.activeClientCount}</div></div>
+                        )}
                       </div>
                       <div className="command-panel">
                         <div className="command-panel-header">
                           <h2 className="command-panel-title">Monthly Trend</h2>
-                          <div className="command-panel-note">Click a month to open its P&amp;L · {firmSummary.unpaidInvoiceCount} unpaid invoice{firmSummary.unpaidInvoiceCount === 1 ? "" : "s"}</div>
+                          <div className="command-panel-note">
+                            {isFirmWide ? `Aggregated across every active client · ` : `Click a month to open its P&L · `}
+                            {firmSummary.unpaidInvoiceCount} unpaid invoice{firmSummary.unpaidInvoiceCount === 1 ? "" : "s"}
+                          </div>
                         </div>
                         <div className="table-scroll">
                         <table>
@@ -596,9 +639,11 @@ export function ReportsPage() {
                           <tbody>
                             {/* Clicking a month sets the period to that month and jumps to P&L —
                                 the row's numbers are a roll-up, so "show me the detail behind
-                                this" means the account-level statement for the same window. */}
+                                this" means the account-level statement for the same window. Not
+                                meaningful firm-wide (no single client's P&L to open), so rows
+                                aren't clickable in that mode. */}
                             {firmSummary.months.map((m) => (
-                              <tr key={m.month} style={{ cursor: "pointer" }} onClick={() => openMonthDetail(m.month)}>
+                              <tr key={m.month} style={isFirmWide ? undefined : { cursor: "pointer" }} onClick={isFirmWide ? undefined : () => openMonthDetail(m.month)}>
                                 <td>{m.month}</td>
                                 <td>{fmtMoney(m.revenue)}</td>
                                 <td className="muted">{fmtMoney(m.expenses)}</td>
