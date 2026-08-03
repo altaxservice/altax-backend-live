@@ -247,6 +247,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
   function load(): Promise<void> {
@@ -280,6 +281,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
       if (payload.clientId !== clientId || !Array.isArray(payload.lines) || payload.lines.length === 0) return;
       setLines(payload.lines.map((l) => ({ categoryId: l.categoryId, taxableAmount: String(l.taxableAmount) })));
       setImportedFromCalculator(true);
+      setShowCreate(true);
     } catch {
       // malformed handoff — ignore
     }
@@ -467,8 +469,13 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
-      <Panel title="Sales Input" note={clientState ? `${clientState} sales tax by category` : "Sales tax by category"}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {showCreate && (
+      <Panel
+        title="Sales Input"
+        note={clientState ? `${clientState} sales tax by category` : "Sales tax by category"}
+        action={<button type="button" className="btn btn-sm" onClick={() => setShowCreate(false)}>Close</button>}
+      >
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {importedFromCalculator && (
             <p className="muted" style={{ fontSize: 11.5, margin: "0 0 10px", padding: "6px 10px", background: "var(--line)", borderRadius: 6 }}>
@@ -505,16 +512,18 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           </div>
         </form>
       </Panel>
+      )}
       <Panel
         title="Sales & Tax by Period"
         note={periodLabel}
         action={
-          <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
             <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
+            {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowCreate(true)}>+ Add Sale</button>}
           </div>
         }
       >
@@ -772,7 +781,9 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   });
 
   function load() {
-    api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`).then((r) => setEmployees(r.employees.filter((e) => !String(e.worker_type || "").toLowerCase().includes("contractor")))).catch(() => {});
+    api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`).then((r) => setEmployees(r.employees.filter((e) =>
+      !String(e.worker_type || "").toLowerCase().includes("contractor") && String(e.status || "Active").toLowerCase() === "active"
+    ))).catch(() => {});
     api.get<{ paychecks: any[] }>(`/accounting/paychecks/${clientId}`).then((r) => setPaychecks(r.paychecks)).catch(() => {});
     api.get<{ paymentMethods: PaymentMethod[] }>(`/payment-methods/${clientId}`).then((r) => setPaymentMethods(r.paymentMethods)).catch(() => setPaymentMethods([]));
   }
@@ -1907,7 +1918,12 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
         <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 460, marginBottom: 20 }}>
           {error && <ErrorBanner error={error} />}
           <div className="field"><label htmlFor="acct-l-employee-name">Name</label><input id="acct-l-employee-name" required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="acct-l-pay-type">Pay Type</label><select id="acct-l-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
+          <div className="field">
+            <label htmlFor="acct-l-pay-type">Pay Type</label>
+            <select id="acct-l-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}>
+              {isContractorTab ? <option>1099</option> : <><option>Hourly</option><option>Salary</option></>}
+            </select>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field"><label htmlFor="acct-l-pay-rate">Pay Rate</label><input id="acct-l-pay-rate" type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
             <div className="field"><label htmlFor="acct-l-default-hours">Default Hours</label><input id="acct-l-default-hours" type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
@@ -3228,7 +3244,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
                       <td><StatusBadge status={e.status} /></td>
                       <td className="muted" style={{ fontSize: 11 }}>{e.issues.length > 0 ? e.issues.join("; ") : "—"}</td>
                       <td>
-                        <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, `W2_${year}_${e.employeeName.replace(/\s+/g, "_")}.pdf`, e.employeeId)}>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || e.status !== "Ready"} title={e.status !== "Ready" ? "Resolve the review issues listed for this employee before printing their W-2." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, `W2_${year}_${e.employeeName.replace(/\s+/g, "_")}.pdf`, e.employeeId)}>
                           {busy === e.employeeId ? "Generating…" : "Print W-2"}
                         </button>
                       </td>
@@ -3256,7 +3272,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
                       <td><StatusBadge status={c.status} /></td>
                       <td className="muted" style={{ fontSize: 11 }}>{c.issues.length > 0 ? c.issues.join("; ") : "—"}</td>
                       <td>
-                        <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, `1099NEC_${year}_${c.contractorName.replace(/\s+/g, "_")}.pdf`, c.contractorId)}>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || c.status !== "Ready"} title={c.status !== "Ready" ? "Resolve the review issues listed for this contractor before printing their 1099-NEC." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, `1099NEC_${year}_${c.contractorName.replace(/\s+/g, "_")}.pdf`, c.contractorId)}>
                           {busy === c.contractorId ? "Generating…" : "Print 1099-NEC"}
                         </button>
                       </td>
@@ -4030,12 +4046,24 @@ function BankRecTab({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {selectedBankLine && selectedGl && (
-        <div className="card" style={{ marginTop: 12, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Match the selected bank line to the selected GL entry?</span>
-          <button className="btn btn-primary btn-sm" disabled={matching} onClick={handleMatch}>{matching ? "Matching…" : "Match"}</button>
-        </div>
-      )}
+      {selectedBankLine && selectedGl && (() => {
+        const bankAmount = data?.bankLines.find((b) => b.line_id === selectedBankLine)?.amount;
+        const glAmount = data?.glCandidates.find((g) => g.gl_entry_id === selectedGl)?.amount;
+        const amountsMismatch = bankAmount != null && glAmount != null
+          && Math.round(Number(bankAmount) * 100) !== Math.round(Number(glAmount) * 100);
+        return (
+          <div className="card" style={{ marginTop: 12, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            {amountsMismatch ? (
+              <span style={{ color: "var(--red)" }}>
+                These don't match — bank line is {fmtMoney(bankAmount)}, GL entry is {fmtMoney(glAmount)}. Pick a different pair, or use "New Entry" if nothing in the GL matches this bank line.
+              </span>
+            ) : (
+              <span>Match the selected bank line to the selected GL entry?</span>
+            )}
+            <button className="btn btn-primary btn-sm" disabled={matching || amountsMismatch} onClick={handleMatch}>{matching ? "Matching…" : "Match"}</button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

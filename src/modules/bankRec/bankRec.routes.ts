@@ -282,10 +282,16 @@ bankRecRouter.post("/:lineId/match", requireAuth, requireRole("admin", "staff"),
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   if (line.matched_gl_entry_id) return res.status(400).json({ error: "This line is already matched." });
 
-  const gl = await queryOne<any>(`SELECT gl_entry_id FROM altax.v3_gl_entries WHERE gl_entry_id = $1 AND client_id = $2`, [glEntryId, line.client_id]);
+  const gl = await queryOne<any>(`SELECT gl_entry_id, (debit - credit) AS amount FROM altax.v3_gl_entries WHERE gl_entry_id = $1 AND client_id = $2`, [glEntryId, line.client_id]);
   if (!gl) return res.status(404).json({ error: "GL entry not found for this client." });
   const alreadyClaimed = await queryOne<any>(`SELECT line_id FROM altax.v3_bank_statement_lines WHERE matched_gl_entry_id = $1`, [glEntryId]);
   if (alreadyClaimed) return res.status(400).json({ error: "That GL entry is already matched to another bank line." });
+  // Same exact-cents comparison as auto-match — a manual match that doesn't
+  // actually balance would silently corrupt the cleared balance and hide the
+  // real unmatched transaction (see bug found in the Accounting audit).
+  if (Math.round(Number(line.amount) * 100) !== Math.round(Number(gl.amount) * 100)) {
+    return res.status(400).json({ error: `Amounts don't match: bank line is $${Number(line.amount).toFixed(2)}, GL entry is $${Number(gl.amount).toFixed(2)}.` });
+  }
 
   await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, glEntryId]);
   res.json({ ok: true });

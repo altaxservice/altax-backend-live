@@ -1775,6 +1775,17 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
     service_category: String(body.serviceCategory || "").trim() || null,
   };
 
+  // A contractor is always 1099; an employee never is — this used to be free
+  // text with nothing enforcing the pairing, which let an "Employee" be saved
+  // as a 1099 payee and become selectable for off-payroll contractor payments.
+  const isContractor = fields.worker_type.toLowerCase().includes("contractor");
+  if (isContractor && fields.pay_type !== "1099") {
+    return res.status(400).json({ error: "Contractors must have Pay Type set to 1099." });
+  }
+  if (!isContractor && fields.pay_type === "1099") {
+    return res.status(400).json({ error: "Pay Type 1099 is only valid for Contractors." });
+  }
+
   if (existing) {
     await query(
       `UPDATE altax.v3_employees SET client_id=$2, client_name=$3, employee_name=$4, email=$5, phone=$6,

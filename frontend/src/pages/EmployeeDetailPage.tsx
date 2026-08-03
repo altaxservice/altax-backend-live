@@ -263,8 +263,29 @@ export function EmployeeDetailPage() {
           <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
             {saveError && <ErrorBanner error={saveError} />}
             <div className="field"><label htmlFor="emp-name">Name</label><input id="emp-name" required value={form.employeeName} onChange={(e) => setForm((f) => ({ ...f, employeeName: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="emp-worker-type">Worker Type</label><select id="emp-worker-type" value={form.workerType} onChange={(e) => setForm((f) => ({ ...f, workerType: e.target.value }))}><option>Employee</option><option>Contractor</option></select></div>
-            <div className="field"><label htmlFor="emp-pay-type">Pay Type</label><select id="emp-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}><option>Hourly</option><option>Salary</option><option>1099</option></select></div>
+            <div className="field">
+              <label htmlFor="emp-worker-type">Worker Type</label>
+              <select
+                id="emp-worker-type"
+                value={form.workerType}
+                onChange={(e) => {
+                  const workerType = e.target.value;
+                  // A contractor is always paid 1099; an employee never is — keep
+                  // Pay Type from silently drifting out of sync with Worker Type
+                  // (this let a W-2 employee get saved as a 1099 payee before).
+                  setForm((f) => ({ ...f, workerType, payType: workerType === "Contractor" ? "1099" : (f.payType === "1099" ? "Hourly" : f.payType) }));
+                }}
+              >
+                <option>Employee</option>
+                <option>Contractor</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="emp-pay-type">Pay Type</label>
+              <select id="emp-pay-type" value={form.payType} onChange={(e) => setForm((f) => ({ ...f, payType: e.target.value }))}>
+                {form.workerType === "Contractor" ? <option>1099</option> : <><option>Hourly</option><option>Salary</option></>}
+              </select>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div className="field"><label htmlFor="emp-pay-rate">Pay Rate</label><input id="emp-pay-rate" type="number" step="0.01" value={form.payRate} onChange={(e) => setForm((f) => ({ ...f, payRate: e.target.value }))} /></div>
               <div className="field"><label htmlFor="emp-default-hours">Default Hours</label><input id="emp-default-hours" type="number" value={form.defaultHours} onChange={(e) => setForm((f) => ({ ...f, defaultHours: e.target.value }))} /></div>
