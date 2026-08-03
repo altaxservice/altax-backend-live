@@ -157,6 +157,18 @@ payrollAgentRouter.get("/schedules/:employeeId", requireAuth, requireRole("admin
   res.json({ schedule: schedule || null });
 }));
 
+/** Every schedule across every client, for the Payroll Agent page's
+ * "Recurring Schedules" list — the one place staff can see and manage every
+ * schedule (Active/Paused/Archived) without hunting through each employee's
+ * own profile. Archived ones are included so archiving never looks like the
+ * schedule vanished; the frontend collapses them behind a toggle. */
+payrollAgentRouter.get("/schedules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const rows = await query<any>(`SELECT * FROM altax.v3_payroll_schedules ORDER BY status = 'Archived', client_name, employee_name`);
+  const accessible = [];
+  for (const s of rows) { if (await canAccessClient(req.user!, s.client_id)) accessible.push(s); }
+  res.json({ schedules: accessible });
+}));
+
 for (const [action, status] of [["pause", "Paused"], ["resume", "Active"], ["archive", "Archived"]] as const) {
   payrollAgentRouter.post(`/schedules/:id/${action}`, requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
     const schedule = await loadScheduleForAccess(req, res, req.params.id);

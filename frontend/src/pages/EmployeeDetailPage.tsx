@@ -78,6 +78,7 @@ export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const notify = useNotify();
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -172,6 +173,7 @@ export function EmployeeDetailPage() {
         frequency: scheduleForm.frequency, anchorDate: scheduleForm.anchorDate, leadDays: Number(scheduleForm.leadDays) || 5,
       });
       loadSchedule();
+      await notify(`Payroll Agent enabled for ${employee.employee_name}. It'll draft their first paycheck ${scheduleForm.leadDays} days before ${scheduleForm.anchorDate}.`);
     } catch (err) {
       setScheduleError(err instanceof ApiError ? err.message : "Could not enable the Payroll Agent for this employee.");
     } finally {
@@ -179,13 +181,38 @@ export function EmployeeDetailPage() {
     }
   }
 
+  /** Pause/Archive ask first and confirm after — the two actions that
+   * previously left staff unsure what had actually happened, especially
+   * Archive: once archived, the card used to show no buttons at all with no
+   * way back, which read as "the schedule disappeared." It's still here
+   * (Status: Archived) and reversible via Reactivate below, or from the full
+   * list on the Payroll Agent page. */
   async function handleScheduleAction(action: "pause" | "resume" | "archive") {
-    if (!schedule) return;
+    if (!schedule || !employee) return;
+    if (action === "pause") {
+      const ok = await confirmDialog({
+        message: `Pause the Payroll Agent for ${employee.employee_name}? It will stop drafting new paychecks until you resume it — nothing already drafted is affected.`,
+        confirmLabel: "Pause",
+      });
+      if (!ok) return;
+    } else if (action === "archive") {
+      const ok = await confirmDialog({
+        message: `Archive the Payroll Agent schedule for ${employee.employee_name}? It will stop drafting new paychecks. Nothing is deleted — reactivate it any time from here or the Payroll Agent page.`,
+        confirmLabel: "Archive",
+      });
+      if (!ok) return;
+    }
     setScheduleSaving(true);
     setScheduleError(null);
     try {
       await api.post(`/accounting/payroll-agent/schedules/${schedule.payroll_schedule_id}/${action}`, {});
       loadSchedule();
+      const messages: Record<string, string> = {
+        pause: `Paused. ${employee.employee_name} won't be drafted again until you resume this schedule.`,
+        resume: `${schedule.status === "Archived" ? "Reactivated" : "Resumed"}. ${employee.employee_name} will be drafted again ahead of their next pay date.`,
+        archive: `Archived. Reactivate this schedule any time — nothing was deleted.`,
+      };
+      await notify(messages[action]);
     } catch (err) {
       setScheduleError(err instanceof ApiError ? err.message : "Could not update this schedule.");
     } finally {
@@ -373,7 +400,10 @@ export function EmployeeDetailPage() {
           <div className="command-panel-header" style={{ padding: 0, marginBottom: 12, borderBottom: "none" }}>
             <div>
               <h2 className="command-panel-title" style={{ fontSize: 15 }}>Recurring Payroll Agent</h2>
-              <div className="command-panel-note">Auto-drafts this employee's paycheck ahead of each pay date — every draft still needs staff review before it becomes a real, posted paycheck.</div>
+              <div className="command-panel-note">
+                Auto-drafts this employee's paycheck ahead of each pay date — every draft still needs staff review before it becomes a real, posted paycheck.
+                {" "}<Link to="/payroll-agent">See every schedule and pending draft →</Link>
+              </div>
             </div>
           </div>
           {scheduleError && <ErrorBanner error={scheduleError} />}
@@ -416,15 +446,20 @@ export function EmployeeDetailPage() {
                 {ineligibleReason && schedule.status === "Active" && (
                   <p className="muted" style={{ fontSize: 12, color: "var(--amber)" }}>{ineligibleReason} The agent will skip this employee at the next sweep until this is resolved.</p>
                 )}
+                {schedule.status === "Archived" && (
+                  <p className="muted" style={{ fontSize: 12 }}>Not drafting. Click Reactivate to start again — nothing was deleted.</p>
+                )}
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   {schedule.status === "Active" && (
-                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("pause")}>Pause</button>
+                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("pause")} title="Temporarily stop drafting — resume any time.">Pause</button>
                   )}
                   {schedule.status === "Paused" && (
                     <button type="button" className="btn btn-sm btn-primary" disabled={scheduleSaving} onClick={() => handleScheduleAction("resume")}>Resume</button>
                   )}
-                  {schedule.status !== "Archived" && (
-                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("archive")}>Archive</button>
+                  {schedule.status === "Archived" ? (
+                    <button type="button" className="btn btn-sm btn-primary" disabled={scheduleSaving} onClick={() => handleScheduleAction("resume")}>Reactivate</button>
+                  ) : (
+                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("archive")} title="Retire this schedule (e.g. employee left) — still reactivatable later.">Archive</button>
                   )}
                 </div>
               </>

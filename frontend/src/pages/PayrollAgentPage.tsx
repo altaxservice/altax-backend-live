@@ -2,8 +2,85 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { usePrompt, useNotify } from "../components/ConfirmProvider";
+import { usePrompt, useNotify, useConfirm } from "../components/ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
+
+interface Schedule {
+  payroll_schedule_id: string; client_id: string; client_name: string; employee_id: string; employee_name: string;
+  frequency: string; next_pay_date: string; lead_days: number; status: string;
+}
+
+/** One schedule row on the Payroll Agent page's "Recurring Schedules" list —
+ * this is the ONE place staff can see and change Pause/Resume/Archive for
+ * every employee's schedule, so archiving one never looks like it vanished:
+ * it just moves into the collapsed "Archived" group below, still visible and
+ * still reversible via Reactivate. Enabling a NEW schedule still happens from
+ * the employee's own profile (that's where pay rate/frequency context
+ * lives) — this list is for managing schedules that already exist. */
+function ScheduleRow({ schedule, onChanged }: { schedule: Schedule; onChanged: () => void }) {
+  const navigate = useNavigate();
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const [busy, setBusy] = useState(false);
+
+  async function doAction(action: "pause" | "resume" | "archive", successMessage: string) {
+    setBusy(true);
+    try {
+      await api.post(`/accounting/payroll-agent/schedules/${schedule.payroll_schedule_id}/${action}`, {});
+      await notify(successMessage);
+      onChanged();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this schedule.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePause() {
+    const ok = await confirmDialog({
+      message: `Pause the Payroll Agent for ${schedule.employee_name}? It will stop drafting new paychecks until you resume it — nothing already drafted is affected.`,
+      confirmLabel: "Pause",
+    });
+    if (ok) await doAction("pause", `Paused. ${schedule.employee_name} won't be drafted again until you resume this schedule.`);
+  }
+
+  async function handleArchive() {
+    const ok = await confirmDialog({
+      message: `Archive the Payroll Agent schedule for ${schedule.employee_name}? It will stop drafting new paychecks. It stays visible here under "Archived" and you can reactivate it any time — nothing is deleted.`,
+      confirmLabel: "Archive",
+    });
+    if (ok) await doAction("archive", `Archived. ${schedule.employee_name}'s schedule moved to the Archived list below — reactivate it any time from there.`);
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ minWidth: 180 }}>
+        <button type="button" className="ghost-button btn-sm" style={{ border: "none", padding: 0, background: "none", fontWeight: 700, color: "var(--ink)" }} onClick={() => navigate(`/employees/${schedule.employee_id}`)}>
+          {schedule.employee_name}
+        </button>
+        <div className="muted" style={{ fontSize: 12 }}>{schedule.frequency}</div>
+      </div>
+      <span className={`status-pill ${schedule.status === "Active" ? "status-green" : schedule.status === "Paused" ? "status-amber" : "status-gray"}`}>{schedule.status}</span>
+      {schedule.status !== "Archived" && (
+        <span className="muted" style={{ fontSize: 12.5 }}>Next draft by {fmtDateOnly(schedule.next_pay_date)}</span>
+      )}
+      <div style={{ flex: 1 }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        {schedule.status === "Active" && (
+          <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={handlePause}>Pause</button>
+        )}
+        {schedule.status === "Paused" && (
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => doAction("resume", `Resumed. ${schedule.employee_name} will be drafted again ahead of their next pay date.`)}>Resume</button>
+        )}
+        {schedule.status === "Archived" ? (
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => doAction("resume", `Reactivated. ${schedule.employee_name} will be drafted again ahead of their next pay date.`)}>Reactivate</button>
+        ) : (
+          <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={handleArchive}>Archive</button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -136,12 +213,14 @@ function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: Draft
 export function PayrollAgentPage() {
   const notify = useNotify();
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
+  const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkApproving, setBulkApproving] = useState(false);
   const [autoRunEnabled, setAutoRunEnabled] = useState<boolean | null>(null);
   const [togglingAutoRun, setTogglingAutoRun] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   function load() {
     api.get<{ drafts: Draft[] }>("/accounting/payroll-agent/drafts?status=Pending")
@@ -149,6 +228,13 @@ export function PayrollAgentPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load pending drafts."));
   }
   useEffect(load, []);
+
+  function loadSchedules() {
+    api.get<{ schedules: Schedule[] }>("/accounting/payroll-agent/schedules")
+      .then((res) => setSchedules(res.schedules))
+      .catch(() => setSchedules([]));
+  }
+  useEffect(loadSchedules, []);
 
   useEffect(() => {
     api.get<{ autoRunEnabled: boolean }>("/accounting/payroll-agent/settings")
@@ -176,6 +262,7 @@ export function PayrollAgentPage() {
       const res = await api.post<{ created: any[]; skipped: number; errors: string[] }>("/accounting/payroll-agent/run", {});
       await notify(`Payroll Agent ran: ${res.created.length} new draft${res.created.length === 1 ? "" : "s"}, ${res.skipped} already up to date${res.errors.length ? `, ${res.errors.length} skipped with issues` : ""}.`);
       load();
+      loadSchedules();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not run the Payroll Agent.");
     } finally {
@@ -206,6 +293,9 @@ export function PayrollAgentPage() {
     }
     return Array.from(map.entries());
   }, [drafts]);
+
+  const liveSchedules = useMemo(() => (schedules || []).filter((s) => s.status !== "Archived"), [schedules]);
+  const archivedSchedules = useMemo(() => (schedules || []).filter((s) => s.status === "Archived"), [schedules]);
 
   if (error) return <ErrorBanner error={error} />;
   if (!drafts) return <div className="spinner-wrap">Loading…</div>;
@@ -244,9 +334,49 @@ export function PayrollAgentPage() {
         </div>
       </div>
 
+      <div className="command-panel" style={{ marginBottom: 20 }}>
+        <div className="command-panel-header">
+          <div>
+            <h2 className="command-panel-title">Recurring Schedules</h2>
+            <div className="command-panel-note">
+              Who the agent drafts pay for, and how often. Enable a new one from that employee's own profile page (Profile tab) — this list is for managing schedules that already exist.
+            </div>
+          </div>
+        </div>
+        {!schedules ? (
+          <p className="muted" style={{ padding: 16, margin: 0 }}>Loading…</p>
+        ) : liveSchedules.length === 0 ? (
+          <p className="muted" style={{ padding: 16, margin: 0 }}>
+            No schedules yet. Open an employee's profile and use the "Recurring Payroll Agent" section there to enable one.
+          </p>
+        ) : (
+          <div>
+            {liveSchedules.map((s) => <ScheduleRow key={s.payroll_schedule_id} schedule={s} onChanged={loadSchedules} />)}
+          </div>
+        )}
+        {archivedSchedules.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            <button
+              type="button"
+              className="ghost-button btn-sm"
+              style={{ margin: 16 }}
+              aria-expanded={showArchived}
+              onClick={() => setShowArchived((v) => !v)}
+            >
+              {showArchived ? "Hide" : "Show"} archived ({archivedSchedules.length})
+            </button>
+            {showArchived && archivedSchedules.map((s) => <ScheduleRow key={s.payroll_schedule_id} schedule={s} onChanged={loadSchedules} />)}
+          </div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 15, margin: "0 0 10px" }}>Pending Drafts</h2>
+
       {drafts.length === 0 && (
         <div className="card">
-          <p className="muted" style={{ margin: 0 }}>No pending drafts. Enable the Payroll Agent on an employee's profile to start drafting their pay ahead of each pay date, or click "Run Agent Now" if you just enabled one.</p>
+          <p className="muted" style={{ margin: 0 }}>
+            No pending drafts right now. Drafts appear here automatically as each schedule above nears its next pay date, or click "Run Agent Now" to check immediately.
+          </p>
         </div>
       )}
 
