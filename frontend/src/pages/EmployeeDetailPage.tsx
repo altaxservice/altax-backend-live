@@ -121,9 +121,9 @@ export function EmployeeDetailPage() {
   const isContractor = String(employee?.worker_type || "").toLowerCase().includes("contractor");
 
   // Auto-Draft Payroll is view-only here — turning it on/off and enrolling
-  // new employees both happen from the Payroll Agent page now (one place for
-  // all of it, matching how e.g. QuickBooks Online centralizes Auto Payroll
-  // rather than spreading the controls across every employee's own profile).
+  // new employees both happen under Accounting → Payroll → Payroll Agent for
+  // this employee's client, so staff manage it from the same place they run
+  // that client's payroll rather than from every employee's own profile.
   const [schedule, setSchedule] = useState<PayrollSchedule | null>(null);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
 
@@ -330,7 +330,7 @@ export function EmployeeDetailPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span className="status-pill status-gray">Not enrolled</span>
                   </div>
-                  <Link to="/payroll-agent" className="btn btn-sm" style={{ marginTop: 10, display: "inline-block" }}>Enroll on the Payroll Agent page →</Link>
+                  <Link to={`/accounting?client=${employee.client_id}&tab=Payroll`} className="btn btn-sm" style={{ marginTop: 10, display: "inline-block" }}>Turn on under Accounting → Payroll →</Link>
                 </>
               );
             }
@@ -350,7 +350,7 @@ export function EmployeeDetailPage() {
                 {ineligibleReason && isOn && (
                   <p className="muted" style={{ fontSize: 12, color: "var(--amber)", marginTop: 6 }}>{ineligibleReason} The agent will skip this employee until this is resolved.</p>
                 )}
-                <Link to="/payroll-agent" className="muted" style={{ display: "inline-block", marginTop: 8, fontSize: 13 }}>Manage on the Payroll Agent page →</Link>
+                <Link to={`/accounting?client=${employee.client_id}&tab=Payroll`} className="muted" style={{ display: "inline-block", marginTop: 8, fontSize: 13 }}>Manage under Accounting → Payroll →</Link>
               </>
             );
           })()}
