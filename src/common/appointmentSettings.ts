@@ -10,11 +10,14 @@
 import { queryOne, query } from "../config/db";
 import { DEFAULT_FIRM_PROFILE } from "./firmProfile";
 
+const NO_OVERRIDE: DayHours = { startHour: null, endHour: null };
+
 export const DEFAULT_APPOINTMENT_SETTINGS = {
   bookableWeekdays: { mon: true, tue: true, wed: true, thu: true, fri: true, sat: false, sun: false },
   slotMinutes: 60,
   businessStartHour: 9,
   businessEndHour: 17,
+  dayHours: { mon: NO_OVERRIDE, tue: NO_OVERRIDE, wed: NO_OVERRIDE, thu: NO_OVERRIDE, fri: NO_OVERRIDE, sat: NO_OVERRIDE, sun: NO_OVERRIDE },
   maxDaysAhead: 60,
   locationName: DEFAULT_FIRM_PROFILE.firmName,
   locationAddress: `${DEFAULT_FIRM_PROFILE.street}, ${DEFAULT_FIRM_PROFILE.city}, ${DEFAULT_FIRM_PROFILE.state} ${DEFAULT_FIRM_PROFILE.zipCode}`,
@@ -35,11 +38,18 @@ export const DEFAULT_APPOINTMENT_SETTINGS = {
     "يرجى إحضار جميع المستندات والمعلومات اللازمة.",
 } as const;
 
+export interface DayHours {
+  startHour: number | null;
+  endHour: number | null;
+}
+
 export interface AppointmentSettings {
   bookableWeekdays: { mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean; sun: boolean };
   slotMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
+  /** Optional per-weekday hour overrides. A day with startHour/endHour === null falls back to businessStartHour/businessEndHour. */
+  dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
   locationName: string;
   locationAddress: string;
@@ -60,6 +70,17 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
     slotMinutes: row?.slot_minutes ?? d.slotMinutes,
     businessStartHour: row?.business_start_hour ?? d.businessStartHour,
     businessEndHour: row?.business_end_hour ?? d.businessEndHour,
+    dayHours: row
+      ? {
+          mon: { startHour: row.mon_start_hour, endHour: row.mon_end_hour },
+          tue: { startHour: row.tue_start_hour, endHour: row.tue_end_hour },
+          wed: { startHour: row.wed_start_hour, endHour: row.wed_end_hour },
+          thu: { startHour: row.thu_start_hour, endHour: row.thu_end_hour },
+          fri: { startHour: row.fri_start_hour, endHour: row.fri_end_hour },
+          sat: { startHour: row.sat_start_hour, endHour: row.sat_end_hour },
+          sun: { startHour: row.sun_start_hour, endHour: row.sun_end_hour },
+        }
+      : { ...d.dayHours },
     maxDaysAhead: row?.max_days_ahead ?? d.maxDaysAhead,
     locationName: row?.location_name ?? d.locationName,
     locationAddress: row?.location_address ?? d.locationAddress,
@@ -74,6 +95,7 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
 export async function updateAppointmentSettings(fields: Partial<Omit<AppointmentSettings, "updatedBy" | "updatedAt">> & { updatedBy: string }): Promise<void> {
   const existing = await getAppointmentSettings();
   const w = { ...existing.bookableWeekdays, ...fields.bookableWeekdays };
+  const dh = { ...existing.dayHours, ...fields.dayHours };
   const merged = {
     bookable_mon: w.mon, bookable_tue: w.tue, bookable_wed: w.wed, bookable_thu: w.thu, bookable_fri: w.fri, bookable_sat: w.sat, bookable_sun: w.sun,
     slot_minutes: fields.slotMinutes ?? existing.slotMinutes,
@@ -90,16 +112,26 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
     `INSERT INTO altax.v3_appointment_settings
        (id, bookable_mon, bookable_tue, bookable_wed, bookable_thu, bookable_fri, bookable_sat, bookable_sun,
         slot_minutes, business_start_hour, business_end_hour, max_days_ahead,
-        location_name, location_address, location_map_url, policy_message_en, policy_message_ar, updated_at, updated_by)
-     VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now(), $17)
+        location_name, location_address, location_map_url, policy_message_en, policy_message_ar,
+        mon_start_hour, mon_end_hour, tue_start_hour, tue_end_hour, wed_start_hour, wed_end_hour,
+        thu_start_hour, thu_end_hour, fri_start_hour, fri_end_hour, sat_start_hour, sat_end_hour,
+        sun_start_hour, sun_end_hour, updated_at, updated_by)
+     VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30, now(), $31)
      ON CONFLICT (id) DO UPDATE SET
        bookable_mon=$1, bookable_tue=$2, bookable_wed=$3, bookable_thu=$4, bookable_fri=$5, bookable_sat=$6, bookable_sun=$7,
        slot_minutes=$8, business_start_hour=$9, business_end_hour=$10, max_days_ahead=$11,
        location_name=$12, location_address=$13, location_map_url=$14, policy_message_en=$15, policy_message_ar=$16,
-       updated_at = now(), updated_by=$17`,
+       mon_start_hour=$17, mon_end_hour=$18, tue_start_hour=$19, tue_end_hour=$20, wed_start_hour=$21, wed_end_hour=$22,
+       thu_start_hour=$23, thu_end_hour=$24, fri_start_hour=$25, fri_end_hour=$26, sat_start_hour=$27, sat_end_hour=$28,
+       sun_start_hour=$29, sun_end_hour=$30,
+       updated_at = now(), updated_by=$31`,
     [merged.bookable_mon, merged.bookable_tue, merged.bookable_wed, merged.bookable_thu, merged.bookable_fri, merged.bookable_sat, merged.bookable_sun,
       merged.slot_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
-      merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar, fields.updatedBy]
+      merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar,
+      dh.mon.startHour, dh.mon.endHour, dh.tue.startHour, dh.tue.endHour, dh.wed.startHour, dh.wed.endHour,
+      dh.thu.startHour, dh.thu.endHour, dh.fri.startHour, dh.fri.endHour, dh.sat.startHour, dh.sat.endHour,
+      dh.sun.startHour, dh.sun.endHour, fields.updatedBy]
   );
 }
 
@@ -108,6 +140,15 @@ const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 /** Maps JS Date#getDay() (0=Sun) to the matching bookableWeekdays flag. */
 export function isBookableWeekday(settings: AppointmentSettings, jsDay: number): boolean {
   return settings.bookableWeekdays[WEEKDAY_KEYS[jsDay]];
+}
+
+/** Resolves the effective business hours for a given JS weekday (0=Sun), falling back to the firm-wide default when that day has no override. */
+export function hoursForDay(settings: AppointmentSettings, jsDay: number): { startHour: number; endHour: number } {
+  const override = settings.dayHours[WEEKDAY_KEYS[jsDay]];
+  return {
+    startHour: override.startHour ?? settings.businessStartHour,
+    endHour: override.endHour ?? settings.businessEndHour,
+  };
 }
 
 export function bookableWeekdayLabel(settings: AppointmentSettings, lang: "en" | "ar" = "en"): string {

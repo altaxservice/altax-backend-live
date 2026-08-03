@@ -3,11 +3,17 @@ import { api, ApiError } from "../api/client";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 
+interface DayHours {
+  startHour: number | null;
+  endHour: number | null;
+}
+
 interface AppointmentSettings {
   bookableWeekdays: { mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean; sun: boolean };
   slotMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
+  dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
   locationName: string;
   locationAddress: string;
@@ -102,16 +108,70 @@ export function CalendarSettingsPanel() {
           </select>
         </div>
         <div className="field">
-          <label htmlFor="cal-start-hour">Start Time</label>
+          <label htmlFor="cal-start-hour">Default Start Time</label>
           <select id="cal-start-hour" value={settings.businessStartHour} onChange={(e) => setSettings((s) => s && { ...s, businessStartHour: Number(e.target.value) })}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
           </select>
         </div>
         <div className="field">
-          <label htmlFor="cal-end-hour">End Time</label>
+          <label htmlFor="cal-end-hour">Default End Time</label>
           <select id="cal-end-hour" value={settings.businessEndHour} onChange={(e) => setSettings((s) => s && { ...s, businessEndHour: Number(e.target.value) })}>
             {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
           </select>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Hours by Day</label>
+        <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+          Every bookable day uses the default hours above unless you set a different range for it — for example, closing early on Fridays.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {WEEKDAYS.map((w) => {
+            const dh = settings.dayHours[w.key];
+            const isCustom = dh.startHour !== null && dh.endHour !== null;
+            const bookable = settings.bookableWeekdays[w.key];
+            return (
+              <div key={w.key} style={{ display: "flex", alignItems: "center", gap: 10, opacity: bookable ? 1 : 0.5 }}>
+                <span style={{ width: 38, fontSize: 13, fontWeight: 600 }}>{w.label}</span>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={isCustom}
+                    disabled={!bookable}
+                    onChange={(e) => setSettings((s) => {
+                      if (!s) return s;
+                      const nextHours: DayHours = e.target.checked
+                        ? { startHour: s.businessStartHour, endHour: s.businessEndHour }
+                        : { startHour: null, endHour: null };
+                      return { ...s, dayHours: { ...s.dayHours, [w.key]: nextHours } };
+                    })}
+                  />
+                  Custom hours
+                </label>
+                {isCustom && (
+                  <>
+                    <select
+                      aria-label={`${w.label} start time`}
+                      value={dh.startHour ?? settings.businessStartHour}
+                      onChange={(e) => setSettings((s) => s && { ...s, dayHours: { ...s.dayHours, [w.key]: { ...s.dayHours[w.key], startHour: Number(e.target.value) } } })}
+                    >
+                      {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <span className="muted" style={{ fontSize: 12.5 }}>to</span>
+                    <select
+                      aria-label={`${w.label} end time`}
+                      value={dh.endHour ?? settings.businessEndHour}
+                      onChange={(e) => setSettings((s) => s && { ...s, dayHours: { ...s.dayHours, [w.key]: { ...s.dayHours[w.key], endHour: Number(e.target.value) } } })}
+                    >
+                      {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                  </>
+                )}
+                {!isCustom && <span className="muted" style={{ fontSize: 12.5 }}>Uses default hours{!bookable ? " (not bookable)" : ""}</span>}
+              </div>
+            );
+          })}
         </div>
       </div>
 

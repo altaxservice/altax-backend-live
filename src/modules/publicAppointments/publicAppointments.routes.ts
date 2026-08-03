@@ -18,7 +18,7 @@ import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { logAudit } from "../../common/audit";
 import { createAppointment, notifyAppointment } from "../appointments/appointments.routes";
-import { getAppointmentSettings, isBookableWeekday, type AppointmentSettings } from "../../common/appointmentSettings";
+import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
 
 export const publicAppointmentsRouter = Router();
 
@@ -66,7 +66,8 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
 
   const slots: string[] = [];
   const nowMs = Date.now();
-  for (let hour = settings.businessStartHour; hour < settings.businessEndHour; hour++) {
+  const { startHour, endHour } = hoursForDay(settings, jsDay);
+  for (let hour = startHour; hour < endHour; hour++) {
     for (let minute = 0; minute < 60; minute += settings.slotMinutes) {
       const startIso = slotToUtcIso(y, mo, d, hour, minute);
       const startMs = new Date(startIso).getTime();
@@ -100,6 +101,7 @@ publicAppointmentsRouter.get("/settings", availabilityLimiter, asyncHandler(asyn
     bookableWeekdays: settings.bookableWeekdays,
     businessStartHour: settings.businessStartHour,
     businessEndHour: settings.businessEndHour,
+    dayHours: settings.dayHours,
     slotMinutes: settings.slotMinutes,
   });
 }));

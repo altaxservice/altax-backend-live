@@ -258,6 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const hour12 = h % 12 === 0 ? 12 : h % 12;
       return hour12 + ':00 ' + period;
     }
+    function hoursForDay(key) {
+      const override = apptSettings.dayHours && apptSettings.dayHours[key];
+      const start = override && override.startHour != null ? override.startHour : apptSettings.businessStartHour;
+      const end = override && override.endHour != null ? override.endHour : apptSettings.businessEndHour;
+      return fmtHour12(start) + ' – ' + fmtHour12(end);
+    }
     function renderHoursNote() {
       const noteEl = document.getElementById('book-hours-note');
       if (!noteEl) return;
@@ -267,12 +273,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const lang = getLang();
       const names = WEEKDAY_NAMES[lang] || WEEKDAY_NAMES.en;
-      const days = WEEKDAY_ORDER.filter((k) => apptSettings.bookableWeekdays[k]).map((k) => names[k]);
-      const dayList = days.join(lang === 'ar' ? '، ' : ', ');
-      const hours = fmtHour12(apptSettings.businessStartHour) + ' – ' + fmtHour12(apptSettings.businessEndHour);
+      const bookableDays = WEEKDAY_ORDER.filter((k) => apptSettings.bookableWeekdays[k]);
+      // Group consecutive bookable days that share the same effective hours (per-day overrides fall back to the default range).
+      const groups = [];
+      bookableDays.forEach((k) => {
+        const hours = hoursForDay(k);
+        const last = groups[groups.length - 1];
+        if (last && last.hours === hours) last.days.push(k);
+        else groups.push({ hours: hours, days: [k] });
+      });
+      const sep = lang === 'ar' ? '، ' : ', ';
+      const dash = lang === 'ar' ? '–' : '–';
+      const parts = groups.map((g) => {
+        const dayLabel = g.days.length > 2
+          ? names[g.days[0]] + dash + names[g.days[g.days.length - 1]]
+          : g.days.map((k) => names[k]).join(sep);
+        return dayLabel + ' ' + g.hours;
+      });
+      const partsList = parts.join(sep);
       noteEl.textContent = lang === 'ar'
-        ? ('المواعيد متاحة أيام ' + dayList + '، من الساعة ' + hours + ' بتوقيت شرق أمريكا.')
-        : ('Appointments are available ' + dayList + ', ' + hours + ' Eastern.');
+        ? ('المواعيد متاحة أيام ' + partsList + ' بتوقيت شرق أمريكا.')
+        : ('Appointments are available ' + partsList + ' Eastern.');
     }
     fetch('/public/appointments/settings').then((r) => r.json()).then((data) => { apptSettings = data; renderHoursNote(); }).catch(() => { renderHoursNote(); });
     document.querySelectorAll('.lang-toggle button').forEach((btn) => btn.addEventListener('click', renderHoursNote));
