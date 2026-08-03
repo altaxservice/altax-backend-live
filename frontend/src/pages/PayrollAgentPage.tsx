@@ -1,218 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { usePrompt, useNotify, useConfirm } from "../components/ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
-import { useEscapeToClose } from "../hooks/useEscapeToClose";
-import { useFocusTrap } from "../hooks/useFocusTrap";
-import type { Client } from "../api/types";
-
-const SCHEDULE_FREQUENCIES = ["Weekly", "Biweekly", "Semimonthly", "Monthly"] as const;
-
-interface PickerEmployee {
-  employee_id: string; employee_name: string; status: string; worker_type: string | null;
-  default_gross_wages: string | number | null; pay_rate: string | number | null; default_hours: string | number | null;
-}
-
-/** Same eligibility rule the backend enforces — mirrored here so ineligible
- * employees show a reason instead of just being silently absent from the list. */
-function ineligibleReasonFor(e: PickerEmployee): string | null {
-  if (String(e.status || "Active").toLowerCase() !== "active") return "not active";
-  if (String(e.worker_type || "").toLowerCase().includes("contractor")) return "contractor, not eligible";
-  const hasGross = Number(e.default_gross_wages) > 0;
-  const hasHourly = Number(e.pay_rate) > 0 && Number(e.default_hours) > 0;
-  if (!hasGross && !hasHourly) return "needs Default Gross Wages or Pay Rate + Default Hours set first";
-  return null;
-}
-
-interface CompanyEnrollState {
-  expanded: boolean;
-  frequency: string;
-  anchorDate: string;
-  employees: PickerEmployee[] | null;
-  selected: Set<string>;
-}
-
-function emptyCompanyState(): CompanyEnrollState {
-  return { expanded: false, frequency: "Biweekly", anchorDate: "", employees: null, selected: new Set() };
-}
-
-/**
- * "Select Employees for Auto Payroll" — organized by company first: each
- * client is its own expandable section rather than a dropdown you must pick
- * before any employee ever shows up. Open a company, pick its pay schedule,
- * check whoever should be on it. Multiple companies can be open and
- * enrolled in the same visit, each keeping its own frequency/next-payday
- * since two client companies essentially never share a payday.
- */
-function EnrollAutoPayrollModal({ alreadyEnrolledIds, onClose, onEnrolled }: { alreadyEnrolledIds: Set<string>; onClose: () => void; onEnrolled: () => void }) {
-  const notify = useNotify();
-  const panelRef = useRef<HTMLDivElement>(null);
-  useEscapeToClose(onClose, true);
-  useFocusTrap(panelRef, true);
-
-  const [clients, setClients] = useState<Client[] | null>(null);
-  const [companies, setCompanies] = useState<Record<string, CompanyEnrollState>>({});
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => setClients([]));
-  }, []);
-
-  function companyState(clientId: string): CompanyEnrollState {
-    return companies[clientId] || emptyCompanyState();
-  }
-
-  function updateCompany(clientId: string, patch: Partial<CompanyEnrollState>) {
-    setCompanies((prev) => ({ ...prev, [clientId]: { ...companyState(clientId), ...patch } }));
-  }
-
-  function toggleExpand(clientId: string) {
-    const current = companyState(clientId);
-    const nextExpanded = !current.expanded;
-    updateCompany(clientId, { expanded: nextExpanded });
-    if (nextExpanded && current.employees === null) {
-      api.get<{ employees: PickerEmployee[] }>(`/accounting/employees/${clientId}`)
-        .then((res) => updateCompany(clientId, { employees: res.employees }))
-        .catch(() => updateCompany(clientId, { employees: [] }));
-    }
-  }
-
-  function toggleEmployee(clientId: string, employeeId: string) {
-    const current = companyState(clientId);
-    const next = new Set(current.selected);
-    next.has(employeeId) ? next.delete(employeeId) : next.add(employeeId);
-    updateCompany(clientId, { selected: next });
-  }
-
-  const totalSelected = Object.values(companies).reduce((sum, c) => sum + c.selected.size, 0);
-  const missingAnchorDate = Object.values(companies).some((c) => c.selected.size > 0 && !c.anchorDate);
-
-  async function handleSubmit() {
-    if (!totalSelected || missingAnchorDate) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const entries = Object.entries(companies).filter(([, c]) => c.selected.size > 0);
-      const results = await Promise.all(entries.map(([clientId, c]) =>
-        api.post<{ succeeded: number; failed: number; results: { employeeId: string; ok: boolean; error?: string }[] }>(
-          "/accounting/payroll-agent/schedules/bulk",
-          { clientId, employeeIds: Array.from(c.selected), frequency: c.frequency, anchorDate: c.anchorDate }
-        ).catch((err) => ({
-          succeeded: 0, failed: c.selected.size,
-          results: [{ employeeId: "", ok: false, error: err instanceof ApiError ? err.message : "Request failed." }],
-        }))
-      ));
-      const succeeded = results.reduce((s, r) => s + r.succeeded, 0);
-      const failed = results.reduce((s, r) => s + r.failed, 0);
-      const failMessages = results.flatMap((r) => r.results.filter((x) => !x.ok).map((x) => x.error)).filter(Boolean);
-      onEnrolled();
-      onClose();
-      await notify(failed
-        ? `Enrolled ${succeeded} of ${totalSelected}. ${failed} couldn't be enrolled: ${failMessages.join(" ")}`
-        : `Enrolled ${succeeded} employee${succeeded === 1 ? "" : "s"} in Auto-Draft Payroll.`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not enroll these employees.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="enroll-auto-payroll-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2 id="enroll-auto-payroll-title">Select Employees for Auto Payroll</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
-        {error && <ErrorBanner error={error} />}
-        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
-          Open a company below to set its pay schedule and pick which employees to enroll. You can enroll employees from more than one company in the same visit.
-        </p>
-
-        {!clients ? (
-          <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
-        ) : clients.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>No clients found.</p>
-        ) : (
-          <div style={{ maxHeight: 440, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
-            {clients.map((c) => {
-              const state = companyState(c.client_id);
-              const eligible = (state.employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && !ineligibleReasonFor(e));
-              const alreadyEnrolled = (state.employees || []).filter((e) => alreadyEnrolledIds.has(e.employee_id));
-              const ineligible = (state.employees || []).filter((e) => !alreadyEnrolledIds.has(e.employee_id) && ineligibleReasonFor(e));
-              return (
-                <div key={c.client_id} style={{ borderBottom: "1px solid var(--line)" }}>
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(c.client_id)}
-                    aria-expanded={state.expanded}
-                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-                  >
-                    <span style={{ fontSize: 11, display: "inline-block", transform: state.expanded ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}>▶</span>
-                    <span style={{ fontWeight: 700, flex: 1 }}>{c.client_name}</span>
-                    {state.selected.size > 0 && <span className="status-pill status-green">{state.selected.size} selected</span>}
-                  </button>
-
-                  {state.expanded && (
-                    <div style={{ padding: "0 14px 14px" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
-                        <div className="field" style={{ margin: 0 }}>
-                          <label htmlFor={`enroll-frequency-${c.client_id}`}>Pay schedule</label>
-                          <select id={`enroll-frequency-${c.client_id}`} value={state.frequency} onChange={(e) => updateCompany(c.client_id, { frequency: e.target.value })}>
-                            {SCHEDULE_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
-                          </select>
-                        </div>
-                        <div className="field" style={{ margin: 0 }}>
-                          <label htmlFor={`enroll-anchor-date-${c.client_id}`}>Next payday</label>
-                          <input id={`enroll-anchor-date-${c.client_id}`} type="date" value={state.anchorDate} onChange={(e) => updateCompany(c.client_id, { anchorDate: e.target.value })} />
-                        </div>
-                      </div>
-
-                      {state.employees === null ? (
-                        <p className="muted" style={{ fontSize: 13 }}>Loading employees…</p>
-                      ) : eligible.length === 0 && alreadyEnrolled.length === 0 && ineligible.length === 0 ? (
-                        <p className="muted" style={{ fontSize: 13 }}>No employees found for this client.</p>
-                      ) : (
-                        <div style={{ border: "1px solid var(--line)", borderRadius: 8 }}>
-                          {eligible.map((e) => (
-                            <label key={e.employee_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-                              <input type="checkbox" checked={state.selected.has(e.employee_id)} onChange={() => toggleEmployee(c.client_id, e.employee_id)} />
-                              {e.employee_name}
-                            </label>
-                          ))}
-                          {alreadyEnrolled.map((e) => (
-                            <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
-                              <input type="checkbox" checked disabled />
-                              {e.employee_name} — already enrolled
-                            </div>
-                          ))}
-                          {ineligible.map((e) => (
-                            <div key={e.employee_id} className="muted" style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
-                              <input type="checkbox" disabled />
-                              {e.employee_name} — {ineligibleReasonFor(e)}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 16 }}>
-          {missingAnchorDate && totalSelected > 0 && <span className="muted" style={{ fontSize: 12.5, marginRight: "auto" }}>Set a next payday for each company you're enrolling.</span>}
-          <button type="button" className="ghost-button" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn btn-primary" disabled={submitting || !totalSelected || missingAnchorDate} onClick={handleSubmit}>
-            {submitting ? "Enrolling…" : `Enroll${totalSelected ? ` ${totalSelected}` : ""} Employee${totalSelected === 1 ? "" : "s"}`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 interface Schedule {
   payroll_schedule_id: string; client_id: string; client_name: string; employee_id: string; employee_name: string;
@@ -408,6 +199,7 @@ function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: Draft
  * draft aside with no paycheck/GL effect at all.
  */
 export function PayrollAgentPage() {
+  const navigate = useNavigate();
   const notify = useNotify();
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
@@ -418,7 +210,6 @@ export function PayrollAgentPage() {
   const [autoRunEnabled, setAutoRunEnabled] = useState<boolean | null>(null);
   const [togglingAutoRun, setTogglingAutoRun] = useState(false);
   const [showOff, setShowOff] = useState(false);
-  const [showEnrollModal, setShowEnrollModal] = useState(false);
 
   function load() {
     api.get<{ drafts: Draft[] }>("/accounting/payroll-agent/drafts?status=Pending")
@@ -494,7 +285,6 @@ export function PayrollAgentPage() {
 
   const onSchedules = useMemo(() => (schedules || []).filter((s) => s.status === "Active"), [schedules]);
   const offSchedules = useMemo(() => (schedules || []).filter((s) => s.status !== "Active"), [schedules]);
-  const enrolledIds = useMemo(() => new Set((schedules || []).map((s) => s.employee_id)), [schedules]);
 
   if (error) return <ErrorBanner error={error} />;
   if (!drafts) return <div className="spinner-wrap">Loading…</div>;
@@ -541,7 +331,7 @@ export function PayrollAgentPage() {
             <div className="command-panel-note">Who Auto Payroll drafts pay for, and how often.</div>
           </div>
           {schedules && schedules.length > 0 && (
-            <button type="button" className="btn btn-sm" onClick={() => setShowEnrollModal(true)}>+ Enroll More</button>
+            <button type="button" className="btn btn-sm" onClick={() => navigate("/accounting?tab=Payroll")}>Enroll More →</button>
           )}
         </div>
         {!schedules ? (
@@ -549,9 +339,9 @@ export function PayrollAgentPage() {
         ) : schedules.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px 24px" }}>
             <p className="muted" style={{ margin: "0 0 16px" }}>
-              You haven't enrolled any employees in Auto Payroll yet. Adding employees lets you pay them automatically.
+              You haven't enrolled any employees in Auto Payroll yet. Open a client under Accounting → Payroll → Payroll Agent to turn employees on.
             </p>
-            <button type="button" className="btn btn-primary" onClick={() => setShowEnrollModal(true)}>Select Employees for Auto Payroll</button>
+            <button type="button" className="btn btn-primary" onClick={() => navigate("/accounting?tab=Payroll")}>Go to Accounting →</button>
           </div>
         ) : (
           <>
@@ -606,14 +396,6 @@ export function PayrollAgentPage() {
           </div>
         </div>
       ))}
-
-      {showEnrollModal && (
-        <EnrollAutoPayrollModal
-          alreadyEnrolledIds={enrolledIds}
-          onClose={() => setShowEnrollModal(false)}
-          onEnrolled={loadSchedules}
-        />
-      )}
     </div>
   );
 }

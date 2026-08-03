@@ -755,6 +755,8 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [showBatch, setShowBatch] = useState(false);
+  const [showPayrollAgent, setShowPayrollAgent] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(EMPTY_PAYROLL_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -849,13 +851,14 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
     }
   }
 
-  /** "Add" is the Create Paycheck form beside the list — clear it and scroll to it. */
+  /** "Add" opens the Create Paycheck form — it stays closed by default so the
+   * tab opens straight to the paycheck list, not a full-page form. */
   function startAdd() {
     setEditing(null);
     setResult(null);
     setError(null);
     setForm(EMPTY_PAYROLL_FORM);
-    createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setShowCreate(true);
   }
 
   function startEdit(p: any) {
@@ -914,11 +917,12 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 16, alignItems: "start" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {showCreate && (
       <Panel
         title="Create Paycheck"
         note="Live preview updates as you type"
-        action={<button type="button" className="btn btn-primary" onClick={() => setShowBatch(true)}>Batch Create Paychecks</button>}
+        action={<button type="button" className="btn btn-sm" onClick={() => setShowCreate(false)}>Close</button>}
       >
         <form ref={createFormRef} onSubmit={handleSubmit} style={{ padding: 16 }}>
           {error && <ErrorBanner error={error} />}
@@ -1030,6 +1034,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Calculating…" : "Create Paycheck"}</button>
         </form>
       </Panel>
+      )}
       <Panel
         title="Recent Paychecks"
         note={`${paychecks.length} rows`}
@@ -1038,7 +1043,9 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
-            <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>
+            <button type="button" className="btn btn-sm" onClick={() => setShowPayrollAgent(true)}>Payroll Agent</button>
+            <button type="button" className="btn btn-sm" onClick={() => setShowBatch(true)}>Batch Create</button>
+            {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={startAdd}>+ Add Paycheck</button>}
           </div>
         }
       >
@@ -1147,6 +1154,187 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           onDone={load}
         />
       )}
+      {showPayrollAgent && (
+        <PayrollAgentModal
+          clientId={clientId}
+          employees={employees}
+          onClose={() => setShowPayrollAgent(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+const PAYROLL_AGENT_FREQUENCIES = ["Weekly", "Biweekly", "Semimonthly", "Monthly"] as const;
+
+interface PayrollAgentSchedule {
+  payroll_schedule_id: string; client_id: string; employee_id: string; frequency: string;
+  next_pay_date: string; lead_days: number; status: string; drafts_from: string;
+}
+
+/** Same eligibility rule the backend enforces, mirrored so an ineligible
+ * employee shows why instead of just having a dead switch. */
+function payrollAgentIneligibleReason(e: Employee): string | null {
+  if (String(e.status || "Active").toLowerCase() !== "active") return "not active";
+  const hasGross = Number(e.default_gross_wages) > 0;
+  const hasHourly = Number(e.pay_rate) > 0 && Number(e.default_hours) > 0;
+  if (!hasGross && !hasHourly) return "needs Default Gross Wages or Pay Rate + Default Hours set first";
+  return null;
+}
+
+/**
+ * Payroll Agent, scoped to the one company you're already looking at —
+ * reached via Accounting → Payroll → Payroll Agent rather than a picker that
+ * asks you to choose a company again. Every eligible employee gets a single
+ * On/Off switch; flipping an employee On for the first time asks once for
+ * their pay schedule (frequency + next payday), then behaves exactly like
+ * every other On/Off switch from then on.
+ */
+function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string; employees: Employee[]; onClose: () => void }) {
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(onClose, true);
+  useFocusTrap(panelRef, true);
+
+  const [schedules, setSchedules] = useState<Record<string, PayrollAgentSchedule> | null>(null);
+  const [settingUpId, setSettingUpId] = useState<string | null>(null);
+  const [setupFrequency, setSetupFrequency] = useState<string>("Biweekly");
+  const [setupAnchorDate, setSetupAnchorDate] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ schedules: PayrollAgentSchedule[] }>("/accounting/payroll-agent/schedules")
+      .then((res) => {
+        const map: Record<string, PayrollAgentSchedule> = {};
+        for (const s of res.schedules) if (s.client_id === clientId) map[s.employee_id] = s;
+        setSchedules(map);
+      })
+      .catch(() => setSchedules({}));
+  }
+  useEffect(load, [clientId]);
+
+  function startSetup(employeeId: string) {
+    setError(null);
+    setSetupFrequency("Biweekly");
+    setSetupAnchorDate("");
+    setSettingUpId(employeeId);
+  }
+
+  async function confirmSetup(employeeId: string) {
+    if (!setupAnchorDate) { setError("Pick a next payday first."); return; }
+    setBusyId(employeeId);
+    setError(null);
+    try {
+      await api.post("/accounting/payroll-agent/schedules", { clientId, employeeId, frequency: setupFrequency, anchorDate: setupAnchorDate });
+      setSettingUpId(null);
+      load();
+      await notify("Turned on. This employee will be drafted automatically ahead of their next payday.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not turn on Auto Payroll for this employee.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleExisting(schedule: PayrollAgentSchedule, employeeName: string) {
+    const isOn = schedule.status === "Active";
+    if (isOn) {
+      const ok = await confirmDialog({
+        message: `Turn off Auto-Draft Payroll for ${employeeName}? It will stop drafting new paychecks until you turn it back on — nothing already drafted is affected.`,
+        confirmLabel: "Turn Off",
+      });
+      if (!ok) return;
+    }
+    setBusyId(schedule.employee_id);
+    try {
+      await api.post(`/accounting/payroll-agent/schedules/${schedule.payroll_schedule_id}/${isOn ? "pause" : "resume"}`, {});
+      load();
+      await notify(isOn
+        ? `Turned off. ${employeeName} won't be drafted again until you turn this back on.`
+        : `Turned on. ${employeeName} will be drafted again ahead of their next payday.`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this schedule.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-agent-modal-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="payroll-agent-modal-title">Payroll Agent</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+        {error && <ErrorBanner error={error} />}
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+          A few days before each payday, a draft paycheck is created for review — nothing is ever posted without an explicit Approve on the Payroll Agent page. Turn any employee On or Off below.
+        </p>
+
+        {employees.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13 }}>No employees on this client yet.</p>
+        ) : schedules === null ? (
+          <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
+        ) : (
+          <div style={{ maxHeight: 440, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+            {employees.map((e) => {
+              const schedule = schedules[e.employee_id];
+              const isOn = schedule?.status === "Active";
+              const reason = !schedule ? payrollAgentIneligibleReason(e) : null;
+              const isSettingUp = settingUpId === e.employee_id;
+              return (
+                <div key={e.employee_id} style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700 }}>{e.employee_name}</div>
+                      {schedule ? (
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {schedule.frequency} — {isOn ? `pay date ${fmtDate(schedule.next_pay_date)}` : "off"}
+                        </div>
+                      ) : reason ? (
+                        <div className="muted" style={{ fontSize: 12 }}>{reason}</div>
+                      ) : null}
+                    </div>
+                    {schedule ? (
+                      <>
+                        <span className={`status-pill ${isOn ? "status-green" : "status-gray"}`}>{isOn ? "On" : "Off"}</span>
+                        <button type="button" className={`btn btn-sm ${isOn ? "" : "btn-primary"}`} disabled={busyId === e.employee_id} onClick={() => toggleExisting(schedule, e.employee_name)}>
+                          {busyId === e.employee_id ? "Saving…" : isOn ? "Turn Off" : "Turn On"}
+                        </button>
+                      </>
+                    ) : reason ? (
+                      <span className="status-pill status-gray">Off</span>
+                    ) : (
+                      <>
+                        <span className="status-pill status-gray">Off</span>
+                        <button type="button" className="btn btn-sm btn-primary" disabled={isSettingUp} onClick={() => startSetup(e.employee_id)}>Turn On</button>
+                      </>
+                    )}
+                  </div>
+
+                  {isSettingUp && (
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10, padding: 10, background: "var(--surface-2, #f7f7f5)", borderRadius: 6 }}>
+                      <div className="field" style={{ margin: 0 }}>
+                        <label htmlFor={`pa-setup-freq-${e.employee_id}`}>Pay schedule</label>
+                        <select id={`pa-setup-freq-${e.employee_id}`} value={setupFrequency} onChange={(ev) => setSetupFrequency(ev.target.value)}>
+                          {PAYROLL_AGENT_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
+                        </select>
+                      </div>
+                      <div className="field" style={{ margin: 0 }}>
+                        <label htmlFor={`pa-setup-date-${e.employee_id}`}>Next payday</label>
+                        <input id={`pa-setup-date-${e.employee_id}`} type="date" value={setupAnchorDate} onChange={(ev) => setSetupAnchorDate(ev.target.value)} />
+                      </div>
+                      <button type="button" className="btn btn-sm btn-primary" disabled={busyId === e.employee_id} onClick={() => confirmSetup(e.employee_id)}>
+                        {busyId === e.employee_id ? "Saving…" : "Confirm"}
+                      </button>
+                      <button type="button" className="ghost-button btn-sm" onClick={() => setSettingUpId(null)}>Cancel</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
