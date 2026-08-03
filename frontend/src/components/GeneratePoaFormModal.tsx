@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { PoaRepresentative, PoaRepresentativeOption, PoaTaxMatter } from "../api/poaForms";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Meta {
   formTypes: { value: string; label: string }[];
@@ -29,6 +30,8 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [repOptions, setRepOptions] = useState<PoaRepresentativeOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -102,7 +105,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-poa-form-title">Generate Authorization Form</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

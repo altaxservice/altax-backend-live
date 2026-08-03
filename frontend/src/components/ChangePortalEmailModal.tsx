@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { PortalUser } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useConfirm } from "./ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface RequestResult {
   pendingEmail: string;
@@ -34,6 +35,8 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [user, setUser] = useState<PortalUser | null>(null);
@@ -101,7 +104,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-portal-email-title" style={{ maxWidth: 520, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-portal-email-title" style={{ maxWidth: 520, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-portal-email-title">Change Sign-In Email</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

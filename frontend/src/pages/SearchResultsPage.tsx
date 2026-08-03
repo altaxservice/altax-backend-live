@@ -51,10 +51,10 @@ export function SearchResultsPage() {
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Clients</div>
           <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {results.clients.map((c) => (
-                <tr key={c.client_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
+                <tr key={c.client_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
                   <td>{c.client_name}</td>
                   <td className="muted" data-label="Email">{c.email || "—"}</td>
                   <td className="muted" data-label="Phone">{c.phone || "—"}</td>
@@ -72,10 +72,10 @@ export function SearchResultsPage() {
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Tasks</div>
           <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Status</th><th>Due Date</th></tr></thead>
+            <thead><tr><th scope="col">Task</th><th scope="col">Client</th><th scope="col">Status</th><th scope="col">Due Date</th></tr></thead>
             <tbody>
               {results.tasks.map((t) => (
-                <tr key={t.task_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
+                <tr key={t.task_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
                   <td>{t.task_name}</td>
                   <td className="muted" data-label="Client">{t.client_name}</td>
                   <td className="muted" data-label="Status">{t.status}</td>
@@ -93,10 +93,10 @@ export function SearchResultsPage() {
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Invoices</div>
           <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Invoice</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Invoice</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {results.invoices.map((i) => (
-                <tr key={i.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/billing/${i.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${i.invoice_id}`); } }}>
+                <tr key={i.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/billing/${i.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${i.invoice_id}`); } }}>
                   <td>{i.invoice_id}</td>
                   <td className="muted" data-label="Description">{i.description || "—"}</td>
                   <td data-label="Amount">{fmtMoney(i.total_amount)}</td>
@@ -114,14 +114,13 @@ export function SearchResultsPage() {
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Documents</div>
           <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Item</th><th>Client</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Item</th><th scope="col">Client</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {results.documents.map((d) => (
                 <tr
                   key={`${d.kind}-${d.request_id}`}
                   style={{ cursor: "pointer" }}
                   tabIndex={0}
-                  role="button"
                   onClick={() => navigate(d.kind === "request" ? `/documents/${d.request_id}` : `/clients/${d.client_id}?tab=Documents`)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(d.kind === "request" ? `/documents/${d.request_id}` : `/clients/${d.client_id}?tab=Documents`); } }}
                 >
@@ -141,10 +140,10 @@ export function SearchResultsPage() {
           <div style={{ padding: "10px 16px", fontWeight: 700, borderBottom: "1px solid var(--line)" }}>Employees</div>
           <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Name</th><th>Client</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Name</th><th scope="col">Client</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {results.employees.map((e) => (
-                <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
+                <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
                   <td>{e.employee_name}</td>
                   <td className="muted" data-label="Client">{e.client_name}</td>
                   <td className="muted" data-label="Status">{e.status || "—"}</td>

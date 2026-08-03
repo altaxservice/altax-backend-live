@@ -107,7 +107,7 @@ export function PublicInvoicePage() {
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
           <div className="table-scroll">
           <table style={{ marginTop: 0 }}>
-            <thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+            <thead><tr><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Rate</th><th scope="col">Amount</th></tr></thead>
             <tbody>
               {lineItems.map((li) => (
                 <tr key={li.line_item_id}>

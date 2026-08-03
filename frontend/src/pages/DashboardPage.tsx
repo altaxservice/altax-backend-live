@@ -651,7 +651,7 @@ function EmployeeCommand() {
         {paychecks && paychecks.length > 0 && (
           <div className="table-scroll">
           <table>
-            <thead><tr><th>{t("dashboard.employee.payDate")}</th><th>{t("dashboard.employee.employer")}</th><th>{t("dashboard.employee.period")}</th><th>{t("dashboard.employee.gross")}</th><th>{t("dashboard.employee.taxes")}</th><th>{t("dashboard.employee.netPay")}</th><th>{t("dashboard.employee.status")}</th><th></th></tr></thead>
+            <thead><tr><th scope="col">{t("dashboard.employee.payDate")}</th><th scope="col">{t("dashboard.employee.employer")}</th><th scope="col">{t("dashboard.employee.period")}</th><th scope="col">{t("dashboard.employee.gross")}</th><th scope="col">{t("dashboard.employee.taxes")}</th><th scope="col">{t("dashboard.employee.netPay")}</th><th scope="col">{t("dashboard.employee.status")}</th><th scope="col"></th></tr></thead>
             <tbody>
               {paychecks.map((p) => (
                 <tr key={p.paycheck_id}>

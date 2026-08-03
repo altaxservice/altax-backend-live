@@ -163,8 +163,9 @@ export function Layout() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className={`sidebar-backdrop ${mobileNavOpen ? "open" : ""}`} onClick={() => setMobileNavOpen(false)} />
-      <aside className={`sidebar ${mobileNavOpen ? "open" : ""}`} dir={sidebarDir}>
+      <aside id="primary-sidebar" className={`sidebar ${mobileNavOpen ? "open" : ""}`} dir={sidebarDir}>
         <div className="brand-lockup">
           <FirmLogo size={40} />
           <div>
@@ -200,7 +201,7 @@ export function Layout() {
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <IdleTimeout />
-        <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} />
+        <Header title={displayTitle} onMenuClick={() => setMobileNavOpen((v) => !v)} menuOpen={mobileNavOpen} />
         <InstallPrompt />
         <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
           {/* No overflow-x:auto here — every page with a genuinely wide table already
@@ -213,7 +214,7 @@ export function Layout() {
               though it never actually scrolls (the real page scroll is on <html>)
               — so every sticky element anywhere in the app, not just table headers,
               was silently broken by this one inline style. */}
-          <main className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", minWidth: 0 }}>
+          <main id="main-content" tabIndex={-1} className={showLanguageToggle ? "has-bottom-tabs" : ""} style={{ flex: 1, padding: "24px 32px", minWidth: 0 }}>
             <Outlet />
           </main>
           {showPanel && <ClientContextPanel />}

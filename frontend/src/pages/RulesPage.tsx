@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { TaskRule, TaskBatch, WebOptions } from "../api/types2";
 import { useToast } from "../components/Toast";
@@ -6,6 +6,7 @@ import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const TRIGGER_COLUMNS = [
   "SalesTaxFrequency", "PayrollFrequency", "PayrollSystem", "PayrollEnabled", "EFTPSEnabled", "MDWithholdingFrequency",
@@ -39,6 +40,8 @@ export function RulesPage() {
   // Only for the "no rules yet" fallback panel below — CreateBatchTasksModal handles
   // its own Escape when rules exist.
   useEscapeToClose(() => setShowBatchModal(false), showBatchModal && !!rules && rules.length === 0);
+  const batchEmptyPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(batchEmptyPanelRef, showBatchModal && !!rules && rules.length === 0);
 
   function load() {
     Promise.all([
@@ -195,7 +198,7 @@ export function RulesPage() {
           </div>
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Rule</th><th>Task Type</th><th>Trigger</th><th>Frequency</th><th>Portal</th><th>Warnings</th><th>Active</th><th>Actions</th></tr></thead>
+            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Actions</th></tr></thead>
             <tbody>
               {filteredRules.map((r) => (
                 <tr key={r.rule_id}>
@@ -224,7 +227,7 @@ export function RulesPage() {
           <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 8px" }}>Recent Batches</h2>
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Task Type</th><th>Period</th><th>Created</th><th>Created By</th><th>Count</th></tr></thead>
+            <thead><tr><th scope="col">Task Type</th><th scope="col">Period</th><th scope="col">Created</th><th scope="col">Created By</th><th scope="col">Count</th></tr></thead>
             <tbody>
               {batches.slice(0, 15).map((b) => (
                 <tr key={b.batch_id}>
@@ -246,7 +249,7 @@ export function RulesPage() {
           <CreateBatchTasksModal rules={rules} initialRuleId={batchRuleId || undefined} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
-            <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
+            <div ref={batchEmptyPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header"><h2 id="batch-tasks-empty-title">Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">Add a rule first, then run a batch from it.</p>
             </div>

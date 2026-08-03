@@ -172,15 +172,15 @@ export function TimeTrackingPage() {
           <table>
             <thead>
               <tr>
-                <th>Date</th>
-                {isAdmin && <th>Staff</th>}
-                <th>Client</th>
-                <th style={{ textAlign: "right" }}>Hours</th>
-                <th>Description</th>
-                <th style={{ textAlign: "right" }}>Rate</th>
-                <th>Status</th>
-                <th>Billed</th>
-                <th>Actions</th>
+                <th scope="col">Date</th>
+                {isAdmin && <th scope="col">Staff</th>}
+                <th scope="col">Client</th>
+                <th scope="col" style={{ textAlign: "right" }}>Hours</th>
+                <th scope="col">Description</th>
+                <th scope="col" style={{ textAlign: "right" }}>Rate</th>
+                <th scope="col">Status</th>
+                <th scope="col">Billed</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>

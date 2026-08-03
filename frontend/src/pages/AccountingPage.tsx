@@ -20,6 +20,7 @@ import { CALCULATOR_TO_SALES_INPUT_KEY } from "./CalculatorsPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { exportCsv } from "../components/FilterBar";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const TABS = ["Sales", "Payroll", "Employees", "Import", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
@@ -616,7 +617,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
               <div className="metric"><div className="metric-label">Payment Date</div><div className="metric-value" style={{ fontSize: 18 }}>{fmtDate(viewing.payment_date) || "—"}</div></div>
             </div>
             <table>
-              <thead><tr><th>Category</th><th>Taxable Amount</th><th>Rate</th><th>Tax Amount</th></tr></thead>
+              <thead><tr><th scope="col">Category</th><th scope="col">Taxable Amount</th><th scope="col">Rate</th><th scope="col">Tax Amount</th></tr></thead>
               <tbody>
                 {(viewing.lines || []).map((l: any) => (
                   <tr key={l.line_id}>
@@ -676,10 +677,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Date</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Tax Due</th><th>Categories</th><th></th></tr></thead>
+            <thead><tr><th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th><th scope="col">Categories</th><th scope="col"></th></tr></thead>
             <tbody>
               {salesInPeriod.map((s) => (
-                <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
+                <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
                   <td>
                     <div>{fmtDate(s.sale_date)}</div>
                     {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
@@ -1110,12 +1111,12 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th></th></tr></thead>
+            <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col"></th></tr></thead>
             <tbody>
               {/* This is a different table from the Paychecks tab's — it also
                   needs to open its record rather than being a dead list. */}
               {paychecksInPeriod.map((p) => (
-                <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingPayCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingPayCheck(p); } }}>
+                <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingPayCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingPayCheck(p); } }}>
                   <td>{fmtDate(p.pay_date)}</td>
                   <td>{p.employee}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.gross_wages)}</td>
@@ -1176,6 +1177,8 @@ function newBatchRow(employee: string, payDate: string, employees: Employee[]): 
  */
 function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId: string; employees: Employee[]; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [mode, setMode] = useState<"employees" | "periods">("employees");
   const [sharedPayDate, setSharedPayDate] = useState("");
   const [periodsEmployee, setPeriodsEmployee] = useState("");
@@ -1263,7 +1266,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="batch-paychecks-title">Batch Create Paychecks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -1313,9 +1316,9 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
                 <table>
                   <thead>
                     <tr>
-                      {mode === "employees" ? <th>Employee</th> : <th>Pay Date</th>}
-                      {mode === "employees" && <th>Pay Date</th>}
-                      <th>Regular Hours</th><th>Regular Rate</th><th>Or Gross Wages</th><th></th>
+                      {mode === "employees" ? <th scope="col">Employee</th> : <th scope="col">Pay Date</th>}
+                      {mode === "employees" && <th scope="col">Pay Date</th>}
+                      <th scope="col">Regular Hours</th><th scope="col">Regular Rate</th><th scope="col">Or Gross Wages</th><th scope="col"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1354,7 +1357,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
             <p style={{ fontWeight: 700, marginBottom: 10 }}>{succeededCount} of {rows.length} paycheck(s) created.</p>
             <div className="table-scroll" style={{ marginBottom: 14 }}>
               <table>
-                <thead><tr><th>Employee</th><th>Pay Date</th><th>Result</th></tr></thead>
+                <thead><tr><th scope="col">Employee</th><th scope="col">Pay Date</th><th scope="col">Result</th></tr></thead>
                 <tbody>
                   {rows.map((r) => {
                     const res = results[r.key];
@@ -1490,14 +1493,14 @@ function ImportTab({ clientId }: { clientId: string }) {
               <table>
                 <thead>
                   <tr>
-                    <th></th>
+                    <th scope="col"></th>
                     {preview.kind === "employees" ? (
                       <>
-                        <th>Employee</th><th>Contact</th><th>Address</th><th>Pay Rate</th><th>Status</th>
+                        <th scope="col">Employee</th><th scope="col">Contact</th><th scope="col">Address</th><th scope="col">Pay Rate</th><th scope="col">Status</th>
                       </>
                     ) : (
                       <>
-                        <th>Employee</th><th>Pay Date</th><th>Gross</th><th>Fed WH</th><th>State WH</th><th>Status</th>
+                        <th scope="col">Employee</th><th scope="col">Pay Date</th><th scope="col">Gross</th><th scope="col">Fed WH</th><th scope="col">State WH</th><th scope="col">Status</th>
                       </>
                     )}
                   </tr>
@@ -1547,7 +1550,7 @@ function ImportTab({ clientId }: { clientId: string }) {
             <p style={{ fontWeight: 700, marginBottom: 10 }}>{succeededCount} of {results.length} row(s) imported.</p>
             <div className="table-scroll" style={{ marginBottom: 14 }}>
               <table>
-                <thead><tr><th>Employee</th><th>Result</th></tr></thead>
+                <thead><tr><th scope="col">Employee</th><th scope="col">Result</th></tr></thead>
                 <tbody>
                   {results.map((r, i) => (
                     <tr key={i}>
@@ -1771,10 +1774,10 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       >
         <div className="table-scroll card-table">
         <table>
-          <thead><tr><th>Name</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col">Name</th><th scope="col">Pay Type</th><th scope="col">State</th><th scope="col">Rate</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {workers.map((e) => (
-              <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
+              <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
                 <td data-label="Name"><Link to={`/employees/${e.employee_id}`} style={{ fontWeight: 600 }}>{e.employee_name}</Link></td>
                 <td className="muted" data-label="Pay Type">{e.pay_type || "—"}</td>
                 <td className="muted" data-label="State">{e.state || "—"}</td>
@@ -2009,10 +2012,10 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
           <table>
             {/* Method/Category/1099/Memo used to be four separate columns and ran
                 ~145px past the panel edge; they now ride under their subject. */}
-            <thead><tr><th>Date</th><th>Contractor</th><th style={{ textAlign: "right" }}>Amount</th><th></th></tr></thead>
+            <thead><tr><th scope="col">Date</th><th scope="col">Contractor</th><th scope="col" style={{ textAlign: "right" }}>Amount</th><th scope="col"></th></tr></thead>
             <tbody>
               {payments.map((p) => (
-                <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewing(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(p); } }}>
+                <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewing(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(p); } }}>
                   <td>
                     <div>{fmtDate(p.payment_date)}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{p.method}</div>
@@ -2251,7 +2254,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
             </div>
             <div className="table-scroll" style={{ marginTop: 10 }}>
               <table>
-                <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th><th>Memo</th></tr></thead>
+                <thead><tr><th scope="col">Account</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th><th scope="col">Memo</th></tr></thead>
                 <tbody>
                   {viewingJe.lines.map((l: any, idx: number) => (
                     <tr key={idx}>
@@ -2287,10 +2290,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           <table>
             {/* This panel is the narrow half of a two-column grid, so Ref and the
                 line count ride under their neighbours rather than owning columns. */}
-            <thead><tr><th>Date</th><th>Entry</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
+            <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col" style={{ textAlign: "right" }}>Total</th></tr></thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
+                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
                   <td>
                     <div>{fmtDate(e.entryDate)}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{e.lines.length} line(s)</div>
@@ -2414,7 +2417,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
           </div>
           <div className="table-scroll" style={{ marginTop: 10 }}>
             <table>
-              <thead><tr><th>Account</th><th>Description</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th></tr></thead>
+              <thead><tr><th scope="col">Account</th><th scope="col">Description</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th></tr></thead>
               <tbody>
                 {refLines.map((l, i) => (
                   <tr key={l.gl_entry_id || i}>
@@ -2445,14 +2448,13 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
       )}
       <div className="table-scroll">
       <table>
-        <thead><tr><th>Date</th><th>Ref</th><th>Account</th><th>Description</th><th style={{ textAlign: "right" }}>Debit</th><th style={{ textAlign: "right" }}>Credit</th><th>Source</th></tr></thead>
+        <thead><tr><th scope="col">Date</th><th scope="col">Ref</th><th scope="col">Account</th><th scope="col">Description</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th><th scope="col">Source</th></tr></thead>
         <tbody>
           {filtered.slice(0, 60).map((g, i) => (
             <tr
               key={g.gl_entry_id || i}
               style={{ cursor: "pointer" }}
               tabIndex={0}
-              role="button"
               onClick={() => setViewingRef(g.ref || null)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingRef(g.ref || null); } }}
             >
@@ -2640,10 +2642,10 @@ function PaychecksTab({ clientId }: { clientId: string }) {
         <table>
           {/* Period/check#/employer-side figures are stacked under their subject —
               as 11 columns this ran past the right edge at 100% zoom. */}
-          <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
           <tbody>
             {paychecks.map((p) => (
-              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
+              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
@@ -2781,7 +2783,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
       {items && (
         <div className="table-scroll">
         <table>
-          <thead><tr><th></th><th>Item</th><th>Category</th><th>Completed By</th><th>Completed At</th></tr></thead>
+          <thead><tr><th scope="col"></th><th scope="col">Item</th><th scope="col">Category</th><th scope="col">Completed By</th><th scope="col">Completed At</th></tr></thead>
           <tbody>
             {items.map((item) => {
               const isDone = item.status.toLowerCase() === "done";
@@ -3023,7 +3025,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
             <div className="scroll-list" style={{ marginBottom: 20 }}>
               <div className="table-scroll">
               <table>
-                <thead><tr><th>Employee</th><th>SSN</th><th>Wages</th><th>Fed Tax</th><th>MD Tax</th><th>Status</th><th>Review Issues</th><th></th></tr></thead>
+                <thead><tr><th scope="col">Employee</th><th scope="col">SSN</th><th scope="col">Wages</th><th scope="col">Fed Tax</th><th scope="col">MD Tax</th><th scope="col">Status</th><th scope="col">Review Issues</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {data.employees.map((e) => (
                     <tr key={e.employeeId}>
@@ -3053,7 +3055,7 @@ function YearEndTab({ clientId, clientState }: { clientId: string; clientState?:
             <div className="scroll-list" style={{ marginBottom: 20 }}>
               <div className="table-scroll">
               <table>
-                <thead><tr><th>Contractor</th><th>TIN</th><th>NEC (Box 1a)</th><th>Status</th><th>Review Issues</th><th></th></tr></thead>
+                <thead><tr><th scope="col">Contractor</th><th scope="col">TIN</th><th scope="col">NEC (Box 1a)</th><th scope="col">Status</th><th scope="col">Review Issues</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {data.contractors.map((c) => (
                     <tr key={c.contractorId}>
@@ -3223,7 +3225,7 @@ function TaxRatesTab() {
                 cell each, so the whole table fits without scrolling sideways. */}
             <div className="table-scroll">
             <table>
-              <thead><tr><th>Rate</th><th>Applies To</th><th style={{ textAlign: "right" }}>Rate</th><th>Payroll Side</th><th></th></tr></thead>
+              <thead><tr><th scope="col">Rate</th><th scope="col">Applies To</th><th scope="col" style={{ textAlign: "right" }}>Rate</th><th scope="col">Payroll Side</th><th scope="col"></th></tr></thead>
               <tbody>
                 {visibleRates.map((r) => (
                   <tr key={r.tax_rate_row_id || r.rate_id} style={r.active ? undefined : { opacity: 0.55 }}>
@@ -3397,7 +3399,7 @@ function SalesCategoriesSection() {
           <div style={{ overflowX: "auto" }}>
             <div className="table-scroll">
             <table>
-              <thead><tr><th>Category</th><th>State</th><th>Rate</th><th>Order</th><th>Active</th><th></th></tr></thead>
+              <thead><tr><th scope="col">Category</th><th scope="col">State</th><th scope="col">Rate</th><th scope="col">Order</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
               <tbody>
                 {categories.map((c) => (
                   <tr key={c.category_id}>
@@ -3518,8 +3520,8 @@ function BudgetTab({ clientId }: { clientId: string }) {
           <table>
             <thead>
               <tr>
-                <th>Account</th>
-                {MONTH_LABELS.map((m) => <th key={m} style={{ textAlign: "right" }}>{m}</th>)}
+                <th scope="col">Account</th>
+                {MONTH_LABELS.map((m) => <th scope="col" key={m} style={{ textAlign: "right" }}>{m}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -3548,9 +3550,9 @@ function BudgetTab({ clientId }: { clientId: string }) {
           <table>
             <thead>
               <tr>
-                <th>Account</th>
-                {MONTH_LABELS.map((m) => <th key={m} style={{ textAlign: "right" }}>{m}</th>)}
-                <th style={{ textAlign: "right" }}>Year Total</th>
+                <th scope="col">Account</th>
+                {MONTH_LABELS.map((m) => <th scope="col" key={m} style={{ textAlign: "right" }}>{m}</th>)}
+                <th scope="col" style={{ textAlign: "right" }}>Year Total</th>
               </tr>
             </thead>
             <tbody>
@@ -3923,7 +3925,7 @@ function CoaTab() {
           <div style={{ overflowX: "auto" }}>
             <div className="table-scroll">
             <table>
-              <thead><tr><th>Account #</th><th>Account</th><th>Type</th><th>Detail Type</th><th>Normal Balance</th><th>Balance</th><th>Active</th><th></th></tr></thead>
+              <thead><tr><th scope="col">Account #</th><th scope="col">Account</th><th scope="col">Type</th><th scope="col">Detail Type</th><th scope="col">Normal Balance</th><th scope="col">Balance</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
               <tbody>
                 {accounts.map((a) => (
                   <tr key={a.account_id}>

@@ -63,6 +63,32 @@ textarea:focus-visible, [tabindex]:focus-visible {
   outline-offset: 2px;
 }
 
+/* Skip-to-content link (WCAG 2.4.1 Bypass Blocks) — the very first focusable
+   element on every page, letting a keyboard user jump past the 20+ item
+   sidebar straight to the routed page content. Off-screen by default via a
+   large negative left offset (rather than display:none/visibility:hidden,
+   which would also pull it out of the tab order), and pulled on-screen the
+   instant it receives keyboard focus. */
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 1000;
+  padding: 12px 18px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 0 0 8px 0;
+  box-shadow: var(--shadow);
+}
+.skip-link:focus-visible,
+.skip-link:focus {
+  left: 0;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* ---- Buttons ---- */
 .btn {
   display: inline-flex;
@@ -534,7 +560,11 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
    Money, etc.) — only rendered when the visible list is long enough that
    grouping actually helps (admin/staff); client/employee's short list stays flat. */
 .nav-group-label {
-  color: #7c8ba0; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  /* #7c8ba0 on this sidebar's #202833 background computes to ~4.4:1 — below
+     WCAG AA's 4.5:1 for normal text (10.5px bold doesn't qualify for the
+     large-text exception). #98a5b7 keeps the same hue but lightens it enough
+     to clear ~6.1:1 against #202833, comfortably past the threshold. */
+  color: #98a5b7; font-size: 10.5px; font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.04em; margin: 10px 0 -2px; padding: 0 12px;
 }
 .nav-group-label:first-child { margin-top: 0; }
@@ -891,10 +921,23 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
     inset: 0 auto 0 0;
     z-index: 60;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    /* visibility:hidden pulls the off-screen sidebar's links out of the tab
+       order and accessibility tree — transform alone only hides them
+       visually, so a keyboard user tabbing through a mobile-width page would
+       otherwise still land on invisible sidebar items. The visibility
+       transition is delayed on close (so the slide-out animation still plays
+       in full before the links vanish from a11y) and un-delayed on open (so
+       they become reachable the instant the drawer starts sliding in). */
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
     box-shadow: 0 0 0 rgba(0, 0, 0, 0);
   }
-  .sidebar.open { transform: translateX(0); box-shadow: 12px 0 32px rgba(15, 23, 42, 0.25); }
+  .sidebar.open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+    box-shadow: 12px 0 32px rgba(15, 23, 42, 0.25);
+  }
   .sidebar-backdrop.open { display: block; }
 
   .topbar { padding: 14px 16px; }

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Search, User, ListChecks, Receipt, FolderOpen, Users } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null }
 interface TaskHit { task_id: string; task_name: string; client_id: string; client_name: string; status: string; agency_due_date: string | null }
@@ -66,6 +67,8 @@ export function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -133,7 +136,7 @@ export function CommandPalette() {
 
   return (
     <div className="modal-overlay" style={{ alignItems: "flex-start", paddingTop: "10vh" }} onClick={() => setOpen(false)}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-label="Command palette" style={{ width: "min(560px, 100%)", padding: 0, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-label="Command palette" style={{ width: "min(560px, 100%)", padding: 0, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
           <Search size={18} color="var(--muted)" aria-hidden="true" />
           <input
@@ -143,10 +146,11 @@ export function CommandPalette() {
             onKeyDown={handleKeyDown}
             placeholder="Search clients, tasks, invoices, documents, employees…"
             style={{ flex: 1, border: "none", outline: "none", fontSize: 15, background: "transparent", color: "var(--ink)" }}
+            aria-activedescendant={rows[activeIndex] ? `cmdk-option-${activeIndex}` : undefined}
           />
           <kbd style={{ fontSize: 11, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px" }}>Esc</kbd>
         </div>
-        <div ref={listRef} style={{ maxHeight: "50vh", overflowY: "auto" }}>
+        <div ref={listRef} role="listbox" style={{ maxHeight: "50vh", overflowY: "auto" }}>
           {error && <p style={{ padding: 16, color: "var(--red)", fontSize: 13 }}>{error}</p>}
           {!error && q.length < 2 && <p className="muted" style={{ padding: 16, fontSize: 13 }}>Type at least 2 characters to search.</p>}
           {!error && q.length >= 2 && results === null && <p className="muted" style={{ padding: 16, fontSize: 13 }}>Searching…</p>}
@@ -163,6 +167,9 @@ export function CommandPalette() {
                   </div>
                 )}
                 <div
+                  id={`cmdk-option-${i}`}
+                  role="option"
+                  aria-selected={i === activeIndex}
                   className={i === activeIndex ? "cmdk-row-active" : ""}
                   onMouseEnter={() => setActiveIndex(i)}
                   onClick={() => activate(row)}

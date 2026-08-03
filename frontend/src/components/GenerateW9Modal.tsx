@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { GovFormsMeta } from "../api/govForms";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface EmployeeIdentity {
   employee_id: string; employee_name: string; ssn: string | null; ein: string | null;
@@ -12,6 +13,8 @@ interface EmployeeIdentity {
 /** Generates Form W-9 for one contractor — collected by the firm/client as the payer, never sent to the IRS. Same lifecycle and layout as GenerateW4Modal, W-9's own fields (see GenerateGovFormModal's client-scoped W-9 section, which this mirrors). */
 export function GenerateW9Modal({ employeeId, onClose, onDone }: { employeeId: string; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [meta, setMeta] = useState<GovFormsMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -72,7 +75,7 @@ export function GenerateW9Modal({ employeeId, onClose, onDone }: { employeeId: s
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-w9-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-w9-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-w9-title">Generate Form W-9</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

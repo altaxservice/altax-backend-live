@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { TaskRule, PortalUser } from "../api/types2";
@@ -8,6 +8,7 @@ import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useConfirm } from "./ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface PreviewResult {
   wouldCreate: number;
@@ -29,6 +30,8 @@ function ruleSortKey(ruleId: string): [number, string] {
 /** Mirrors legacy's "Create Batch Tasks" modal — reachable from both the Tasks toolbar and each Rules row's "Run Batch" button. */
 export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [ruleId, setRuleId] = useState(initialRuleId || rules[0]?.rule_id || "");
@@ -173,7 +176,7 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-batch-tasks-title" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-batch-tasks-title" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="create-batch-tasks-title">Create Batch Tasks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

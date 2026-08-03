@@ -275,7 +275,7 @@ export function InvoiceDetailPage() {
           <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Line Items</h2>
           <div className="table-scroll card-table">
           <table style={{ marginTop: 12 }}>
-            <thead><tr><th>Service Date</th><th>Product/Service</th><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+            <thead><tr><th scope="col">Service Date</th><th scope="col">Product/Service</th><th scope="col">Description</th><th scope="col">Qty</th><th scope="col">Rate</th><th scope="col">Amount</th></tr></thead>
             <tbody>
               {lineItems.map((li) => (
                 <tr key={li.line_item_id}>
@@ -297,7 +297,7 @@ export function InvoiceDetailPage() {
         <h2 style={{ fontSize: 15, margin: 0, padding: "16px 20px 0" }}>Payments</h2>
         <div className="table-scroll card-table">
         <table style={{ marginTop: 12 }}>
-          <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
           <tbody>
             {payments.map((p) => (
               <tr key={p.payment_id}>

@@ -290,7 +290,7 @@ export function HaccpGeneratorPage() {
           {plans && plans.length > 0 && (
             <div className="table-scroll">
               <table>
-                <thead><tr><th>Business</th><th>Type</th><th>Jurisdiction</th><th>Linked Client</th><th>Updated</th><th></th></tr></thead>
+                <thead><tr><th scope="col">Business</th><th scope="col">Type</th><th scope="col">Jurisdiction</th><th scope="col">Linked Client</th><th scope="col">Updated</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {plans.map((p) => (
                     <tr key={p.plan_id}>
@@ -644,7 +644,7 @@ function HaccpTemplatesPanel({ businessTypes }: { businessTypes: BusinessType[] 
       {templates && (
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Template</th><th>Business Type Key</th><th>Active</th><th>Source</th><th></th></tr></thead>
+            <thead><tr><th scope="col">Template</th><th scope="col">Business Type Key</th><th scope="col">Active</th><th scope="col">Source</th><th scope="col"></th></tr></thead>
             <tbody>
               {templates.map((t) => (
                 <tr key={t.businessTypeKey}>

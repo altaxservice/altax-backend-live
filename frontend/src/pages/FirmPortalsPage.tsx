@@ -254,13 +254,13 @@ export function FirmPortalsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Portal</th>
-                <th>Category</th>
-                <th>Jurisdiction</th>
-                <th>User ID</th>
-                <th>Password</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col">Portal</th>
+                <th scope="col">Category</th>
+                <th scope="col">Jurisdiction</th>
+                <th scope="col">User ID</th>
+                <th scope="col">Password</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>

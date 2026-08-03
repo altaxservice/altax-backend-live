@@ -514,7 +514,7 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
       ) : (
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Year</th><th>Action</th></tr></thead>
+            <thead><tr><th scope="col">Year</th><th scope="col">Action</th></tr></thead>
             <tbody>
               {years.map((year) => (
                 <tr key={year}>
@@ -689,7 +689,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {(filings || []).map((f) => (
               <Fragment key={f.filing_id}>
@@ -934,7 +934,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
       </div>
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Requested Item</th><th>Due</th><th>Status</th></tr></thead>
+          <thead><tr><th scope="col">Requested Item</th><th scope="col">Due</th><th scope="col">Status</th></tr></thead>
           <tbody>
             {openRequests.map((r) => (
               <tr key={r.request_id}>

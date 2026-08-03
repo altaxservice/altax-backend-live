@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -6,6 +6,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type Estimate } from "../api/estimates";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Estimates — the pipeline of businesses being quoted.
@@ -30,6 +31,8 @@ export function EstimatesListPage() {
   });
 
   useEscapeToClose(() => setCreating(false), creating);
+  const newEstimatePanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(newEstimatePanelRef, creating);
 
   function load() {
     api.get<{ estimates: Estimate[] }>("/estimates")
@@ -116,12 +119,12 @@ export function EstimatesListPage() {
           <table>
             <thead>
               <tr>
-                <th>Business</th>
-                <th>Job</th>
-                <th>Status</th>
-                <th>Valid Until</th>
-                <th style={{ textAlign: "right" }}>Total</th>
-                <th style={{ textAlign: "right" }}>Balance</th>
+                <th scope="col">Business</th>
+                <th scope="col">Job</th>
+                <th scope="col">Status</th>
+                <th scope="col">Valid Until</th>
+                <th scope="col" style={{ textAlign: "right" }}>Total</th>
+                <th scope="col" style={{ textAlign: "right" }}>Balance</th>
               </tr>
             </thead>
             <tbody>
@@ -158,7 +161,7 @@ export function EstimatesListPage() {
 
       {creating && (
         <div className="modal-overlay" onClick={() => setCreating(false)}>
-          <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-estimate-title" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div ref={newEstimatePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-estimate-title" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="new-estimate-title">New Estimate</h2>
               <button className="btn btn-sm" onClick={() => setCreating(false)}>Close</button>

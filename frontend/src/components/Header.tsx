@@ -6,10 +6,11 @@ import { useLanguage } from "../context/LanguageContext";
 import { APP_NAME } from "../utils/branding";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
-export function Header({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
+export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenuClick?: () => void; menuOpen?: boolean }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { lang, setLang, t, dir } = useLanguage();
@@ -88,6 +89,8 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
             type="button"
             className={`hamburger-btn ${showLanguageToggle ? "hidden-for-tabbar" : ""}`}
             aria-label={t("header.menu")}
+            aria-expanded={Boolean(menuOpen)}
+            aria-controls="primary-sidebar"
             onClick={onMenuClick}
           >☰</button>
           <div>
@@ -186,6 +189,8 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
  */
 function PreparerInfoModal({ onClose }: { onClose: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [ptin, setPtin] = useState("");
   const [cafNumber, setCafNumber] = useState("");
   const [loading, setLoading] = useState(true);
@@ -216,7 +221,7 @@ function PreparerInfoModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="preparer-info-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="preparer-info-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="preparer-info-title">Preparer Info</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -248,6 +253,8 @@ function PreparerInfoModal({ onClose }: { onClose: () => void }) {
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -275,7 +282,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-password-title">Change Password</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -307,6 +314,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
 function TwoFactorModal({ onClose }: { onClose: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const { user, updateUser } = useAuth();
   const [setup, setSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
   const [code, setCode] = useState("");
@@ -370,7 +379,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   if (done === "enabled") {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -387,7 +396,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   if (user?.totpEnabled) {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -450,7 +459,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

@@ -17,6 +17,7 @@ import { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfil
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 export { MANUAL_PROFILE, PaymentProfileField } from "../components/PaymentProfileField";
 
@@ -387,11 +388,11 @@ export function InvoicesListPage() {
           <div className="table-scroll card-table">
           <table>
             <thead>
-              <tr><th>{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th>Client</th>}<th>{canManage ? "Date" : t("billing.client.colDate")}</th><th>{canManage ? "Due" : t("billing.client.colDue")}</th><th>{canManage ? "Description" : t("billing.client.colDescription")}</th><th>{canManage ? "Amount" : t("billing.client.colAmount")}</th><th>{canManage ? "Balance" : t("billing.client.colBalance")}</th><th>{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th>Action</th>}</tr>
+              <tr><th scope="col">{canManage ? "Invoice" : t("billing.client.colInvoice")}</th>{canManage && <th scope="col">Client</th>}<th scope="col">{canManage ? "Date" : t("billing.client.colDate")}</th><th scope="col">{canManage ? "Due" : t("billing.client.colDue")}</th><th scope="col">{canManage ? "Description" : t("billing.client.colDescription")}</th><th scope="col">{canManage ? "Amount" : t("billing.client.colAmount")}</th><th scope="col">{canManage ? "Balance" : t("billing.client.colBalance")}</th><th scope="col">{canManage ? "Status" : t("billing.client.colStatus")}</th>{canManage && <th scope="col">Action</th>}</tr>
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => (
-                <tr key={inv.invoice_id} data-row-id={inv.invoice_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); } }}>
+                <tr key={inv.invoice_id} data-row-id={inv.invoice_id} tabIndex={0} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td>{inv.invoice_id}</td>
                   {canManage && <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>}
                   <td className="muted" data-label={canManage ? "Date" : t("billing.client.colDate")}><Num>{fmtDate(inv.invoice_date)}</Num></td>
@@ -444,7 +445,7 @@ export function InvoicesListPage() {
           ) : (
             <div className="table-scroll card-table">
               <table>
-                <thead><tr><th>{t("billing.client.colPaymentDue")}</th><th>{t("billing.client.colDuePaid")}</th><th>{t("billing.client.colExpected")}</th><th>{t("billing.client.colPaid")}</th><th>{t("billing.client.colStatus")}</th></tr></thead>
+                <thead><tr><th scope="col">{t("billing.client.colPaymentDue")}</th><th scope="col">{t("billing.client.colDuePaid")}</th><th scope="col">{t("billing.client.colExpected")}</th><th scope="col">{t("billing.client.colPaid")}</th><th scope="col">{t("billing.client.colStatus")}</th></tr></thead>
                 <tbody>
                   {taxRows.map((r) => (
                     <tr key={r.task_id} data-row-id={r.task_id}>
@@ -472,10 +473,10 @@ export function InvoicesListPage() {
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Client</th><th>Description</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Due Days</th><th>Auto</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th scope="col">Client</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Frequency</th><th scope="col">Next Run</th><th scope="col">Due Days</th><th scope="col">Auto</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
               {schedules.map((s) => (
-                <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setRecurringModal({ editing: s })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRecurringModal({ editing: s }); } }}>
+                <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setRecurringModal({ editing: s })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRecurringModal({ editing: s }); } }}>
                   <td>{s.client_name as string}</td>
                   <td className="muted">{s.description as string}</td>
                   <td>{fmtMoney(s.amount)}</td>
@@ -526,10 +527,10 @@ export function InvoicesListPage() {
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Payment</th><th>Invoice</th><th>Client</th><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Payment</th><th scope="col">Invoice</th><th scope="col">Client</th><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {(firmPayments || []).map((p) => (
-                <tr key={p.payment_id} data-row-id={p.payment_id} tabIndex={0} role="button" onClick={() => navigate(`/billing/${p.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${p.invoice_id}`); } }}>
+                <tr key={p.payment_id} data-row-id={p.payment_id} tabIndex={0} onClick={() => navigate(`/billing/${p.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${p.invoice_id}`); } }}>
                   <td>{p.payment_id}</td>
                   <td className="muted">{p.invoice_id}</td>
                   <td className="muted">{clientName(p.client_id as string) }</td>
@@ -556,10 +557,10 @@ export function InvoicesListPage() {
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Payment / Due</th><th>Client</th><th>Related Task</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Payment / Due</th><th scope="col">Client</th><th scope="col">Related Task</th><th scope="col">Due / Paid</th><th scope="col">Expected</th><th scope="col">Paid</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {(taxRows || []).map((r) => (
-                <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
+                <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td>{r.task_name}</td>
                   <td className="muted">{r.client_name}</td>
                   <td className="muted">{r.task_name}</td>
@@ -587,6 +588,8 @@ export function InvoicesListPage() {
 
 function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
@@ -619,7 +622,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sales-receipt-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sales-receipt-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="sales-receipt-title">Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
@@ -655,6 +658,8 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
 
 function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: { invoices: Invoice[]; clientName: (id: string) => string; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
@@ -690,7 +695,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="record-payment-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="record-payment-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="record-payment-title">Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">

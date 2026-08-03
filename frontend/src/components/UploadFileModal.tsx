@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Direct "drop a file into this client's Documents" flow — for the Clients page's
@@ -17,6 +18,8 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
   clientId: string; clientName: string; onClose: () => void; onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [mode, setMode] = useState<"browse" | "link">("browse");
   const [files, setFiles] = useState<File[]>([]);
@@ -81,7 +84,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-file-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-file-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="upload-file-title">Send File to {clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

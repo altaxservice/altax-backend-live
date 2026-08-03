@@ -61,7 +61,7 @@ export function BottomTabBar() {
   const tabs = user.role === "client" ? CLIENT_TABS : EMPLOYEE_TABS;
 
   return (
-    <nav className="bottom-tab-bar" aria-label="Primary">
+    <nav className="bottom-tab-bar" aria-label="Bottom navigation">
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}

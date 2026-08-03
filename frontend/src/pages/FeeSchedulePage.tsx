@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
@@ -6,6 +6,7 @@ import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useStickyState } from "../utils/listState";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type FeeItem } from "../api/estimates";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * The priced catalog behind every estimate.
@@ -37,6 +38,8 @@ export function FeeSchedulePage() {
   const [categoryFilter, setCategoryFilter] = useStickyState("fees.category", "all");
 
   useEscapeToClose(() => setEditing(null), Boolean(editing));
+  const editModalPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(editModalPanelRef, Boolean(editing));
 
   function load() {
     api.get<{ feeItems: FeeItem[] }>("/estimates/fee-items")
@@ -149,12 +152,12 @@ export function FeeSchedulePage() {
           <table>
             <thead>
               <tr>
-                <th>Fee</th>
-                <th>Applies To</th>
-                <th>Speed</th>
-                <th style={{ textAlign: "right" }}>Agency Cost</th>
-                <th style={{ textAlign: "right" }}>Client Price</th>
-                <th></th>
+                <th scope="col">Fee</th>
+                <th scope="col">Applies To</th>
+                <th scope="col">Speed</th>
+                <th scope="col" style={{ textAlign: "right" }}>Agency Cost</th>
+                <th scope="col" style={{ textAlign: "right" }}>Client Price</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -208,7 +211,7 @@ export function FeeSchedulePage() {
 
       {editing && (
         <div className="modal-overlay" onClick={() => setEditing(null)}>
-          <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="fee-schedule-modal-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div ref={editModalPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="fee-schedule-modal-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="fee-schedule-modal-title">{editing.fee_item_id ? "Edit Fee" : "Add Fee"}</h2>
               <button className="btn btn-sm" onClick={() => setEditing(null)}>Close</button>

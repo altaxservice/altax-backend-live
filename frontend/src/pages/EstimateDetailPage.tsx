@@ -328,18 +328,18 @@ export function EstimateDetailPage() {
             <thead>
               <tr>
                 {!locked && (
-                  <th style={{ width: 32 }}>
+                  <th scope="col" style={{ width: 32 }}>
                     <input type="checkbox" checked={lines.length > 0 && selectedLines.size === lines.length} onChange={toggleSelectAllLines} />
                   </th>
                 )}
-                <th>Description</th>
-                <th>Type</th>
-                <th style={{ width: 70 }}>Qty</th>
-                <th style={{ width: 110, textAlign: "right" }}>Our Cost</th>
-                <th style={{ width: 110, textAlign: "right" }}>Client Price</th>
-                <th style={{ width: 120 }}>Paid By</th>
-                <th style={{ textAlign: "right" }}>Amount</th>
-                {!locked && <th></th>}
+                <th scope="col">Description</th>
+                <th scope="col">Type</th>
+                <th scope="col" style={{ width: 70 }}>Qty</th>
+                <th scope="col" style={{ width: 110, textAlign: "right" }}>Our Cost</th>
+                <th scope="col" style={{ width: 110, textAlign: "right" }}>Client Price</th>
+                <th scope="col" style={{ width: 120 }}>Paid By</th>
+                <th scope="col" style={{ textAlign: "right" }}>Amount</th>
+                {!locked && <th scope="col"></th>}
               </tr>
             </thead>
             <tbody>
@@ -557,6 +557,7 @@ export function EstimateDetailPage() {
               <select
                 id="est-discount-type" value={discountType} disabled={locked}
                 style={{ maxWidth: 90 }}
+                aria-label="Discount type"
                 onChange={(e) => setDiscountType(e.target.value as "fixed" | "percent")}
               >
                 <option value="fixed">$</option>

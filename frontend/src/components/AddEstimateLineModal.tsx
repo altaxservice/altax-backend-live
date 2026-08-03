@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { money, type EstimateLine, type FeeItem } from "../api/estimates";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Add Line — two ways onto an estimate, because they serve different moments:
@@ -21,6 +22,8 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
   onAdd: (lines: EstimateLine[]) => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [mode, setMode] = useState<"catalog" | "new">("catalog");
 
   // ---- Catalog mode ----
@@ -121,7 +124,7 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="add-estimate-line-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="add-estimate-line-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="add-estimate-line-title">Add Line</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>

@@ -622,10 +622,10 @@ export function ReportsPage() {
                         {/* Revenue/Expenses/Net Profit normally drill into that ONE client's GL —
                             not meaningful firm-wide (no single client to open), so the click is
                             disabled in that mode rather than jumping to a broken/empty GL filter. */}
-                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
-                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
-                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
-                        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/billing")}><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} tabIndex={isFirmWide ? undefined : 0} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`); } }}><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(firmSummary.totals.revenue)}</div></div>
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} tabIndex={isFirmWide ? undefined : 0} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`); } }}><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(firmSummary.totals.expenses)}</div></div>
+                        <div className="metric" style={isFirmWide ? undefined : { cursor: "pointer" }} role={isFirmWide ? undefined : "button"} tabIndex={isFirmWide ? undefined : 0} onClick={isFirmWide ? undefined : () => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`); } }}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(firmSummary.totals.profit)}</div></div>
+                        <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate("/billing")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/billing"); } }}><div className="metric-label">Unpaid Balance</div><div className="metric-value">{fmtMoney(firmSummary.unpaidBalance)}</div></div>
                         {isFirmWide && firmSummary.activeClientCount != null && (
                           <div className="metric"><div className="metric-label">Active Clients</div><div className="metric-value">{firmSummary.activeClientCount}</div></div>
                         )}
@@ -640,7 +640,7 @@ export function ReportsPage() {
                         </div>
                         <div className="table-scroll">
                         <table>
-                          <thead><tr><th>Month</th><th>Revenue</th><th>Expenses</th><th>Profit</th></tr></thead>
+                          <thead><tr><th scope="col">Month</th><th scope="col">Revenue</th><th scope="col">Expenses</th><th scope="col">Profit</th></tr></thead>
                           <tbody>
                             {/* Clicking a month sets the period to that month and jumps to P&L —
                                 the row's numbers are a roll-up, so "show me the detail behind
@@ -648,7 +648,7 @@ export function ReportsPage() {
                                 meaningful firm-wide (no single client's P&L to open), so rows
                                 aren't clickable in that mode. */}
                             {firmSummary.months.map((m) => (
-                              <tr key={m.month} style={isFirmWide ? undefined : { cursor: "pointer" }} tabIndex={isFirmWide ? undefined : 0} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => openMonthDetail(m.month)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMonthDetail(m.month); } }}>
+                              <tr key={m.month} style={isFirmWide ? undefined : { cursor: "pointer" }} tabIndex={isFirmWide ? undefined : 0} onClick={isFirmWide ? undefined : () => openMonthDetail(m.month)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMonthDetail(m.month); } }}>
                                 <td>{m.month}</td>
                                 <td>{fmtMoney(m.revenue)}</td>
                                 <td className="muted">{fmtMoney(m.expenses)}</td>
@@ -688,14 +688,14 @@ export function ReportsPage() {
               <div className="command-panel">
                 <div className="command-panel-header"><h2 className="command-panel-title">Period Snapshot</h2></div>
                 <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
-                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Sales Tax</div><div className="metric-value">{fmtMoney(salesTax)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)}><div className="metric-label">Payroll Gross</div><div className="metric-value">{fmtMoney(payrollGross)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">Net Income</div><div className="metric-value">{fmtMoney(netIncome)}</div></div>
-                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)}><div className="metric-label">GL Entries</div><div className="metric-value">{filtered.length}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`); } }}><div className="metric-label">Sales Tax</div><div className="metric-value">{fmtMoney(salesTax)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`); } }}><div className="metric-label">Payroll Gross</div><div className="metric-value">{fmtMoney(payrollGross)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`); } }}><div className="metric-label">Net Income</div><div className="metric-value">{fmtMoney(netIncome)}</div></div>
+                  <div className="metric" style={{ boxShadow: "none", cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=GL`); } }}><div className="metric-label">GL Entries</div><div className="metric-value">{filtered.length}</div></div>
                 </div>
                 <div className="table-scroll">
                 <table>
-                  <thead><tr><th>Account</th><th>Debit</th><th>Credit</th></tr></thead>
+                  <thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead>
                   <tbody>
                     {Array.from(byAccount.entries()).map(([acct, v]) => (
                       <tr key={acct}><td>{acct}</td><td>{fmtMoney(v.debit)}</td><td>{fmtMoney(v.credit)}</td></tr>
@@ -731,10 +731,10 @@ export function ReportsPage() {
               {!salesTaxLoading && salesTaxReport && (
                 <>
                   <div className="metric-grid" style={{ marginBottom: 16 }}>
-                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Gross Sales</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.grossSales)}</div></div>
-                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Total Tax Due</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.taxDue)}</div></div>
-                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Adjustments</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.adjustments)}</div></div>
-                    <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)}><div className="metric-label">Sales Recorded</div><div className="metric-value">{salesTaxReport.totals.saleCount}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`); } }}><div className="metric-label">Gross Sales</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.grossSales)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`); } }}><div className="metric-label">Total Tax Due</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.taxDue)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`); } }}><div className="metric-label">Adjustments</div><div className="metric-value">{fmtMoney(salesTaxReport.totals.adjustments)}</div></div>
+                    <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Sales`); } }}><div className="metric-label">Sales Recorded</div><div className="metric-value">{salesTaxReport.totals.saleCount}</div></div>
                   </div>
 
                   <div className="command-panel" style={{ marginBottom: 16 }}>
@@ -744,7 +744,7 @@ export function ReportsPage() {
                     </div>
                     <div className="table-scroll">
                       <table>
-                        <thead><tr><th>Category</th><th>State</th><th>Rate</th><th>Taxable Sales</th><th>Tax</th></tr></thead>
+                        <thead><tr><th scope="col">Category</th><th scope="col">State</th><th scope="col">Rate</th><th scope="col">Taxable Sales</th><th scope="col">Tax</th></tr></thead>
                         <tbody>
                           {/* Every row here is a real record elsewhere — categories
                               live in Accounting → Tax Rates, sales in the Sales tab. */}
@@ -754,7 +754,6 @@ export function ReportsPage() {
                               style={{ cursor: "pointer" }}
                               title={`Open ${c.categoryName} in Accounting → Tax Rates`}
                               tabIndex={0}
-                              role="button"
                               onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Tax Rates")}`)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?tab=${encodeURIComponent("Tax Rates")}`); } }}
                             >
@@ -813,7 +812,7 @@ export function ReportsPage() {
                     </div>
                     <div className="table-scroll">
                       <table>
-                        <thead><tr><th>Date</th><th>Gross Sales</th><th>Adjustments</th><th>Tax Due</th></tr></thead>
+                        <thead><tr><th scope="col">Date</th><th scope="col">Gross Sales</th><th scope="col">Adjustments</th><th scope="col">Tax Due</th></tr></thead>
                         <tbody>
                           {salesTaxReport.sales.map((s) => (
                             <tr
@@ -821,7 +820,6 @@ export function ReportsPage() {
                               style={{ cursor: "pointer" }}
                               title="Open this sale in Accounting → Sales"
                               tabIndex={0}
-                              role="button"
                               onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Sales")}`)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?tab=${encodeURIComponent("Sales")}`); } }}
                             >
@@ -847,18 +845,18 @@ export function ReportsPage() {
           {!payrollLoading && tab === "Payroll" && (
             <>
               <div className="metric-grid" style={{ marginBottom: 16 }}>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)}><div className="metric-label">Gross Wages</div><div className="metric-value">{fmtMoney(payrollGrossWages)}</div></div>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Checks</div><div className="metric-value">{filteredPaychecks.length}</div></div>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Employee Taxes</div><div className="metric-value">{fmtMoney(payrollEmployeeTaxes)}</div></div>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Employer Taxes</div><div className="metric-value">{fmtMoney(payrollEmployerTaxes)}</div></div>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Net Pay</div><div className="metric-value">{fmtMoney(payrollNetPay)}</div></div>
-                <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}><div className="metric-label">Total Payroll Cost</div><div className="metric-value">{fmtMoney(payrollTotalCost)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Payroll`); } }}><div className="metric-label">Gross Wages</div><div className="metric-value">{fmtMoney(payrollGrossWages)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}><div className="metric-label">Checks</div><div className="metric-value">{filteredPaychecks.length}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}><div className="metric-label">Employee Taxes</div><div className="metric-value">{fmtMoney(payrollEmployeeTaxes)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}><div className="metric-label">Employer Taxes</div><div className="metric-value">{fmtMoney(payrollEmployerTaxes)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}><div className="metric-label">Net Pay</div><div className="metric-value">{fmtMoney(payrollNetPay)}</div></div>
+                <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}><div className="metric-label">Total Payroll Cost</div><div className="metric-value">{fmtMoney(payrollTotalCost)}</div></div>
               </div>
               <div className="command-panel" style={{ marginBottom: 16 }}>
                 <div className="command-panel-header"><h2 className="command-panel-title">Payroll Tax Summary</h2><div className="command-panel-note">{from} – {to}</div></div>
                 <div className="table-scroll">
                 <table>
-                  <thead><tr><th>Tax</th><th>Employee</th><th>Employer</th><th>Total</th></tr></thead>
+                  <thead><tr><th scope="col">Tax</th><th scope="col">Employee</th><th scope="col">Employer</th><th scope="col">Total</th></tr></thead>
                   <tbody>
                     {payrollTaxRows.map((r) => (
                       <tr key={r.label}><td>{r.label}</td><td>{fmtMoney(r.employee)}</td><td>{fmtMoney(r.employer)}</td><td>{fmtMoney(r.employee + r.employer)}</td></tr>
@@ -876,14 +874,13 @@ export function ReportsPage() {
                 {filteredPaychecks.length > 0 && (
                   <div className="table-scroll">
                   <table>
-                    <thead><tr><th>Date</th><th>Employee</th><th>Gross</th><th>Net</th></tr></thead>
+                    <thead><tr><th scope="col">Date</th><th scope="col">Employee</th><th scope="col">Gross</th><th scope="col">Net</th></tr></thead>
                     <tbody>
                       {filteredPaychecks.map((p) => (
                         <tr
                           key={p.paycheck_id}
                           style={{ cursor: "pointer" }}
                           tabIndex={0}
-                          role="button"
                           onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
                           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}
                         ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{p.employee}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
@@ -918,10 +915,10 @@ export function ReportsPage() {
                   {employeeSummaryRows.length > 0 && (
                     <div className="table-scroll">
                     <table>
-                      <thead><tr><th>Employee</th><th>Checks</th><th>Gross</th><th>Employee Taxes</th><th>Employer Taxes</th><th>Net Pay</th><th>Total Cost</th></tr></thead>
+                      <thead><tr><th scope="col">Employee</th><th scope="col">Checks</th><th scope="col">Gross</th><th scope="col">Employee Taxes</th><th scope="col">Employer Taxes</th><th scope="col">Net Pay</th><th scope="col">Total Cost</th></tr></thead>
                       <tbody>
                         {employeeSummaryRows.map((r) => (
-                          <tr key={r.employee} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setEmployeeFilter(r.employee)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEmployeeFilter(r.employee); } }}>
+                          <tr key={r.employee} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setEmployeeFilter(r.employee)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEmployeeFilter(r.employee); } }}>
                             <td>{r.employee}</td><td>{r.checkCount}</td><td>{fmtMoney(r.gross)}</td><td>{fmtMoney(r.eeTax)}</td><td>{fmtMoney(r.erTax)}</td><td>{fmtMoney(r.net)}</td><td>{fmtMoney(r.total)}</td>
                           </tr>
                         ))}
@@ -947,7 +944,7 @@ export function ReportsPage() {
                     <div className="command-panel-header"><h2 className="command-panel-title">Payroll Tax Summary</h2><div className="command-panel-note">{from} – {to}</div></div>
                     <div className="table-scroll">
                     <table>
-                      <thead><tr><th>Tax</th><th>Employee</th><th>Employer</th><th>Total</th></tr></thead>
+                      <thead><tr><th scope="col">Tax</th><th scope="col">Employee</th><th scope="col">Employer</th><th scope="col">Total</th></tr></thead>
                       <tbody>
                         {employeeTaxRows.map((r) => (
                           <tr key={r.label}><td>{r.label}</td><td>{fmtMoney(r.employee)}</td><td>{fmtMoney(r.employer)}</td><td>{fmtMoney(r.employee + r.employer)}</td></tr>
@@ -966,14 +963,13 @@ export function ReportsPage() {
                     {employeePaychecks.length > 0 && (
                       <div className="table-scroll">
                       <table>
-                        <thead><tr><th>Date</th><th>Gross</th><th>Net</th></tr></thead>
+                        <thead><tr><th scope="col">Date</th><th scope="col">Gross</th><th scope="col">Net</th></tr></thead>
                         <tbody>
                           {employeePaychecks.map((p) => (
                             <tr
                               key={p.paycheck_id}
                               style={{ cursor: "pointer" }}
                               tabIndex={0}
-                              role="button"
                               onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}
                             ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
@@ -1177,18 +1173,18 @@ function ArAgingTab() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Client</th>
-                <th style={{ textAlign: "right" }}>Current</th>
-                <th style={{ textAlign: "right" }}>1-30</th>
-                <th style={{ textAlign: "right" }}>31-60</th>
-                <th style={{ textAlign: "right" }}>61-90</th>
-                <th style={{ textAlign: "right" }}>90+</th>
-                <th style={{ textAlign: "right" }}>Total</th>
+                <th scope="col">Client</th>
+                <th scope="col" style={{ textAlign: "right" }}>Current</th>
+                <th scope="col" style={{ textAlign: "right" }}>1-30</th>
+                <th scope="col" style={{ textAlign: "right" }}>31-60</th>
+                <th scope="col" style={{ textAlign: "right" }}>61-90</th>
+                <th scope="col" style={{ textAlign: "right" }}>90+</th>
+                <th scope="col" style={{ textAlign: "right" }}>Total</th>
               </tr>
             </thead>
             <tbody>
               {data.rows.map((r) => (
-                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}?tab=Billing`); } }}>
+                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}?tab=Billing`); } }}>
                   <td>{r.clientName}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(r.current)}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(r.d1_30)}</td>
@@ -1334,10 +1330,10 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
             <SectionLabel>Entries that do not balance</SectionLabel>
             <div className="table-scroll" style={{ marginBottom: 16 }}>
               <table>
-                <thead><tr><th>Reference</th><th>Source</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Difference</th><th></th></tr></thead>
+                <thead><tr><th scope="col">Reference</th><th scope="col">Source</th><th scope="col" style={{ textAlign: "right" }}>Debits</th><th scope="col" style={{ textAlign: "right" }}>Credits</th><th scope="col" style={{ textAlign: "right" }}>Difference</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {data.unbalancedEntries.map((e) => (
-                    <tr key={e.ref} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)} onKeyDown={(e2) => { if (e2.key === "Enter" || e2.key === " ") { e2.preventDefault(); openInLedger(`&ref=${encodeURIComponent(e.ref)}`); } }}>
+                    <tr key={e.ref} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)} onKeyDown={(e2) => { if (e2.key === "Enter" || e2.key === " ") { e2.preventDefault(); openInLedger(`&ref=${encodeURIComponent(e.ref)}`); } }}>
                       <td><code style={{ fontSize: 12 }}>{e.ref}</code></td>
                       <td className="muted">{e.source}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(e.debits)}</td>
@@ -1362,10 +1358,10 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
         <SectionLabel>Accounts</SectionLabel>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Balance</th></tr></thead>
+            <thead><tr><th scope="col">Account</th><th scope="col" style={{ textAlign: "right" }}>Debits</th><th scope="col" style={{ textAlign: "right" }}>Credits</th><th scope="col" style={{ textAlign: "right" }}>Balance</th></tr></thead>
             <tbody>
               {data.accounts.map((a) => (
-                <tr key={a.account} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => openInLedger(`&account=${encodeURIComponent(a.account)}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInLedger(`&account=${encodeURIComponent(a.account)}`); } }}>
+                <tr key={a.account} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => openInLedger(`&account=${encodeURIComponent(a.account)}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInLedger(`&account=${encodeURIComponent(a.account)}`); } }}>
                   <td>
                     <div>{a.account}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{a.lineCount} line(s)</div>

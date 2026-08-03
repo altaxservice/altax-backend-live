@@ -397,10 +397,10 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
       )}
       <div className="table-scroll card-table">
       <table>
-        <thead><tr><th>Date/Time</th><th>Channel</th><th>Sent To</th><th>Subject</th><th>Status</th></tr></thead>
+        <thead><tr><th scope="col">Date/Time</th><th scope="col">Channel</th><th scope="col">Sent To</th><th scope="col">Subject</th><th scope="col">Status</th></tr></thead>
         <tbody>
           {messages.slice(0, 10).map((m) => (
-            <tr key={m.communication_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingMsg(m)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingMsg(m); } }}>
+            <tr key={m.communication_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingMsg(m)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingMsg(m); } }}>
               <td>{m.sent_at ? new Date(m.sent_at).toLocaleString() : "—"}</td>
               <td className="muted" data-label="Channel">{m.channel}</td>
               <td className="muted" data-label="Sent To">{m.sent_to}</td>
@@ -561,7 +561,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
             {showDetails && (
               <div className="table-scroll" style={{ marginTop: 8 }}>
                 <table>
-                  <thead><tr><th>Client</th><th>Channel</th><th>Result</th></tr></thead>
+                  <thead><tr><th scope="col">Client</th><th scope="col">Channel</th><th scope="col">Result</th></tr></thead>
                   <tbody>
                     {results.map((r, i) => (
                       <tr key={i}>

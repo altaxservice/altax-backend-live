@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { GovFormsMeta, ClientGovFormType } from "../api/govForms";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface ClientIdentity {
   client_id: string; client_name: string; entity_type: string | null;
@@ -46,6 +47,8 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const [meta, setMeta] = useState<GovFormsMeta | null>(null);
   const [identity, setIdentity] = useState<ClientIdentity | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -211,7 +214,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-gov-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-gov-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-gov-form-title">Generate Government Form</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

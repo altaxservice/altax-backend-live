@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const IOS_DISMISSED_AT_KEY = "altax_ios_install_dismissed_at";
 /** Dismissal used to be forever — nobody re-discovers a banner they closed once
@@ -40,6 +41,8 @@ export function InstallPrompt() {
   const [showIosSteps, setShowIosSteps] = useState(false);
 
   useEscapeToClose(() => setShowIosSteps(false), showIosSteps);
+  const stepsPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(stepsPanelRef, showIosSteps);
 
   useEffect(() => {
     if (isStandalone()) return;
@@ -97,7 +100,7 @@ export function InstallPrompt() {
         </div>
         {showIosSteps && (
           <div className="modal-overlay" onClick={() => setShowIosSteps(false)}>
-            <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-steps-title" style={{ maxWidth: 400 }} dir={dir} onClick={(e) => e.stopPropagation()}>
+            <div ref={stepsPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-steps-title" style={{ maxWidth: 400 }} dir={dir} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 id="install-steps-title" style={{ fontSize: 16 }}>{t("install.stepsTitle")}</h2>
                 <button className="btn btn-sm" onClick={() => setShowIosSteps(false)}>{t("install.close")}</button>

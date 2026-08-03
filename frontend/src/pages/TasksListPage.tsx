@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Task } from "../api/types";
@@ -18,6 +18,7 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
@@ -66,6 +67,8 @@ export function TasksListPage() {
   // Only for the "no rules yet" fallback panel below — CreateBatchTasksModal handles
   // its own Escape when rules exist.
   useEscapeToClose(() => setShowBatchModal(false), showBatchModal && rules.length === 0);
+  const batchEmptyPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(batchEmptyPanelRef, showBatchModal && rules.length === 0);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
   const [showNewWorkItem, setShowNewWorkItem] = useState(searchParams.get("new") === "1");
   const newWorkItemClientId = searchParams.get("clientId") || undefined;
@@ -421,23 +424,23 @@ export function TasksListPage() {
             <thead>
               <tr>
                 {!isArchivedView && canManage && (
-                  <th style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
+                  <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
                 )}
                 {/* Client+Service, Task+Priority, Due+Risk and Owner+Last-Updated
                     are each stacked in one cell. As 12 separate columns this table
                     was ~1360px and ran off the right edge at 100% zoom. */}
-                <th className="sortable" onClick={() => toggleSort("client_name")}>Client{sortArrow("client_name")}</th>
-                <th className="sortable" onClick={() => toggleSort("task_name")}>Task{sortArrow("task_name")}</th>
-                <th className="sortable" onClick={() => toggleSort("agency_due_date")}>Due{sortArrow("agency_due_date")}</th>
-                <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
-                <th>Status</th>
-                {isArchivedView && <th>Archived</th>}
-                <th>Action</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("client_name")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("client_name"); } }}>Client{sortArrow("client_name")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("task_name")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("task_name"); } }}>Task{sortArrow("task_name")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("agency_due_date")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("agency_due_date"); } }}>Due{sortArrow("agency_due_date")}</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
+                <th scope="col">Status</th>
+                {isArchivedView && <th scope="col">Archived</th>}
+                <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((t) => (
-                <tr key={t.task_id} data-row-id={t.task_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
+                <tr key={t.task_id} data-row-id={t.task_id} tabIndex={0} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}
@@ -517,7 +520,7 @@ export function TasksListPage() {
           <CreateBatchTasksModal rules={rules} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
-            <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
+            <div ref={batchEmptyPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header"><h2 id="batch-tasks-empty-title">Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">No task rules exist yet. Create one on the Rules page first.</p>
             </div>

@@ -642,7 +642,7 @@ export function ClientDetailPage() {
               </div>
               <div className="table-scroll">
               <table>
-                <thead><tr><th>Task</th><th>Service</th><th>Due</th><th>Status</th><th>Action</th></tr></thead>
+                <thead><tr><th scope="col">Task</th><th scope="col">Service</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
                 <tbody>
                   {(tasks || []).map((t) => (
                     <tr key={t.task_id}>
@@ -880,7 +880,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
         </div>
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>File</th><th>Direction</th><th>Uploaded</th><th>By</th><th>Action</th></tr></thead>
+            <thead><tr><th scope="col">File</th><th scope="col">Direction</th><th scope="col">Uploaded</th><th scope="col">By</th><th scope="col">Action</th></tr></thead>
             <tbody>
               {activeUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={false} />)}
               {archivedUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={true} />)}
@@ -897,7 +897,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
         </div>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Requested Item</th><th>Due From Client</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Requested Item</th><th scope="col">Due From Client</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {openRequests.map((r) => (
                 <tr key={r.request_id}>
@@ -1242,7 +1242,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Contract</th><th>Status</th><th>Effective</th><th>Signed</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col">Contract</th><th scope="col">Status</th><th scope="col">Effective</th><th scope="col">Signed</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {(contracts || []).map((c) => (
               <Fragment key={c.contract_id}>
@@ -1471,7 +1471,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Form</th><th>Representative(s)</th><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col">Form</th><th scope="col">Representative(s)</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {(filings || []).map((f) => (
               <Fragment key={f.filing_id}>
@@ -1693,7 +1693,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th>Form</th><th>Status</th><th>Signed</th><th>Submitted</th><th>Action</th></tr></thead>
+          <thead><tr><th scope="col">Form</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
           <tbody>
             {(filings || []).map((f) => (
               <Fragment key={f.filing_id}>
@@ -2336,10 +2336,10 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
       ) : (
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Due</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {invoices.map((inv) => (
-                <tr key={inv.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/billing/${inv.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${inv.invoice_id}`); } }}>
+                <tr key={inv.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/billing/${inv.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td data-label="Invoice">{inv.invoice_id}</td>
                   <td className="muted" data-label="Date">{fmtDateOnly(inv.invoice_date)}</td>
                   <td className="muted" data-label="Due">{fmtDateOnly(inv.due_date)}</td>
@@ -2392,10 +2392,10 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
       ) : (
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>Payment / Due</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
+            <thead><tr><th scope="col">Payment / Due</th><th scope="col">Due / Paid</th><th scope="col">Expected</th><th scope="col">Paid</th><th scope="col">Status</th></tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.task_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
+                <tr key={r.task_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td data-label="Payment / Due">{r.task_name}</td>
                   <td className="muted" data-label="Due / Paid">{fmtDateOnly(r.paid_date || r.agency_due_date)}</td>
                   <td data-label="Expected">{fmtMoney(r.payment_amount)}</td>
@@ -2500,7 +2500,7 @@ function ClientActivitySection({ clientId }: { clientId: string }) {
       ) : (
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th>When</th><th>Type</th><th>Note</th><th>By</th><th></th></tr></thead>
+            <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Note</th><th scope="col">By</th><th scope="col"></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>

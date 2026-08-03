@@ -67,7 +67,7 @@ export function TemplatesPage() {
         {templates && (
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Template</th><th>Category</th><th>Subject</th><th>Active</th><th>Source</th><th></th></tr></thead>
+            <thead><tr><th scope="col">Template</th><th scope="col">Category</th><th scope="col">Subject</th><th scope="col">Active</th><th scope="col">Source</th><th scope="col"></th></tr></thead>
             <tbody>
               {filteredTemplates.map((t) => (
                 <tr key={t.name}>
@@ -139,7 +139,7 @@ function ContractTemplatesPanel() {
       {templates && (
         <div className="table-scroll">
         <table>
-          <thead><tr><th>Template</th><th>Service Key</th><th>Active</th><th>Source</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Template</th><th scope="col">Service Key</th><th scope="col">Active</th><th scope="col">Source</th><th scope="col"></th></tr></thead>
           <tbody>
             {templates.map((t) => (
               <tr key={t.serviceKey}>

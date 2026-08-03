@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { EmployeeOption, PortalUser, WebOptions } from "../api/types2";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -52,6 +53,8 @@ export function UsersPage() {
   const [preparerError, setPreparerError] = useState<string | null>(null);
 
   useEscapeToClose(() => setPreparerEdit(null), Boolean(preparerEdit));
+  const preparerPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(preparerPanelRef, Boolean(preparerEdit));
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -257,7 +260,7 @@ export function UsersPage() {
 
       {preparerEdit && (
         <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
-          <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+          <div ref={preparerPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="ptin-caf-title">PTIN / CAF — {preparerEdit.name}</h2>
               <button className="btn btn-sm" onClick={() => setPreparerEdit(null)}>Close</button>
@@ -377,14 +380,14 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
             <tr>
               {/* Email sits under Name and Assignment under Role — as 10 columns
                   this ran off the right edge at 100% zoom. */}
-              <th>Name</th>
-              <th>Role</th>
-              <th>Invite</th>
-              <th>Last Login</th>
-              <th>Active</th>
-              <th>Open</th>
-              <th>Overdue</th>
-              <th></th>
+              <th scope="col">Name</th>
+              <th scope="col">Role</th>
+              <th scope="col">Invite</th>
+              <th scope="col">Last Login</th>
+              <th scope="col">Active</th>
+              <th scope="col">Open</th>
+              <th scope="col">Overdue</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>

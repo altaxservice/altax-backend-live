@@ -714,19 +714,19 @@ export function ClientsListPage() {
                 {/* Type folds under Client, Responsible under Contact, and Portal
                     under Status — as 9 columns this ran ~210px off the right edge
                     at 100% zoom with the client panel open. */}
-                <th className="sortable" onClick={() => toggleSort("client_name")}>Client{sortArrow("client_name")}</th>
-                <th>Contact</th>
-                <th className="sortable" onClick={() => toggleSort("assigned_to")}>Owner{sortArrow("assigned_to")}</th>
-                <th>Compliance</th>
-                <th className="sortable" onClick={() => toggleSort("status")}>Status{sortArrow("status")}</th>
-                <th>Actions</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("client_name")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("client_name"); } }}>Client{sortArrow("client_name")}</th>
+                <th scope="col">Contact</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("assigned_to")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("assigned_to"); } }}>Owner{sortArrow("assigned_to")}</th>
+                <th scope="col">Compliance</th>
+                <th scope="col" className="sortable" tabIndex={0} role="button" onClick={() => toggleSort("status")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort("status"); } }}>Status{sortArrow("status")}</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((c) => {
                 const resp = responsibleCell(c);
                 return (
-                  <tr key={c.client_id} data-row-id={c.client_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
+                  <tr key={c.client_id} data-row-id={c.client_id} tabIndex={0} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
                     <td>
                       {/* Wrapped in one div so the card-table mobile layout (which turns
                           each <td> into a flex row with the column label on the left)

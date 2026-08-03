@@ -105,13 +105,13 @@ export function SecurityPage() {
           <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Name</th><th>Email</th><th>Role</th><th>Password</th><th>MFA</th><th>Storage</th><th>Failed</th><th>Locked Until</th><th>Last Login</th><th>Active</th></tr>
+              <tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Password</th><th scope="col">MFA</th><th scope="col">Storage</th><th scope="col">Failed</th><th scope="col">Locked Until</th><th scope="col">Last Login</th><th scope="col">Active</th></tr>
             </thead>
             <tbody>
               {data.users.map((u) => (
                 // Account management (reset, role, unlock) lives on Users & Access —
                 // the row takes you straight to it rather than dead-ending here.
-                <tr key={u.userId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}>
+                <tr key={u.userId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}>
                   <td>{u.name}</td>
                   <td className="muted">{u.email}</td>
                   <td className="muted">{u.role}</td>
@@ -138,7 +138,7 @@ export function SecurityPage() {
         <div className="command-panel-header"><h2 className="command-panel-title">Recent Login / Security Events</h2><div className="command-panel-note">{data.events.length} events</div></div>
         <div className="table-scroll">
         <table>
-          <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Record</th><th>Note</th></tr></thead>
+          <thead><tr><th scope="col">Time</th><th scope="col">User</th><th scope="col">Action</th><th scope="col">Record</th><th scope="col">Note</th></tr></thead>
           <tbody>
             {data.events.map((e, i) => (
               <tr key={i}>

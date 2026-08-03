@@ -237,7 +237,7 @@ export function TaskCalendarPage() {
                   <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Appointments</div>
                   <div className="table-scroll">
                     <table className="data-table">
-                      <thead><tr><th>Time</th><th>Title</th><th>With</th><th>Assigned</th><th>Status</th><th></th></tr></thead>
+                      <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
                       <tbody>
                         {selectedAppts.map((a) => (
                           <tr key={a.appointment_id}>
@@ -265,10 +265,10 @@ export function TaskCalendarPage() {
                   <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Tasks Due</div>
                   <div className="table-scroll">
                     <table className="data-table">
-                      <thead><tr><th>Client</th><th>Task</th><th>Owner</th><th>Status</th></tr></thead>
+                      <thead><tr><th scope="col">Client</th><th scope="col">Task</th><th scope="col">Owner</th><th scope="col">Status</th></tr></thead>
                       <tbody>
                         {selectedTasks.map((t) => (
-                          <tr key={t.task_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${t.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
+                          <tr key={t.task_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/tasks/${t.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
                             <td>{t.client_name}</td>
                             <td>{t.task_name}</td>
                             <td>{t.assigned_to || "Unassigned"}</td>
@@ -299,10 +299,10 @@ export function TaskCalendarPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Staff</th>
-                  <th style={{ textAlign: "right" }}>Open Tasks</th>
-                  <th style={{ textAlign: "right" }}>Overdue</th>
-                  <th style={{ textAlign: "right" }}>Due This Week</th>
+                  <th scope="col">Staff</th>
+                  <th scope="col" style={{ textAlign: "right" }}>Open Tasks</th>
+                  <th scope="col" style={{ textAlign: "right" }}>Overdue</th>
+                  <th scope="col" style={{ textAlign: "right" }}>Due This Week</th>
                 </tr>
               </thead>
               <tbody>
