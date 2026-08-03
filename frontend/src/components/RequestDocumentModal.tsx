@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { WebOptions } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const OTHER = "Other";
 
@@ -28,6 +29,8 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [options, setOptions] = useState<WebOptions | null>(null);
   const [requestType, setRequestType] = useState("Document Request");
@@ -73,9 +76,9 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="request-document-title" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Request Document — {employeeName || clientName}</h2>
+          <h2 id="request-document-title">Request Document — {employeeName || clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         <form onSubmit={handleSubmit}>

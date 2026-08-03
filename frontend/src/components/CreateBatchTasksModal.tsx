@@ -173,9 +173,9 @@ export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-batch-tasks-title" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Create Batch Tasks</h2>
+          <h2 id="create-batch-tasks-title">Create Batch Tasks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         {error && <ErrorBanner error={error} />}

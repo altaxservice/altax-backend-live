@@ -648,7 +648,7 @@ export function ReportsPage() {
                                 meaningful firm-wide (no single client's P&L to open), so rows
                                 aren't clickable in that mode. */}
                             {firmSummary.months.map((m) => (
-                              <tr key={m.month} style={isFirmWide ? undefined : { cursor: "pointer" }} onClick={isFirmWide ? undefined : () => openMonthDetail(m.month)}>
+                              <tr key={m.month} style={isFirmWide ? undefined : { cursor: "pointer" }} tabIndex={isFirmWide ? undefined : 0} role={isFirmWide ? undefined : "button"} onClick={isFirmWide ? undefined : () => openMonthDetail(m.month)} onKeyDown={isFirmWide ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openMonthDetail(m.month); } }}>
                                 <td>{m.month}</td>
                                 <td>{fmtMoney(m.revenue)}</td>
                                 <td className="muted">{fmtMoney(m.expenses)}</td>
@@ -753,7 +753,10 @@ export function ReportsPage() {
                               key={`${c.categoryName}-${i}`}
                               style={{ cursor: "pointer" }}
                               title={`Open ${c.categoryName} in Accounting → Tax Rates`}
+                              tabIndex={0}
+                              role="button"
                               onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Tax Rates")}`)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?tab=${encodeURIComponent("Tax Rates")}`); } }}
                             >
                               <td>{c.categoryName}</td>
                               <td className="muted">{c.state || "Any"}</td>
@@ -817,7 +820,10 @@ export function ReportsPage() {
                               key={s.saleId}
                               style={{ cursor: "pointer" }}
                               title="Open this sale in Accounting → Sales"
+                              tabIndex={0}
+                              role="button"
                               onClick={() => navigate(`/accounting?tab=${encodeURIComponent("Sales")}`)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?tab=${encodeURIComponent("Sales")}`); } }}
                             >
                               <td>{s.saleDate ? String(s.saleDate).slice(0, 10) : "—"}</td>
                               <td>{fmtMoney(s.grossSales)}</td>
@@ -876,7 +882,10 @@ export function ReportsPage() {
                         <tr
                           key={p.paycheck_id}
                           style={{ cursor: "pointer" }}
+                          tabIndex={0}
+                          role="button"
                           onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}
                         ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{p.employee}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
                       ))}
                     </tbody>
@@ -912,7 +921,7 @@ export function ReportsPage() {
                       <thead><tr><th>Employee</th><th>Checks</th><th>Gross</th><th>Employee Taxes</th><th>Employer Taxes</th><th>Net Pay</th><th>Total Cost</th></tr></thead>
                       <tbody>
                         {employeeSummaryRows.map((r) => (
-                          <tr key={r.employee} style={{ cursor: "pointer" }} onClick={() => setEmployeeFilter(r.employee)}>
+                          <tr key={r.employee} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setEmployeeFilter(r.employee)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEmployeeFilter(r.employee); } }}>
                             <td>{r.employee}</td><td>{r.checkCount}</td><td>{fmtMoney(r.gross)}</td><td>{fmtMoney(r.eeTax)}</td><td>{fmtMoney(r.erTax)}</td><td>{fmtMoney(r.net)}</td><td>{fmtMoney(r.total)}</td>
                           </tr>
                         ))}
@@ -963,7 +972,10 @@ export function ReportsPage() {
                             <tr
                               key={p.paycheck_id}
                               style={{ cursor: "pointer" }}
+                              tabIndex={0}
+                              role="button"
                               onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=Paychecks`); } }}
                             ><td>{p.pay_date ? String(p.pay_date).slice(0, 10) : "—"}</td><td>{fmtMoney(p.gross_wages)}</td><td>{fmtMoney(p.net_pay)}</td></tr>
                           ))}
                         </tbody>
@@ -1176,13 +1188,13 @@ function ArAgingTab() {
             </thead>
             <tbody>
               {data.rows.map((r) => (
-                <tr key={r.clientId} style={{ cursor: "pointer" }} onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)}>
+                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}?tab=Billing`); } }}>
                   <td>{r.clientName}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(r.current)}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(r.d1_30)}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(r.d31_60)}</td>
-                  <td style={{ textAlign: "right", color: r.d61_90 > 0 ? "var(--amber, #b45309)" : undefined }}>{fmtMoney(r.d61_90)}</td>
-                  <td style={{ textAlign: "right", color: r.d90Plus > 0 ? "var(--red, #b91c1c)" : undefined }}>{fmtMoney(r.d90Plus)}</td>
+                  <td style={{ textAlign: "right", color: r.d61_90 > 0 ? "var(--amber)" : undefined }}>{fmtMoney(r.d61_90)}</td>
+                  <td style={{ textAlign: "right", color: r.d90Plus > 0 ? "var(--red)" : undefined }}>{fmtMoney(r.d90Plus)}</td>
                   <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(r.total)}</td>
                 </tr>
               ))}
@@ -1288,7 +1300,7 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
           style={{
             padding: 14,
             marginBottom: 14,
-            borderLeft: `4px solid ${data.inBalance ? "var(--teal, #2f7d6f)" : "#c0392b"}`,
+            borderLeft: `4px solid ${data.inBalance ? "var(--teal)" : "var(--red)"}`,
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>
@@ -1325,12 +1337,12 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
                 <thead><tr><th>Reference</th><th>Source</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Difference</th><th></th></tr></thead>
                 <tbody>
                   {data.unbalancedEntries.map((e) => (
-                    <tr key={e.ref} style={{ cursor: "pointer" }} onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)}>
+                    <tr key={e.ref} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => openInLedger(`&ref=${encodeURIComponent(e.ref)}`)} onKeyDown={(e2) => { if (e2.key === "Enter" || e2.key === " ") { e2.preventDefault(); openInLedger(`&ref=${encodeURIComponent(e.ref)}`); } }}>
                       <td><code style={{ fontSize: 12 }}>{e.ref}</code></td>
                       <td className="muted">{e.source}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(e.debits)}</td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(e.credits)}</td>
-                      <td style={{ textAlign: "right", fontWeight: 700, color: "#c0392b" }}>{fmtMoney(e.difference)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 700, color: "var(--red)" }}>{fmtMoney(e.difference)}</td>
                       <td style={{ whiteSpace: "nowrap" }} onClick={(ev) => ev.stopPropagation()}>
                         {String(e.source).toLowerCase() === "payroll" && (
                           <button type="button" className="btn btn-sm btn-primary" disabled={reposting === e.ref} onClick={() => handleRepost(e.ref)}>
@@ -1353,7 +1365,7 @@ function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: strin
             <thead><tr><th>Account</th><th style={{ textAlign: "right" }}>Debits</th><th style={{ textAlign: "right" }}>Credits</th><th style={{ textAlign: "right" }}>Balance</th></tr></thead>
             <tbody>
               {data.accounts.map((a) => (
-                <tr key={a.account} style={{ cursor: "pointer" }} onClick={() => openInLedger(`&account=${encodeURIComponent(a.account)}`)}>
+                <tr key={a.account} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => openInLedger(`&account=${encodeURIComponent(a.account)}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInLedger(`&account=${encodeURIComponent(a.account)}`); } }}>
                   <td>
                     <div>{a.account}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{a.lineCount} line(s)</div>

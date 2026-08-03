@@ -94,9 +94,9 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-w4-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Generate Form W-4</h2>
+          <h2 id="generate-w4-title">Generate Form W-4</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
 

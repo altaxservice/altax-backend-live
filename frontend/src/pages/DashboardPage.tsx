@@ -98,7 +98,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
   return (
     <div className="work-card-list">
       {tasks.map((t) => (
-        <article className="work-card" key={t.task_id} onClick={() => navigate(`/tasks/${t.task_id}`)} style={{ cursor: "pointer" }}>
+        <article className="work-card" key={t.task_id} onClick={() => navigate(`/tasks/${t.task_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
           <div className="work-card-main">
             <div className="work-card-title">{t.task_name || t.service_line || "Task"}</div>
             <div className="work-card-client muted">{t.client_name}</div>
@@ -159,7 +159,7 @@ function AttentionRows({ tasks, empty }: { tasks: Task[]; empty: string }) {
   return (
     <div className="attention-list">
       {tasks.map((t) => (
-        <div className="attention-item" key={t.task_id} onClick={() => navigate(`/tasks/${t.task_id}`)}>
+        <div className="attention-item" key={t.task_id} onClick={() => navigate(`/tasks/${t.task_id}`)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
           <div className="attention-main">
             <div className="attention-title">{t.task_name || t.service_line || "Task"}</div>
             <div className="attention-meta">
@@ -212,7 +212,7 @@ function DocumentRows({ docs, empty }: { docs: DocumentRequest[]; empty: string 
       {docs.map((d) => {
         const fileCount = Number(d.file_count || 0);
         return (
-          <article className="work-card" key={d.request_id} onClick={() => navigate(`/documents/${d.request_id}`)} style={{ cursor: "pointer" }}>
+          <article className="work-card" key={d.request_id} onClick={() => navigate(`/documents/${d.request_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/documents/${d.request_id}`); } }}>
             <div className="work-card-main">
               <div className="work-card-title">{d.requested_item || "Document Request"}</div>
               <div className="work-card-client muted">{d.client_name}</div>
@@ -282,7 +282,7 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
   return (
     <div className="work-card-list">
       {invoices.map((i) => (
-        <article className="work-card" key={i.invoice_id} onClick={() => navigate(`/billing/${i.invoice_id}`)} style={{ cursor: "pointer" }}>
+        <article className="work-card" key={i.invoice_id} onClick={() => navigate(`/billing/${i.invoice_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${i.invoice_id}`); } }}>
           <div className="work-card-main">
             <div className="work-card-title">{i.description || i.invoice_id}</div>
             <div className="work-card-client muted">{clientNames.get(i.client_id) || i.client_id}</div>

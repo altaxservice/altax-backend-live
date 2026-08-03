@@ -67,14 +67,14 @@ export function SecurityPage() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
-        <button className="btn" onClick={load}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" />Refresh</button>
-        <button className="btn" onClick={handleExport}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
+        <button className="ghost-button" onClick={load}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" />Refresh</button>
+        <button className="ghost-button" onClick={handleExport}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
       </div>
 
       <div className="metric-grid" style={{ marginBottom: 16 }}>
-        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Active Users</div><div className="metric-value">{data.summary.activeUsers}</div><div className="metric-note">{data.summary.totalUsers} visible records</div></div>
-        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Locked Accounts</div><div className="metric-value">{data.summary.lockedAccounts}</div><div className="metric-note">15 minute lock after failed sign-ins</div></div>
-        <div className="metric" style={{ cursor: "pointer" }} role="button" onClick={() => navigate("/users")}><div className="metric-label">Needs Setup</div><div className="metric-value">{data.summary.needsSetup}</div><div className="metric-note">invite, reset, or password setup required</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}><div className="metric-label">Active Users</div><div className="metric-value">{data.summary.activeUsers}</div><div className="metric-note">{data.summary.totalUsers} visible records</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}><div className="metric-label">Locked Accounts</div><div className="metric-value">{data.summary.lockedAccounts}</div><div className="metric-note">15 minute lock after failed sign-ins</div></div>
+        <div className="metric" style={{ cursor: "pointer" }} role="button" tabIndex={0} onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}><div className="metric-label">Needs Setup</div><div className="metric-value">{data.summary.needsSetup}</div><div className="metric-note">invite, reset, or password setup required</div></div>
         <div className="metric"><div className="metric-label">MFA</div><div className="metric-value" style={{ fontSize: 18 }}>Required</div><div className="metric-note">Admin/Staff: authenticator app · Client/Employee: emailed code</div></div>
       </div>
 
@@ -111,7 +111,7 @@ export function SecurityPage() {
               {data.users.map((u) => (
                 // Account management (reset, role, unlock) lives on Users & Access —
                 // the row takes you straight to it rather than dead-ending here.
-                <tr key={u.userId} style={{ cursor: "pointer" }} onClick={() => navigate("/users")}>
+                <tr key={u.userId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate("/users")} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/users"); } }}>
                   <td>{u.name}</td>
                   <td className="muted">{u.email}</td>
                   <td className="muted">{u.role}</td>

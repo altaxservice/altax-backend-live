@@ -437,7 +437,7 @@ export function TasksListPage() {
             </thead>
             <tbody>
               {filtered.map((t) => (
-                <tr key={t.task_id} data-row-id={t.task_id} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }}>
+                <tr key={t.task_id} data-row-id={t.task_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}
@@ -517,8 +517,8 @@ export function TasksListPage() {
           <CreateBatchTasksModal rules={rules} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
-            <div className="modal-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header"><h2>Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
+            <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header"><h2 id="batch-tasks-empty-title">Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">No task rules exist yet. Create one on the Rules page first.</p>
             </div>
           </div>

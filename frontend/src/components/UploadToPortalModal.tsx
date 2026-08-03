@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -6,6 +6,7 @@ import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface EmployeeOption { employee_id: string; employee_name: string }
 
@@ -31,6 +32,8 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState(lockedClientId || "");
@@ -108,9 +111,9 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-to-portal-title" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{title}</h2>
+          <h2 id="upload-to-portal-title">{title}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         <form onSubmit={handleSubmit}>

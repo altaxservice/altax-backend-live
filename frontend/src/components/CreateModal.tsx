@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
+import { useRef } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface Tile {
   label: string;
@@ -36,6 +38,8 @@ const UNAVAILABLE: Tile[] = [
 
 export function CreateModal({ onClose }: { onClose: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const { user } = useAuth();
   const navigate = useNavigate();
   const available = TILES.filter((t) => !t.roles || (user && t.roles.includes(user.role)));
@@ -47,9 +51,9 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Create</h2>
+          <h2 id="create-modal-title">Create</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         <p className="muted" style={{ marginTop: 0 }}>Choose what to create or open.</p>

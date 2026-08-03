@@ -726,7 +726,7 @@ export function ClientsListPage() {
               {filtered.map((c) => {
                 const resp = responsibleCell(c);
                 return (
-                  <tr key={c.client_id} data-row-id={c.client_id} onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }}>
+                  <tr key={c.client_id} data-row-id={c.client_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}`); } }}>
                     <td>
                       {/* Wrapped in one div so the card-table mobile layout (which turns
                           each <td> into a flex row with the column label on the left)

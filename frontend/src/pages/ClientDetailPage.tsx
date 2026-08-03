@@ -747,7 +747,7 @@ export function ClientDetailPage() {
 }
 
 const CONTRACT_STATUS_COLOR: Record<string, string> = {
-  Draft: "var(--muted, #6b7280)", Sent: "#b4772a", Signed: "#3d7a54", Void: "#a3433f",
+  Draft: "var(--muted)", Sent: "var(--amber)", Signed: "var(--green)", Void: "var(--red)",
 };
 
 /**
@@ -2339,7 +2339,7 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
             <thead><tr><th>Invoice</th><th>Date</th><th>Due</th><th>Description</th><th>Amount</th><th>Balance</th><th>Status</th></tr></thead>
             <tbody>
               {invoices.map((inv) => (
-                <tr key={inv.invoice_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/billing/${inv.invoice_id}`)}>
+                <tr key={inv.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/billing/${inv.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td data-label="Invoice">{inv.invoice_id}</td>
                   <td className="muted" data-label="Date">{fmtDateOnly(inv.invoice_date)}</td>
                   <td className="muted" data-label="Due">{fmtDateOnly(inv.due_date)}</td>
@@ -2395,7 +2395,7 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
             <thead><tr><th>Payment / Due</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.task_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/tasks/${r.task_id}`)}>
+                <tr key={r.task_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td data-label="Payment / Due">{r.task_name}</td>
                   <td className="muted" data-label="Due / Paid">{fmtDateOnly(r.paid_date || r.agency_due_date)}</td>
                   <td data-label="Expected">{fmtMoney(r.payment_amount)}</td>

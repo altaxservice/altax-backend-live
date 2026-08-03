@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import type { Invoice } from "../api/types2";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 interface SendResult { channel: string; ok: boolean; error?: string }
 
@@ -21,6 +22,8 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
   invoice: Invoice; clientEmail: string | null; onClose: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [email, setEmail] = useState(clientEmail || "");
   const [cc, setCc] = useState("");
@@ -69,8 +72,8 @@ export function SendInvoiceModal({ invoice, clientEmail, onClose }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>Send {invoice.invoice_id}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="send-invoice-title" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="send-invoice-title">Send {invoice.invoice_id}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>

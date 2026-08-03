@@ -121,8 +121,8 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>Add Line</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="add-estimate-line-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="add-estimate-line-title">Add Line</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <button type="button" className={`btn btn-sm ${mode === "catalog" ? "btn-primary" : ""}`} onClick={() => setMode("catalog")}>From Fee Schedule</button>

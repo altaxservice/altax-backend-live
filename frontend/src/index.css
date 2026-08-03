@@ -119,8 +119,11 @@ textarea:focus-visible, [tabindex]:focus-visible {
   color: var(--ink);
   min-height: 38px;
 }
+/* No `outline: none` here — this rule used to suppress it, which meant every
+   field inside a .field wrapper (nearly every form in the app) silently lost
+   the global keyboard focus-visible ring below and fell back to this
+   border-color change alone. */
 .field input:focus, .field select:focus, .field textarea:focus {
-  outline: none;
   border-color: var(--teal);
 }
 /* Opt-in per field: add class="field invalid" (or set aria-invalid="true" directly on

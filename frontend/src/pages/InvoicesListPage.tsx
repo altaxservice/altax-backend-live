@@ -391,7 +391,7 @@ export function InvoicesListPage() {
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => (
-                <tr key={inv.invoice_id} data-row-id={inv.invoice_id} onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }}>
+                <tr key={inv.invoice_id} data-row-id={inv.invoice_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(inv.client_id, clientName(inv.client_id)); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td>{inv.invoice_id}</td>
                   {canManage && <td className="muted" data-label="Client">{clientName(inv.client_id)}</td>}
                   <td className="muted" data-label={canManage ? "Date" : t("billing.client.colDate")}><Num>{fmtDate(inv.invoice_date)}</Num></td>
@@ -475,7 +475,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Client</th><th>Description</th><th>Amount</th><th>Frequency</th><th>Next Run</th><th>Due Days</th><th>Auto</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {schedules.map((s) => (
-                <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} onClick={() => setRecurringModal({ editing: s })}>
+                <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setRecurringModal({ editing: s })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRecurringModal({ editing: s }); } }}>
                   <td>{s.client_name as string}</td>
                   <td className="muted">{s.description as string}</td>
                   <td>{fmtMoney(s.amount)}</td>
@@ -529,7 +529,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Payment</th><th>Invoice</th><th>Client</th><th>Date</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
             <tbody>
               {(firmPayments || []).map((p) => (
-                <tr key={p.payment_id} data-row-id={p.payment_id} onClick={() => navigate(`/billing/${p.invoice_id}`)}>
+                <tr key={p.payment_id} data-row-id={p.payment_id} tabIndex={0} role="button" onClick={() => navigate(`/billing/${p.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${p.invoice_id}`); } }}>
                   <td>{p.payment_id}</td>
                   <td className="muted">{p.invoice_id}</td>
                   <td className="muted">{clientName(p.client_id as string) }</td>
@@ -559,7 +559,7 @@ export function InvoicesListPage() {
             <thead><tr><th>Payment / Due</th><th>Client</th><th>Related Task</th><th>Due / Paid</th><th>Expected</th><th>Paid</th><th>Status</th></tr></thead>
             <tbody>
               {(taxRows || []).map((r) => (
-                <tr key={r.task_id} data-row-id={r.task_id} onClick={() => navigate(`/tasks/${r.task_id}`)}>
+                <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td>{r.task_name}</td>
                   <td className="muted">{r.client_name}</td>
                   <td className="muted">{r.task_name}</td>
@@ -619,8 +619,8 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sales-receipt-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="sales-receipt-title">Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
         <div className="form-grid">
@@ -690,8 +690,8 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="record-payment-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="record-payment-title">Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">
           <label>Invoice</label>

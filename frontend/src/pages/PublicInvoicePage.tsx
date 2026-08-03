@@ -79,7 +79,7 @@ export function PublicInvoicePage() {
     <div style={pageStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
-          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted-fg, #6b7280)" }}>AL Tax Service</div>
+          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>AL Tax Service</div>
           <h1 style={{ fontSize: 24, margin: "4px 0 0" }}>Invoice {invoice.invoice_id}</h1>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -126,7 +126,7 @@ export function PublicInvoicePage() {
       )}
 
       {returnedFromStripe && Number(invoice.balance_due) <= 0 && (
-        <div className="card" style={{ marginBottom: 20, borderColor: "var(--teal, #2f7d6f)", fontSize: 14 }}>
+        <div className="card" style={{ marginBottom: 20, borderColor: "var(--teal)", fontSize: 14 }}>
           <strong>Thank you — your payment was received.</strong> This invoice is now marked {invoice.status}.
         </div>
       )}

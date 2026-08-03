@@ -52,7 +52,7 @@ export function PublicMessagePage() {
     <div style={pageStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
         <div>
-          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted-fg, #6b7280)" }}>{message.clientName}</div>
+          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>{message.clientName}</div>
           <h1 style={{ fontSize: 20, margin: "4px 0 0" }}>{message.subject}</h1>
         </div>
         {hasEnglish && hasArabic && (

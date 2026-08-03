@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { WebOptions } from "../api/types2";
@@ -7,6 +7,7 @@ import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { FileDropInput } from "./FileDropInput";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 type Mode = "task" | "request";
 const OTHER = "Other";
@@ -28,6 +29,8 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   initialClientId?: string; initialTaskId?: string; initialMode?: Mode; onClose: () => void; onDone: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [mode, setMode] = useState<Mode>(initialMode || "task");
   const [clients, setClients] = useState<Client[]>([]);
@@ -181,9 +184,9 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-work-item-title" style={{ maxWidth: 720, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>New Work Item</h2>
+          <h2 id="new-work-item-title">New Work Item</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         {error && <ErrorBanner error={error} />}

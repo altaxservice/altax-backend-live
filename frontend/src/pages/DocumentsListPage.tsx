@@ -334,7 +334,7 @@ export function DocumentsListPage() {
               <thead><tr><th>{t("documents.client.colItem")}</th><th>{t("documents.client.colStatus")}</th><th>{t("documents.client.colPriority")}</th><th>{t("documents.client.colDue")}</th><th>{t("documents.client.colFiles")}</th></tr></thead>
               <tbody>
                 {scopedRequests.map((r) => (
-                  <tr key={r.request_id} data-row-id={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }}>
+                  <tr key={r.request_id} data-row-id={r.request_id} onClick={() => navigate(`/documents/${r.request_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/documents/${r.request_id}`); } }}>
                     <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                     <td data-label={t("documents.client.colStatus")}><StatusBadge status={r.status} /></td>
                     <td className="muted" data-label={t("documents.client.colPriority")}>{r.priority || "—"}</td>
@@ -400,7 +400,7 @@ export function DocumentsListPage() {
                 </thead>
                 <tbody>
                   {openRequests.map((r) => (
-                    <tr key={r.request_id} data-row-id={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
+                    <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
                       {canManage && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.request_id)} onChange={() => toggleSelected(r.request_id)} /></td>}
                       <td>{r.client_name}</td>
                       <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
@@ -436,7 +436,7 @@ export function DocumentsListPage() {
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th></tr></thead>
                 <tbody>
                   {receivedRequests.map((r) => (
-                    <tr key={r.request_id} data-row-id={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
+                    <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
                       <td>{r.client_name}</td>
                       <td data-label="Request">{r.requested_item}</td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
@@ -464,7 +464,7 @@ export function DocumentsListPage() {
                 <thead><tr><th>Client</th><th>Request</th><th>Requested</th><th>Due</th><th>Owner</th><th>Status</th><th>Files</th></tr></thead>
                 <tbody>
                   {sentRequests.map((r) => (
-                    <tr key={r.request_id} data-row-id={r.request_id} onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>
+                    <tr key={r.request_id} data-row-id={r.request_id} tabIndex={0} role="button" onClick={() => { setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); } }}>
                       <td>{r.client_name}</td>
                       <td data-label="Request">{r.requested_item}</td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>

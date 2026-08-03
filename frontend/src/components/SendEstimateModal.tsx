@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, fetchAuthedBlob } from "../api/client";
 import type { Estimate, EstimateTotals } from "../api/estimates";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Send Estimate — mirrors SendInvoiceModal exactly (same PDF preview, same
@@ -16,6 +17,8 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
   estimate: Estimate; totals: EstimateTotals; onClose: () => void; onSent: () => void;
 }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const [email, setEmail] = useState(estimate.email || "");
   const [subject, setSubject] = useState(`Estimate ${estimate.estimate_number} from AL Tax Service`);
@@ -61,8 +64,8 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>Send {estimate.estimate_number}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="send-estimate-title" style={{ maxWidth: 880, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="send-estimate-title">Send {estimate.estimate_number}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>

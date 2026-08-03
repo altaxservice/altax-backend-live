@@ -194,6 +194,9 @@ export function TaskCalendarPage() {
                   <div
                     key={i}
                     onClick={() => setSelectedDay(hasContent ? key : key)}
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedDay(hasContent ? key : key); } }}
                     style={{
                       minHeight: 64, borderRadius: 8, padding: 6, cursor: "pointer",
                       border: isSelected ? "2px solid var(--teal)" : isToday ? "1px solid var(--teal)" : "1px solid var(--line)",
@@ -265,7 +268,7 @@ export function TaskCalendarPage() {
                       <thead><tr><th>Client</th><th>Task</th><th>Owner</th><th>Status</th></tr></thead>
                       <tbody>
                         {selectedTasks.map((t) => (
-                          <tr key={t.task_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/tasks/${t.task_id}`)}>
+                          <tr key={t.task_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/tasks/${t.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
                             <td>{t.client_name}</td>
                             <td>{t.task_name}</td>
                             <td>{t.assigned_to || "Unassigned"}</td>
@@ -307,7 +310,7 @@ export function TaskCalendarPage() {
                   <tr key={r.staff}>
                     <td>{r.staff}</td>
                     <td style={{ textAlign: "right" }}>{r.open}</td>
-                    <td style={{ textAlign: "right", color: r.overdue > 0 ? "var(--red, #b91c1c)" : undefined, fontWeight: r.overdue > 0 ? 700 : 400 }}>{r.overdue}</td>
+                    <td style={{ textAlign: "right", color: r.overdue > 0 ? "var(--red)" : undefined, fontWeight: r.overdue > 0 ? 700 : 400 }}>{r.overdue}</td>
                     <td style={{ textAlign: "right" }}>{r.dueWeek}</td>
                   </tr>
                 ))}

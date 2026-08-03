@@ -679,7 +679,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <thead><tr><th>Date</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Tax Due</th><th>Categories</th><th></th></tr></thead>
             <tbody>
               {salesInPeriod.map((s) => (
-                <tr key={s.sale_id} style={{ cursor: "pointer" }} onClick={() => { setViewing(s); setEditing(null); }}>
+                <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
                   <td>
                     <div>{fmtDate(s.sale_date)}</div>
                     {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
@@ -1115,7 +1115,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
               {/* This is a different table from the Paychecks tab's — it also
                   needs to open its record rather than being a dead list. */}
               {paychecksInPeriod.map((p) => (
-                <tr key={p.paycheck_id} style={{ cursor: "pointer" }} onClick={() => setViewingPayCheck(p)}>
+                <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingPayCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingPayCheck(p); } }}>
                   <td>{fmtDate(p.pay_date)}</td>
                   <td>{p.employee}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(p.gross_wages)}</td>
@@ -1263,9 +1263,9 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Batch Create Paychecks</h2>
+          <h2 id="batch-paychecks-title">Batch Create Paychecks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
         {error && <ErrorBanner error={error} />}
@@ -1774,7 +1774,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
           <thead><tr><th>Name</th><th>Pay Type</th><th>State</th><th>Rate</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
             {workers.map((e) => (
-              <tr key={e.employee_id} style={{ cursor: "pointer" }} onClick={() => navigate(`/employees/${e.employee_id}`)}>
+              <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
                 <td data-label="Name"><Link to={`/employees/${e.employee_id}`} style={{ fontWeight: 600 }}>{e.employee_name}</Link></td>
                 <td className="muted" data-label="Pay Type">{e.pay_type || "—"}</td>
                 <td className="muted" data-label="State">{e.state || "—"}</td>
@@ -2012,7 +2012,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             <thead><tr><th>Date</th><th>Contractor</th><th style={{ textAlign: "right" }}>Amount</th><th></th></tr></thead>
             <tbody>
               {payments.map((p) => (
-                <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} onClick={() => setViewing(p)}>
+                <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewing(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(p); } }}>
                   <td>
                     <div>{fmtDate(p.payment_date)}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{p.method}</div>
@@ -2290,7 +2290,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
             <thead><tr><th>Date</th><th>Entry</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} onClick={() => setViewingJe(e)}>
+                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
                   <td>
                     <div>{fmtDate(e.entryDate)}</div>
                     <div className="muted" style={{ fontSize: 11 }}>{e.lines.length} line(s)</div>
@@ -2435,7 +2435,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
           </div>
           <p
             className="muted"
-            style={{ fontSize: 12, marginTop: 8, color: Math.abs(refDebit - refCredit) < 0.005 ? undefined : "#c0392b", fontWeight: Math.abs(refDebit - refCredit) < 0.005 ? undefined : 700 }}
+            style={{ fontSize: 12, marginTop: 8, color: Math.abs(refDebit - refCredit) < 0.005 ? undefined : "var(--red)", fontWeight: Math.abs(refDebit - refCredit) < 0.005 ? undefined : 700 }}
           >
             {Math.abs(refDebit - refCredit) < 0.005
               ? "This entry balances."
@@ -2451,7 +2451,10 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
             <tr
               key={g.gl_entry_id || i}
               style={{ cursor: "pointer" }}
+              tabIndex={0}
+              role="button"
               onClick={() => setViewingRef(g.ref || null)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingRef(g.ref || null); } }}
             >
               <td>{fmtDate(g.entry_date)}</td>
               <td className="muted">{g.ref || "—"}</td>
@@ -2640,7 +2643,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
           <thead><tr><th>Pay Date</th><th>Employee</th><th style={{ textAlign: "right" }}>Gross</th><th style={{ textAlign: "right" }}>Net Pay</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {paychecks.map((p) => (
-              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} onClick={() => setViewingCheck(p)}>
+              <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
                   <div className="muted" style={{ fontSize: 11 }}>
@@ -3574,7 +3577,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
                           {budget === 0 && actual === 0 ? <span className="muted">—</span> : (
                             <>
                               <div>{fmtMoney(actual)}</div>
-                              <div style={{ color: variance === 0 ? undefined : favorable ? "var(--teal)" : "var(--red, #b91c1c)" }}>
+                              <div style={{ color: variance === 0 ? undefined : favorable ? "var(--teal)" : "var(--red)" }}>
                                 {variance >= 0 ? "+" : ""}{fmtMoney(variance)} ({pct >= 0 ? "+" : ""}{pct.toFixed(0)}%)
                               </div>
                             </>
@@ -3749,7 +3752,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
           <div className="metric"><div className="metric-label">Cleared Balance</div><div className="metric-value">{fmtMoney(data.clearedBalance)}</div></div>
           <div className="metric">
             <div className="metric-label">Difference</div>
-            <div className="metric-value" style={{ color: Math.abs(difference) < 0.01 ? "var(--teal)" : "var(--red, #b91c1c)" }}>{fmtMoney(difference)}</div>
+            <div className="metric-value" style={{ color: Math.abs(difference) < 0.01 ? "var(--teal)" : "var(--red)" }}>{fmtMoney(difference)}</div>
           </div>
         </div>
       )}
@@ -3765,6 +3768,9 @@ function BankRecTab({ clientId }: { clientId: string }) {
                 <div key={b.line_id}>
                   <div
                     onClick={() => setSelectedBankLine(b.line_id === selectedBankLine ? null : b.line_id)}
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedBankLine(b.line_id === selectedBankLine ? null : b.line_id); } }}
                     style={{
                       padding: "8px 14px", borderBottom: "1px solid var(--line)", cursor: "pointer",
                       background: selectedBankLine === b.line_id ? "var(--surface-2, #f0fdfa)" : undefined,
@@ -3809,6 +3815,9 @@ function BankRecTab({ clientId }: { clientId: string }) {
                 <div
                   key={g.gl_entry_id}
                   onClick={() => setSelectedGl(g.gl_entry_id === selectedGl ? null : g.gl_entry_id)}
+                  tabIndex={0}
+                  role="button"
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedGl(g.gl_entry_id === selectedGl ? null : g.gl_entry_id); } }}
                   style={{
                     padding: "8px 14px", borderBottom: "1px solid var(--line)", cursor: "pointer",
                     background: selectedGl === g.gl_entry_id ? "var(--surface-2, #f0fdfa)" : undefined,

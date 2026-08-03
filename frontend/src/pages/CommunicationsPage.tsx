@@ -400,7 +400,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         <thead><tr><th>Date/Time</th><th>Channel</th><th>Sent To</th><th>Subject</th><th>Status</th></tr></thead>
         <tbody>
           {messages.slice(0, 10).map((m) => (
-            <tr key={m.communication_id} style={{ cursor: "pointer" }} onClick={() => setViewingMsg(m)}>
+            <tr key={m.communication_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingMsg(m)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingMsg(m); } }}>
               <td>{m.sent_at ? new Date(m.sent_at).toLocaleString() : "—"}</td>
               <td className="muted" data-label="Channel">{m.channel}</td>
               <td className="muted" data-label="Sent To">{m.sent_to}</td>

@@ -209,7 +209,7 @@ function PipelineCard({
   const next = STAGE_LABELS.filter((s) => s !== stage);
   return (
     <div className="card" style={{ padding: 10, background: "var(--surface-2, #f8fafc)" }}>
-      <div style={{ cursor: "pointer" }} onClick={onOpen}>
+      <div style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
         <div style={{ fontWeight: 600, fontSize: 13 }}>{est.business_name}</div>
         <div className="muted" style={{ fontSize: 11 }}>{est.estimate_number}</div>
         <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{money(est.totals?.total)}</div>

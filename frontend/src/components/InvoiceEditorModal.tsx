@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, downloadFile, viewFile } from "../api/client";
 import type { Client } from "../api/types";
 import type { Invoice, ProductService } from "../api/types2";
@@ -8,6 +8,7 @@ import { useNotify } from "./ConfirmProvider";
 import { AddressFields } from "./AddressFields";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const TERMS_OPTIONS = ["Due on receipt", "Net 15", "Net 30", "Net 60"];
 const TERMS_DAYS: Record<string, number> = { "Due on receipt": 0, "Net 15": 15, "Net 30": 30, "Net 60": 60 };
@@ -71,6 +72,8 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
   // Disabled while AddRecurringModal is open on top of this one, so Escape closes
   // just the nested modal instead of both at once.
   useEscapeToClose(onClose, !showRecurring);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, !showRecurring);
 
   const [rows, setRows] = useState<Row[]>(() => {
     if (editing?.lineItems?.length) {
@@ -221,8 +224,8 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>{isEdit ? `Edit ${editing!.invoice_id}` : "Create Invoice"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="invoice-editor-title">{isEdit ? `Edit ${editing!.invoice_id}` : "Create Invoice"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 
         <div className="form-grid">
@@ -287,7 +290,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
                     <div style={{ display: "flex", gap: 4 }}>
                       <button type="button" className="btn btn-sm" disabled={i === 0} onClick={() => moveRow(r.key, -1)} title="Move up">↑</button>
                       <button type="button" className="btn btn-sm" disabled={i === rows.length - 1} onClick={() => moveRow(r.key, 1)} title="Move down">↓</button>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => removeRow(r.key)}>×</button>
+                      <button type="button" className="btn btn-sm btn-danger" aria-label="Remove line" onClick={() => removeRow(r.key)}>×</button>
                     </div>
                   </td>
                 </tr>

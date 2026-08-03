@@ -71,8 +71,8 @@ export function NewAppointmentModal({ clients, defaultDate, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>New Appointment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-appointment-title" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="new-appointment-title">New Appointment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field">
           <label>Title</label>

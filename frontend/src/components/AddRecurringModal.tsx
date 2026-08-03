@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { RecurringBilling } from "../api/types2";
@@ -6,6 +6,7 @@ import { MANUAL_PROFILE, PaymentProfileField } from "./PaymentProfileField";
 import { useToast } from "./Toast";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Add/Edit Recurring Billing schedule. Shared by InvoicesListPage (Add Recurring
@@ -16,6 +17,8 @@ import { useEscapeToClose } from "../hooks/useEscapeToClose";
  */
 export function AddRecurringModal({ clients, editing, onClose, onDone }: { clients: Client[]; editing?: Partial<RecurringBilling>; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
@@ -55,8 +58,8 @@ export function AddRecurringModal({ clients, editing, onClose, onDone }: { clien
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header"><h2>{editing?.recurring_billing_id ? "Edit Recurring Billing" : "Add Recurring Billing"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="recurring-billing-modal-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="recurring-billing-modal-title">{editing?.recurring_billing_id ? "Edit Recurring Billing" : "Add Recurring Billing"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field"><label>Client</label><select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>
         <div className="field"><label>Description</label><input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="e.g. Monthly bookkeeping service" /></div>

@@ -158,9 +158,9 @@ export function EstimatesListPage() {
 
       {creating && (
         <div className="modal-overlay" onClick={() => setCreating(false)}>
-          <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-estimate-title" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>New Estimate</h2>
+              <h2 id="new-estimate-title">New Estimate</h2>
               <button className="btn btn-sm" onClick={() => setCreating(false)}>Close</button>
             </div>
             <form onSubmit={handleCreate}>

@@ -257,9 +257,9 @@ export function UsersPage() {
 
       {preparerEdit && (
         <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
-          <div className="modal-panel" role="dialog" aria-modal="true" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>PTIN / CAF — {preparerEdit.name}</h2>
+              <h2 id="ptin-caf-title">PTIN / CAF — {preparerEdit.name}</h2>
               <button className="btn btn-sm" onClick={() => setPreparerEdit(null)}>Close</button>
             </div>
             <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
@@ -288,7 +288,7 @@ export function UsersPage() {
           {saveError && <ErrorBanner error={saveError} />}
           <div className="field">
             <label htmlFor="u-id">User ID</label>
-            <input id="u-id" disabled value={form.userId || "Auto"} style={{ color: "var(--muted, #6b7280)" }} />
+            <input id="u-id" disabled value={form.userId || "Auto"} style={{ color: "var(--muted)" }} />
           </div>
           <div className="field">
             <label htmlFor="u-name">Name</label>

@@ -377,7 +377,7 @@ export function HaccpGeneratorPage() {
             <div key={cat.category} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>{cat.category}</span>
-                <button type="button" onClick={() => selectAllMenuCategory(cat)} style={{ background: "none", border: "none", color: "var(--accent, #0f766e)", cursor: "pointer", padding: 0, fontSize: 11, textDecoration: "underline" }}>Select All {cat.category}</button>
+                <button type="button" onClick={() => selectAllMenuCategory(cat)} style={{ background: "none", border: "none", color: "var(--teal)", cursor: "pointer", padding: 0, fontSize: 11, textDecoration: "underline" }}>Select All {cat.category}</button>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
                 {cat.items.map((item) => (
@@ -437,7 +437,7 @@ export function HaccpGeneratorPage() {
                   <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
                     <span>{item.label}</span>
                     <input type="number" min={1} value={item.quantity} onChange={(e) => setEquipmentQuantity(item.key, Number(e.target.value))} style={{ width: 44, padding: "2px 4px", fontSize: 12 }} aria-label={`Quantity of ${item.label}`} />
-                    <button type="button" onClick={() => removeEquipmentItem(item.key)} style={{ background: "none", border: "none", color: "var(--muted-fg, #6b7280)", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }} aria-label={`Remove ${item.label}`}>×</button>
+                    <button type="button" onClick={() => removeEquipmentItem(item.key)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }} aria-label={`Remove ${item.label}`}>×</button>
                   </div>
                 ))}
               </div>

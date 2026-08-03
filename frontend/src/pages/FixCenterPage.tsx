@@ -13,7 +13,7 @@ interface DiagnosticCheck {
 
 const STATUS_STYLE: Record<DiagnosticCheck["status"], { color: string; bg: string; label: string }> = {
   ok: { color: "var(--teal)", bg: "rgba(11,107,107,0.08)", label: "OK" },
-  warning: { color: "#a5720a", bg: "rgba(165,114,10,0.1)", label: "Needs attention" },
+  warning: { color: "var(--amber)", bg: "rgba(165,114,10,0.1)", label: "Needs attention" },
   critical: { color: "var(--red)", bg: "rgba(196,60,60,0.1)", label: "Critical" },
 };
 
