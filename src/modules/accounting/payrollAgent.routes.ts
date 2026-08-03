@@ -251,6 +251,36 @@ payrollAgentRouter.post("/run", requireAuth, requireRole("admin", "staff"), asyn
   res.json({ ok: true, ...result });
 }));
 
+/** Whether the 6:15AM cron job is allowed to draft on its own — checked by
+ * server.ts before calling runPayrollAgentSweep. Manual "Run Agent Now"
+ * (the /run route above) never checks this; it's an explicit staff action. */
+export async function isPayrollAgentAutoRunEnabled(): Promise<boolean> {
+  const row = await queryOne<any>(`SELECT auto_run_enabled FROM altax.v3_payroll_agent_settings WHERE id = 'PAYAGENT-1'`);
+  return row ? row.auto_run_enabled !== false : true;
+}
+
+payrollAgentRouter.get("/settings", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_payroll_agent_settings WHERE id = 'PAYAGENT-1'`);
+  res.json({
+    autoRunEnabled: row ? row.auto_run_enabled !== false : true,
+    updatedBy: row?.updated_by ?? null,
+    updatedAt: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
+  });
+}));
+
+payrollAgentRouter.post("/settings", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const enabled = Boolean((req.body || {}).autoRunEnabled);
+  await query(
+    `INSERT INTO altax.v3_payroll_agent_settings (id, auto_run_enabled, updated_by, updated_at)
+     VALUES ('PAYAGENT-1', $1, $2, now())
+     ON CONFLICT (id) DO UPDATE SET auto_run_enabled = $1, updated_by = $2, updated_at = now()`,
+    [enabled, req.user!.email]
+  );
+  await logAudit("Accounting", "PAYROLL_AGENT_AUTO_RUN_TOGGLE", "PAYAGENT-1", "", "", enabled ? "On" : "Off",
+    `Payroll Agent auto-run turned ${enabled ? "on" : "off"} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, autoRunEnabled: enabled });
+}));
+
 /** Dashboard summary card payload — active schedule count, pending draft
  * count, and the min/max pay-date range across pending drafts for the
  * "Collecting for Aug 1-7" style label. */
@@ -277,6 +307,7 @@ payrollAgentRouter.get("/summary", requireAuth, requireRole("admin", "staff"), a
     scheduleCount: accessibleActive.length,
     pendingCount: accessiblePending.length,
     rangeLabel,
+    autoRunEnabled: await isPayrollAgentAutoRunEnabled(),
   });
 }));
 

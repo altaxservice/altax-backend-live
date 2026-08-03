@@ -451,7 +451,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   );
 }
 
-interface PayrollAgentSummary { active: boolean; scheduleCount: number; pendingCount: number; rangeLabel: string | null }
+interface PayrollAgentSummary { active: boolean; scheduleCount: number; pendingCount: number; rangeLabel: string | null; autoRunEnabled: boolean }
 
 /** Status widget for the Payroll Agent — an in-app automation (no external
  * AI involved) that drafts upcoming paychecks for employees on a recurring
@@ -475,8 +475,11 @@ function PayrollAgentCard() {
       note={summary.active ? `${summary.scheduleCount} recurring schedule${summary.scheduleCount === 1 ? "" : "s"}` : "No recurring schedules set up yet"}
     >
       <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span className={`status-pill ${summary.active ? "status-green" : "status-gray"}`}>{summary.active ? "Active" : "Inactive"}</span>
+          <span className={`status-pill ${summary.autoRunEnabled ? "status-green" : "status-red"}`} title="The nightly automatic draft run — toggle it from the Payroll Agent page. Manual runs always work regardless of this setting.">
+            Auto Payroll: {summary.autoRunEnabled ? "On" : "Off"}
+          </span>
           {summary.pendingCount > 0 && summary.rangeLabel && (
             <span className="muted" style={{ fontSize: 12.5 }}>Collecting for {summary.rangeLabel}</span>
           )}

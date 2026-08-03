@@ -107,9 +107,9 @@ function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: Draft
 
       {editing && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10, marginTop: 12, maxWidth: 480 }}>
-          <div className="field" style={{ margin: 0 }}><label>Hours</label><input type="number" value={overrides.regularHours} onChange={(e) => setOverrides((o) => ({ ...o, regularHours: e.target.value }))} /></div>
-          <div className="field" style={{ margin: 0 }}><label>Rate</label><input type="number" step="0.01" value={overrides.regularRate} onChange={(e) => setOverrides((o) => ({ ...o, regularRate: e.target.value }))} /></div>
-          <div className="field" style={{ margin: 0 }}><label>Gross Override</label><input type="number" step="0.01" value={overrides.grossWages} onChange={(e) => setOverrides((o) => ({ ...o, grossWages: e.target.value }))} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor={`payroll-agent-hours-${draft.payroll_draft_id}`}>Hours</label><input id={`payroll-agent-hours-${draft.payroll_draft_id}`} type="number" value={overrides.regularHours} onChange={(e) => setOverrides((o) => ({ ...o, regularHours: e.target.value }))} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor={`payroll-agent-rate-${draft.payroll_draft_id}`}>Rate</label><input id={`payroll-agent-rate-${draft.payroll_draft_id}`} type="number" step="0.01" value={overrides.regularRate} onChange={(e) => setOverrides((o) => ({ ...o, regularRate: e.target.value }))} /></div>
+          <div className="field" style={{ margin: 0 }}><label htmlFor={`payroll-agent-gross-${draft.payroll_draft_id}`}>Gross Override</label><input id={`payroll-agent-gross-${draft.payroll_draft_id}`} type="number" step="0.01" value={overrides.grossWages} onChange={(e) => setOverrides((o) => ({ ...o, grossWages: e.target.value }))} /></div>
         </div>
       )}
 
@@ -140,6 +140,8 @@ export function PayrollAgentPage() {
   const [running, setRunning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkApproving, setBulkApproving] = useState(false);
+  const [autoRunEnabled, setAutoRunEnabled] = useState<boolean | null>(null);
+  const [togglingAutoRun, setTogglingAutoRun] = useState(false);
 
   function load() {
     api.get<{ drafts: Draft[] }>("/accounting/payroll-agent/drafts?status=Pending")
@@ -147,6 +149,26 @@ export function PayrollAgentPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load pending drafts."));
   }
   useEffect(load, []);
+
+  useEffect(() => {
+    api.get<{ autoRunEnabled: boolean }>("/accounting/payroll-agent/settings")
+      .then((res) => setAutoRunEnabled(res.autoRunEnabled))
+      .catch(() => setAutoRunEnabled(true));
+  }, []);
+
+  async function handleToggleAutoRun() {
+    if (autoRunEnabled === null || togglingAutoRun) return;
+    const next = !autoRunEnabled;
+    setTogglingAutoRun(true);
+    try {
+      await api.post("/accounting/payroll-agent/settings", { autoRunEnabled: next });
+      setAutoRunEnabled(next);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update the Auto Payroll setting.");
+    } finally {
+      setTogglingAutoRun(false);
+    }
+  }
 
   async function handleRun() {
     setRunning(true);
@@ -197,7 +219,20 @@ export function PayrollAgentPage() {
             These are drafts only — nothing here is a real paycheck or posted to the ledger until you approve it.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {autoRunEnabled !== null && (
+            <button
+              type="button"
+              className={`status-pill ${autoRunEnabled ? "status-green" : "status-red"}`}
+              style={{ border: "none", cursor: togglingAutoRun ? "wait" : "pointer" }}
+              aria-pressed={autoRunEnabled}
+              disabled={togglingAutoRun}
+              onClick={handleToggleAutoRun}
+              title="The nightly automatic draft run. Turning this off does not affect Run Agent Now or existing schedules — it only pauses the 6:15AM automatic sweep."
+            >
+              Auto Payroll: {autoRunEnabled ? "On" : "Off"}
+            </button>
+          )}
           {selected.size > 0 && (
             <button type="button" className="btn btn-primary" disabled={bulkApproving} onClick={handleApproveBulk}>
               {bulkApproving ? "Approving…" : `Approve Selected (${selected.size})`}

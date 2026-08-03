@@ -17,7 +17,7 @@ import { documentsRouter } from "./modules/documents/documents.routes";
 import { billingRouter, runRecurringBillingSweep } from "./modules/billing/billing.routes";
 import { communicationsRouter } from "./modules/communications/communications.routes";
 import { accountingRouter } from "./modules/accounting/accounting.routes";
-import { payrollAgentRouter, runPayrollAgentSweep } from "./modules/accounting/payrollAgent.routes";
+import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled } from "./modules/accounting/payrollAgent.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
 import { rulesRouter } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
@@ -343,10 +343,15 @@ console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
 // pattern as recurring billing, so a manual "Run Agent Now" the same day is
 // always safe to also fire. Unlike recurring billing, this never creates a
 // real, GL-posted record on its own — only a Pending draft awaiting staff approval.
+// Gated on the "Auto Payroll" toggle (v3_payroll_agent_settings) — staff can turn
+// this automatic sweep off without touching the "Run Agent Now" manual trigger,
+// which always works regardless of this flag.
 cron.schedule("15 6 * * *", () => {
-  runPayrollAgentSweep({ email: "System (Payroll Agent Job)", role: "admin" }).catch((err) => {
-    alertAdmins("Payroll agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
+  isPayrollAgentAutoRunEnabled()
+    .then((enabled) => { if (enabled) return runPayrollAgentSweep({ email: "System (Payroll Agent Job)", role: "admin" }); })
+    .catch((err) => {
+      alertAdmins("Payroll agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+    });
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Payroll agent sweep scheduled for 6:15AM America/New_York.");
