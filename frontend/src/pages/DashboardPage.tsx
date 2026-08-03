@@ -484,15 +484,12 @@ function PayrollAgentCard() {
             <span className="muted" style={{ fontSize: 12.5 }}>Collecting for {summary.rangeLabel}</span>
           )}
         </div>
-        {summary.pendingCount > 0 ? (
-          <button type="button" className="btn btn-primary" onClick={() => navigate("/payroll-agent")}>
-            View draft payroll ({summary.pendingCount})
-          </button>
-        ) : (
-          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-            {summary.active ? "No drafts pending right now." : "Enable it from an employee's profile to start drafting their pay ahead of each pay date."}
-          </p>
+        {summary.pendingCount === 0 && summary.active && (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No drafts pending right now.</p>
         )}
+        <button type="button" className="btn btn-primary" onClick={() => navigate("/payroll-agent")}>
+          {summary.pendingCount > 0 ? `View draft payroll (${summary.pendingCount})` : summary.active ? "Open Payroll Agent" : "Set up Auto Payroll"}
+        </button>
       </div>
     </CommandPanel>
   );

@@ -48,12 +48,6 @@ const SENSITIVE_FORM_DEFAULTS = {
 const EMPLOYEE_TABS = ["Profile", "Sensitive Info", "Documents", "Tax Documents"] as const;
 type EmployeeTab = (typeof EMPLOYEE_TABS)[number];
 
-/** Kept deliberately separate from PAYROLL_FREQS (which drives withholding
- * bracket selection and includes "N/A") — this is purely a recurrence unit
- * for the Payroll Agent's own date math, matching the backend's CHECK
- * constraint on v3_payroll_schedules.frequency exactly. */
-const PAYROLL_AGENT_FREQUENCIES = ["Weekly", "Biweekly", "Semimonthly", "Monthly"] as const;
-
 interface PayrollSchedule {
   payroll_schedule_id: string; frequency: string; anchor_date: string; next_pay_date: string;
   lead_days: number; status: "Active" | "Paused" | "Archived"; drafts_from: string;
@@ -78,7 +72,6 @@ export function EmployeeDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const notify = useNotify();
-  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -127,11 +120,12 @@ export function EmployeeDetailPage() {
 
   const isContractor = String(employee?.worker_type || "").toLowerCase().includes("contractor");
 
+  // Auto-Draft Payroll is view-only here — turning it on/off and enrolling
+  // new employees both happen from the Payroll Agent page now (one place for
+  // all of it, matching how e.g. QuickBooks Online centralizes Auto Payroll
+  // rather than spreading the controls across every employee's own profile).
   const [schedule, setSchedule] = useState<PayrollSchedule | null>(null);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ frequency: "Biweekly", anchorDate: "", leadDays: "5" });
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   function loadSchedule() {
     if (!employeeId) return;
@@ -143,82 +137,6 @@ export function EmployeeDetailPage() {
       .catch(() => setScheduleLoaded(true));
   }
   useEffect(loadSchedule, [employeeId]);
-
-  // Suggest a sensible first pay date once we know whether this employee has
-  // any real paycheck history — one period after their most recent real
-  // paycheck if one exists, otherwise a week out. Always shown as an
-  // editable field, never silently applied.
-  useEffect(() => {
-    if (!employee || scheduleForm.anchorDate) return;
-    api.get<{ paychecks: { employee_id?: string; pay_date: string | null }[] }>(`/accounting/paychecks/${employee.client_id}`)
-      .then((res) => {
-        // Route returns every paycheck for the client, DESC by pay_date — take
-        // this employee's own most recent one.
-        const mostRecent = res.paychecks.find((p) => p.employee_id === employee.employee_id && p.pay_date)?.pay_date || null;
-        const base = mostRecent ? new Date(mostRecent) : new Date(Date.now() + 7 * 86400000);
-        if (mostRecent) base.setDate(base.getDate() + 7);
-        setScheduleForm((f) => (f.anchorDate ? f : { ...f, anchorDate: base.toISOString().slice(0, 10) }));
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employee?.employee_id]);
-
-  async function handleEnableSchedule() {
-    if (!employee || !scheduleForm.anchorDate) return;
-    setScheduleSaving(true);
-    setScheduleError(null);
-    try {
-      await api.post("/accounting/payroll-agent/schedules", {
-        clientId: employee.client_id, employeeId: employee.employee_id,
-        frequency: scheduleForm.frequency, anchorDate: scheduleForm.anchorDate, leadDays: Number(scheduleForm.leadDays) || 5,
-      });
-      loadSchedule();
-      await notify(`Payroll Agent enabled for ${employee.employee_name}. It'll draft their first paycheck ${scheduleForm.leadDays} days before ${scheduleForm.anchorDate}.`);
-    } catch (err) {
-      setScheduleError(err instanceof ApiError ? err.message : "Could not enable the Payroll Agent for this employee.");
-    } finally {
-      setScheduleSaving(false);
-    }
-  }
-
-  /** Pause/Archive ask first and confirm after — the two actions that
-   * previously left staff unsure what had actually happened, especially
-   * Archive: once archived, the card used to show no buttons at all with no
-   * way back, which read as "the schedule disappeared." It's still here
-   * (Status: Archived) and reversible via Reactivate below, or from the full
-   * list on the Payroll Agent page. */
-  async function handleScheduleAction(action: "pause" | "resume" | "archive") {
-    if (!schedule || !employee) return;
-    if (action === "pause") {
-      const ok = await confirmDialog({
-        message: `Pause the Payroll Agent for ${employee.employee_name}? It will stop drafting new paychecks until you resume it — nothing already drafted is affected.`,
-        confirmLabel: "Pause",
-      });
-      if (!ok) return;
-    } else if (action === "archive") {
-      const ok = await confirmDialog({
-        message: `Archive the Payroll Agent schedule for ${employee.employee_name}? It will stop drafting new paychecks. Nothing is deleted — reactivate it any time from here or the Payroll Agent page.`,
-        confirmLabel: "Archive",
-      });
-      if (!ok) return;
-    }
-    setScheduleSaving(true);
-    setScheduleError(null);
-    try {
-      await api.post(`/accounting/payroll-agent/schedules/${schedule.payroll_schedule_id}/${action}`, {});
-      loadSchedule();
-      const messages: Record<string, string> = {
-        pause: `Paused. ${employee.employee_name} won't be drafted again until you resume this schedule.`,
-        resume: `${schedule.status === "Archived" ? "Reactivated" : "Resumed"}. ${employee.employee_name} will be drafted again ahead of their next pay date.`,
-        archive: `Archived. Reactivate this schedule any time — nothing was deleted.`,
-      };
-      await notify(messages[action]);
-    } catch (err) {
-      setScheduleError(err instanceof ApiError ? err.message : "Could not update this schedule.");
-    } finally {
-      setScheduleSaving(false);
-    }
-  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -395,79 +313,44 @@ export function EmployeeDetailPage() {
         )
       )}
 
-      {tab === "Profile" && scheduleLoaded && (
+      {tab === "Profile" && scheduleLoaded && canEdit && (
         <div className="card" style={{ maxWidth: 560, marginBottom: 20 }}>
           <div className="command-panel-header" style={{ padding: 0, marginBottom: 12, borderBottom: "none" }}>
             <div>
-              <h2 className="command-panel-title" style={{ fontSize: 15 }}>Recurring Payroll Agent</h2>
+              <h2 className="command-panel-title" style={{ fontSize: 15 }}>Auto-Draft Payroll</h2>
               <div className="command-panel-note">
-                Auto-drafts this employee's paycheck ahead of each pay date — every draft still needs staff review before it becomes a real, posted paycheck.
-                {" "}<Link to="/payroll-agent">See every schedule and pending draft →</Link>
+                A few days before each payday, a draft paycheck shows up for staff to review and approve — nothing is ever posted without an explicit Approve click.
               </div>
             </div>
           </div>
-          {scheduleError && <ErrorBanner error={scheduleError} />}
           {(() => {
-            const ineligibleReason = employee ? payrollAgentIneligibleReason(employee) : null;
-            if (!canEdit) return null;
             if (!schedule) {
-              return ineligibleReason ? (
-                <p className="muted" style={{ fontSize: 13 }}>{ineligibleReason}</p>
-              ) : (
+              return (
                 <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div className="field">
-                      <label htmlFor="emp-schedule-frequency">Frequency</label>
-                      <select id="emp-schedule-frequency" value={scheduleForm.frequency} onChange={(e) => setScheduleForm((f) => ({ ...f, frequency: e.target.value }))}>
-                        {PAYROLL_AGENT_FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="emp-schedule-anchor-date">First Pay Date</label>
-                      <input id="emp-schedule-anchor-date" type="date" value={scheduleForm.anchorDate} onChange={(e) => setScheduleForm((f) => ({ ...f, anchorDate: e.target.value }))} />
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="status-pill status-gray">Not enrolled</span>
                   </div>
-                  <div className="field" style={{ maxWidth: 160 }}>
-                    <label htmlFor="emp-schedule-lead-days">Draft This Many Days Before Payday</label>
-                    <input id="emp-schedule-lead-days" type="number" min={0} value={scheduleForm.leadDays} onChange={(e) => setScheduleForm((f) => ({ ...f, leadDays: e.target.value }))} />
-                  </div>
-                  <button type="button" className="btn btn-primary" disabled={scheduleSaving || !scheduleForm.anchorDate} onClick={handleEnableSchedule}>
-                    {scheduleSaving ? "Enabling…" : "Enable Payroll Agent"}
-                  </button>
+                  <Link to="/payroll-agent" className="btn btn-sm" style={{ marginTop: 10, display: "inline-block" }}>Enroll on the Payroll Agent page →</Link>
                 </>
               );
             }
+            const isOn = schedule.status === "Active";
+            const ineligibleReason = employee ? payrollAgentIneligibleReason(employee) : null;
             return (
               <>
-                <DetailRow label="Status" value={schedule.status} />
-                <DetailRow label="Frequency" value={schedule.frequency} />
-                <DetailRow label="Next Pay Date" value={fmtDateOnly(schedule.next_pay_date)} />
-                <DetailRow label="Lead Days" value={String(schedule.lead_days)} />
-                {schedule.status !== "Archived" && (
-                  <DetailRow
-                    label="Drafts"
-                    value={schedule.drafts_from <= new Date().toISOString().slice(0, 10) ? "Due now — will draft on the next run" : `Starting ${fmtDateOnly(schedule.drafts_from)}`}
-                  />
-                )}
-                {ineligibleReason && schedule.status === "Active" && (
-                  <p className="muted" style={{ fontSize: 12, color: "var(--amber)" }}>{ineligibleReason} The agent will skip this employee at the next sweep until this is resolved.</p>
-                )}
-                {schedule.status === "Archived" && (
-                  <p className="muted" style={{ fontSize: 12 }}>Not drafting. Click Reactivate to start again — nothing was deleted.</p>
-                )}
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  {schedule.status === "Active" && (
-                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("pause")} title="Temporarily stop drafting — resume any time.">Pause</button>
-                  )}
-                  {schedule.status === "Paused" && (
-                    <button type="button" className="btn btn-sm btn-primary" disabled={scheduleSaving} onClick={() => handleScheduleAction("resume")}>Resume</button>
-                  )}
-                  {schedule.status === "Archived" ? (
-                    <button type="button" className="btn btn-sm btn-primary" disabled={scheduleSaving} onClick={() => handleScheduleAction("resume")}>Reactivate</button>
-                  ) : (
-                    <button type="button" className="btn btn-sm" disabled={scheduleSaving} onClick={() => handleScheduleAction("archive")} title="Retire this schedule (e.g. employee left) — still reactivatable later.">Archive</button>
-                  )}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span className={`status-pill ${isOn ? "status-green" : "status-gray"}`}>{isOn ? "On" : "Off"}</span>
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {schedule.frequency} · payday {fmtDateOnly(schedule.next_pay_date)}
+                    {isOn && (schedule.drafts_from <= new Date().toISOString().slice(0, 10)
+                      ? " · draft ready on the next run"
+                      : ` · draft appears ${fmtDateOnly(schedule.drafts_from)}`)}
+                  </span>
                 </div>
+                {ineligibleReason && isOn && (
+                  <p className="muted" style={{ fontSize: 12, color: "var(--amber)", marginTop: 6 }}>{ineligibleReason} The agent will skip this employee until this is resolved.</p>
+                )}
+                <Link to="/payroll-agent" className="muted" style={{ display: "inline-block", marginTop: 8, fontSize: 13 }}>Manage on the Payroll Agent page →</Link>
               </>
             );
           })()}

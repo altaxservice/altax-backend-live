@@ -92,51 +92,88 @@ function eligibilityError(employee: any): string | null {
   return null;
 }
 
-payrollAgentRouter.post("/schedules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const clientId = String(body.clientId || "").trim();
-  const employeeId = String(body.employeeId || "").trim();
-  if (!clientId || !employeeId) return res.status(400).json({ error: "Client and employee are required." });
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-  const frequency = String(body.frequency || "").trim();
-  if (!FREQUENCIES.includes(frequency as any)) {
-    return res.status(400).json({ error: `Frequency must be one of: ${FREQUENCIES.join(", ")}.` });
-  }
+/** Shared by the single-employee route and the bulk enroll route below —
+ * same validation, same upsert-by-employee behavior (re-enabling an
+ * existing schedule updates it in place rather than erroring). */
+async function enableScheduleFor(
+  actor: { email: string },
+  input: { clientId: string; employeeId: string; frequency: string; anchorDate: unknown; leadDays?: unknown }
+): Promise<{ ok: true; payrollScheduleId: string } | { ok: false; error: string }> {
+  const clientId = String(input.clientId || "").trim();
+  const employeeId = String(input.employeeId || "").trim();
+  if (!clientId || !employeeId) return { ok: false, error: "Client and employee are required." };
+  const frequency = String(input.frequency || "").trim();
+  if (!FREQUENCIES.includes(frequency as any)) return { ok: false, error: `Frequency must be one of: ${FREQUENCIES.join(", ")}.` };
+
   const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!client) return res.status(404).json({ error: "Client not found." });
+  if (!client) return { ok: false, error: "Client not found." };
   const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1 AND client_id = $2`, [employeeId, clientId]);
   const ineligible = eligibilityError(employee);
-  if (ineligible) return res.status(400).json({ error: ineligible });
+  if (ineligible) return { ok: false, error: `${employee?.employee_name || employeeId}: ${ineligible}` };
 
-  const anchorDate = dateString(body.anchorDate);
-  const leadDays = Math.max(0, Math.trunc(Number(body.leadDays) || 5));
+  const anchorDate = dateString(input.anchorDate);
+  // 3 days is a fixed, sensible default — staff are no longer asked to pick
+  // this number (it read as an arbitrary technical setting with no
+  // intuition behind it). Still accepted here for any future caller that
+  // wants to override it.
+  const leadDays = Math.max(0, Math.trunc(Number(input.leadDays) || 3));
 
   const existing = await queryOne<any>(`SELECT payroll_schedule_id FROM altax.v3_payroll_schedules WHERE employee_id = $1`, [employeeId]);
   if (existing) {
     await query(
       `UPDATE altax.v3_payroll_schedules SET
-         frequency=$2, anchor_date=$3, next_pay_date=$3, lead_days=$4, status='Active', notes=$5, updated_at=now()
+         frequency=$2, anchor_date=$3, next_pay_date=$3, lead_days=$4, status='Active', updated_at=now()
        WHERE payroll_schedule_id=$1`,
-      [existing.payroll_schedule_id, frequency, anchorDate, leadDays, String(body.notes || "").trim() || null]
+      [existing.payroll_schedule_id, frequency, anchorDate, leadDays]
     );
     await logAudit("Accounting", "PAYROLL_AGENT_SCHEDULE_UPDATE", existing.payroll_schedule_id, "", "", frequency,
-      `Payroll agent schedule re-enabled for ${employee.employee_name} by ${req.user!.email}.`, req.user!.email);
-    return res.json({ ok: true, payrollScheduleId: existing.payroll_schedule_id });
+      `Payroll agent schedule re-enabled for ${employee.employee_name} by ${actor.email}.`, actor.email);
+    return { ok: true, payrollScheduleId: existing.payroll_schedule_id };
   }
 
   const payrollScheduleId = `PSCH-${idSuffix()}`;
   await query(
     `INSERT INTO altax.v3_payroll_schedules
-       (payroll_schedule_id, client_id, client_name, employee_id, employee_name, frequency, anchor_date, next_pay_date, lead_days, notes, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10)`,
-    [payrollScheduleId, client.client_id, client.client_name, employeeId, employee.employee_name, frequency, anchorDate, leadDays,
-      String(body.notes || "").trim() || null, req.user!.email]
+       (payroll_schedule_id, client_id, client_name, employee_id, employee_name, frequency, anchor_date, next_pay_date, lead_days, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9)`,
+    [payrollScheduleId, client.client_id, client.client_name, employeeId, employee.employee_name, frequency, anchorDate, leadDays, actor.email]
   );
   await logAudit("Accounting", "PAYROLL_AGENT_SCHEDULE_CREATE", payrollScheduleId, "", "", frequency,
-    `Payroll agent schedule created for ${employee.employee_name} by ${req.user!.email}.`, req.user!.email);
-  res.status(201).json({ ok: true, payrollScheduleId });
+    `Payroll agent schedule created for ${employee.employee_name} by ${actor.email}.`, actor.email);
+  return { ok: true, payrollScheduleId };
+}
+
+payrollAgentRouter.post("/schedules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client and employee are required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const result = await enableScheduleFor(req.user!, body);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.status(201).json(result);
+}));
+
+/** Enroll several employees at one client into the same pay schedule in one
+ * action — mirrors QuickBooks Online's "select employees for Auto Payroll"
+ * picker rather than requiring a separate visit to every employee's own
+ * profile. Each employee still gets their own independent schedule row
+ * (partial success is fine — one ineligible employee doesn't block the rest). */
+payrollAgentRouter.post("/schedules/bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const employeeIds: string[] = Array.isArray(body.employeeIds) ? body.employeeIds.map(String) : [];
+  if (!clientId || !employeeIds.length) return res.status(400).json({ error: "Client and at least one employee are required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const results: { employeeId: string; ok: boolean; error?: string }[] = [];
+  for (const employeeId of employeeIds) {
+    const result = await enableScheduleFor(req.user!, { clientId, employeeId, frequency: body.frequency, anchorDate: body.anchorDate });
+    results.push(result.ok ? { employeeId, ok: true } : { employeeId, ok: false, error: result.error });
+  }
+  res.json({ ok: true, succeeded: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results });
 }));
 
 async function loadScheduleForAccess(req: AuthedRequest, res: Response, id: string) {
