@@ -8,9 +8,8 @@ import { sendEmail, sendSms, NotConfiguredError } from "../../common/notificatio
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS } from "../../common/appointmentSettings";
+import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS, type StaffReminderChannel } from "../../common/appointmentSettings";
 import { escapeHtml } from "../../common/html";
-import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -292,35 +291,52 @@ function leadLabel(minutes: number): string {
 /**
  * Internal heads-up to the assigned staff member and every admin, at the same
  * lead times configured for the client reminder below — not just the daily
- * digest's fixed 48-hour lookahead. Plain email, not routed through the
- * template system or logged to v3_communications (that log is for
- * client-facing correspondence only); best-effort, same never-block-the-sweep
+ * digest's fixed 48-hour lookahead. Channel (email/SMS/both) is the admin's
+ * Calendar Settings choice (staffReminderChannel) — SMS only goes to whoever
+ * actually has a phone on file in v3_users, same "best-effort, skip what's
+ * missing" approach as email. Not routed through the template system or
+ * logged to v3_communications (that log is for client-facing correspondence
+ * only); each send is independently best-effort, same never-block-the-sweep
  * pattern as every other send in this file.
  */
-async function notifyAppointmentStaff(appt: any, leadMinutes: number, req?: Request): Promise<void> {
-  const recipients = new Set<string>();
-  if (appt.assigned_to) {
-    const email = await resolveAssigneeEmail(appt.assigned_to);
-    if (email) recipients.add(email.toLowerCase());
-  }
-  const admins = await query<any>(
-    `SELECT email FROM altax.v3_users WHERE lower(role) = 'admin' AND coalesce(active, true) AND email IS NOT NULL`
+async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<void> {
+  const rows = await query<any>(
+    `SELECT email, phone FROM altax.v3_users
+      WHERE coalesce(active, true)
+        AND (lower(role) = 'admin' OR lower(email) = lower($1) OR lower(name) = lower($1) OR lower(user_id) = lower($1))`,
+    [appt.assigned_to || ""]
   );
-  for (const a of admins) if (a.email) recipients.add(String(a.email).toLowerCase());
+  const recipients = new Map<string, { email: string | null; phone: string | null }>();
+  for (const r of rows) {
+    const key = String(r.email || r.phone || "").toLowerCase();
+    if (!key) continue;
+    recipients.set(key, { email: r.email || null, phone: r.phone || null });
+  }
   if (recipients.size === 0) return;
 
   const start = new Date(appt.start_time);
   const who = appt.contact_name || appt.client_name || "a contact";
-  const subject = `Reminder — ${leadLabel(leadMinutes)}: ${appt.title || "Appointment"} with ${who}`;
-  const html = `<p>${escapeHtml(leadLabel(leadMinutes))} — <strong>${escapeHtml(appt.title || "Appointment")}</strong></p>
+  const lead = leadLabel(leadMinutes);
+  const subject = `Reminder — ${lead}: ${appt.title || "Appointment"} with ${who}`;
+  const html = `<p>${escapeHtml(lead)} — <strong>${escapeHtml(appt.title || "Appointment")}</strong></p>
     <p>${escapeHtml(who)}${appt.assigned_to ? ` &middot; Assigned to ${escapeHtml(appt.assigned_to)}` : ""}</p>
     <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
+  const smsBody = `AL TAX SERVICE: ${lead} — ${appt.title || "Appointment"} with ${who} on ${fmtDate(start)} at ${fmtTime(start)}${appt.location ? ` (${appt.location})` : ""}.`;
 
-  for (const to of recipients) {
-    try {
-      await sendEmail({ to, subject, html: await wrapEmailHtml(html, req) });
-    } catch {
-      // best-effort — one recipient's failed send shouldn't block the others or the sweep
+  for (const { email, phone } of recipients.values()) {
+    if ((channel === "email" || channel === "both") && email) {
+      try {
+        await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) });
+      } catch {
+        // best-effort — one recipient's failed send shouldn't block the others or the sweep
+      }
+    }
+    if ((channel === "sms" || channel === "both") && phone) {
+      try {
+        await sendSms({ to: phone, body: smsBody });
+      } catch {
+        // best-effort, same as above
+      }
     }
   }
 }
@@ -360,7 +376,7 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
         if (appt.notify_client) {
           await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail, req);
         }
-        await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, req);
+        await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, settings.staffReminderChannel, req);
         await query(
           `UPDATE altax.v3_appointments SET reminder_lead_minutes_sent = array_append(reminder_lead_minutes_sent, $2) WHERE appointment_id = $1`,
           [appt.appointment_id, leadMinutes]

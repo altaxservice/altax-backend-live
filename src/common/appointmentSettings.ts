@@ -19,6 +19,9 @@ const NO_OVERRIDE: DayHours = { startHour: null, endHour: null };
  * The DB CHECK constraint on v3_appointment_settings.reminder_lead_minutes
  * mirrors this exact list.
  */
+export type StaffReminderChannel = "email" | "sms" | "both";
+export const STAFF_REMINDER_CHANNELS: StaffReminderChannel[] = ["email", "sms", "both"];
+
 export const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
   { minutes: 10080, label: "1 week before" },
   { minutes: 4320, label: "3 days before" },
@@ -36,6 +39,8 @@ export const DEFAULT_APPOINTMENT_SETTINGS = {
   maxDaysAhead: 60,
   // Matches the DB column default — day-before only, same as the old hardcoded behavior.
   reminderLeadMinutes: [1440] as number[],
+  // Matches the DB column default — email only, same as the old hardcoded behavior.
+  staffReminderChannel: "email" as StaffReminderChannel,
   locationName: DEFAULT_FIRM_PROFILE.firmName,
   locationAddress: `${DEFAULT_FIRM_PROFILE.street}, ${DEFAULT_FIRM_PROFILE.city}, ${DEFAULT_FIRM_PROFILE.state} ${DEFAULT_FIRM_PROFILE.zipCode}`,
   locationMapUrl: "",
@@ -69,6 +74,7 @@ export interface AppointmentSettings {
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
   reminderLeadMinutes: number[];
+  staffReminderChannel: StaffReminderChannel;
   locationName: string;
   locationAddress: string;
   locationMapUrl: string;
@@ -101,6 +107,7 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
       : { ...d.dayHours },
     maxDaysAhead: row?.max_days_ahead ?? d.maxDaysAhead,
     reminderLeadMinutes: row?.reminder_lead_minutes ?? [...d.reminderLeadMinutes],
+    staffReminderChannel: (row?.staff_reminder_channel as StaffReminderChannel) ?? d.staffReminderChannel,
     locationName: row?.location_name ?? d.locationName,
     locationAddress: row?.location_address ?? d.locationAddress,
     locationMapUrl: row?.location_map_url ?? d.locationMapUrl,
@@ -122,6 +129,7 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
     business_end_hour: fields.businessEndHour ?? existing.businessEndHour,
     max_days_ahead: fields.maxDaysAhead ?? existing.maxDaysAhead,
     reminder_lead_minutes: fields.reminderLeadMinutes ?? existing.reminderLeadMinutes,
+    staff_reminder_channel: fields.staffReminderChannel ?? existing.staffReminderChannel,
     location_name: fields.locationName ?? existing.locationName,
     location_address: fields.locationAddress ?? existing.locationAddress,
     location_map_url: fields.locationMapUrl ?? existing.locationMapUrl,
@@ -135,23 +143,23 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
         location_name, location_address, location_map_url, policy_message_en, policy_message_ar,
         mon_start_hour, mon_end_hour, tue_start_hour, tue_end_hour, wed_start_hour, wed_end_hour,
         thu_start_hour, thu_end_hour, fri_start_hour, fri_end_hour, sat_start_hour, sat_end_hour,
-        sun_start_hour, sun_end_hour, reminder_lead_minutes, updated_at, updated_by)
+        sun_start_hour, sun_end_hour, reminder_lead_minutes, staff_reminder_channel, updated_at, updated_by)
      VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31, now(), $32)
+             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32, now(), $33)
      ON CONFLICT (id) DO UPDATE SET
        bookable_mon=$1, bookable_tue=$2, bookable_wed=$3, bookable_thu=$4, bookable_fri=$5, bookable_sat=$6, bookable_sun=$7,
        slot_minutes=$8, business_start_hour=$9, business_end_hour=$10, max_days_ahead=$11,
        location_name=$12, location_address=$13, location_map_url=$14, policy_message_en=$15, policy_message_ar=$16,
        mon_start_hour=$17, mon_end_hour=$18, tue_start_hour=$19, tue_end_hour=$20, wed_start_hour=$21, wed_end_hour=$22,
        thu_start_hour=$23, thu_end_hour=$24, fri_start_hour=$25, fri_end_hour=$26, sat_start_hour=$27, sat_end_hour=$28,
-       sun_start_hour=$29, sun_end_hour=$30, reminder_lead_minutes=$31,
-       updated_at = now(), updated_by=$32`,
+       sun_start_hour=$29, sun_end_hour=$30, reminder_lead_minutes=$31, staff_reminder_channel=$32,
+       updated_at = now(), updated_by=$33`,
     [merged.bookable_mon, merged.bookable_tue, merged.bookable_wed, merged.bookable_thu, merged.bookable_fri, merged.bookable_sat, merged.bookable_sun,
       merged.slot_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
       merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar,
       dh.mon.startHour, dh.mon.endHour, dh.tue.startHour, dh.tue.endHour, dh.wed.startHour, dh.wed.endHour,
       dh.thu.startHour, dh.thu.endHour, dh.fri.startHour, dh.fri.endHour, dh.sat.startHour, dh.sat.endHour,
-      dh.sun.startHour, dh.sun.endHour, merged.reminder_lead_minutes, fields.updatedBy]
+      dh.sun.startHour, dh.sun.endHour, merged.reminder_lead_minutes, merged.staff_reminder_channel, fields.updatedBy]
   );
 }
 

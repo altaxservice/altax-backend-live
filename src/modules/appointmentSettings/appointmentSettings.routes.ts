@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
-import { getAppointmentSettings, updateAppointmentSettings, REMINDER_LEAD_PRESETS } from "../../common/appointmentSettings";
+import { getAppointmentSettings, updateAppointmentSettings, REMINDER_LEAD_PRESETS, STAFF_REMINDER_CHANNELS, type StaffReminderChannel } from "../../common/appointmentSettings";
 
 export const appointmentSettingsRouter = Router();
 
@@ -36,6 +36,10 @@ function parseReminderLeadMinutes(raw: unknown): number[] | undefined {
   return out;
 }
 
+function parseStaffReminderChannel(raw: unknown): StaffReminderChannel | undefined {
+  return typeof raw === "string" && (STAFF_REMINDER_CHANNELS as string[]).includes(raw) ? (raw as StaffReminderChannel) : undefined;
+}
+
 appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const num = (v: unknown, fallback: undefined) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
@@ -48,6 +52,7 @@ appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHan
     dayHours: parseDayHours(body.dayHours) as any,
     maxDaysAhead: num(body.maxDaysAhead, undefined),
     reminderLeadMinutes: parseReminderLeadMinutes(body.reminderLeadMinutes),
+    staffReminderChannel: parseStaffReminderChannel(body.staffReminderChannel),
     locationName: typeof body.locationName === "string" ? body.locationName.trim() : undefined,
     locationAddress: typeof body.locationAddress === "string" ? body.locationAddress.trim() : undefined,
     locationMapUrl: typeof body.locationMapUrl === "string" ? body.locationMapUrl.trim() : undefined,

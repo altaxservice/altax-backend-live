@@ -16,6 +16,7 @@ interface AppointmentSettings {
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
   reminderLeadMinutes: number[];
+  staffReminderChannel: "email" | "sms" | "both";
   locationName: string;
   locationAddress: string;
   locationMapUrl: string;
@@ -39,6 +40,11 @@ const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
   { minutes: 1440, label: "1 day before" },
   { minutes: 240, label: "4 hours before" },
   { minutes: 60, label: "1 hour before" },
+];
+const STAFF_CHANNEL_OPTIONS: { value: AppointmentSettings["staffReminderChannel"]; label: string }[] = [
+  { value: "email", label: "Email only" },
+  { value: "sms", label: "SMS only" },
+  { value: "both", label: "Email + SMS" },
 ];
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -194,9 +200,9 @@ export function CalendarSettingsPanel() {
       <div className="field">
         <label>Reminders</label>
         <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
-          Choose when the client (email/SMS) and the assigned staff member + every admin (email) get reminded ahead
-          of an appointment — pick any combination. The assigned staff and admins always get the same schedule as
-          the client.
+          Choose when the client (email/SMS) and the assigned staff member + every admin get reminded ahead of an
+          appointment — pick any combination. The assigned staff and admins always get the same schedule as the
+          client; their channel (email/SMS/both) is set separately below.
         </p>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           {REMINDER_LEAD_PRESETS.map((p) => (
@@ -218,6 +224,26 @@ export function CalendarSettingsPanel() {
         {settings.reminderLeadMinutes.length === 0 && (
           <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>No reminders will be sent — check at least one above to re-enable them.</p>
         )}
+
+        <div style={{ marginTop: 14 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 600 }}>Staff/Admin Reminder Channel</label>
+          <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
+            SMS only reaches staff/admins who have a phone number on their user account — anyone without one still gets email.
+          </p>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            {STAFF_CHANNEL_OPTIONS.map((o) => (
+              <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="staff-reminder-channel"
+                  checked={settings.staffReminderChannel === o.value}
+                  onChange={() => setSettings((s) => s && { ...s, staffReminderChannel: o.value })}
+                />
+                {o.label}
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="field"><label htmlFor="cal-location-name">Location Name</label><input id="cal-location-name" value={settings.locationName} onChange={(e) => setSettings((s) => s && { ...s, locationName: e.target.value })} /></div>
