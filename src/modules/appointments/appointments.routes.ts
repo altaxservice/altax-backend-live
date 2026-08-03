@@ -289,9 +289,11 @@ function leadLabel(minutes: number): string {
 }
 
 /**
- * Internal heads-up to the assigned staff member and every admin, at the same
- * lead times configured for the client reminder below — not just the daily
- * digest's fixed 48-hour lookahead. Channel (email/SMS/both) is the admin's
+ * Internal heads-up to the assigned staff member, the staff member who
+ * created the appointment (even if it's unassigned or assigned to someone
+ * else), and every admin, at the same lead times configured for the client
+ * reminder below — not just the daily digest's fixed 48-hour lookahead.
+ * Channel (email/SMS/both) is the admin's
  * Calendar Settings choice (staffReminderChannel) — SMS only goes to whoever
  * actually has a phone on file in v3_users, same "best-effort, skip what's
  * missing" approach as email. Not routed through the template system or
@@ -303,8 +305,8 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
   const rows = await query<any>(
     `SELECT email, phone FROM altax.v3_users
       WHERE coalesce(active, true)
-        AND (lower(role) = 'admin' OR lower(email) = lower($1) OR lower(name) = lower($1) OR lower(user_id) = lower($1))`,
-    [appt.assigned_to || ""]
+        AND (lower(role) = 'admin' OR lower(email) = lower($1) OR lower(name) = lower($1) OR lower(user_id) = lower($1) OR lower(email) = lower($2))`,
+    [appt.assigned_to || "", appt.created_by || ""]
   );
   const recipients = new Map<string, { email: string | null; phone: string | null }>();
   for (const r of rows) {

@@ -50,6 +50,7 @@ export function TaskCalendarPage() {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showNewAppt, setShowNewAppt] = useState(false);
+  const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
 
   useEffect(() => {
     api.get<{ tasks: Task[] }>("/tasks")
@@ -248,6 +249,7 @@ export function TaskCalendarPage() {
                             <td><StatusBadge status={a.status} /></td>
                             <td>
                               <div style={{ display: "flex", gap: 4 }}>
+                                {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => handleCancelAppointment(a.appointment_id)}>Cancel</button>}
                                 <button className="btn btn-sm" onClick={() => handleDeleteAppointment(a.appointment_id)}>Delete</button>
                               </div>
@@ -330,6 +332,14 @@ export function TaskCalendarPage() {
           clients={clients}
           defaultDate={selectedDay || undefined}
           onClose={() => setShowNewAppt(false)}
+          onDone={loadAppointments}
+        />
+      )}
+      {editingAppt && (
+        <NewAppointmentModal
+          clients={clients}
+          appointment={editingAppt}
+          onClose={() => setEditingAppt(null)}
           onDone={loadAppointments}
         />
       )}
