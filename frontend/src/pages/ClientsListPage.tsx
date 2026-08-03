@@ -155,6 +155,10 @@ export function ClientsListPage() {
     e.preventDefault();
     if (!form.clientName.trim()) {
       setNameError("Client name is required.");
+      // Also surfaced through the top ErrorBanner (role="alert") — the
+      // field-level message alone is silent to screen readers since nothing
+      // moves focus to it.
+      setSaveError("Client name is required.");
       return;
     }
     setNameError(null);

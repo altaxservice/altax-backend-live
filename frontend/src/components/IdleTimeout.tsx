@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Signs a user out after a period of inactivity.
@@ -42,6 +43,8 @@ export function IdleTimeout() {
    */
   const warningActive = useRef(false);
   const idleDeadline = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef, secondsLeft !== null);
 
   const clearTimers = useCallback(() => {
     if (idleTimer.current) window.clearInterval(idleTimer.current);
@@ -126,7 +129,7 @@ export function IdleTimeout() {
 
   return (
     <div className="modal-overlay">
-      <div className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="idle-title">Still there?</h2>
         </div>

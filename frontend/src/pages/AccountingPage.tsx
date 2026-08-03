@@ -816,8 +816,10 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setInvalidField(null);
-    if (!form.employee) { setInvalidField("employee"); return; }
-    if (!form.payDate) { setInvalidField("payDate"); return; }
+    // Paired with the top ErrorBanner (role="alert") — the field-level
+    // highlight alone is silent to screen readers since nothing moves focus.
+    if (!form.employee) { setInvalidField("employee"); setError("Select an employee."); return; }
+    if (!form.payDate) { setInvalidField("payDate"); setError("Pay date is required."); return; }
     setSaving(true);
     setError(null);
     setResult(null);
