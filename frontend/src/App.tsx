@@ -32,6 +32,7 @@ import { FixCenterPage } from "./pages/FixCenterPage";
 import { FirmSettingsPage } from "./pages/FirmSettingsPage";
 import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { ListSettingsPage } from "./pages/ListSettingsPage";
+import { LabelsPage } from "./pages/LabelsPage";
 import { DocumentChecklistsPage } from "./pages/DocumentChecklistsPage";
 import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -86,6 +87,7 @@ function App() {
                 <Route path="/firm-settings" element={<FirmSettingsPage />} />
                 <Route path="/firm-portals" element={<FirmPortalsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
+                <Route path="/labels" element={<LabelsPage />} />
                 <Route path="/document-checklists" element={<DocumentChecklistsPage />} />
               </Route>
               {/* Employees have no billing relationship with the firm — only their employer

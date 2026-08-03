@@ -15,6 +15,7 @@ interface AppointmentSettings {
   businessEndHour: number;
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
+  reminderLeadMinutes: number[];
   locationName: string;
   locationAddress: string;
   locationMapUrl: string;
@@ -29,6 +30,16 @@ const WEEKDAYS: { key: keyof AppointmentSettings["bookableWeekdays"]; label: str
   { key: "fri", label: "Fri" }, { key: "sat", label: "Sat" }, { key: "sun", label: "Sun" },
 ];
 const SLOT_OPTIONS = [15, 20, 30, 45, 60, 90, 120];
+// Mirrors REMINDER_LEAD_PRESETS in src/common/appointmentSettings.ts — the backend
+// is the source of truth (its DB CHECK constraint enforces this exact list); this
+// copy only drives which checkboxes render.
+const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
+  { minutes: 10080, label: "1 week before" },
+  { minutes: 4320, label: "3 days before" },
+  { minutes: 1440, label: "1 day before" },
+  { minutes: 240, label: "4 hours before" },
+  { minutes: 60, label: "1 hour before" },
+];
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
 
 function fmtHour(h: number): string {
@@ -178,6 +189,35 @@ export function CalendarSettingsPanel() {
       <div className="field">
         <label htmlFor="cal-max-days-ahead">Booking Horizon (days ahead someone can book)</label>
         <input id="cal-max-days-ahead" type="number" min={1} max={365} value={settings.maxDaysAhead} onChange={(e) => setSettings((s) => s && { ...s, maxDaysAhead: Number(e.target.value) || 1 })} style={{ maxWidth: 120 }} />
+      </div>
+
+      <div className="field">
+        <label>Reminders</label>
+        <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+          Choose when the client (email/SMS) and the assigned staff member + every admin (email) get reminded ahead
+          of an appointment — pick any combination. The assigned staff and admins always get the same schedule as
+          the client.
+        </p>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {REMINDER_LEAD_PRESETS.map((p) => (
+            <label key={p.minutes} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={settings.reminderLeadMinutes.includes(p.minutes)}
+                onChange={(e) => setSettings((s) => s && {
+                  ...s,
+                  reminderLeadMinutes: e.target.checked
+                    ? [...s.reminderLeadMinutes, p.minutes]
+                    : s.reminderLeadMinutes.filter((m) => m !== p.minutes),
+                })}
+              />
+              {p.label}
+            </label>
+          ))}
+        </div>
+        {settings.reminderLeadMinutes.length === 0 && (
+          <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>No reminders will be sent — check at least one above to re-enable them.</p>
+        )}
       </div>
 
       <div className="field"><label htmlFor="cal-location-name">Location Name</label><input id="cal-location-name" value={settings.locationName} onChange={(e) => setSettings((s) => s && { ...s, locationName: e.target.value })} /></div>

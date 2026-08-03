@@ -12,6 +12,7 @@ import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -78,6 +79,7 @@ export function TasksListPage() {
   const clientIdFilter = searchParams.get("clientId") || null;
 
   const canManage = user?.role === "admin" || user?.role === "staff";
+  const { allLabels, byEntity: taskLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabels("task");
 
   function load(): Promise<void> {
     return api.get<{ tasks: Task[] }>("/tasks")
@@ -458,6 +460,14 @@ export function TasksListPage() {
                       <div>{t.task_name}</div>
                       {t.priority && t.priority !== "Normal" && (
                         <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
+                      )}
+                      <LabelChips labels={taskLabels[t.task_id] || []} onRemove={canManage ? (labelId) => unassignLabel(t.task_id, labelId) : undefined} />
+                      {canManage && (
+                        <LabelPicker
+                          allLabels={allLabels}
+                          assignedIds={new Set((taskLabels[t.task_id] || []).map((l) => l.label_id))}
+                          onAdd={(labelId) => assignLabel(t.task_id, labelId)}
+                        />
                       )}
                     </div>
                   </td>

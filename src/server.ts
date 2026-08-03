@@ -43,6 +43,7 @@ import { publicMessageRouter } from "./modules/communications/publicMessage.rout
 import { haccpRouter } from "./modules/haccp/haccp.routes";
 import { checklistsRouter } from "./modules/checklists/checklists.routes";
 import { budgetsRouter } from "./modules/budgets/budgets.routes";
+import { labelsRouter } from "./modules/labels/labels.routes";
 import { bankRecRouter } from "./modules/bankRec/bankRec.routes";
 import cron from "node-cron";
 import { alertAdmins } from "./common/adminAlerts";
@@ -262,6 +263,7 @@ app.use("/public/messages", publicMessageRouter);
 app.use("/haccp", haccpRouter);
 app.use("/checklists", checklistsRouter);
 app.use("/budgets", budgetsRouter);
+app.use("/labels", labelsRouter);
 app.use("/bank-rec", bankRecRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and
@@ -311,10 +313,10 @@ cron.schedule("0 6 * * 0", () => {
 // eslint-disable-next-line no-console
 console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
 
-// Hourly sweep for appointment day-before reminders — checks a 23-25 hour-ahead
-// window each run (see runAppointmentReminders's doc comment), so an appointment
-// gets its one reminder sometime in the 24 hours before it regardless of which
-// hourly tick catches it, without ever double-sending (reminder_sent_at gate).
+// Hourly sweep for appointment reminders — checks a window around each
+// configured lead time (Calendar Settings, see runAppointmentReminders's doc
+// comment), so an appointment gets each configured reminder once regardless
+// of which hourly tick catches it, without ever double-sending.
 cron.schedule("0 * * * *", () => {
   runAppointmentReminders("System (Appointment Reminder Job)").catch((err) => {
     alertAdmins("Appointment reminders job failed", err instanceof Error ? (err.stack || err.message) : String(err));

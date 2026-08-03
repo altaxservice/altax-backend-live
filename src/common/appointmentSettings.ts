@@ -12,6 +12,21 @@ import { DEFAULT_FIRM_PROFILE } from "./firmProfile";
 
 const NO_OVERRIDE: DayHours = { startHour: null, endHour: null };
 
+/**
+ * Fixed preset list for reminder lead times — admin picks any combination via
+ * checkboxes rather than a free-text field, since the sweep job (server.ts,
+ * hourly) can only reliably catch a preset it explicitly knows to check for.
+ * The DB CHECK constraint on v3_appointment_settings.reminder_lead_minutes
+ * mirrors this exact list.
+ */
+export const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
+  { minutes: 10080, label: "1 week before" },
+  { minutes: 4320, label: "3 days before" },
+  { minutes: 1440, label: "1 day before" },
+  { minutes: 240, label: "4 hours before" },
+  { minutes: 60, label: "1 hour before" },
+];
+
 export const DEFAULT_APPOINTMENT_SETTINGS = {
   bookableWeekdays: { mon: true, tue: true, wed: true, thu: true, fri: true, sat: false, sun: false },
   slotMinutes: 60,
@@ -19,6 +34,8 @@ export const DEFAULT_APPOINTMENT_SETTINGS = {
   businessEndHour: 17,
   dayHours: { mon: NO_OVERRIDE, tue: NO_OVERRIDE, wed: NO_OVERRIDE, thu: NO_OVERRIDE, fri: NO_OVERRIDE, sat: NO_OVERRIDE, sun: NO_OVERRIDE },
   maxDaysAhead: 60,
+  // Matches the DB column default — day-before only, same as the old hardcoded behavior.
+  reminderLeadMinutes: [1440] as number[],
   locationName: DEFAULT_FIRM_PROFILE.firmName,
   locationAddress: `${DEFAULT_FIRM_PROFILE.street}, ${DEFAULT_FIRM_PROFILE.city}, ${DEFAULT_FIRM_PROFILE.state} ${DEFAULT_FIRM_PROFILE.zipCode}`,
   locationMapUrl: "",
@@ -51,6 +68,7 @@ export interface AppointmentSettings {
   /** Optional per-weekday hour overrides. A day with startHour/endHour === null falls back to businessStartHour/businessEndHour. */
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
   maxDaysAhead: number;
+  reminderLeadMinutes: number[];
   locationName: string;
   locationAddress: string;
   locationMapUrl: string;
@@ -82,6 +100,7 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
         }
       : { ...d.dayHours },
     maxDaysAhead: row?.max_days_ahead ?? d.maxDaysAhead,
+    reminderLeadMinutes: row?.reminder_lead_minutes ?? [...d.reminderLeadMinutes],
     locationName: row?.location_name ?? d.locationName,
     locationAddress: row?.location_address ?? d.locationAddress,
     locationMapUrl: row?.location_map_url ?? d.locationMapUrl,
@@ -102,6 +121,7 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
     business_start_hour: fields.businessStartHour ?? existing.businessStartHour,
     business_end_hour: fields.businessEndHour ?? existing.businessEndHour,
     max_days_ahead: fields.maxDaysAhead ?? existing.maxDaysAhead,
+    reminder_lead_minutes: fields.reminderLeadMinutes ?? existing.reminderLeadMinutes,
     location_name: fields.locationName ?? existing.locationName,
     location_address: fields.locationAddress ?? existing.locationAddress,
     location_map_url: fields.locationMapUrl ?? existing.locationMapUrl,
@@ -115,23 +135,23 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
         location_name, location_address, location_map_url, policy_message_en, policy_message_ar,
         mon_start_hour, mon_end_hour, tue_start_hour, tue_end_hour, wed_start_hour, wed_end_hour,
         thu_start_hour, thu_end_hour, fri_start_hour, fri_end_hour, sat_start_hour, sat_end_hour,
-        sun_start_hour, sun_end_hour, updated_at, updated_by)
+        sun_start_hour, sun_end_hour, reminder_lead_minutes, updated_at, updated_by)
      VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30, now(), $31)
+             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31, now(), $32)
      ON CONFLICT (id) DO UPDATE SET
        bookable_mon=$1, bookable_tue=$2, bookable_wed=$3, bookable_thu=$4, bookable_fri=$5, bookable_sat=$6, bookable_sun=$7,
        slot_minutes=$8, business_start_hour=$9, business_end_hour=$10, max_days_ahead=$11,
        location_name=$12, location_address=$13, location_map_url=$14, policy_message_en=$15, policy_message_ar=$16,
        mon_start_hour=$17, mon_end_hour=$18, tue_start_hour=$19, tue_end_hour=$20, wed_start_hour=$21, wed_end_hour=$22,
        thu_start_hour=$23, thu_end_hour=$24, fri_start_hour=$25, fri_end_hour=$26, sat_start_hour=$27, sat_end_hour=$28,
-       sun_start_hour=$29, sun_end_hour=$30,
-       updated_at = now(), updated_by=$31`,
+       sun_start_hour=$29, sun_end_hour=$30, reminder_lead_minutes=$31,
+       updated_at = now(), updated_by=$32`,
     [merged.bookable_mon, merged.bookable_tue, merged.bookable_wed, merged.bookable_thu, merged.bookable_fri, merged.bookable_sat, merged.bookable_sun,
       merged.slot_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
       merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar,
       dh.mon.startHour, dh.mon.endHour, dh.tue.startHour, dh.tue.endHour, dh.wed.startHour, dh.wed.endHour,
       dh.thu.startHour, dh.thu.endHour, dh.fri.startHour, dh.fri.endHour, dh.sat.startHour, dh.sat.endHour,
-      dh.sun.startHour, dh.sun.endHour, fields.updatedBy]
+      dh.sun.startHour, dh.sun.endHour, merged.reminder_lead_minutes, fields.updatedBy]
   );
 }
 

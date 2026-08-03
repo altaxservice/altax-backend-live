@@ -261,6 +261,7 @@ async function nextClientId(): Promise<string> {
 /** camelCase API field -> [db column, isBoolean]. Allow-list ported 1:1 from alTaxV3UpdateClientProfile. */
 const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean; encrypted?: boolean }> = {
   clientName: { column: "client_name" },
+  dbaName: { column: "dba_name" },
   entityType: { column: "entity_type" },
   // date_of_formation is a DATE column — an empty string (an optional field
   // left blank on Add Client) is not valid input for it, unlike every other
@@ -304,6 +305,14 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // drawn for name/title/SSN.
   companyContactEmail: { column: "company_contact_email" },
   companyContactPhone: { column: "company_contact_phone" },
+  // Home address for the Responsible Party person, separate from the
+  // business's own address above — composed into company_contact_address
+  // the same way street/city/state/zip compose into `address` (see the
+  // POST/PATCH handlers below).
+  companyContactStreetAddress: { column: "company_contact_street_address" },
+  companyContactCity: { column: "company_contact_city" },
+  companyContactState: { column: "company_contact_state" },
+  companyContactZipCode: { column: "company_contact_zip_code" },
   clientType: { column: "client_type" },
   serviceType: { column: "service_type" },
   // Granular, multi-select firm service lines (tax_prep, bookkeeping, payroll,
@@ -396,6 +405,12 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
       placeholders.push(`$${values.length}`);
     }
   }
+  if (["companyContactStreetAddress", "companyContactCity", "companyContactState", "companyContactZipCode"].some((k) => Object.prototype.hasOwnProperty.call(body, k))) {
+    const composed = composeAddress({ street: body.companyContactStreetAddress, city: body.companyContactCity, state: body.companyContactState, zip: body.companyContactZipCode });
+    columns.push("company_contact_address");
+    values.push(composed);
+    placeholders.push(`$${values.length}`);
+  }
   if (!columns.includes("status")) {
     columns.push("status");
     values.push("Active");
@@ -468,6 +483,14 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
       city: "city" in fields ? fields.city : old.city,
       state: "state" in fields ? fields.state : old.state,
       zip: "zip_code" in fields ? fields.zip_code : old.zip_code,
+    });
+  }
+  if (["companyContactStreetAddress", "companyContactCity", "companyContactState", "companyContactZipCode"].some((k) => Object.prototype.hasOwnProperty.call(body, k))) {
+    fields.company_contact_address = composeAddress({
+      street: "company_contact_street_address" in fields ? fields.company_contact_street_address : old.company_contact_street_address,
+      city: "company_contact_city" in fields ? fields.company_contact_city : old.company_contact_city,
+      state: "company_contact_state" in fields ? fields.company_contact_state : old.company_contact_state,
+      zip: "company_contact_zip_code" in fields ? fields.company_contact_zip_code : old.company_contact_zip_code,
     });
   }
 

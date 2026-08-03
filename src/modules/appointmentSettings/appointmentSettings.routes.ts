@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
-import { getAppointmentSettings, updateAppointmentSettings } from "../../common/appointmentSettings";
+import { getAppointmentSettings, updateAppointmentSettings, REMINDER_LEAD_PRESETS } from "../../common/appointmentSettings";
 
 export const appointmentSettingsRouter = Router();
 
@@ -28,6 +28,14 @@ function parseDayHours(raw: unknown): Record<string, { startHour: number | null;
   return Object.keys(out).length ? out : undefined;
 }
 
+/** Drops anything not in the fixed preset list so a bad value can't slip past the DB CHECK constraint into a 500. */
+function parseReminderLeadMinutes(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const allowed = new Set(REMINDER_LEAD_PRESETS.map((p) => p.minutes));
+  const out = Array.from(new Set(raw.filter((v) => typeof v === "number" && allowed.has(v))));
+  return out;
+}
+
 appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const num = (v: unknown, fallback: undefined) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
@@ -39,6 +47,7 @@ appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHan
     businessEndHour: num(body.businessEndHour, undefined),
     dayHours: parseDayHours(body.dayHours) as any,
     maxDaysAhead: num(body.maxDaysAhead, undefined),
+    reminderLeadMinutes: parseReminderLeadMinutes(body.reminderLeadMinutes),
     locationName: typeof body.locationName === "string" ? body.locationName.trim() : undefined,
     locationAddress: typeof body.locationAddress === "string" ? body.locationAddress.trim() : undefined,
     locationMapUrl: typeof body.locationMapUrl === "string" ? body.locationMapUrl.trim() : undefined,

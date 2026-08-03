@@ -16,6 +16,7 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
   clientName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
@@ -123,6 +124,7 @@ export function ClientsListPage() {
   const [newCustomService, setNewCustomService] = useState("");
 
   const canCreate = user?.role === "admin" || user?.role === "staff";
+  const { allLabels, byEntity: clientLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabels("client");
   const isAdmin = user?.role === "admin";
 
   function load(): Promise<void> {
@@ -744,6 +746,12 @@ export function ClientsListPage() {
                           {c.client_type ? ` · ${c.client_type}` : ""}
                           {c.entity_type ? ` · ${c.entity_type}` : ""}
                         </div>
+                        <LabelChips labels={clientLabels[c.client_id] || []} onRemove={(labelId) => unassignLabel(c.client_id, labelId)} />
+                        <LabelPicker
+                          allLabels={allLabels}
+                          assignedIds={new Set((clientLabels[c.client_id] || []).map((l) => l.label_id))}
+                          onAdd={(labelId) => assignLabel(c.client_id, labelId)}
+                        />
                       </div>
                     </td>
                     <td data-label="Contact">

@@ -26,6 +26,7 @@ import { GeneratePoaFormModal } from "../components/GeneratePoaFormModal";
 import type { GovFormFiling } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
+import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -63,6 +64,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     title: "Client Identity",
     fields: [
       { key: "client_name", apiKey: "clientName", label: "Client Name", kind: "text" },
+      { key: "dba_name", apiKey: "dbaName", label: "DBA / Trade Name", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "client_type", apiKey: "clientType", label: "Client Type", kind: "select", options: ["Business", "Individual"] },
       { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
       { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !showEntityType(f) },
@@ -185,6 +187,7 @@ export function ClientDetailPage() {
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
+  const { allLabels, labels: clientLabelList, assign: assignClientLabel, unassign: unassignClientLabel } = useEntityLabel("client", clientId);
   const canArchive = user?.role === "admin";
   const canSeeStaffTabs = user?.role === "admin" || user?.role === "staff";
   const visibleTabs = DETAIL_TABS.filter((t) => canSeeStaffTabs || !STAFF_ONLY_TABS.includes(t));
@@ -215,6 +218,10 @@ export function ClientDetailPage() {
         initial.streetAddress = String(res.client.street_address ?? "");
         initial.city = String(res.client.city ?? "");
         initial.zipCode = String(res.client.zip_code ?? "");
+        initial.companyContactStreetAddress = String(res.client.company_contact_street_address ?? "");
+        initial.companyContactCity = String(res.client.company_contact_city ?? "");
+        initial.companyContactState = String(res.client.company_contact_state ?? "");
+        initial.companyContactZipCode = String(res.client.company_contact_zip_code ?? "");
         setForm(initial);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this client."));
@@ -383,7 +390,14 @@ export function ClientDetailPage() {
         <div>
           <div className="muted" style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em" }}>{client.client_id}</div>
           <h1 style={{ fontSize: 22, margin: "2px 0 4px" }}>{client.client_name}</h1>
+          {String(client.dba_name || "").trim() && (
+            <div className="muted" style={{ fontSize: 13, margin: "-2px 0 6px" }}>DBA: {client.dba_name as string}</div>
+          )}
           <StatusBadge status={client.status} />
+          <LabelChips labels={clientLabelList} onRemove={canEdit ? unassignClientLabel : undefined} />
+          {canEdit && (
+            <LabelPicker allLabels={allLabels} assignedIds={new Set(clientLabelList.map((l) => l.label_id))} onAdd={assignClientLabel} />
+          )}
         </div>
       </div>
 
@@ -483,6 +497,22 @@ export function ClientDetailPage() {
                     state: patch.state ?? prev.state,
                   }))}
                 />
+              )}
+              {section.title === "Tax IDs & Responsible Party" && isBusiness(form) && (
+                <>
+                  <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Responsible Party Home Address</div>
+                  <AddressFields
+                    idPrefix="cd-rp"
+                    value={{ street: form.companyContactStreetAddress ?? "", city: form.companyContactCity ?? "", state: form.companyContactState ?? "", zip: form.companyContactZipCode ?? "" }}
+                    onChange={(patch) => setForm((prev) => ({
+                      ...prev,
+                      companyContactStreetAddress: patch.street ?? prev.companyContactStreetAddress,
+                      companyContactCity: patch.city ?? prev.companyContactCity,
+                      companyContactZipCode: patch.zip ?? prev.companyContactZipCode,
+                      companyContactState: patch.state ?? prev.companyContactState,
+                    }))}
+                  />
+                </>
               )}
             </div>
             );
@@ -608,6 +638,7 @@ export function ClientDetailPage() {
                   <DetailRow label="SS No." value={client.company_contact_ssn as string | null} />
                   <DetailRow label="Contact Email" value={client.company_contact_email as string | null} />
                   <DetailRow label="Contact Phone" value={client.company_contact_phone as string | null} />
+                  <DetailRow label="Home Address" value={client.company_contact_address as string | null} multiline />
                 </>
               ) : (
                 <p className="muted">Not applicable for individual clients.</p>

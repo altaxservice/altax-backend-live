@@ -70,7 +70,7 @@ async function alreadySent(sourceRecordId: string): Promise<boolean> {
 }
 
 /** Resolves a task's free-text assigned_to (email, name, or user_id) to a real, active user's email — mirrors assignment.ts's alias matching. */
-async function resolveAssigneeEmail(assignedTo: string): Promise<string | null> {
+export async function resolveAssigneeEmail(assignedTo: string): Promise<string | null> {
   const norm = normalizeText(assignedTo);
   if (!norm) return null;
   const row = await queryOne<any>(

@@ -8,8 +8,9 @@ import { sendEmail, sendSms, NotConfiguredError } from "../../common/notificatio
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { getAppointmentSettings, bookableWeekdayLabel } from "../../common/appointmentSettings";
+import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS } from "../../common/appointmentSettings";
 import { escapeHtml } from "../../common/html";
+import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -284,30 +285,90 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   }
 }
 
+function leadLabel(minutes: number): string {
+  return REMINDER_LEAD_PRESETS.find((p) => p.minutes === minutes)?.label || `${minutes} minutes before`;
+}
+
 /**
- * Sends the day-before reminder for every Scheduled appointment starting between
- * 23 and 25 hours from now that hasn't already gotten one — called hourly from
- * server.ts's cron, same "hourly sweep with an idempotency marker" shape as the
- * daily reminders job, just on appointments instead of tasks/documents/invoices.
+ * Internal heads-up to the assigned staff member and every admin, at the same
+ * lead times configured for the client reminder below — not just the daily
+ * digest's fixed 48-hour lookahead. Plain email, not routed through the
+ * template system or logged to v3_communications (that log is for
+ * client-facing correspondence only); best-effort, same never-block-the-sweep
+ * pattern as every other send in this file.
  */
-export async function runAppointmentReminders(actorEmail: string): Promise<{ sent: number; failed: number }> {
-  const windowStart = new Date(Date.now() + 23 * 60 * 60 * 1000);
-  const windowEnd = new Date(Date.now() + 25 * 60 * 60 * 1000);
-  const due = await query<any>(
-    `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
-       LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
-      WHERE a.status = 'Scheduled' AND a.reminder_sent_at IS NULL AND a.notify_client = true
-        AND a.start_time BETWEEN $1 AND $2`,
-    [windowStart.toISOString(), windowEnd.toISOString()]
+async function notifyAppointmentStaff(appt: any, leadMinutes: number, req?: Request): Promise<void> {
+  const recipients = new Set<string>();
+  if (appt.assigned_to) {
+    const email = await resolveAssigneeEmail(appt.assigned_to);
+    if (email) recipients.add(email.toLowerCase());
+  }
+  const admins = await query<any>(
+    `SELECT email FROM altax.v3_users WHERE lower(role) = 'admin' AND coalesce(active, true) AND email IS NOT NULL`
   );
-  let sent = 0, failed = 0;
-  for (const appt of due) {
+  for (const a of admins) if (a.email) recipients.add(String(a.email).toLowerCase());
+  if (recipients.size === 0) return;
+
+  const start = new Date(appt.start_time);
+  const who = appt.contact_name || appt.client_name || "a contact";
+  const subject = `Reminder — ${leadLabel(leadMinutes)}: ${appt.title || "Appointment"} with ${who}`;
+  const html = `<p>${escapeHtml(leadLabel(leadMinutes))} — <strong>${escapeHtml(appt.title || "Appointment")}</strong></p>
+    <p>${escapeHtml(who)}${appt.assigned_to ? ` &middot; Assigned to ${escapeHtml(appt.assigned_to)}` : ""}</p>
+    <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
+
+  for (const to of recipients) {
     try {
-      await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail);
-      await query(`UPDATE altax.v3_appointments SET reminder_sent_at = now() WHERE appointment_id = $1`, [appt.appointment_id]);
-      sent++;
+      await sendEmail({ to, subject, html: await wrapEmailHtml(html, req) });
     } catch {
-      failed++;
+      // best-effort — one recipient's failed send shouldn't block the others or the sweep
+    }
+  }
+}
+
+/**
+ * Sends every configured reminder (Calendar Settings' reminderLeadMinutes —
+ * e.g. "1 day before", "1 hour before") for each Scheduled appointment that
+ * has reached that lead time and hasn't gotten that specific one yet, tracked
+ * per-appointment in reminder_lead_minutes_sent. Called hourly from
+ * server.ts's cron, same "hourly sweep with an idempotency marker" shape as
+ * the daily reminders job, just on appointments instead of tasks/documents/
+ * invoices. The client-facing email/SMS (notifyAppointment) still respects
+ * notify_client; the internal staff/admin heads-up (notifyAppointmentStaff)
+ * fires regardless, since the team should know about an appointment even if
+ * the client opted out of their own reminder.
+ */
+export async function runAppointmentReminders(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number }> {
+  const settings = await getAppointmentSettings();
+  let sent = 0, failed = 0;
+
+  for (const leadMinutes of settings.reminderLeadMinutes) {
+    const target = new Date(Date.now() + leadMinutes * 60 * 1000);
+    // A 2-hour-wide window centered on the target time, same margin the old
+    // hardcoded day-before reminder used — wide enough that the hourly cron
+    // can't step over an appointment's window between two runs.
+    const windowStart = new Date(target.getTime() - 60 * 60 * 1000);
+    const windowEnd = new Date(target.getTime() + 60 * 60 * 1000);
+    const due = await query<any>(
+      `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+         LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+        WHERE a.status = 'Scheduled' AND a.start_time BETWEEN $1 AND $2
+          AND NOT ($3 = ANY(a.reminder_lead_minutes_sent))`,
+      [windowStart.toISOString(), windowEnd.toISOString(), leadMinutes]
+    );
+    for (const appt of due) {
+      try {
+        if (appt.notify_client) {
+          await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail, req);
+        }
+        await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, req);
+        await query(
+          `UPDATE altax.v3_appointments SET reminder_lead_minutes_sent = array_append(reminder_lead_minutes_sent, $2) WHERE appointment_id = $1`,
+          [appt.appointment_id, leadMinutes]
+        );
+        sent++;
+      } catch {
+        failed++;
+      }
     }
   }
   return { sent, failed };
@@ -361,14 +422,18 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
   if (!title) return res.status(400).json({ error: "Title is required." });
   if (new Date(endTime) < new Date(startTime)) return res.status(400).json({ error: "End time can't be before start time." });
 
-  // A reschedule (start_time changing) clears reminder_sent_at so the day-before
-  // reminder fires again for the new time rather than silently never sending.
+  // A reschedule (start_time changing) clears the sent-reminder tracking so
+  // every configured reminder fires again for the new time rather than
+  // silently never sending.
   const timeChanged = new Date(startTime).getTime() !== new Date(existing.start_time).getTime();
 
   await query(
     `UPDATE altax.v3_appointments SET
        title = $2, start_time = $3, end_time = $4, location = $5, notes = $6, assigned_to = $7,
-       notify_client = $8, reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END, updated_at = now()
+       notify_client = $8,
+       reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END,
+       reminder_lead_minutes_sent = CASE WHEN $9 THEN '{}' ELSE reminder_lead_minutes_sent END,
+       updated_at = now()
      WHERE appointment_id = $1`,
     [appointmentId, title, startTime, endTime,
       body.location !== undefined ? String(body.location).trim() || null : existing.location,

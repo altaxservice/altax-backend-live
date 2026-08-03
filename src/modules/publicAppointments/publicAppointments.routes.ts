@@ -244,7 +244,7 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
   if (clash.length) return res.status(409).json({ error: "That time slot was just booked by someone else — please pick another." });
 
   await query(
-    `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, updated_at = now() WHERE appointment_id = $1`,
+    `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, reminder_lead_minutes_sent = '{}', updated_at = now() WHERE appointment_id = $1`,
     [appt.appointment_id, startTime, endTime]
   );
   await logAudit("Calendar", "UPDATE_APPOINTMENT", appt.appointment_id, "", "", appt.title,

@@ -12,6 +12,7 @@ import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
+import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -82,6 +83,7 @@ export function TaskDetailPage() {
   });
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
+  const { allLabels, labels: taskLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabel("task", taskId);
 
   useEffect(() => {
     if (!canEdit) return;
@@ -164,6 +166,10 @@ export function TaskDetailPage() {
             <StatusBadge status={task.status} />
             <Link to={`/clients/${task.client_id}`} className="muted">{task.client_name}</Link>
           </div>
+          <LabelChips labels={taskLabels} onRemove={canEdit ? unassignLabel : undefined} />
+          {canEdit && (
+            <LabelPicker allLabels={allLabels} assignedIds={new Set(taskLabels.map((l) => l.label_id))} onAdd={assignLabel} />
+          )}
         </div>
         {canEdit && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
