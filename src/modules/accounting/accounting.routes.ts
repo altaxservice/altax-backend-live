@@ -1143,7 +1143,19 @@ accountingRouter.get("/paychecks/:clientId", requireAuth, requireRole("admin", "
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const rows = await query(`SELECT * FROM altax.v3_paychecks WHERE client_id = $1 ORDER BY pay_date DESC NULLS LAST`, [clientId]);
+  // Optional start/end scope the query server-side instead of always pulling a
+  // client's entire paycheck history — for a client on biweekly payroll for
+  // several years that's hundreds of unvirtualized rows on every tab visit.
+  const start = String(req.query.start || "").trim();
+  const end = String(req.query.end || "").trim();
+  const conditions = ["client_id = $1"];
+  const params: any[] = [clientId];
+  if (start) { params.push(start); conditions.push(`pay_date >= $${params.length}`); }
+  if (end) { params.push(end); conditions.push(`pay_date <= $${params.length}`); }
+  const rows = await query(
+    `SELECT * FROM altax.v3_paychecks WHERE ${conditions.join(" AND ")} ORDER BY pay_date DESC NULLS LAST LIMIT 1000`,
+    params
+  );
   res.json({ paychecks: rows });
 }));
 
@@ -2063,7 +2075,22 @@ accountingRouter.get("/gl/:clientId", requireAuth, requireRole("admin", "staff")
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const rows = await query(`SELECT * FROM altax.v3_gl_entries WHERE client_id = $1 ORDER BY entry_date DESC NULLS LAST`, [clientId]);
+  // start/end/account are optional — omitting them (e.g. a Trial Balance deep
+  // link to one ref, which can be any age) still returns full history. When
+  // present they're applied server-side so a long-established client's whole
+  // ledger isn't downloaded just to show one month.
+  const start = String(req.query.start || "").trim();
+  const end = String(req.query.end || "").trim();
+  const account = String(req.query.account || "").trim();
+  const conditions = ["client_id = $1"];
+  const params: any[] = [clientId];
+  if (start) { params.push(start); conditions.push(`entry_date >= $${params.length}`); }
+  if (end) { params.push(end); conditions.push(`entry_date <= $${params.length}`); }
+  if (account) { params.push(account); conditions.push(`account = $${params.length}`); }
+  const rows = await query(
+    `SELECT * FROM altax.v3_gl_entries WHERE ${conditions.join(" AND ")} ORDER BY entry_date DESC NULLS LAST LIMIT 2000`,
+    params
+  );
   res.json({ glEntries: rows });
 }));
 
