@@ -1204,6 +1204,7 @@ function payrollAgentIneligibleReason(e: Employee): string | null {
 function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string; employees: Employee[]; onClose: () => void }) {
   const notify = useNotify();
   const confirmDialog = useConfirm();
+  const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   useEscapeToClose(onClose, true);
   useFocusTrap(panelRef, true);
@@ -1313,7 +1314,10 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
                         </button>
                       </>
                     ) : reason ? (
-                      <span className="status-pill status-gray">Off</span>
+                      <>
+                        <span className="status-pill status-gray">Off</span>
+                        <button type="button" className="btn btn-sm" onClick={() => navigate(`/employees/${e.employee_id}?edit=1`)}>Set Pay Info →</button>
+                      </>
                     ) : (
                       <>
                         <span className="status-pill status-gray">Off</span>
