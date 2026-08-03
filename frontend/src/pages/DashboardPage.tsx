@@ -443,7 +443,55 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <InvoiceRows invoices={unpaidInvoices.slice(0, 8)} empty="No unpaid invoices." clientNames={clientNames} />
         </CommandPanel>
       </div>
+
+      <div style={{ marginTop: 14, maxWidth: 420 }}>
+        <PayrollAgentCard />
+      </div>
     </div>
+  );
+}
+
+interface PayrollAgentSummary { active: boolean; scheduleCount: number; pendingCount: number; rangeLabel: string | null }
+
+/** Status widget for the Payroll Agent — an in-app automation (no external
+ * AI involved) that drafts upcoming paychecks for employees on a recurring
+ * schedule, ahead of time, for staff to review and approve. Every draft it
+ * produces is a Pending row in v3_payroll_drafts, never a posted paycheck on
+ * its own — this card only ever reports status and links to the review
+ * screen where approval actually happens. */
+function PayrollAgentCard() {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState<PayrollAgentSummary | null>(null);
+
+  useEffect(() => {
+    api.get<PayrollAgentSummary>("/accounting/payroll-agent/summary").then(setSummary).catch(() => {});
+  }, []);
+
+  if (!summary) return null;
+
+  return (
+    <CommandPanel
+      title="Payroll Agent"
+      note={summary.active ? `${summary.scheduleCount} recurring schedule${summary.scheduleCount === 1 ? "" : "s"}` : "No recurring schedules set up yet"}
+    >
+      <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className={`status-pill ${summary.active ? "status-green" : "status-gray"}`}>{summary.active ? "Active" : "Inactive"}</span>
+          {summary.pendingCount > 0 && summary.rangeLabel && (
+            <span className="muted" style={{ fontSize: 12.5 }}>Collecting for {summary.rangeLabel}</span>
+          )}
+        </div>
+        {summary.pendingCount > 0 ? (
+          <button type="button" className="btn btn-primary" onClick={() => navigate("/payroll-agent")}>
+            View draft payroll ({summary.pendingCount})
+          </button>
+        ) : (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            {summary.active ? "No drafts pending right now." : "Enable it from an employee's profile to start drafting their pay ahead of each pay date."}
+          </p>
+        )}
+      </div>
+    </CommandPanel>
   );
 }
 

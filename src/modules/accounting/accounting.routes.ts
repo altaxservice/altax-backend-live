@@ -746,7 +746,7 @@ async function estimateStateWithholding(stateTaxableWages: number, employee: any
  * POST /payroll (persists) and POST /payroll/preview (read-only, same math for a live
  * on-screen preview) so the two can never drift apart.
  */
-async function calculatePaycheck(clientId: string, employeeName: string, employee: any, body: any, clientState?: string | null) {
+export async function calculatePaycheck(clientId: string, employeeName: string, employee: any, body: any, clientState?: string | null) {
   // The employee's own work-state takes precedence over the employer client's state
   // for STATE/SUTA — usually the same (most employees work at their employer's
   // location), but the employee's own address is the more accurate source when set.

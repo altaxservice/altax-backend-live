@@ -5,7 +5,6 @@ import { SelectedClientProvider } from "./context/SelectedClientContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmProvider } from "./components/ConfirmProvider";
-import { IdleLogout } from "./components/IdleLogout";
 import { NavigationMemory } from "./components/NavigationMemory";
 import { StaleServiceWorkerRecovery } from "./components/StaleServiceWorkerRecovery";
 import { Layout } from "./components/Layout";
@@ -20,6 +19,7 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { DocumentsListPage } from "./pages/DocumentsListPage";
 import { DocumentDetailPage } from "./pages/DocumentDetailPage";
 import { InvoicesListPage } from "./pages/InvoicesListPage";
+import { PayrollAgentPage } from "./pages/PayrollAgentPage";
 import { InvoiceDetailPage } from "./pages/InvoiceDetailPage";
 import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { AccountingPage } from "./pages/AccountingPage";
@@ -57,7 +57,6 @@ function App() {
         <SelectedClientProvider>
         <ToastProvider>
         <ConfirmProvider>
-        <IdleLogout />
         <NavigationMemory />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -103,6 +102,7 @@ function App() {
                 <Route path="/time-tracking" element={<TimeTrackingPage />} />
                 <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
                 <Route path="/accounting" element={<AccountingPage />} />
+                <Route path="/payroll-agent" element={<PayrollAgentPage />} />
                 <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
                 <Route path="/rules" element={<RulesPage />} />
                 <Route path="/haccp" element={<HaccpGeneratorPage />} />

@@ -17,6 +17,7 @@ import { documentsRouter } from "./modules/documents/documents.routes";
 import { billingRouter, runRecurringBillingSweep } from "./modules/billing/billing.routes";
 import { communicationsRouter } from "./modules/communications/communications.routes";
 import { accountingRouter } from "./modules/accounting/accounting.routes";
+import { payrollAgentRouter, runPayrollAgentSweep } from "./modules/accounting/payrollAgent.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
 import { rulesRouter } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
@@ -236,6 +237,7 @@ app.use("/documents", documentsRouter);
 app.use("/billing", billingRouter);
 app.use("/communications", communicationsRouter);
 app.use("/accounting", accountingRouter);
+app.use("/accounting/payroll-agent", payrollAgentRouter);
 app.use("/import", payrollImportRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
@@ -334,6 +336,20 @@ cron.schedule("0 6 * * *", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
+
+// Payroll Agent sweep — staggered 15 minutes after the recurring-billing sweep
+// to avoid both jobs hitting the DB in the same instant. Idempotent per
+// schedule/pay-date (see runPayrollAgentSweep's doc comment) via the same
+// pattern as recurring billing, so a manual "Run Agent Now" the same day is
+// always safe to also fire. Unlike recurring billing, this never creates a
+// real, GL-posted record on its own — only a Pending draft awaiting staff approval.
+cron.schedule("15 6 * * *", () => {
+  runPayrollAgentSweep({ email: "System (Payroll Agent Job)", role: "admin" }).catch((err) => {
+    alertAdmins("Payroll agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Payroll agent sweep scheduled for 6:15AM America/New_York.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except
