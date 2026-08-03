@@ -8,6 +8,10 @@ import { fmtDateOnly } from "../utils/date";
 interface Schedule {
   payroll_schedule_id: string; client_id: string; client_name: string; employee_id: string; employee_name: string;
   frequency: string; next_pay_date: string; lead_days: number; status: string;
+  /** next_pay_date minus lead_days — the date the sweep actually starts drafting this schedule.
+   * "Next pay date" alone reads as "you'll see a draft by then," which isn't true — nothing
+   * appears until this earlier date, and "Run Agent Now" before it correctly does nothing. */
+  drafts_from: string;
 }
 
 /** One schedule row on the Payroll Agent page's "Recurring Schedules" list —
@@ -62,7 +66,9 @@ function ScheduleRow({ schedule, onChanged }: { schedule: Schedule; onChanged: (
       </div>
       <span className={`status-pill ${schedule.status === "Active" ? "status-green" : schedule.status === "Paused" ? "status-amber" : "status-gray"}`}>{schedule.status}</span>
       {schedule.status !== "Archived" && (
-        <span className="muted" style={{ fontSize: 12.5 }}>Next draft by {fmtDateOnly(schedule.next_pay_date)}</span>
+        <span className="muted" style={{ fontSize: 12.5 }}>
+          Pay date {fmtDateOnly(schedule.next_pay_date)} — {schedule.drafts_from <= new Date().toISOString().slice(0, 10) ? "due to draft now" : `drafts starting ${fmtDateOnly(schedule.drafts_from)}`}
+        </span>
       )}
       <div style={{ flex: 1 }} />
       <div style={{ display: "flex", gap: 8 }}>

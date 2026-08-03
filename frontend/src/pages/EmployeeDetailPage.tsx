@@ -56,7 +56,7 @@ const PAYROLL_AGENT_FREQUENCIES = ["Weekly", "Biweekly", "Semimonthly", "Monthly
 
 interface PayrollSchedule {
   payroll_schedule_id: string; frequency: string; anchor_date: string; next_pay_date: string;
-  lead_days: number; status: "Active" | "Paused" | "Archived";
+  lead_days: number; status: "Active" | "Paused" | "Archived"; drafts_from: string;
 }
 
 /** Same eligibility rule the backend enforces (both at schedule-creation and
@@ -441,8 +441,14 @@ export function EmployeeDetailPage() {
               <>
                 <DetailRow label="Status" value={schedule.status} />
                 <DetailRow label="Frequency" value={schedule.frequency} />
-                <DetailRow label="Next Draft By" value={fmtDateOnly(schedule.next_pay_date)} />
+                <DetailRow label="Next Pay Date" value={fmtDateOnly(schedule.next_pay_date)} />
                 <DetailRow label="Lead Days" value={String(schedule.lead_days)} />
+                {schedule.status !== "Archived" && (
+                  <DetailRow
+                    label="Drafts"
+                    value={schedule.drafts_from <= new Date().toISOString().slice(0, 10) ? "Due now — will draft on the next run" : `Starting ${fmtDateOnly(schedule.drafts_from)}`}
+                  />
+                )}
                 {ineligibleReason && schedule.status === "Active" && (
                   <p className="muted" style={{ fontSize: 12, color: "var(--amber)" }}>{ineligibleReason} The agent will skip this employee at the next sweep until this is resolved.</p>
                 )}

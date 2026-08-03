@@ -154,7 +154,7 @@ payrollAgentRouter.get("/schedules/:employeeId", requireAuth, requireRole("admin
   if (schedule && !(await canAccessClient(req.user!, schedule.client_id))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  res.json({ schedule: schedule || null });
+  res.json({ schedule: schedule ? withDraftsFrom(schedule) : null });
 }));
 
 /** Every schedule across every client, for the Payroll Agent page's
@@ -162,10 +162,19 @@ payrollAgentRouter.get("/schedules/:employeeId", requireAuth, requireRole("admin
  * schedule (Active/Paused/Archived) without hunting through each employee's
  * own profile. Archived ones are included so archiving never looks like the
  * schedule vanished; the frontend collapses them behind a toggle. */
+/** Adds drafts_from — the actual date the sweep starts considering a
+ * schedule due (next_pay_date minus lead_days) — since "next pay date"
+ * alone reads as "you'll see a draft by then," which isn't true: nothing
+ * appears until this earlier date. Showing only the pay date is what made
+ * a correctly-skipped "Run Agent Now" (too early) look broken. */
+function withDraftsFrom(schedule: any) {
+  return { ...schedule, drafts_from: dateString(addDays(schedule.next_pay_date, -Math.max(0, Number(schedule.lead_days) || 0))) };
+}
+
 payrollAgentRouter.get("/schedules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const rows = await query<any>(`SELECT * FROM altax.v3_payroll_schedules ORDER BY status = 'Archived', client_name, employee_name`);
   const accessible = [];
-  for (const s of rows) { if (await canAccessClient(req.user!, s.client_id)) accessible.push(s); }
+  for (const s of rows) { if (await canAccessClient(req.user!, s.client_id)) accessible.push(withDraftsFrom(s)); }
   res.json({ schedules: accessible });
 }));
 
