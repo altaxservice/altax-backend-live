@@ -1306,13 +1306,14 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
                     ) : (
                       <>
                         <span className="status-pill status-gray">Off</span>
-                        <button type="button" className="btn btn-sm btn-primary" disabled={isSettingUp} onClick={() => startSetup(e.employee_id)}>Turn On</button>
+                        <button type="button" className="btn btn-sm btn-primary" disabled={isSettingUp} onClick={() => startSetup(e.employee_id)}>Turn On →</button>
                       </>
                     )}
                   </div>
 
                   {isSettingUp && (
-                    <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10, padding: 10, background: "var(--surface-2, #f7f7f5)", borderRadius: 6 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10, padding: 10, background: "var(--surface-2, #f7f7f5)", borderRadius: 6, border: "1px solid var(--teal)" }}>
+                      <span className="muted" style={{ fontSize: 12, width: "100%" }}>One-time setup — pick a schedule, then Confirm to turn this employee on.</span>
                       <div className="field" style={{ margin: 0 }}>
                         <label htmlFor={`pa-setup-freq-${e.employee_id}`}>Pay schedule</label>
                         <select id={`pa-setup-freq-${e.employee_id}`} value={setupFrequency} onChange={(ev) => setSetupFrequency(ev.target.value)}>
@@ -1321,7 +1322,7 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
                       </div>
                       <div className="field" style={{ margin: 0 }}>
                         <label htmlFor={`pa-setup-date-${e.employee_id}`}>Next payday</label>
-                        <input id={`pa-setup-date-${e.employee_id}`} type="date" value={setupAnchorDate} onChange={(ev) => setSetupAnchorDate(ev.target.value)} />
+                        <input id={`pa-setup-date-${e.employee_id}`} type="date" autoFocus value={setupAnchorDate} onChange={(ev) => setSetupAnchorDate(ev.target.value)} />
                       </div>
                       <button type="button" className="btn btn-sm btn-primary" disabled={busyId === e.employee_id} onClick={() => confirmSetup(e.employee_id)}>
                         {busyId === e.employee_id ? "Saving…" : "Confirm"}
