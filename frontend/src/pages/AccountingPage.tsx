@@ -1849,7 +1849,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
   const [printing, setPrinting] = useState<string | null>(null);
   const [viewingForm, setViewingForm] = useState<string | null>(null);
-  const [inviteResult, setInviteResult] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ email: string; link?: string; emailed?: boolean } | null>(null);
 
   const formLabel = isContractorTab ? "1099-NEC" : "W-2";
   function taxFormPath(emp: Employee) {
@@ -1940,13 +1940,13 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
     setError(null);
     setInviteResult(null);
     try {
-      const res = await api.post<{ inviteLink?: string; employeeId: string }>("/accounting/employees", { clientId, ...form, workerType, payRate: Number(form.payRate) || 0, defaultHours: Number(form.defaultHours) || undefined, defaultGrossWages: Number(form.defaultGrossWages) || 0 });
+      const res = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; employeeId: string }>("/accounting/employees", { clientId, ...form, workerType, payRate: Number(form.payRate) || 0, defaultHours: Number(form.defaultHours) || undefined, defaultGrossWages: Number(form.defaultGrossWages) || 0 });
       if (form.streetAddress.trim() || form.city.trim() || form.zipCode.trim() || form.state.trim()) {
         await api.patch(`/accounting/employees/${res.employeeId}/sensitive`, {
           streetAddress: form.streetAddress.trim(), city: form.city.trim(), zipCode: form.zipCode.trim(), state: form.state.trim(),
         });
       }
-      if (res.inviteLink) setInviteResult(res.inviteLink);
+      if (res.inviteLink || res.inviteEmailed) setInviteResult({ email: form.email.trim(), link: res.inviteLink, emailed: res.inviteEmailed });
       setShowForm(false);
       setForm(EMPTY_FORM);
       load();
@@ -1963,7 +1963,11 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       <button type="button" className="btn btn-primary" style={{ marginBottom: 16 }} onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : `Add ${workerType}`}</button>
       {inviteResult && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
-          Portal access granted. Send this invite link to the employee: <code style={{ wordBreak: "break-all" }}>{inviteResult}</code>
+          {inviteResult.emailed ? (
+            <>Portal access granted — invite emailed to {inviteResult.email}.</>
+          ) : (
+            <>Portal access granted. Email not sent — send this invite link to the employee yourself: <code style={{ wordBreak: "break-all" }}>{inviteResult.link}</code></>
+          )}
         </div>
       )}
       {showForm && (

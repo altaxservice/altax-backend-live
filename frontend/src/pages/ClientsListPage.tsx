@@ -112,7 +112,7 @@ export function ClientsListPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [inviteInfo, setInviteInfo] = useState<{ clientName: string; inviteLink?: string } | null>(null);
+  const [inviteInfo, setInviteInfo] = useState<{ clientName: string; email?: string; inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
   const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [requestDocFor, setRequestDocFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
@@ -169,15 +169,15 @@ export function ClientsListPage() {
     try {
       const res = await api.post<{ clientId: string }>("/clients", form);
       setShowForm(false);
-      let invite: { clientName: string; inviteLink?: string } | null = null;
+      let invite: { clientName: string; email?: string; inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null = null;
       if (createPortalNow && form.email) {
         try {
-          const inv = await api.post<{ inviteLink?: string }>("/users", {
+          const inv = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>("/users", {
             role: "client", assignedClientId: res.clientId, email: form.email, name: form.clientName,
           });
-          invite = { clientName: form.clientName, inviteLink: inv.inviteLink };
+          invite = { clientName: form.clientName, email: form.email, inviteLink: inv.inviteLink, inviteEmailed: inv.inviteEmailed, inviteEmailError: inv.inviteEmailError };
         } catch {
-          invite = { clientName: form.clientName };
+          invite = { clientName: form.clientName, email: form.email };
         }
       }
       setForm(EMPTY_CLIENT_FORM);
@@ -209,11 +209,11 @@ export function ClientsListPage() {
     if (action === "note") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Notes&open=note`); return; }
     if (action === "send-invite") {
       try {
-        const res = await api.post<{ inviteLink?: string }>("/users", {
+        const res = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>("/users", {
           role: "client", assignedClientId: c.client_id, email: c.email, name: c.client_name,
         });
-        setInviteInfo({ clientName: c.client_name, inviteLink: res.inviteLink });
-        toast(`Invite created for ${c.client_name}.`);
+        setInviteInfo({ clientName: c.client_name, email: c.email, inviteLink: res.inviteLink, inviteEmailed: res.inviteEmailed, inviteEmailError: res.inviteEmailError });
+        toast(res.inviteEmailed ? `Invite emailed to ${c.client_name}.` : `Invite created for ${c.client_name}.`);
       } catch (err) {
         await notify(err instanceof ApiError ? err.message : "Could not create a portal invite.");
       }
@@ -348,11 +348,17 @@ export function ClientsListPage() {
 
       {inviteInfo && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
-          <strong>Portal invite created for {inviteInfo.clientName}.</strong> No email was sent (this backend has no
-          email service yet) — copy this and send it to them yourself:
-          <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
-            {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
-          </div>
+          <strong>Portal invite created for {inviteInfo.clientName}.</strong>{" "}
+          {inviteInfo.inviteEmailed ? (
+            <>Emailed to {inviteInfo.email}.</>
+          ) : (
+            <>{inviteInfo.inviteEmailError ? `Email not sent: ${inviteInfo.inviteEmailError}` : "Email not sent."} Copy this link and send it to them yourself:</>
+          )}
+          {!inviteInfo.inviteEmailed && (
+            <div style={{ marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", fontSize: 12 }}>
+              {inviteInfo.inviteLink || "Invite already existed; open Users & Access to resend it."}
+            </div>
+          )}
           <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
         </div>
       )}

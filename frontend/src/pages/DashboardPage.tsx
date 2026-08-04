@@ -333,7 +333,7 @@ export function DashboardPage() {
   if (loading) return <div className="spinner-wrap">Loading…</div>;
 
   if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} taxRows={taxRows} />;
-  if (user?.role === "staff") return <StaffCommand tasks={tasks} onChanged={load} />;
+  if (user?.role === "staff") return <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
   if (user?.role === "employee") return <EmployeeCommand />;
   return <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
 }
@@ -378,6 +378,10 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // everything else — isOverdue/isDueSoon are mutually exclusive day-ranges, so this
   // never duplicates a task.
   const priorityTasks = [...overdue, ...dueSoon, ...openTasks.filter((t) => !isOverdue(t) && !isDueSoon(t))];
+  // Unassigned work has no one whose queue it shows up in — an admin is the
+  // only role that can actually see it firm-wide, so surfacing it here is the
+  // only way it doesn't just silently sit unclaimed.
+  const unassigned = openTasks.filter((t) => !t.assigned_to || !t.assigned_to.trim());
 
   return (
     <div>
@@ -432,6 +436,11 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />
           </CommandPanel>
+          {unassigned.length > 0 && (
+            <CommandPanel title="Unassigned Work" note={`${unassigned.length} open task${unassigned.length === 1 ? "" : "s"} with no one on it`}>
+              <AttentionRows tasks={unassigned.slice(0, 6)} empty="No unassigned tasks." />
+            </CommandPanel>
+          )}
         </div>
       </div>
 
@@ -495,12 +504,20 @@ function PayrollAgentCard() {
   );
 }
 
-function StaffCommand({ tasks, onChanged }: { tasks: Task[]; onChanged: () => void }) {
+function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Task[]; clients: Client[]; docs: DocumentRequest[]; invoices: Invoice[]; onChanged: () => void }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const openTasks = tasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
   const dueSoon = openTasks.filter(isDueSoon);
   const waiting = openTasks.filter(isWaiting);
+  // clients/docs/invoices are already scoped server-side to this staff member's
+  // assigned clients (same query the Clients/Documents/Billing pages use) —
+  // this data was already being fetched by the shared load() above and simply
+  // discarded before, so surfacing it here costs nothing extra.
+  const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
+  const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
+  const clientNames = new Map(clients.map((c) => [c.client_id, c.client_name]));
 
   return (
     <div>
@@ -516,6 +533,30 @@ function StaffCommand({ tasks, onChanged }: { tasks: Task[]; onChanged: () => vo
           <Link to="/accounting" className="action-button">Client Workbooks</Link>
         </div>
       </div>
+
+      <div className="metric-grid" style={{ marginBottom: 16 }}>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/clients")}>
+          <div className="metric-label">My Clients</div>
+          <div className="metric-value">{clients.length}</div>
+          <div className="metric-note">assigned to you</div>
+        </button>
+        <button type="button" className={`metric metric-clickable${overdue.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/tasks")}>
+          <div className="metric-label">Open Tasks</div>
+          <div className="metric-value">{openTasks.length}</div>
+          <div className="metric-note">{overdue.length} overdue</div>
+        </button>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
+          <div className="metric-label">Unpaid Balance</div>
+          <div className="metric-value">{fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))}</div>
+          <div className="metric-note">{unpaidInvoices.length} invoices</div>
+        </button>
+        <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
+          <div className="metric-label">Open Requests</div>
+          <div className="metric-value">{openDocs.length}</div>
+          <div className="metric-note">document items</div>
+        </button>
+      </div>
+
       <div className="command-grid">
         <CommandPanel title="My Work Queue" note={`${openTasks.length} assigned open tasks`}>
           <TaskRows tasks={openTasks.slice(0, 12)} empty="No assigned open tasks." onChanged={onChanged} />
@@ -528,6 +569,15 @@ function StaffCommand({ tasks, onChanged }: { tasks: Task[]; onChanged: () => vo
             <TaskRows tasks={waiting.slice(0, 6)} empty="No waiting or pending tasks." onChanged={onChanged} />
           </CommandPanel>
         </div>
+      </div>
+
+      <div className="command-grid command-grid-even" style={{ marginTop: 14 }}>
+        <CommandPanel title="Document Requests" note={`${openDocs.length} visible`} action={<Link to="/documents" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+          <DocumentRows docs={openDocs.slice(0, 6)} empty="No open document requests." />
+        </CommandPanel>
+        <CommandPanel title="Billing Watch" note={`${unpaidInvoices.length} visible`} action={<Link to="/billing" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
+          <InvoiceRows invoices={unpaidInvoices.slice(0, 8)} empty="No unpaid invoices." clientNames={clientNames} />
+        </CommandPanel>
       </div>
     </div>
   );
