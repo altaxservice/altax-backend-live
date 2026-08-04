@@ -4113,11 +4113,12 @@ function BankRecTab({ clientId }: { clientId: string }) {
     setUploading(true); setError(null);
     try {
       const fileBase64 = await fileToBase64(file);
-      const res = await api.post<{ inserted: number }>("/bank-rec/upload", { clientId, accountName, fileBase64 });
+      const res = await api.post<{ inserted: number; skippedDuplicates: number }>("/bank-rec/upload", { clientId, accountName, fileBase64 });
       setFile(null);
       load();
       loadDrafts();
-      await notify(`Imported ${res.inserted} statement line(s) — review the suggested journal entries below before approving.`);
+      const dupeNote = res.skippedDuplicates ? ` ${res.skippedDuplicates} line(s) matched an existing entry and were skipped.` : "";
+      await notify(`Imported ${res.inserted} statement line(s) — review the suggested journal entries below before approving.${dupeNote}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not read this statement file.");
     } finally {

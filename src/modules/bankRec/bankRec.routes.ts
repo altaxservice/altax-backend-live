@@ -200,8 +200,28 @@ bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncH
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   if (!parsed.lines.length) return res.status(400).json({ error: "No transaction rows were found in this file." });
 
+  // Nothing previously stopped a re-uploaded (or date-range-overlapping)
+  // statement from inserting every line again as brand-new — a "last 30
+  // days" export routinely overlaps the prior download, and staff re-upload
+  // when unsure the first one went through. Same dedupe key as the intent
+  // behind a real transaction: date + amount + description, scoped to this
+  // client's account. Loaded once up front rather than queried per line.
+  const existingLines = await query<any>(
+    `SELECT statement_date::date::text AS statement_date, amount, coalesce(description,'') AS description
+       FROM altax.v3_bank_statement_lines WHERE client_id = $1 AND account_name = $2`,
+    [clientId, accountName]
+  );
+  const existingKeys = new Set(
+    existingLines.map((l: any) => `${l.statement_date}|${Number(l.amount).toFixed(2)}|${String(l.description).trim().toLowerCase()}`)
+  );
+
   let inserted = 0;
+  let skippedDuplicates = 0;
   for (const line of parsed.lines) {
+    const key = `${String(line.date).slice(0, 10)}|${Number(line.amount).toFixed(2)}|${String(line.description || "").trim().toLowerCase()}`;
+    if (existingKeys.has(key)) { skippedDuplicates++; continue; }
+    existingKeys.add(key); // guards against the same duplicate appearing twice within one file too
+
     const lineId = `BSL-${idSuffix()}-${inserted}`;
     await query(
       `INSERT INTO altax.v3_bank_statement_lines (line_id, client_id, account_name, statement_date, description, amount, uploaded_by)
@@ -221,9 +241,9 @@ bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncH
   }
 
   await logAudit("Accounting", "UPLOAD_BANK_STATEMENT", clientId, "Account", "", accountName,
-    `Bank statement uploaded (${inserted} lines) for ${accountName} by ${req.user!.email}.`, req.user!.email);
+    `Bank statement uploaded (${inserted} lines, ${skippedDuplicates} duplicate(s) skipped) for ${accountName} by ${req.user!.email}.`, req.user!.email);
 
-  res.status(201).json({ ok: true, inserted });
+  res.status(201).json({ ok: true, inserted, skippedDuplicates });
 }));
 
 bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

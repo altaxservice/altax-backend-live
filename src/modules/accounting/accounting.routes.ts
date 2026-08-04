@@ -936,6 +936,26 @@ export async function createSinglePaycheck(
     return { ok: false, error: "Contractors cannot be paid through payroll. Use the Contractors/1099 workflow instead." };
   }
 
+  // Same employee|pay_date duplicate guard payrollImport.routes.ts already
+  // enforces before calling this — moved here too so EVERY caller is
+  // protected, not just import. This is what was missing for the Payroll
+  // Agent: a stale next_pay_date (a backdated "next payday" at enrollment, or
+  // a schedule resumed after a long pause) walks its sweep forward one
+  // missed period per night and drafts each one — nothing previously checked
+  // whether a real paycheck already existed for that date before the draft
+  // was approved. Void checks don't count, so a legitimate re-issue after
+  // voiding the original still goes through.
+  const payDateForDupCheck = String(body.payDate || "").trim();
+  if (payDateForDupCheck) {
+    const duplicate = await queryOne<any>(
+      `SELECT paycheck_id FROM altax.v3_paychecks
+         WHERE client_id = $1 AND lower(employee) = lower($2) AND pay_date::date = $3::date AND lower(status) <> 'void'
+         LIMIT 1`,
+      [client.client_id, employeeName, payDateForDupCheck]
+    );
+    if (duplicate) return { ok: false, error: `A paycheck for ${employeeName} on ${payDateForDupCheck} already exists.` };
+  }
+
   try {
     const calc = await calculatePaycheck(client.client_id, employeeName, employee, body, client.state);
     const {
