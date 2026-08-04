@@ -167,11 +167,11 @@ export function TaskCalendarPage() {
       {view === "Calendar" && (
         <>
           <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
-            <button className="btn btn-sm" onClick={() => setCursor(new Date(year, month - 1, 1))}>← Prev</button>
+            <button className="btn btn-sm" onClick={() => { setCursor(new Date(year, month - 1, 1)); setSelectedDay(null); }}>← Prev</button>
             <div style={{ fontWeight: 700 }}>{firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn btn-sm" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); }}>Today</button>
-              <button className="btn btn-sm" onClick={() => setCursor(new Date(year, month + 1, 1))}>Next →</button>
+              <button className="btn btn-sm" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); setSelectedDay(null); }}>Today</button>
+              <button className="btn btn-sm" onClick={() => { setCursor(new Date(year, month + 1, 1)); setSelectedDay(null); }}>Next →</button>
             </div>
           </div>
 
@@ -194,10 +194,10 @@ export function TaskCalendarPage() {
                 return (
                   <div
                     key={i}
-                    onClick={() => setSelectedDay(hasContent ? key : key)}
+                    onClick={() => setSelectedDay(key)}
                     tabIndex={0}
                     role="button"
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedDay(hasContent ? key : key); } }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedDay(key); } }}
                     style={{
                       minHeight: 64, borderRadius: 8, padding: 6, cursor: "pointer",
                       border: isSelected ? "2px solid var(--teal)" : isToday ? "1px solid var(--teal)" : "1px solid var(--line)",
