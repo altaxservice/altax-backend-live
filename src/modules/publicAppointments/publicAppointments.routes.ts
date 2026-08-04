@@ -86,6 +86,34 @@ function parseDateParam(raw: unknown): { y: number; mo: number; d: number } | nu
   return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
 }
 
+function etDateParts(iso: string): { y: number; mo: number; d: number; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const hour = get("hour");
+  return { y: get("year"), mo: get("month"), d: get("day"), hour: hour === 24 ? 0 : hour };
+}
+
+/**
+ * Re-validates a requested startTime against Calendar Settings server-side —
+ * /availability's slot list is a convenience for the picker, not a trust
+ * boundary, so a request forged straight at /book or /reschedule (bypassing
+ * the picker entirely) still has to land on a real bookable weekday/hour
+ * within the booking horizon rather than just "any future time that doesn't
+ * clash with an existing appointment."
+ */
+function isSlotWithinSettings(startTime: string, settings: AppointmentSettings): boolean {
+  const { y, mo, d, hour } = etDateParts(startTime);
+  const today = new Date();
+  const daysAhead = Math.floor((Date.UTC(y, mo - 1, d) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
+  if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return false;
+  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  if (!isBookableWeekday(settings, jsDay)) return false;
+  const { startHour, endHour } = hoursForDay(settings, jsDay);
+  return hour >= startHour && hour < endHour;
+}
+
 /**
  * The display-safe subset of Calendar Settings — what the public /book page's
  * "Appointments are available ..." hours note reads, so it can never drift
@@ -140,6 +168,10 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   }
   const settings = await getAppointmentSettings();
   const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
+
+  if (!isSlotWithinSettings(startTime, settings)) {
+    return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
+  }
 
   // Re-check the slot is still open right before booking — two visitors could
   // otherwise both grab the same slot between loading availability and submitting.
@@ -241,6 +273,10 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
   }
   const settings = await getAppointmentSettings();
   const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
+
+  if (!isSlotWithinSettings(startTime, settings)) {
+    return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
+  }
 
   const clash = await query<any>(
     `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,

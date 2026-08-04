@@ -3,6 +3,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
+import { canAccessClient, getUserAliases } from "../../common/assignment";
 
 /**
  * Firm-wide colored labels (name + hex color), reusable across any record type —
@@ -23,6 +24,27 @@ function idSuffix(): string {
 }
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Labels are assignable to any entity_type, but only 'client' and 'task' are
+ * actually client-scoped today (a task belongs to a client; a client is
+ * itself the client). Everything else (e.g. a future firm-wide entity type)
+ * has no client-scoping model, so it's left unrestricted rather than guessed at.
+ */
+async function resolveLabelEntityClientId(entityType: string, entityId: string): Promise<string | null> {
+  if (entityType === "client") return entityId;
+  if (entityType === "task") {
+    const task = await queryOne<any>(`SELECT client_id FROM altax.v3_tasks WHERE task_id = $1`, [entityId]);
+    return task?.client_id || null;
+  }
+  return null;
+}
+
+async function canAccessLabelEntity(user: AuthedRequest["user"], entityType: string, entityId: string): Promise<boolean> {
+  const clientId = await resolveLabelEntityClientId(entityType, entityId);
+  if (!clientId) return true;
+  return canAccessClient(user!, clientId);
+}
 
 labelsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const labels = await query(`SELECT label_id, name, color FROM altax.v3_labels ORDER BY name ASC`);
@@ -82,6 +104,38 @@ labelsRouter.post("/:labelId/delete", requireAuth, requireRole("admin"), asyncHa
  */
 labelsRouter.get("/for/:entityType", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType } = req.params;
+
+  // 'client' and 'task' assignments are client-scoped; a non-admin staff user
+  // only gets back the rows for clients they can actually access (same rule
+  // as canAccessClient's task-assignment check), not every client's labels.
+  if (entityType === "client" && req.user!.role !== "admin") {
+    const aliases = await getUserAliases(req.user!.email);
+    const rows = await query(
+      `SELECT el.entity_id, el.label_id, l.name, l.color
+         FROM altax.v3_entity_labels el
+         JOIN altax.v3_labels l ON l.label_id = el.label_id
+        WHERE el.entity_type = 'client'
+          AND el.entity_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL)
+        ORDER BY l.name ASC`,
+      [Array.from(aliases)]
+    );
+    return res.json({ assignments: rows });
+  }
+  if (entityType === "task" && req.user!.role !== "admin") {
+    const aliases = await getUserAliases(req.user!.email);
+    const rows = await query(
+      `SELECT el.entity_id, el.label_id, l.name, l.color
+         FROM altax.v3_entity_labels el
+         JOIN altax.v3_labels l ON l.label_id = el.label_id
+         JOIN altax.v3_tasks t ON t.task_id = el.entity_id
+        WHERE el.entity_type = 'task'
+          AND t.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL)
+        ORDER BY l.name ASC`,
+      [Array.from(aliases)]
+    );
+    return res.json({ assignments: rows });
+  }
+
   const rows = await query(
     `SELECT el.entity_id, el.label_id, l.name, l.color
        FROM altax.v3_entity_labels el
@@ -95,6 +149,9 @@ labelsRouter.get("/for/:entityType", requireAuth, requireRole("admin", "staff"),
 
 labelsRouter.get("/for/:entityType/:entityId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType, entityId } = req.params;
+  if (!(await canAccessLabelEntity(req.user, entityType, entityId))) {
+    return res.status(403).json({ error: "You do not have access to this record." });
+  }
   const rows = await query(
     `SELECT l.label_id, l.name, l.color
        FROM altax.v3_entity_labels el
@@ -108,6 +165,9 @@ labelsRouter.get("/for/:entityType/:entityId", requireAuth, requireRole("admin",
 
 labelsRouter.post("/for/:entityType/:entityId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType, entityId } = req.params;
+  if (!(await canAccessLabelEntity(req.user, entityType, entityId))) {
+    return res.status(403).json({ error: "You do not have access to this record." });
+  }
   const labelId = String(req.body?.labelId || "").trim();
   if (!labelId) return res.status(400).json({ error: "labelId is required." });
   const label = await queryOne<any>(`SELECT label_id FROM altax.v3_labels WHERE label_id = $1`, [labelId]);
@@ -123,6 +183,9 @@ labelsRouter.post("/for/:entityType/:entityId", requireAuth, requireRole("admin"
 
 labelsRouter.post("/for/:entityType/:entityId/:labelId/remove", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType, entityId, labelId } = req.params;
+  if (!(await canAccessLabelEntity(req.user, entityType, entityId))) {
+    return res.status(403).json({ error: "You do not have access to this record." });
+  }
   await query(
     `DELETE FROM altax.v3_entity_labels WHERE entity_type = $1 AND entity_id = $2 AND label_id = $3`,
     [entityType, entityId, labelId]

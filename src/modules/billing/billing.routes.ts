@@ -586,6 +586,11 @@ billingRouter.post("/invoices/:invoiceId/share", requireAuth, requireRole("admin
 billingRouter.get("/clients/:clientId/statement", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   const role = req.user!.role;
+  // Employees see no billing/financial data anywhere else in this module (see
+  // GET /invoices above) — canAccessClient's employee branch only checks
+  // clientId match, which would otherwise hand an employee their employer's
+  // full Statement of Account. Deny explicitly rather than falling through.
+  if (role === "employee") return res.status(403).json({ error: "You do not have access to this client." });
   const allowed = role === "client" ? clientId === req.user!.clientId : await canAccessClient(req.user!, clientId);
   if (!allowed) return res.status(403).json({ error: "You do not have access to this client." });
 

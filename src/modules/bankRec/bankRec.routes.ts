@@ -7,6 +7,7 @@ import { canAccessClient } from "../../common/assignment";
 import { appendGl } from "../../common/accountingHelpers";
 import { readWorkbookRows } from "../../common/xlsxReader";
 import { extractPdfText, parsePdfBankLines } from "../../common/pdfBankReader";
+import { scanFileForMalware } from "../../common/malwareScan";
 
 /**
  * Manual bank reconciliation — staff upload a bank's own CSV/Excel statement
@@ -167,6 +168,12 @@ bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncH
   if (sizeBytes > MAX_UPLOAD_BYTES) return res.status(400).json({ error: "That file is too large — uploads are limited to 8MB." });
 
   const fileBuffer = Buffer.from(fileBase64, "base64");
+
+  const scan = await scanFileForMalware(fileBuffer, `${accountName}-statement`);
+  if (scan.scanned && !scan.clean) {
+    return res.status(400).json({ error: `This file was flagged by malware scanning${scan.foundViruses?.length ? ` (${scan.foundViruses.join(", ")})` : ""} and was not uploaded.` });
+  }
+
   const isPdf = fileBuffer.subarray(0, 5).toString("latin1") === "%PDF-";
 
   let parsed: { lines: { date: string; description: string; amount: number }[]; error?: string };
@@ -420,10 +427,23 @@ bankRecRouter.post("/:lineId/create-entry", requireAuth, requireRole("admin", "s
 
   const jeId = `JE-${idSuffix()}`;
   let glEntryId = "";
+  let alreadyMatched = false;
+  let hasDraft = false;
   await withTransaction(async (db) => {
+    // Row-lock the bank line for the duration of this transaction — a second
+    // concurrent create-entry (or approve) call for the same line blocks here
+    // until this one commits or rolls back, then re-reads the now-current
+    // matched_gl_entry_id/draft state instead of racing past the earlier,
+    // now-stale checks above and posting a second GL entry for the same line.
+    const locked = await db.query(`SELECT matched_gl_entry_id FROM altax.v3_bank_statement_lines WHERE line_id = $1 FOR UPDATE`, [lineId]);
+    if (locked[0]?.matched_gl_entry_id) { alreadyMatched = true; return; }
+    const draftCheck = await db.query(`SELECT je_draft_id FROM altax.v3_je_drafts WHERE bank_line_id = $1 AND status != 'Dismissed'`, [lineId]);
+    if (draftCheck.length) { hasDraft = true; return; }
     glEntryId = await createBalancedBankLineEntry(client, line, offsetAccount, jeId, db);
     await db.query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, glEntryId]);
   });
+  if (alreadyMatched) return res.status(400).json({ error: "This line is already matched." });
+  if (hasDraft) return res.status(400).json({ error: "This line has a pending or approved draft journal entry — use the draft instead of creating a new one." });
 
   await logAudit("Accounting", "CREATE_BANK_REC_ENTRY", glEntryId, "", "", String(line.amount),
     `GL entry created from bank line by ${req.user!.email}.`, req.user!.email);
@@ -472,22 +492,61 @@ async function approveJeDraft(draftId: string, actor: { email: string }, body: a
 
   const jeId = `JE-${idSuffix()}`;
   let glEntryId = "";
-  await withTransaction(async (db) => {
-    glEntryId = await createBalancedBankLineEntry(client, { ...line, description }, account, jeId, db);
-    await db.query(
-      `UPDATE altax.v3_je_drafts SET status = 'Approved', staff_overrides = $2, resulting_gl_entry_id = $3, resulting_je_ref = $4, approved_by = $5, approved_at = now(), updated_at = now() WHERE je_draft_id = $1`,
-      [draftId, Object.keys(overrides).length ? JSON.stringify(overrides) : null, glEntryId, jeId, actor.email]
-    );
-  });
+  let claimFailed = false;
+  let lineFailed = false;
+  try {
+    await withTransaction(async (db) => {
+      // Atomic claim as the FIRST statement in the transaction — two concurrent
+      // approve calls for the same draft (a double-click, or an individual
+      // Approve firing while a bulk-approve is mid-flight) can no longer both
+      // pass the earlier status read and both post a balanced GL entry: only
+      // one UPDATE...WHERE status='Pending' can match the row, so the loser
+      // gets zero rows back here and the whole transaction rolls back with
+      // nothing posted, instead of double-posting the same bank line.
+      const claimed = await db.query(
+        `UPDATE altax.v3_je_drafts SET status = 'Approved', staff_overrides = $2, approved_by = $3, approved_at = now(), updated_at = now()
+         WHERE je_draft_id = $1 AND status = 'Pending' RETURNING je_draft_id`,
+        [draftId, Object.keys(overrides).length ? JSON.stringify(overrides) : null, actor.email]
+      );
+      if (!claimed.length) { claimFailed = true; return; }
+      // Re-check under the transaction — the claim above already flipped this
+      // draft's status, so if the bank line turns out to have been matched by
+      // something else in the meantime, this throw is what rolls that claim
+      // back too, instead of leaving the draft stuck "Approved" with nothing posted.
+      const freshLine = await db.query(`SELECT matched_gl_entry_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [draft.bank_line_id]);
+      if (freshLine[0]?.matched_gl_entry_id) { lineFailed = true; throw new Error("__line_already_matched__"); }
+      glEntryId = await createBalancedBankLineEntry(client, { ...line, description }, account, jeId, db);
+      await db.query(
+        `UPDATE altax.v3_je_drafts SET resulting_gl_entry_id = $2, resulting_je_ref = $3, updated_at = now() WHERE je_draft_id = $1`,
+        [draftId, glEntryId, jeId]
+      );
+    });
+  } catch (err) {
+    if (!lineFailed) throw err;
+  }
+  if (claimFailed) {
+    const fresh = await queryOne<any>(`SELECT status FROM altax.v3_je_drafts WHERE je_draft_id = $1`, [draftId]);
+    return { ok: false, error: fresh ? `This draft is already ${fresh.status}.` : "Draft not found." };
+  }
+  if (lineFailed) return { ok: false, error: "This bank line was already matched outside the draft flow." };
 
+  // The draft is already approved and the GL entry already posted at this
+  // point — a failure saving the "remember this" rule (e.g. a DB hiccup) is a
+  // secondary, best-effort step, not a reason to report the whole approval as
+  // failed back to a staff member who'd then think nothing happened and retry.
   if (body?.rememberAsRule) {
     const ruleMatchText = String(body.ruleMatchText || line.description || "").trim();
     if (ruleMatchText) {
-      await query(
-        `INSERT INTO altax.v3_je_category_rules (rule_id, client_id, match_text, account_name, created_by)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [`JER-${idSuffix()}`, draft.client_id, ruleMatchText, account, actor.email]
-      );
+      try {
+        await query(
+          `INSERT INTO altax.v3_je_category_rules (rule_id, client_id, match_text, account_name, created_by)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [`JER-${idSuffix()}`, draft.client_id, ruleMatchText, account, actor.email]
+        );
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`[bankRec] Failed to save category rule after approving draft ${draftId}:`, err);
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { readWorkbookRows } from "../../common/xlsxReader";
+import { scanFileForMalware } from "../../common/malwareScan";
 import { detectFormat, parseQboEmployeeDetails, parseQboPayrollDetails, parseDrakeEmployeeListing, parseDrakePayrollSummary, type ParsedEmployee, type ParsedPaycheck } from "./parsers";
 import { createSinglePaycheck, upsertEmployeeRecord } from "../accounting/accounting.routes";
 
@@ -50,6 +51,15 @@ payrollImportRouter.post("/preview", requireAuth, requireRole("admin", "staff"),
 
   const decoded = decodeUpload(body.fileBase64);
   if ("error" in decoded) return res.status(400).json({ error: decoded.error });
+
+  // The raw file only ever reaches the backend here — /commit below takes the
+  // already-parsed rows from this preview, not the file again — so this is
+  // the one point a malicious QBO/Drake export can be caught before its
+  // parsed contents get written into employee/paycheck records.
+  const scan = await scanFileForMalware(decoded.buffer, "payroll-import");
+  if (scan.scanned && !scan.clean) {
+    return res.status(400).json({ error: `This file was flagged by malware scanning${scan.foundViruses?.length ? ` (${scan.foundViruses.join(", ")})` : ""} and was not imported.` });
+  }
 
   let rows: string[][];
   try {

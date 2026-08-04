@@ -9,6 +9,24 @@
 import { Resend } from "resend";
 import twilio from "twilio";
 
+// Unlike the database (see config/db.ts's DATABASE_URL_DEV split), there's no
+// separate dev/prod credential for Resend/Twilio — whatever's in .env is live.
+// A local `npm run dev` with real keys copied in will actually email/text real
+// clients. This can't be split the same way (Resend/Twilio don't offer a free
+// sandbox account per environment), so it's a warning, not a hard block — but
+// at least it's not a silent trap the way the DB one used to be.
+const isProdRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
+if (!isProdRuntime) {
+  if (process.env.RESEND_API_KEY) {
+    // eslint-disable-next-line no-console
+    console.warn("\n[notifications] WARNING: RESEND_API_KEY is set in this non-production process — sendEmail() here will send REAL email to real recipients.\n");
+  }
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    // eslint-disable-next-line no-console
+    console.warn("\n[notifications] WARNING: Twilio credentials are set in this non-production process — sendSms()/sendWhatsApp() here will send REAL SMS/WhatsApp to real recipients.\n");
+  }
+}
+
 export class NotConfiguredError extends Error {}
 
 export interface EmailAttachment { filename: string; content: Buffer; contentType?: string }

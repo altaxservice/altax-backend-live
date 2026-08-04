@@ -301,7 +301,7 @@ function leadLabel(minutes: number): string {
  * only); each send is independently best-effort, same never-block-the-sweep
  * pattern as every other send in this file.
  */
-async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<void> {
+async function resolveStaffRecipients(appt: any): Promise<Map<string, { email: string | null; phone: string | null }>> {
   const rows = await query<any>(
     `SELECT email, phone FROM altax.v3_users
       WHERE coalesce(active, true)
@@ -314,6 +314,47 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
     if (!key) continue;
     recipients.set(key, { email: r.email || null, phone: r.phone || null });
   }
+  return recipients;
+}
+
+/**
+ * Immediate "you've been assigned this appointment" heads-up — fired once,
+ * right when a reassignment happens, unlike notifyAppointmentStaff's lead-time
+ * reminders below. Only the newly assigned staff member (looked up the same
+ * alias-matching way as the reminder sweep), not every admin, since the point
+ * is telling the one person whose calendar just changed, not a broadcast.
+ */
+async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
+  if (!appt.assigned_to) return;
+  const rows = await query<any>(
+    `SELECT email, phone FROM altax.v3_users
+      WHERE coalesce(active, true)
+        AND (lower(email) = lower($1) OR lower(name) = lower($1) OR lower(user_id) = lower($1))`,
+    [appt.assigned_to]
+  );
+  const start = new Date(appt.start_time);
+  const who = appt.contact_name || appt.client_name || "a contact";
+  const subject = `You've been assigned: ${appt.title || "Appointment"} with ${who}`;
+  const html = `<p>You've been assigned to <strong>${escapeHtml(appt.title || "Appointment")}</strong> with ${escapeHtml(who)}.</p>
+    <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
+  const smsBody = `AL TAX SERVICE: You've been assigned — ${appt.title || "Appointment"} with ${who} on ${fmtDate(start)} at ${fmtTime(start)}${appt.location ? ` (${appt.location})` : ""}.`;
+
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const key = String(r.email || r.phone || "").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (r.email) {
+      try { await sendEmail({ to: r.email, subject, html: await wrapEmailHtml(html, req) }); } catch { /* best-effort */ }
+    }
+    if (r.phone) {
+      try { await sendSms({ to: r.phone, body: smsBody }); } catch { /* best-effort */ }
+    }
+  }
+}
+
+async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<void> {
+  const recipients = await resolveStaffRecipients(appt);
   if (recipients.size === 0) return;
 
   const start = new Date(appt.start_time);
@@ -444,6 +485,8 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
   // every configured reminder fires again for the new time rather than
   // silently never sending.
   const timeChanged = new Date(startTime).getTime() !== new Date(existing.start_time).getTime();
+  const newAssignedTo = body.assignedTo !== undefined ? String(body.assignedTo).trim() || null : existing.assigned_to;
+  const assignmentChanged = newAssignedTo !== existing.assigned_to;
 
   await query(
     `UPDATE altax.v3_appointments SET
@@ -460,6 +503,29 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
       body.notifyClient !== undefined ? !!body.notifyClient : existing.notify_client,
       timeChanged]
   );
+
+  if (timeChanged || assignmentChanged) {
+    const updated = await queryOne<any>(
+      `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+         LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+        WHERE a.appointment_id = $1`,
+      [appointmentId]
+    );
+    // A staff-initiated reschedule changes the time the client was told to
+    // show up at — they need the same "here's your new time" notice a
+    // self-service reschedule already sends, or they'll show up at the old slot.
+    if (timeChanged && updated?.notify_client) {
+      await notifyAppointment({ ...updated, client_name: updated.linked_client_name }, "Appointment Confirmation", req.user!.email, req);
+    }
+    // A reassignment means someone new is now on the hook for this
+    // appointment — give them the same immediate heads-up a brand-new
+    // booking's assignee would've gotten, instead of them finding out at the
+    // next reminder sweep (or not at all, if it's outside the lead window).
+    if (assignmentChanged && newAssignedTo && updated) {
+      await notifyStaffAssigned({ ...updated, client_name: updated.linked_client_name }, req);
+    }
+  }
+
   await logAudit("Calendar", "UPDATE_APPOINTMENT", appointmentId, "", "", title,
     `Appointment "${title}" updated by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
@@ -470,6 +536,14 @@ appointmentsRouter.post("/:appointmentId/cancel", requireAuth, requireRole("admi
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
   await query(`UPDATE altax.v3_appointments SET status = 'Cancelled', updated_at = now() WHERE appointment_id = $1`, [appointmentId]);
+
+  if (existing.notify_client) {
+    const client = existing.client_id
+      ? await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [existing.client_id])
+      : null;
+    await notifyAppointment({ ...existing, client_name: client?.client_name }, "Appointment Cancelled", req.user!.email, req);
+  }
+
   await logAudit("Calendar", "CANCEL_APPOINTMENT", appointmentId, "Status", existing.status, "Cancelled",
     `Appointment "${existing.title}" cancelled by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });

@@ -413,26 +413,48 @@ payrollAgentRouter.patch("/drafts/:id", requireAuth, requireRole("admin", "staff
   res.json({ ok: true });
 }));
 
+/** Reverts a failed-after-claim draft back to Pending so it's still approvable once the underlying issue is fixed. */
+async function releaseDraftClaim(draftId: string): Promise<void> {
+  await query(
+    `UPDATE altax.v3_payroll_drafts SET status='Pending', approved_by=NULL, approved_at=NULL, updated_at=now() WHERE payroll_draft_id=$1`,
+    [draftId]
+  );
+}
+
 async function approveDraft(draftId: string, actorEmail: string, extraOverrides: Record<string, any> = {}): Promise<{ ok: boolean; error?: string; paycheckId?: string }> {
-  const draft = await queryOne<any>(`SELECT * FROM altax.v3_payroll_drafts WHERE payroll_draft_id = $1`, [draftId]);
-  if (!draft) return { ok: false, error: "Draft not found." };
-  if (draft.status !== "Pending") return { ok: false, error: `This draft is already ${draft.status}.` };
+  // Atomically claim the draft FIRST, before doing anything else — this single
+  // UPDATE...WHERE status='Pending'...RETURNING is what actually prevents a
+  // double-click or a concurrent bulk-approve from both passing a
+  // read-then-write status check and both posting a real paycheck for the
+  // same draft. Postgres serializes concurrent UPDATEs to the same row, so
+  // only one caller's WHERE clause can match; the loser gets zero rows back
+  // and fails cleanly instead of racing into createSinglePaycheck.
+  const claimed = await queryOne<any>(
+    `UPDATE altax.v3_payroll_drafts SET status='Approved', approved_by=$2, approved_at=now(), updated_at=now()
+     WHERE payroll_draft_id=$1 AND status='Pending' RETURNING *`,
+    [draftId, actorEmail]
+  );
+  if (!claimed) {
+    const draft = await queryOne<any>(`SELECT status FROM altax.v3_payroll_drafts WHERE payroll_draft_id = $1`, [draftId]);
+    if (!draft) return { ok: false, error: "Draft not found." };
+    return { ok: false, error: `This draft is already ${draft.status}.` };
+  }
 
-  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [draft.client_id]);
-  if (!client) return { ok: false, error: "Client not found." };
-  const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [draft.employee_id]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
+  if (!client) { await releaseDraftClaim(draftId); return { ok: false, error: "Client not found." }; }
+  const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [claimed.employee_id]);
   const ineligible = eligibilityError(employee);
-  if (ineligible) return { ok: false, error: ineligible };
+  if (ineligible) { await releaseDraftClaim(draftId); return { ok: false, error: ineligible }; }
 
-  const body = { ...(draft.staff_overrides || {}), ...extraOverrides, payDate: dateString(draft.pay_date) };
-  const result: PaycheckCreationResult = await createSinglePaycheck(client, draft.employee_name, body, actorEmail);
-  if (!result.ok) return { ok: false, error: result.error };
+  const body = { ...(claimed.staff_overrides || {}), ...extraOverrides, payDate: dateString(claimed.pay_date) };
+  const result: PaycheckCreationResult = await createSinglePaycheck(client, claimed.employee_name, body, actorEmail);
+  if (!result.ok) { await releaseDraftClaim(draftId); return { ok: false, error: result.error }; }
 
   await query(
-    `UPDATE altax.v3_payroll_drafts SET status='Approved', resulting_paycheck_id=$2, approved_by=$3, approved_at=now(), updated_at=now() WHERE payroll_draft_id=$1`,
-    [draft.payroll_draft_id, result.paycheckId, actorEmail]
+    `UPDATE altax.v3_payroll_drafts SET resulting_paycheck_id=$2, updated_at=now() WHERE payroll_draft_id=$1`,
+    [draftId, result.paycheckId]
   );
-  await logAudit("Accounting", "PAYROLL_AGENT_APPROVE", draft.payroll_draft_id, "PaycheckID", "", result.paycheckId,
+  await logAudit("Accounting", "PAYROLL_AGENT_APPROVE", draftId, "PaycheckID", "", result.paycheckId,
     `Payroll agent draft approved by ${actorEmail}.`, actorEmail);
   return { ok: true, paycheckId: result.paycheckId };
 }
