@@ -140,12 +140,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -305,6 +305,10 @@ export function ClientDetailPage() {
   // Lets other pages deep-link straight to a tab, e.g. Task Detail's
   // "All Client Documents" button -> /clients/:id?tab=Documents.
   const tabParam = searchParams.get("tab");
+  // Paired with ?tab=Notes (see the Clients list "Add Note" action) to land
+  // directly on the Notes tab with the add-note form already open, matching
+  // the Task Detail "Notes & Messages" ?open=note pattern.
+  const openParam = searchParams.get("open");
   const appliedTabParam = useRef<string | null>(null);
   useEffect(() => {
     if (!tabParam || !client || appliedTabParam.current === tabParam) return;
@@ -715,11 +719,12 @@ export function ClientDetailPage() {
             </>
           )}
 
+          {tab === "Notes" && canSeeStaffTabs && (
+            <ClientActivitySection clientId={client.client_id} autoOpen={openParam === "note"} />
+          )}
+
           {tab === "Communications" && canSeeStaffTabs && (
-            <>
-              <ClientActivitySection clientId={client.client_id} />
-              <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
-            </>
+            <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
           )}
 
           {tab === "Billing" && canSeeStaffTabs && (
@@ -731,11 +736,12 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Contracts" && canSeeStaffTabs && (
+            <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+          )}
+
+          {tab === "Gov Forms" && canSeeStaffTabs && (
             <Fragment>
-              <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
-              <div style={{ marginTop: 16 }}>
-                <PoaFilingsSection clientId={client.client_id} />
-              </div>
+              <PoaFilingsSection clientId={client.client_id} />
               <div style={{ marginTop: 16 }}>
                 <GovFormsSection clientId={client.client_id} />
               </div>
@@ -2457,13 +2463,16 @@ const ACTIVITY_TYPES = ["Phone Call", "In-Person Meeting", "Video Call", "Voicem
  * above ClientMessages in the same Communications tab rather than its own tab —
  * these are two views of the same relationship history, not separate concerns.
  */
-function ClientActivitySection({ clientId }: { clientId: string }) {
+function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoOpen?: boolean }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const [rows, setRows] = useState<ActivityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  // Set once from the ?open=note deep link (e.g. the Clients list "Add Note"
+  // action) — this section only mounts when the Notes tab is active, so the
+  // initial value is enough; no need to react to autoOpen changing later.
+  const [adding, setAdding] = useState(Boolean(autoOpen));
   const [activityType, setActivityType] = useState(ACTIVITY_TYPES[0]);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);

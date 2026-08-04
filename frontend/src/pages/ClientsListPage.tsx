@@ -206,6 +206,7 @@ export function ClientsListPage() {
     if (action === "review-documents") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Documents`); return; }
     if (action === "secure-vault") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}#vault`); return; }
     if (action === "edit") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?edit=1`); return; }
+    if (action === "note") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Notes&open=note`); return; }
     if (action === "send-invite") {
       try {
         const res = await api.post<{ inviteLink?: string }>("/users", {
@@ -235,6 +236,7 @@ export function ClientsListPage() {
     const opts: ActionMenuOption[] = [
       { value: "profile", label: "Profile" },
       { value: "create-task", label: "Create Task" },
+      { value: "note", label: "Add Note" },
       { value: "request-document", label: "Request Document" },
       { value: "upload-document", label: "Send File to Client" },
       { value: "review-documents", label: "Review Documents" },
