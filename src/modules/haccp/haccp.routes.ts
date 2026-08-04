@@ -361,6 +361,19 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
   res.json({ ok: true, planId: req.params.planId });
 }));
 
+/** Hard delete — admin only, matching Contracts'/POA's "generated document, not a filed record" delete convention. Nothing else references v3_haccp_plans, so this is a clean removal. */
+haccpRouter.post("/plans/:planId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const existing = await loadPlanForUser(req, req.params.planId);
+  if (existing === null) return res.status(404).json({ error: "HACCP plan not found." });
+  if (existing === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
+
+  await query(`DELETE FROM altax.v3_haccp_plans WHERE plan_id = $1`, [req.params.planId]);
+  await logAudit("Haccp", "DELETE", req.params.planId, "business_name", existing.business_name, "",
+    `HACCP plan for ${existing.business_name} deleted by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
 haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const plan = await loadPlanForUser(req, req.params.planId);
   if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });

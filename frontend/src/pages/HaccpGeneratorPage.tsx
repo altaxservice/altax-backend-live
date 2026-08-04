@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError, viewFile, downloadFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { AddressFields } from "../components/AddressFields";
 import type { Client } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -86,6 +87,8 @@ export function HaccpGeneratorPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
 
   const [options, setOptions] = useState<HaccpOptions | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -261,6 +264,18 @@ export function HaccpGeneratorPage() {
     }
   }
 
+  async function handleDeletePlan(planId: string, businessName: string) {
+    const ok = await confirmDialog({ title: "Delete HACCP plan", message: `Delete the saved plan for ${businessName}? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/haccp/plans/${planId}/delete`, {});
+      toast("Plan deleted.");
+      loadPlans();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this plan.");
+    }
+  }
+
   const menuCategoriesToShow = useMemo(() => options?.menuCategories || [], [options]);
 
   return (
@@ -306,6 +321,9 @@ export function HaccpGeneratorPage() {
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
                         {p.client_id && (
                           <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments}>Save to Documents</button>
+                        )}
+                        {isAdmin && (
+                          <button className="btn btn-sm danger-button" onClick={() => handleDeletePlan(p.plan_id, p.business_name)}>Delete</button>
                         )}
                       </td>
                     </tr>
