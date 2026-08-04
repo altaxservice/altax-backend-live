@@ -391,6 +391,51 @@ async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
   }
 }
 
+/**
+ * Immediate heads-up to the assigned staff, the appointment's creator, and
+ * every admin when an appointment's TIME changes or it's cancelled — whether
+ * a client did it themselves via the public manage-appointment link, or
+ * another staff member rescheduled it on their behalf. Previously only the
+ * CLIENT got a confirmation either way (notifyAppointment); staff learned
+ * about a changed or cancelled appointment only by happening to notice it on
+ * their calendar, or not at all if it was outside the next reminder's lead
+ * window. Distinct from notifyStaffAssigned (a NEW assignment) and
+ * notifyAppointmentStaff below (the scheduled lead-time reminder) — this
+ * fires once, right when the change lands. excludeIdentifier (an email) lets
+ * the internal PATCH route skip notifying whichever staff member just made
+ * the change themselves.
+ */
+export async function notifyStaffOfAppointmentChange(
+  appt: any, kind: "Cancelled" | "Rescheduled", req?: Request, previousStartTime?: string, excludeIdentifier?: string
+): Promise<void> {
+  const recipients = await resolveStaffRecipients(appt);
+  if (recipients.size === 0) return;
+  const settings = await getAppointmentSettings();
+  const who = appt.contact_name || appt.client_name || "a contact";
+  const newStart = new Date(appt.start_time);
+  const detailLine = kind === "Cancelled"
+    ? `Was scheduled for ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
+    : previousStartTime
+      ? `Moved from ${fmtDate(new Date(previousStartTime))} ${fmtTime(new Date(previousStartTime))} to ${fmtDate(newStart)} ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
+      : `New time: ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`;
+  const label = kind === "Cancelled" ? "Client cancelled" : "Appointment rescheduled";
+  const subject = `${label}: ${appt.title || "Appointment"} with ${who}`;
+  const html = `<p><strong>${escapeHtml(label)}</strong> — ${escapeHtml(appt.title || "Appointment")} with ${escapeHtml(who)}</p>
+    <p>${escapeHtml(detailLine)}${appt.assigned_to ? ` &middot; Assigned to ${escapeHtml(appt.assigned_to)}` : ""}</p>`;
+  const smsBody = `AL TAX SERVICE: ${label} — ${appt.title || "Appointment"} with ${who}. ${detailLine}`;
+
+  const excludeLower = excludeIdentifier ? excludeIdentifier.toLowerCase() : null;
+  for (const { email, phone } of recipients.values()) {
+    if (excludeLower && email && email.toLowerCase() === excludeLower) continue;
+    if ((settings.staffReminderChannel === "email" || settings.staffReminderChannel === "both") && email) {
+      try { await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) }); } catch { /* best-effort */ }
+    }
+    if ((settings.staffReminderChannel === "sms" || settings.staffReminderChannel === "both") && phone) {
+      try { await sendSms({ to: phone, body: smsBody }); } catch { /* best-effort */ }
+    }
+  }
+}
+
 async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<void> {
   const recipients = await resolveStaffRecipients(appt);
   if (recipients.size === 0) return;
@@ -563,8 +608,17 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
     // A staff-initiated reschedule changes the time the client was told to
     // show up at — they need the same "here's your new time" notice a
     // self-service reschedule already sends, or they'll show up at the old slot.
-    if (timeChanged && updated?.notify_client) {
-      await notifyAppointment({ ...updated, client_name: updated.linked_client_name }, "Appointment Confirmation", req.user!.email, req);
+    if (timeChanged && updated) {
+      if (updated.notify_client) {
+        await notifyAppointment({ ...updated, client_name: updated.linked_client_name }, "Appointment Confirmation", req.user!.email, req);
+      }
+      // Staff notification is independent of the client's own notify_client
+      // preference — the assigned staff/admins need to know their calendar
+      // changed regardless of whether the client opted into notifications.
+      // Excludes whoever just made this edit — no need to notify yourself.
+      await notifyStaffOfAppointmentChange(
+        { ...updated, client_name: updated.linked_client_name }, "Rescheduled", req, existing.start_time, req.user!.email
+      );
     }
     // A reassignment means someone new is now on the hook for this
     // appointment — give them the same immediate heads-up a brand-new

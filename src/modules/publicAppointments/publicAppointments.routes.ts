@@ -17,7 +17,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { logAudit } from "../../common/audit";
-import { createAppointment, notifyAppointment } from "../appointments/appointments.routes";
+import { createAppointment, notifyAppointment, notifyStaffOfAppointmentChange } from "../appointments/appointments.routes";
 import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
 import { listAppointmentTypes, resolveAppointmentDuration } from "../../common/appointmentTypes";
 import { escapeHtml } from "../../common/html";
@@ -340,6 +340,11 @@ publicAppointmentsRouter.post("/manage/:token/cancel", manageLimiter, asyncHandl
   } catch {
     // Best-effort — the cancellation itself already succeeded and is logged above.
   }
+  try {
+    await notifyStaffOfAppointmentChange(appt, "Cancelled", req);
+  } catch {
+    // Best-effort — same as above.
+  }
   res.json({ ok: true });
 }));
 
@@ -392,6 +397,11 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
     await notifyAppointment({ ...updated, client_name: appt.client_name }, "Appointment Confirmation", "Public Manage Link", req);
   } catch {
     // Best-effort — the reschedule itself already succeeded and is logged above.
+  }
+  try {
+    await notifyStaffOfAppointmentChange({ ...updated, client_name: appt.client_name }, "Rescheduled", req, appt.start_time);
+  } catch {
+    // Best-effort — same as above.
   }
   res.json({ ok: true });
 }));
