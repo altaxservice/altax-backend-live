@@ -19,13 +19,14 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
-  clientName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
+  clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
   mdWithholdingFrequency: "", mduiEnabled: false, mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
   preferredLanguage: "English", smsAllowed: false, emailAllowed: true, preferredContact: "Email",
   ein: "", stateTaxId: "", secretaryOfStateId: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
   companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "",
+  companyContactStreetAddress: "", companyContactCity: "", companyContactState: "", companyContactZipCode: "",
 };
 
 const QUICK_TABS: { key: string; label: string; test: (c: Client) => boolean }[] = [
@@ -401,6 +402,12 @@ export function ClientsListPage() {
                 <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Client ID will be auto-assigned when you save.</div>
               )}
             </div>
+            {form.clientType === "Business" && (
+              <div className="field">
+                <label htmlFor="nc-dba">DBA / Trade Name</label>
+                <input id="nc-dba" value={form.dbaName} onChange={(e) => setForm((f) => ({ ...f, dbaName: e.target.value }))} />
+              </div>
+            )}
             <div className="field">
               <label htmlFor="nc-ctype">Client Type</label>
               <select
@@ -694,6 +701,22 @@ export function ClientsListPage() {
               </>
             )}
           </div>
+          {form.clientType === "Business" && (
+            <>
+              <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Responsible Party Home Address</div>
+              <AddressFields
+                idPrefix="nc-rp"
+                value={{ street: form.companyContactStreetAddress, city: form.companyContactCity, state: form.companyContactState, zip: form.companyContactZipCode }}
+                onChange={(patch) => setForm((f) => ({
+                  ...f,
+                  companyContactStreetAddress: patch.street ?? f.companyContactStreetAddress,
+                  companyContactCity: patch.city ?? f.companyContactCity,
+                  companyContactZipCode: patch.zip ?? f.companyContactZipCode,
+                  companyContactState: patch.state ?? f.companyContactState,
+                }))}
+              />
+            </>
+          )}
           <div className="field"><label htmlFor="nc-notes">Notes</label><textarea id="nc-notes" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
 
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}>
