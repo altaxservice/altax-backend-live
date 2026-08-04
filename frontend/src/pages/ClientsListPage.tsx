@@ -678,7 +678,7 @@ export function ClientsListPage() {
             }))}
           />
 
-          <div className="form-section-title">Tax IDs &amp; Responsible Party</div>
+          <div className="form-section-title">Business Tax IDs</div>
           <div className="form-grid-3">
             <div className="field"><label htmlFor="nc-sti">State Tax ID</label><input id="nc-sti" value={form.stateTaxId} onChange={(e) => setForm((f) => ({ ...f, stateTaxId: e.target.value }))} /></div>
             {form.clientType === "Individual" ? (
@@ -687,23 +687,33 @@ export function ClientsListPage() {
               <>
                 <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
                 <div className="field"><label htmlFor="nc-sos">Secretary of State ID</label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-cc">Responsible Party / Company Contact</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-cct">Contact Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-ccs">Contact SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
-                <div className="field">
-                  <label htmlFor="nc-cce">Contact Email <span className="muted">(if different from company email)</span></label>
-                  <input id="nc-cce" type="email" value={form.companyContactEmail} onChange={(e) => setForm((f) => ({ ...f, companyContactEmail: e.target.value }))} />
-                </div>
-                <div className="field">
-                  <label htmlFor="nc-ccp">Contact Phone <span className="muted">(if different from company phone)</span></label>
-                  <input id="nc-ccp" value={form.companyContactPhone} onChange={(e) => setForm((f) => ({ ...f, companyContactPhone: e.target.value }))} />
-                </div>
               </>
             )}
           </div>
+
+          {/* This is the business owner / IRS "responsible party" — the actual
+              person, not a generic office contact — so every field here says
+              "Owner" up front. Grouped as its own section (name/title/SSN,
+              then the owner's own home address right below it) instead of
+              being buried inside Tax IDs, where "Contact SS No." previously
+              read like some unrelated office contact's SSN. */}
           {form.clientType === "Business" && (
             <>
-              <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Responsible Party Home Address</div>
+              <div className="form-section-title">Owner / Responsible Party</div>
+              <div className="form-grid-3">
+                <div className="field"><label htmlFor="nc-cc">Owner Name</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-cct">Owner Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="nc-ccs">Owner SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
+                <div className="field">
+                  <label htmlFor="nc-cce">Owner Email <span className="muted">(if different from company email)</span></label>
+                  <input id="nc-cce" type="email" value={form.companyContactEmail} onChange={(e) => setForm((f) => ({ ...f, companyContactEmail: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="nc-ccp">Owner Phone <span className="muted">(if different from company phone)</span></label>
+                  <input id="nc-ccp" value={form.companyContactPhone} onChange={(e) => setForm((f) => ({ ...f, companyContactPhone: e.target.value }))} />
+                </div>
+              </div>
+              <div className="muted" style={{ fontSize: 12, margin: "10px 0 8px" }}>Owner Home Address</div>
               <AddressFields
                 idPrefix="nc-rp"
                 value={{ street: form.companyContactStreetAddress, city: form.companyContactCity, state: form.companyContactState, zip: form.companyContactZipCode }}

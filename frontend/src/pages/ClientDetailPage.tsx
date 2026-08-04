@@ -129,11 +129,11 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f) },
       { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_name", apiKey: "companyContactName", label: "Responsible Party / Company Contact", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_title", apiKey: "companyContactTitle", label: "Contact Title", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Contact SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_email", apiKey: "companyContactEmail", label: "Contact Email", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_phone", apiKey: "companyContactPhone", label: "Contact Phone", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_name", apiKey: "companyContactName", label: "Owner Name", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_title", apiKey: "companyContactTitle", label: "Owner Title", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Owner SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_email", apiKey: "companyContactEmail", label: "Owner Email", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_phone", apiKey: "companyContactPhone", label: "Owner Phone", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "notes", apiKey: "notes", label: "Notes", kind: "textarea" },
     ],
   },
@@ -504,7 +504,7 @@ export function ClientDetailPage() {
               )}
               {section.title === "Tax IDs & Responsible Party" && isBusiness(form) && (
                 <>
-                  <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Responsible Party Home Address</div>
+                  <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Owner Home Address</div>
                   <AddressFields
                     idPrefix="cd-rp"
                     value={{ street: form.companyContactStreetAddress ?? "", city: form.companyContactCity ?? "", state: form.companyContactState ?? "", zip: form.companyContactZipCode ?? "" }}
@@ -637,12 +637,12 @@ export function ClientDetailPage() {
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Responsible Party</h2>
               {isBusinessClient ? (
                 <>
-                  <DetailRow label="Company Contact" value={client.company_contact_name as string | null} />
-                  <DetailRow label="Title" value={client.company_contact_title as string | null} />
-                  <DetailRow label="SS No." value={client.company_contact_ssn as string | null} />
-                  <DetailRow label="Contact Email" value={client.company_contact_email as string | null} />
-                  <DetailRow label="Contact Phone" value={client.company_contact_phone as string | null} />
-                  <DetailRow label="Home Address" value={client.company_contact_address as string | null} multiline />
+                  <DetailRow label="Owner Name" value={client.company_contact_name as string | null} />
+                  <DetailRow label="Owner Title" value={client.company_contact_title as string | null} />
+                  <DetailRow label="Owner SS No." value={client.company_contact_ssn as string | null} />
+                  <DetailRow label="Owner Email" value={client.company_contact_email as string | null} />
+                  <DetailRow label="Owner Phone" value={client.company_contact_phone as string | null} />
+                  <DetailRow label="Owner Home Address" value={client.company_contact_address as string | null} multiline />
                 </>
               ) : (
                 <p className="muted">Not applicable for individual clients.</p>
