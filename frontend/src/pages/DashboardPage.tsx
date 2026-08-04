@@ -453,8 +453,9 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         </CommandPanel>
       </div>
 
-      <div style={{ marginTop: 14, maxWidth: 420 }}>
+      <div className="command-grid command-grid-even" style={{ marginTop: 14 }}>
         <PayrollAgentCard />
+        <TaskRulesAgentCard />
       </div>
     </div>
   );
@@ -498,6 +499,50 @@ function PayrollAgentCard() {
         )}
         <button type="button" className="btn btn-primary" onClick={() => navigate("/payroll-agent")}>
           {summary.pendingCount > 0 ? `View draft payroll (${summary.pendingCount})` : summary.active ? "Open Payroll Agent" : "Set up Auto Payroll"}
+        </button>
+      </div>
+    </CommandPanel>
+  );
+}
+
+interface TaskRulesAgentSummary { active: boolean; ruleCount: number; pendingCount: number; rangeLabel: string | null; autoRunEnabled: boolean }
+
+/** Status widget for the Task Rules Agent — same in-app, no-external-AI
+ * automation shape as the Payroll Agent, but for recurring compliance task
+ * batches (sales tax filings, payroll deposits, etc.) instead of paychecks.
+ * Every draft it produces is a Pending row in v3_task_batch_drafts, never a
+ * real task on its own — this card only reports status and links to the
+ * Rules page, where the review panel it's part of actually handles approval. */
+function TaskRulesAgentCard() {
+  const navigate = useNavigate();
+  const [summary, setSummary] = useState<TaskRulesAgentSummary | null>(null);
+
+  useEffect(() => {
+    api.get<TaskRulesAgentSummary>("/rules/agent/summary").then(setSummary).catch(() => {});
+  }, []);
+
+  if (!summary) return null;
+
+  return (
+    <CommandPanel
+      title="Task Rules Agent"
+      note={summary.active ? `${summary.ruleCount} active rule${summary.ruleCount === 1 ? "" : "s"}` : "No active rules set up yet"}
+    >
+      <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span className={`status-pill ${summary.active ? "status-green" : "status-gray"}`}>{summary.active ? "Active" : "Inactive"}</span>
+          <span className={`status-pill ${summary.autoRunEnabled ? "status-green" : "status-red"}`} title="The nightly automatic draft run — toggle it from the Rules page. Manual runs and Create Batch Tasks always work regardless of this setting.">
+            Auto-Draft: {summary.autoRunEnabled ? "On" : "Off"}
+          </span>
+          {summary.pendingCount > 0 && summary.rangeLabel && (
+            <span className="muted" style={{ fontSize: 12.5 }}>Due {summary.rangeLabel}</span>
+          )}
+        </div>
+        {summary.pendingCount === 0 && summary.active && (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No draft batches pending right now.</p>
+        )}
+        <button type="button" className="btn btn-primary" onClick={() => navigate("/rules")}>
+          {summary.pendingCount > 0 ? `View draft batches (${summary.pendingCount})` : "Open Rules"}
         </button>
       </div>
     </CommandPanel>

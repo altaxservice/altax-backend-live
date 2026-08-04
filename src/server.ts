@@ -19,7 +19,7 @@ import { communicationsRouter } from "./modules/communications/communications.ro
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled } from "./modules/accounting/payrollAgent.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
-import { rulesRouter } from "./modules/rules/rules.routes";
+import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
 import { firmPortalsRouter } from "./modules/vault/firmPortals.routes";
 import { paymentMethodsRouter } from "./modules/paymentMethods/paymentMethods.routes";
@@ -357,6 +357,24 @@ cron.schedule("15 6 * * *", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Payroll agent sweep scheduled for 6:15AM America/New_York.");
+
+// Task Rules Agent sweep — staggered 5 minutes after Payroll Agent, same
+// reasoning. Idempotent per rule/period (UNIQUE(rule_id, period_label) on
+// v3_task_batch_drafts — see sql/034_task_rules_agent.sql), so a manual "Run
+// Agent Now" the same day is always safe to also fire. Never creates real
+// tasks on its own — only a Pending draft awaiting staff approval, same
+// two-gate shape as Payroll Agent. Gated on the auto-run toggle
+// (v3_task_rules_agent_settings); the manual trigger and the existing
+// Create Batch Tasks flow both always work regardless of this flag.
+cron.schedule("20 6 * * *", () => {
+  isTaskRulesAgentAutoRunEnabled()
+    .then((enabled) => { if (enabled) return runTaskRulesAgentSweep("System (Task Rules Agent Job)"); })
+    .catch((err) => {
+      alertAdmins("Task Rules Agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+    });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Task Rules Agent sweep scheduled for 6:20AM America/New_York.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

@@ -212,7 +212,7 @@ export function ClientsListPage() {
         const res = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>("/users", {
           role: "client", assignedClientId: c.client_id, email: c.email, name: c.client_name,
         });
-        setInviteInfo({ clientName: c.client_name, email: c.email, inviteLink: res.inviteLink, inviteEmailed: res.inviteEmailed, inviteEmailError: res.inviteEmailError });
+        setInviteInfo({ clientName: c.client_name, email: c.email ?? undefined, inviteLink: res.inviteLink, inviteEmailed: res.inviteEmailed, inviteEmailError: res.inviteEmailError });
         toast(res.inviteEmailed ? `Invite emailed to ${c.client_name}.` : `Invite created for ${c.client_name}.`);
       } catch (err) {
         await notify(err instanceof ApiError ? err.message : "Could not create a portal invite.");

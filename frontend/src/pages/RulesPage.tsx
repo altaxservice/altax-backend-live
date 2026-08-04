@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type { TaskRule, TaskBatch, WebOptions } from "../api/types2";
 import { useToast } from "../components/Toast";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
+import { TaskRulesAgentPanel } from "../components/TaskRulesAgentPanel";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
@@ -16,7 +17,7 @@ const FREQUENCIES = ["One-Time", "Weekly", "Monthly", "Quarterly", "Semiannual",
 
 const EMPTY_RULE_FORM = {
   ruleId: "", taskType: "", triggerColumn: "", triggerValue: "", frequency: "Monthly",
-  paymentRequired: false, requiresFiling: true, dueDay: "", warningDays: "14,7,3",
+  paymentRequired: false, requiresFiling: true, dueDay: "", dueMonth: "", warningDays: "14,7,3",
   portalName: "", portalUrl: "", active: true, notes: "",
 };
 
@@ -64,7 +65,7 @@ export function RulesPage() {
       ruleId: r.rule_id, taskType: r.task_type || "", triggerColumn: String(r.trigger_column || ""),
       triggerValue: String(r.trigger_value || ""), frequency: String(r.frequency || "Monthly"),
       paymentRequired: Boolean(r.payment_required), requiresFiling: r.requires_filing !== false,
-      dueDay: String(r.due_day || ""), warningDays: String(r.warning_days || "14,7,3"),
+      dueDay: String(r.due_day || ""), dueMonth: String(r.due_month || ""), warningDays: String(r.warning_days || "14,7,3"),
       portalName: String(r.portal_name || ""), portalUrl: String(r.portal_url || ""),
       active: r.active !== false, notes: String(r.notes || ""),
     });
@@ -112,6 +113,8 @@ export function RulesPage() {
         <p>Use rules to create batch work for clients with the same service, frequency, and filing/payment requirements.</p>
       </div>
       {error && <ErrorBanner error={error} />}
+
+      <TaskRulesAgentPanel onBatchCreated={load} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 10 }}>
@@ -164,6 +167,13 @@ export function RulesPage() {
               )}
             </div>
             <div className="field"><label htmlFor="rule-due-day">Due Day</label><input id="rule-due-day" value={form.dueDay} onChange={(e) => setForm((f) => ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
+            {(form.frequency === "Semiannual" || form.frequency === "Annual") && (
+              <div className="field">
+                <label htmlFor="rule-due-month">Due Month Offset</label>
+                <input id="rule-due-month" value={form.dueMonth} onChange={(e) => setForm((f) => ({ ...f, dueMonth: e.target.value }))} placeholder="1" />
+                <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>How many months after the period ends this is due (1 = due the next month, matching W-2s/1099s). Only used by the Task Rules Agent's auto-draft; leave blank for the default of 1.</p>
+              </div>
+            )}
             <div className="field"><label htmlFor="rule-warning-days">Warning Days</label><input id="rule-warning-days" value={form.warningDays} onChange={(e) => setForm((f) => ({ ...f, warningDays: e.target.value }))} placeholder="14,7,3" /></div>
             <div className="field"><label htmlFor="rule-portal-name">Portal Name</label><input id="rule-portal-name" value={form.portalName} onChange={(e) => setForm((f) => ({ ...f, portalName: e.target.value }))} /></div>
             <div className="field"><label htmlFor="rule-portal-url">Portal URL</label><input id="rule-portal-url" value={form.portalUrl} onChange={(e) => setForm((f) => ({ ...f, portalUrl: e.target.value }))} /></div>
