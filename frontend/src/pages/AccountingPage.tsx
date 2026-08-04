@@ -4002,9 +4002,12 @@ function BudgetTab({ clientId }: { clientId: string }) {
   );
 }
 
-interface BankLine { line_id: string; statement_date: string; description: string | null; amount: number; matched_gl_entry_id: string | null; matched_gl_description: string | null; matched_gl_date: string | null }
+interface BankLine { line_id: string; statement_date: string; description: string | null; amount: number; matched_gl_entry_id: string | null; matched_gl_description: string | null; matched_gl_date: string | null; je_draft_id: string | null; je_draft_status: string | null }
 interface GlCandidate { gl_entry_id: string; entry_date: string; description: string | null; ref: string | null; amount: number }
 interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; bookBalance: number; clearedBalance: number }
+interface JeDraft { je_draft_id: string; bank_line_id: string; statement_date: string; description: string | null; amount: number; suggested_account: string | null; matched_rule_text: string | null }
+interface ReadyToReconcileRow { draftId: string; bankLineId: string; glEntryId: string; amount: number; description: string | null; jeRef: string }
+interface JeRule { rule_id: string; match_text: string; account_name: string; active: boolean }
 
 /**
  * Manual bank reconciliation — upload the bank's own CSV/Excel statement export,
@@ -4016,6 +4019,7 @@ interface BankRecData { bankLines: BankLine[]; glCandidates: GlCandidate[]; book
 function BankRecTab({ clientId }: { clientId: string }) {
   const confirmDialog = useConfirm();
   const notify = useNotify();
+  const promptFor = usePrompt();
   const [accounts, setAccounts] = useState<CoaAccount[] | null>(null);
   const [accountName, setAccountName] = useState("");
   const [data, setData] = useState<BankRecData | null>(null);
@@ -4033,6 +4037,23 @@ function BankRecTab({ clientId }: { clientId: string }) {
   // reconcile "as of" a real bank statement date, same as reconciling
   // against a paper statement. Defaults to today.
   const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Bank Rec Agent: Stage 1 (draft review) and Stage 2 (reconcile confirmation).
+  const [drafts, setDrafts] = useState<JeDraft[] | null>(null);
+  const [readyToReconcile, setReadyToReconcile] = useState<ReadyToReconcileRow[] | null>(null);
+  const [rules, setRules] = useState<JeRule[] | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [draftAccountEdits, setDraftAccountEdits] = useState<Record<string, string>>({});
+  const [rememberRuleFor, setRememberRuleFor] = useState<string | null>(null);
+  const [ruleMatchTextEdits, setRuleMatchTextEdits] = useState<Record<string, string>>({});
+  const [selectedDrafts, setSelectedDrafts] = useState<Set<string>>(new Set());
+  const [approvingDraft, setApprovingDraft] = useState<string | null>(null);
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [dismissingDraft, setDismissingDraft] = useState<string | null>(null);
+  const [confirmingMatch, setConfirmingMatch] = useState<string | null>(null);
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [newRule, setNewRule] = useState({ matchText: "", accountName: "" });
+  const [savingRule, setSavingRule] = useState(false);
 
   useEffect(() => {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa")
@@ -4057,6 +4078,32 @@ function BankRecTab({ clientId }: { clientId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [clientId, accountName, asOf]);
 
+  function loadDrafts() {
+    if (!accountName) return;
+    api.get<{ drafts: JeDraft[] }>(`/bank-rec/${clientId}/je-drafts?status=Pending&accountName=${encodeURIComponent(accountName)}`)
+      .then((r) => setDrafts(r.drafts))
+      .catch(() => setDrafts([]));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadDrafts, [clientId, accountName]);
+
+  function loadReadyToReconcile() {
+    if (!accountName) return;
+    api.get<{ ready: ReadyToReconcileRow[] }>(`/bank-rec/${clientId}/ready-to-reconcile?accountName=${encodeURIComponent(accountName)}`)
+      .then((r) => setReadyToReconcile(r.ready))
+      .catch(() => setReadyToReconcile([]));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadReadyToReconcile, [clientId, accountName]);
+
+  function loadRules() {
+    api.get<{ rules: JeRule[] }>(`/bank-rec/${clientId}/je-rules`)
+      .then((r) => setRules(r.rules))
+      .catch(() => setRules([]));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadRules, [clientId]);
+
   async function handleUpload() {
     if (!file || !accountName) return;
     setUploading(true); setError(null);
@@ -4065,11 +4112,112 @@ function BankRecTab({ clientId }: { clientId: string }) {
       const res = await api.post<{ inserted: number }>("/bank-rec/upload", { clientId, accountName, fileBase64 });
       setFile(null);
       load();
-      await notify(`Imported ${res.inserted} statement line(s).`);
+      loadDrafts();
+      await notify(`Imported ${res.inserted} statement line(s) — review the suggested journal entries below before approving.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not read this statement file.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleApproveDraft(draftId: string) {
+    setApprovingDraft(draftId);
+    try {
+      const overrideAccount = draftAccountEdits[draftId];
+      const remember = rememberRuleFor === draftId;
+      await api.post(`/bank-rec/je-drafts/${draftId}/approve`, {
+        overrides: overrideAccount ? { account: overrideAccount } : undefined,
+        rememberAsRule: remember,
+        ruleMatchText: remember ? ruleMatchTextEdits[draftId] : undefined,
+      });
+      setRememberRuleFor(null);
+      loadDrafts(); loadReadyToReconcile(); load(); if (remember) loadRules();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not approve this draft.");
+    } finally {
+      setApprovingDraft(null);
+    }
+  }
+
+  async function handleBulkApproveDrafts() {
+    if (!selectedDrafts.size) return;
+    setBulkApproving(true);
+    try {
+      const res = await api.post<{ results: { draftId: string; ok: boolean; error?: string }[] }>(
+        "/bank-rec/je-drafts/approve-bulk", { draftIds: Array.from(selectedDrafts) }
+      );
+      const failed = res.results.filter((r) => !r.ok);
+      setSelectedDrafts(new Set());
+      loadDrafts(); loadReadyToReconcile(); load();
+      if (failed.length) await notify(`${res.results.length - failed.length} approved. ${failed.length} could not be approved: ${failed.map((f) => f.error).join("; ")}`);
+      else await notify(`Approved ${res.results.length} draft(s).`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not approve the selected drafts.");
+    } finally {
+      setBulkApproving(false);
+    }
+  }
+
+  async function handleDismissDraft(draftId: string) {
+    const reason = await promptFor({ title: "Dismiss suggested entry", message: "Why doesn't this need a journal entry? (optional)" });
+    if (reason === null) return;
+    setDismissingDraft(draftId);
+    try {
+      await api.post(`/bank-rec/je-drafts/${draftId}/dismiss`, { reason });
+      loadDrafts(); load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not dismiss this draft.");
+    } finally {
+      setDismissingDraft(null);
+    }
+  }
+
+  async function handleConfirmReconcile(row: ReadyToReconcileRow) {
+    setConfirmingMatch(row.draftId);
+    try {
+      await api.post(`/bank-rec/${row.bankLineId}/match`, { glEntryId: row.glEntryId });
+      loadReadyToReconcile(); load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not confirm this reconciliation.");
+    } finally {
+      setConfirmingMatch(null);
+    }
+  }
+
+  async function handleConfirmAllReconcile() {
+    if (!readyToReconcile?.length) return;
+    setConfirmingAll(true);
+    try {
+      for (const row of readyToReconcile) {
+        await api.post(`/bank-rec/${row.bankLineId}/match`, { glEntryId: row.glEntryId }).catch(() => {});
+      }
+      loadReadyToReconcile(); load();
+    } finally {
+      setConfirmingAll(false);
+    }
+  }
+
+  async function handleAddRule() {
+    if (!newRule.matchText.trim() || !newRule.accountName) return;
+    setSavingRule(true);
+    try {
+      await api.post("/bank-rec/je-rules", { clientId, matchText: newRule.matchText.trim(), accountName: newRule.accountName });
+      setNewRule({ matchText: "", accountName: "" });
+      loadRules();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this rule.");
+    } finally {
+      setSavingRule(false);
+    }
+  }
+
+  async function handleToggleRule(rule: JeRule) {
+    try {
+      await api.post(`/bank-rec/je-rules/${rule.rule_id}`, { active: !rule.active });
+      loadRules();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this rule.");
     }
   }
 
@@ -4177,6 +4325,123 @@ function BankRecTab({ clientId }: { clientId: string }) {
 
       {error && <ErrorBanner error={error} />}
 
+      {!!drafts?.length && (
+        <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <strong style={{ fontSize: 13 }}>Suggested Journal Entries ({drafts.length})</strong>
+            <button className="btn btn-sm btn-primary" disabled={!selectedDrafts.size || bulkApproving} onClick={handleBulkApproveDrafts}>
+              {bulkApproving ? "Approving…" : `Approve Selected (${selectedDrafts.size})`}
+            </button>
+          </div>
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {drafts.map((d) => {
+              const account = draftAccountEdits[d.je_draft_id] ?? d.suggested_account ?? "";
+              return (
+                <div key={d.je_draft_id} style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <input type="checkbox" style={{ marginTop: 4 }} checked={selectedDrafts.has(d.je_draft_id)}
+                        onChange={(e) => setSelectedDrafts((s) => { const next = new Set(s); if (e.target.checked) next.add(d.je_draft_id); else next.delete(d.je_draft_id); return next; })} />
+                      <div>
+                        <div style={{ fontSize: 13 }}>{d.description || "—"}</div>
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {fmtDate(d.statement_date)}{d.matched_rule_text ? ` · suggested from rule "${d.matched_rule_text}"` : d.suggested_account ? "" : " · no rule matched — pick a category"}
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontWeight: 700 }}>{fmtMoney(d.amount)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                    <select style={{ minWidth: 200 }} value={account} onChange={(e) => setDraftAccountEdits((m) => ({ ...m, [d.je_draft_id]: e.target.value }))}>
+                      <option value="">Category…</option>
+                      {nonBankAccounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+                    </select>
+                    <button className="btn btn-sm btn-primary" disabled={!account || approvingDraft === d.je_draft_id} onClick={() => handleApproveDraft(d.je_draft_id)}>
+                      {approvingDraft === d.je_draft_id ? "Approving…" : "Approve"}
+                    </button>
+                    <button className="btn btn-sm" disabled={dismissingDraft === d.je_draft_id} onClick={() => handleDismissDraft(d.je_draft_id)}>Dismiss</button>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                      <input type="checkbox" checked={rememberRuleFor === d.je_draft_id}
+                        onChange={(e) => setRememberRuleFor(e.target.checked ? d.je_draft_id : null)} />
+                      Remember this categorization
+                    </label>
+                    {rememberRuleFor === d.je_draft_id && (
+                      <input placeholder="Match text (e.g. a vendor name)" style={{ minWidth: 160 }}
+                        value={ruleMatchTextEdits[d.je_draft_id] ?? d.description ?? ""}
+                        onChange={(e) => setRuleMatchTextEdits((m) => ({ ...m, [d.je_draft_id]: e.target.value }))} />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!!readyToReconcile?.length && (
+        <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <strong style={{ fontSize: 13 }}>Ready to Reconcile ({readyToReconcile.length})</strong>
+            <button className="btn btn-sm btn-primary" disabled={confirmingAll} onClick={handleConfirmAllReconcile}>{confirmingAll ? "Confirming…" : "Confirm All"}</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12, padding: "6px 14px 0" }}>These journal entries were approved and posted — confirm each one clears against the bank line it came from.</p>
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {readyToReconcile.map((r) => (
+              <div key={r.draftId} style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 13 }}>{r.description || "—"}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>Journal entry {r.jeRef}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 700 }}>{fmtMoney(r.amount)}</span>
+                  <button className="btn btn-sm btn-primary" disabled={confirmingMatch === r.draftId} onClick={() => handleConfirmReconcile(r)}>
+                    {confirmingMatch === r.draftId ? "Confirming…" : "Confirm Match"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 16, padding: 0, overflow: "hidden" }}>
+        <div
+          style={{ padding: "10px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+          onClick={() => setShowRules((v) => !v)}
+          tabIndex={0}
+          role="button"
+          aria-expanded={showRules}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowRules((v) => !v); } }}
+        >
+          <span>Categorization Rules ({(rules || []).filter((r) => r.active).length} active)</span>
+          <span className="muted" aria-hidden="true">{showRules ? "▾" : "▸"}</span>
+        </div>
+        {showRules && (
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            <div style={{ padding: "8px 14px", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid var(--line)" }}>
+              <input placeholder="If description contains…" style={{ minWidth: 160 }} value={newRule.matchText} onChange={(e) => setNewRule((f) => ({ ...f, matchText: e.target.value }))} />
+              <span className="muted">→</span>
+              <select style={{ minWidth: 200 }} value={newRule.accountName} onChange={(e) => setNewRule((f) => ({ ...f, accountName: e.target.value }))}>
+                <option value="">Suggest account…</option>
+                {nonBankAccounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+              </select>
+              <button className="btn btn-sm btn-primary" disabled={!newRule.matchText.trim() || !newRule.accountName || savingRule} onClick={handleAddRule}>
+                {savingRule ? "Saving…" : "Add Rule"}
+              </button>
+            </div>
+            <div style={{ maxHeight: 240, overflowY: "auto" }}>
+              {(rules || []).map((r) => (
+                <div key={r.rule_id} style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, opacity: r.active ? 1 : 0.5 }}>
+                  <div style={{ fontSize: 13 }}>"{r.match_text}" <span className="muted">→</span> {r.account_name}</div>
+                  <button className="btn btn-sm" onClick={() => handleToggleRule(r)}>{r.active ? "Deactivate" : "Reactivate"}</button>
+                </div>
+              ))}
+              {!rules?.length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No rules yet — add one above so future uploads categorize themselves.</p>}
+            </div>
+          </div>
+        )}
+      </div>
+
       {data && (
         <div className="metric-grid" style={{ marginBottom: 16 }}>
           <div className="metric"><div className="metric-label">Book Balance (as of {fmtDate(asOf)})</div><div className="metric-value">{fmtMoney(data.bookBalance)}</div></div>
@@ -4228,9 +4493,15 @@ function BankRecTab({ clientId }: { clientId: string }) {
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                       <span style={{ fontWeight: 700 }}>{fmtMoney(b.amount)}</span>
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
-                          {creatingFor === b.line_id ? "Cancel" : "New Entry"}
-                        </button>
+                        {b.je_draft_status && b.je_draft_status !== "Dismissed" ? (
+                          <span className="muted" style={{ fontSize: 11 }} title="This line already has a suggested or approved journal entry — see Suggested Journal Entries / Ready to Reconcile below.">
+                            {b.je_draft_status === "Pending" ? "Suggested below" : "Approved — ready to reconcile"}
+                          </span>
+                        ) : (
+                          <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCreatingFor(creatingFor === b.line_id ? null : b.line_id); }}>
+                            {creatingFor === b.line_id ? "Cancel" : "New Entry"}
+                          </button>
+                        )}
                         <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleDeleteLine(b.line_id); }}>Delete</button>
                       </div>
                     </div>

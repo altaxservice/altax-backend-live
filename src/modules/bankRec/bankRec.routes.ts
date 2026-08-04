@@ -99,6 +99,59 @@ function parseBankCsv(rows: string[][]): { lines: { date: string; description: s
   return { lines };
 }
 
+/**
+ * Bank Rec Agent — rule-based categorization suggestion for a bank line's
+ * description, not an LLM/AI guess (same "deterministic, not probabilistic"
+ * philosophy as auto-match above). Client-scoped rules only; the longest
+ * matching rule wins so a specific rule ("APEX CARD SERVICES") beats a
+ * generic one ("CARD"), with a deterministic tie-break (most-recently-
+ * updated rule, then lowest rule_id) so two equal-length matches never
+ * produce a random result.
+ */
+async function suggestCategory(clientId: string, description: string | null): Promise<{ account: string; ruleId: string } | null> {
+  const desc = String(description || "").toUpperCase().replace(/\s+/g, " ").trim();
+  if (!desc) return null;
+  const rules = await query<any>(
+    `SELECT rule_id, match_text, account_name, updated_at FROM altax.v3_je_category_rules WHERE client_id = $1 AND active = true`,
+    [clientId]
+  );
+  let best: any = null;
+  let bestNorm = "";
+  for (const r of rules) {
+    const norm = String(r.match_text || "").toUpperCase().replace(/\s+/g, " ").trim();
+    if (!norm || !desc.includes(norm)) continue;
+    if (!best || norm.length > bestNorm.length) { best = r; bestNorm = norm; continue; }
+    if (norm.length === bestNorm.length) {
+      const newer = new Date(r.updated_at).getTime() > new Date(best.updated_at).getTime();
+      const sameAgeLowerId = new Date(r.updated_at).getTime() === new Date(best.updated_at).getTime() && String(r.rule_id) < String(best.rule_id);
+      if (newer || sameAgeLowerId) { best = r; bestNorm = norm; }
+    }
+  }
+  return best ? { account: best.account_name, ruleId: best.rule_id } : null;
+}
+
+/** Shared by the manual "New Entry" flow and Bank Rec Agent draft approval — the balanced 2-line GL entry a bank line needs. Does NOT touch matched_gl_entry_id; callers decide whether/when to mark the line matched. */
+async function createBalancedBankLineEntry(
+  client: { client_id: string; client_name: string },
+  line: { statement_date: string; description: string | null; amount: number | string; account_name: string },
+  offsetAccount: string,
+  jeId: string,
+  db: any
+): Promise<string> {
+  const amount = Number(line.amount);
+  const bankDebit = amount > 0 ? amount : 0;
+  const bankCredit = amount < 0 ? Math.abs(amount) : 0;
+  const glEntryId = await appendGl(client.client_id, client.client_name, {
+    entryDate: line.statement_date, ref: jeId, description: line.description || "Bank reconciliation entry",
+    account: line.account_name, debit: bankDebit, credit: bankCredit, source: "Bank Reconciliation", notes: null,
+  }, db);
+  await appendGl(client.client_id, client.client_name, {
+    entryDate: line.statement_date, ref: jeId, description: line.description || "Bank reconciliation entry",
+    account: offsetAccount, debit: bankCredit, credit: bankDebit, source: "Bank Reconciliation", notes: null,
+  }, db);
+  return glEntryId;
+}
+
 bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const clientId = String(body.clientId || "").trim();
@@ -142,10 +195,20 @@ bankRecRouter.post("/upload", requireAuth, requireRole("admin", "staff"), asyncH
 
   let inserted = 0;
   for (const line of parsed.lines) {
+    const lineId = `BSL-${idSuffix()}-${inserted}`;
     await query(
       `INSERT INTO altax.v3_bank_statement_lines (line_id, client_id, account_name, statement_date, description, amount, uploaded_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [`BSL-${idSuffix()}-${inserted}`, clientId, accountName, line.date, line.description || null, line.amount, req.user!.email]
+      [lineId, clientId, accountName, line.date, line.description || null, line.amount, req.user!.email]
+    );
+    // Bank Rec Agent: every freshly-uploaded line gets a draft immediately, so
+    // "read the statement and add the JE" happens on upload, not behind a
+    // separate trigger — staff still has to approve before anything posts.
+    const suggestion = await suggestCategory(clientId, line.description);
+    await query(
+      `INSERT INTO altax.v3_je_drafts (je_draft_id, client_id, client_name, bank_line_id, bank_account_name, amount, description, suggested_account, matched_rule_id, source_system)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Bank Rec Agent')`,
+      [`JED-${idSuffix()}-${inserted}`, clientId, client.client_name, lineId, accountName, line.amount, line.description || null, suggestion?.account || null, suggestion?.ruleId || null]
     );
     inserted++;
   }
@@ -179,9 +242,11 @@ bankRecRouter.get("/:clientId", requireAuth, requireRole("admin", "staff"), asyn
   // bank line outright (which destroys the record instead of just unmatching).
   const bankLines = await query<any>(
     `SELECT b.line_id, b.statement_date, b.description, b.amount, b.matched_gl_entry_id,
-            g.description AS matched_gl_description, g.entry_date AS matched_gl_date
+            g.description AS matched_gl_description, g.entry_date AS matched_gl_date,
+            d.je_draft_id, d.status AS je_draft_status
        FROM altax.v3_bank_statement_lines b
        LEFT JOIN altax.v3_gl_entries g ON g.gl_entry_id = b.matched_gl_entry_id
+       LEFT JOIN altax.v3_je_drafts d ON d.bank_line_id = b.line_id
       WHERE b.client_id = $1 AND b.account_name = $2${asOfClauseBank}
       ORDER BY b.statement_date ASC`,
     params
@@ -284,6 +349,12 @@ bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff")
   const line = await queryOne<any>(`SELECT client_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   if (!line) return res.status(404).json({ error: "Bank statement line not found." });
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  // An Approved draft already posted a real GL entry from this line — deleting
+  // the line would silently orphan that entry (nothing left to reconcile it
+  // through). A Pending draft hasn't posted anything, so it's safe to let the
+  // schema's ON DELETE CASCADE remove it along with the line.
+  const approvedDraft = await queryOne<any>(`SELECT je_draft_id FROM altax.v3_je_drafts WHERE bank_line_id = $1 AND status = 'Approved'`, [lineId]);
+  if (approvedDraft) return res.status(400).json({ error: "This line has an approved journal entry — reconcile it or reverse the GL entry manually before deleting." });
   await query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   res.json({ ok: true });
 }));
@@ -339,30 +410,188 @@ bankRecRouter.post("/:lineId/create-entry", requireAuth, requireRole("admin", "s
   if (!line) return res.status(404).json({ error: "Bank statement line not found." });
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   if (line.matched_gl_entry_id) return res.status(400).json({ error: "This line is already matched." });
+  // Bank Rec Agent already has (or is working on) a draft for this line —
+  // creating a second entry here would double-post the same transaction.
+  const activeDraft = await queryOne<any>(`SELECT je_draft_id FROM altax.v3_je_drafts WHERE bank_line_id = $1 AND status != 'Dismissed'`, [lineId]);
+  if (activeDraft) return res.status(400).json({ error: "This line has a pending or approved draft journal entry — use the draft instead of creating a new one." });
 
   const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [line.client_id]);
   if (!client) return res.status(404).json({ error: "Client not found." });
 
-  const amount = Number(line.amount);
-  const bankDebit = amount > 0 ? amount : 0;
-  const bankCredit = amount < 0 ? Math.abs(amount) : 0;
   const jeId = `JE-${idSuffix()}`;
-
   let glEntryId = "";
   await withTransaction(async (db) => {
-    glEntryId = await appendGl(client.client_id, client.client_name, {
-      entryDate: line.statement_date, ref: jeId, description: line.description || "Bank reconciliation entry",
-      account: line.account_name, debit: bankDebit, credit: bankCredit, source: "Bank Reconciliation", notes: null,
-    }, db);
-    await appendGl(client.client_id, client.client_name, {
-      entryDate: line.statement_date, ref: jeId, description: line.description || "Bank reconciliation entry",
-      account: offsetAccount, debit: bankCredit, credit: bankDebit, source: "Bank Reconciliation", notes: null,
-    }, db);
+    glEntryId = await createBalancedBankLineEntry(client, line, offsetAccount, jeId, db);
     await db.query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, glEntryId]);
   });
 
-  await logAudit("Accounting", "CREATE_BANK_REC_ENTRY", glEntryId, "", "", String(amount),
+  await logAudit("Accounting", "CREATE_BANK_REC_ENTRY", glEntryId, "", "", String(line.amount),
     `GL entry created from bank line by ${req.user!.email}.`, req.user!.email);
 
   res.status(201).json({ ok: true, glEntryId });
+}));
+
+/** Bank Rec Agent — Stage 1 review queue: drafts auto-created on upload, awaiting staff approval before anything posts. */
+bankRecRouter.get("/:clientId/je-drafts", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const status = String(req.query.status || "Pending").trim();
+  const accountName = String(req.query.accountName || "").trim();
+  const params: any[] = [clientId, status];
+  let accountClause = "";
+  if (accountName) { params.push(accountName); accountClause = ` AND d.bank_account_name = $${params.length}`; }
+  const drafts = await query<any>(
+    `SELECT d.*, b.statement_date, r.match_text AS matched_rule_text
+       FROM altax.v3_je_drafts d
+       JOIN altax.v3_bank_statement_lines b ON b.line_id = d.bank_line_id
+       LEFT JOIN altax.v3_je_category_rules r ON r.rule_id = d.matched_rule_id
+      WHERE d.client_id = $1 AND d.status = $2${accountClause}
+      ORDER BY b.statement_date ASC`,
+    params
+  );
+  res.json({ drafts: drafts.map((d: any) => ({ ...d, amount: Number(d.amount) })) });
+}));
+
+/** Bank Rec Agent — Stage 1 approve: posts the balanced GL entry, does NOT mark the bank line matched (that's Stage 2, a separate explicit confirmation). */
+async function approveJeDraft(draftId: string, actor: { email: string }, body: any): Promise<{ ok: true; glEntryId: string } | { ok: false; error: string }> {
+  const draft = await queryOne<any>(`SELECT * FROM altax.v3_je_drafts WHERE je_draft_id = $1`, [draftId]);
+  if (!draft) return { ok: false, error: "Draft not found." };
+  if (draft.status !== "Pending") return { ok: false, error: `This draft is already ${draft.status}.` };
+
+  const line = await queryOne<any>(`SELECT * FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [draft.bank_line_id]);
+  if (!line) return { ok: false, error: "The underlying bank line no longer exists." };
+  if (line.matched_gl_entry_id) return { ok: false, error: "This bank line was already matched outside the draft flow." };
+
+  const overrides = body?.overrides || {};
+  const account = String(overrides.account || draft.suggested_account || "").trim();
+  if (!account) return { ok: false, error: "Pick a category before approving." };
+  const description = String(overrides.description || draft.description || "Bank reconciliation entry").trim();
+
+  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [draft.client_id]);
+  if (!client) return { ok: false, error: "Client not found." };
+
+  const jeId = `JE-${idSuffix()}`;
+  let glEntryId = "";
+  await withTransaction(async (db) => {
+    glEntryId = await createBalancedBankLineEntry(client, { ...line, description }, account, jeId, db);
+    await db.query(
+      `UPDATE altax.v3_je_drafts SET status = 'Approved', staff_overrides = $2, resulting_gl_entry_id = $3, resulting_je_ref = $4, approved_by = $5, approved_at = now(), updated_at = now() WHERE je_draft_id = $1`,
+      [draftId, Object.keys(overrides).length ? JSON.stringify(overrides) : null, glEntryId, jeId, actor.email]
+    );
+  });
+
+  if (body?.rememberAsRule) {
+    const ruleMatchText = String(body.ruleMatchText || line.description || "").trim();
+    if (ruleMatchText) {
+      await query(
+        `INSERT INTO altax.v3_je_category_rules (rule_id, client_id, match_text, account_name, created_by)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [`JER-${idSuffix()}`, draft.client_id, ruleMatchText, account, actor.email]
+      );
+    }
+  }
+
+  await logAudit("Accounting", "APPROVE_JE_DRAFT", glEntryId, "", "", account,
+    `Bank Rec Agent draft approved by ${actor.email}.`, actor.email);
+
+  return { ok: true, glEntryId };
+}
+
+bankRecRouter.post("/je-drafts/:id/approve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_je_drafts WHERE je_draft_id = $1`, [req.params.id]);
+  if (!draft) return res.status(404).json({ error: "Draft not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  const result = await approveJeDraft(req.params.id, req.user!, req.body || {});
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json(result);
+}));
+
+/** Bulk approve — partial success allowed, mirroring the Payroll Agent's approve-bulk. */
+bankRecRouter.post("/je-drafts/approve-bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const draftIds: string[] = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
+  if (!draftIds.length) return res.status(400).json({ error: "draftIds is required." });
+  const results: any[] = [];
+  for (const draftId of draftIds) {
+    const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_je_drafts WHERE je_draft_id = $1`, [draftId]);
+    if (!draft) { results.push({ draftId, ok: false, error: "Draft not found." }); continue; }
+    if (!(await canAccessClient(req.user!, draft.client_id))) { results.push({ draftId, ok: false, error: "No access to this client." }); continue; }
+    const result = await approveJeDraft(draftId, req.user!, {});
+    results.push(result.ok ? { draftId, ok: true, glEntryId: result.glEntryId } : { draftId, ok: false, error: result.error });
+  }
+  res.json({ ok: true, results });
+}));
+
+/** Dismiss a Stage 1 draft — nothing was posted, so no reversal is needed. */
+bankRecRouter.post("/je-drafts/:id/dismiss", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const draft = await queryOne<any>(`SELECT client_id, status FROM altax.v3_je_drafts WHERE je_draft_id = $1`, [req.params.id]);
+  if (!draft) return res.status(404).json({ error: "Draft not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  if (draft.status !== "Pending") return res.status(400).json({ error: `This draft is already ${draft.status}.` });
+  const reason = String(req.body?.reason || "").trim();
+  await query(
+    `UPDATE altax.v3_je_drafts SET status = 'Dismissed', dismissed_reason = $2, dismissed_by = $3, dismissed_at = now(), updated_at = now() WHERE je_draft_id = $1`,
+    [req.params.id, reason || null, req.user!.email]
+  );
+  res.json({ ok: true });
+}));
+
+/** Bank Rec Agent — Stage 2 review queue: Approved drafts whose bank line still isn't reconciled. Confirming reuses the existing /:lineId/match route unmodified. */
+bankRecRouter.get("/:clientId/ready-to-reconcile", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const accountName = String(req.query.accountName || "").trim();
+  const params: any[] = [clientId];
+  let accountClause = "";
+  if (accountName) { params.push(accountName); accountClause = ` AND d.bank_account_name = $${params.length}`; }
+  const rows = await query<any>(
+    `SELECT d.je_draft_id AS "draftId", d.bank_line_id AS "bankLineId", d.resulting_gl_entry_id AS "glEntryId",
+            d.amount, d.description, d.resulting_je_ref AS "jeRef"
+       FROM altax.v3_je_drafts d
+       JOIN altax.v3_bank_statement_lines b ON b.line_id = d.bank_line_id
+      WHERE d.client_id = $1 AND d.status = 'Approved' AND b.matched_gl_entry_id IS NULL${accountClause}
+      ORDER BY b.statement_date ASC`,
+    params
+  );
+  res.json({ ready: rows.map((r: any) => ({ ...r, amount: Number(r.amount) })) });
+}));
+
+/** Bank Rec Agent — per-client categorization rules ("if description contains X, suggest account Y"). */
+bankRecRouter.get("/:clientId/je-rules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const rules = await query<any>(`SELECT * FROM altax.v3_je_category_rules WHERE client_id = $1 ORDER BY active DESC, match_text ASC`, [clientId]);
+  res.json({ rules });
+}));
+
+bankRecRouter.post("/je-rules", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.body?.clientId || "").trim();
+  const matchText = String(req.body?.matchText || "").trim();
+  const accountName = String(req.body?.accountName || "").trim();
+  if (!clientId || !matchText || !accountName) return res.status(400).json({ error: "clientId, matchText, and accountName are required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const client = await queryOne<any>(`SELECT client_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+  const ruleId = `JER-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_je_category_rules (rule_id, client_id, match_text, account_name, created_by) VALUES ($1,$2,$3,$4,$5)`,
+    [ruleId, clientId, matchText, accountName, req.user!.email]
+  );
+  res.status(201).json({ ok: true, ruleId });
+}));
+
+/** Update or deactivate/reactivate a rule. */
+bankRecRouter.post("/je-rules/:id", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const rule = await queryOne<any>(`SELECT client_id FROM altax.v3_je_category_rules WHERE rule_id = $1`, [req.params.id]);
+  if (!rule) return res.status(404).json({ error: "Rule not found." });
+  if (!(await canAccessClient(req.user!, rule.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  const body = req.body || {};
+  const fields: string[] = [];
+  const params: any[] = [req.params.id];
+  if (body.matchText !== undefined) { params.push(String(body.matchText).trim()); fields.push(`match_text = $${params.length}`); }
+  if (body.accountName !== undefined) { params.push(String(body.accountName).trim()); fields.push(`account_name = $${params.length}`); }
+  if (body.active !== undefined) { params.push(Boolean(body.active)); fields.push(`active = $${params.length}`); }
+  if (!fields.length) return res.status(400).json({ error: "Nothing to update." });
+  fields.push(`updated_at = now()`);
+  await query(`UPDATE altax.v3_je_category_rules SET ${fields.join(", ")} WHERE rule_id = $1`, params);
+  res.json({ ok: true });
 }));
