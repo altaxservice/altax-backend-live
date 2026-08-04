@@ -599,7 +599,7 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
   // every configured reminder fires again for the new time rather than
   // silently never sending.
   const timeChanged = new Date(startTime).getTime() !== new Date(existing.start_time).getTime();
-  const newAssignedTo = body.assignedTo !== undefined ? String(body.assignedTo).trim() || null : existing.assigned_to;
+  const newAssignedTo = body.assignedTo !== undefined ? (body.assignedTo ? String(body.assignedTo).trim() || null : null) : existing.assigned_to;
   const assignmentChanged = newAssignedTo !== existing.assigned_to;
   // Only validate when the assignment is actually changing to a new value —
   // an appointment already assigned to someone since made inactive (the
@@ -619,13 +619,22 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
        updated_at = now()
      WHERE appointment_id = $1`,
     [appointmentId, title, startTime, endTime,
-      body.location !== undefined ? String(body.location).trim() || null : existing.location,
-      body.notes !== undefined ? String(body.notes).trim() || null : existing.notes,
-      body.assignedTo !== undefined ? String(body.assignedTo).trim() || null : existing.assigned_to,
+      body.location !== undefined ? (body.location ? String(body.location).trim() || null : null) : existing.location,
+      body.notes !== undefined ? (body.notes ? String(body.notes).trim() || null : null) : existing.notes,
+      body.assignedTo !== undefined ? (body.assignedTo ? String(body.assignedTo).trim() || null : null) : existing.assigned_to,
       body.notifyClient !== undefined ? !!body.notifyClient : existing.notify_client,
       timeChanged,
-      body.appointmentTypeId !== undefined ? String(body.appointmentTypeId).trim() || null : existing.appointment_type_id,
-      body.appointmentTypeName !== undefined ? String(body.appointmentTypeName).trim() || null : existing.appointment_type_name]
+      // A JS `null` sent in the JSON body means "clear the type" (the Edit
+      // modal's "Custom" duration option sends exactly this) — but
+      // `String(null)` stringifies to the 4-character text "null", not an
+      // empty string, so the old `String(x).trim() || null` here was writing
+      // the literal word "null" into appointment_type_id, which then failed
+      // its FK constraint against v3_appointment_types with a raw 500. Every
+      // appointment booked through the public /book page has a null type (no
+      // picker shown when there's only one type), so editing and saving any
+      // of them hit this on every single save.
+      body.appointmentTypeId !== undefined ? (body.appointmentTypeId ? String(body.appointmentTypeId).trim() || null : null) : existing.appointment_type_id,
+      body.appointmentTypeName !== undefined ? (body.appointmentTypeName ? String(body.appointmentTypeName).trim() || null : null) : existing.appointment_type_name]
   );
 
   if (timeChanged || assignmentChanged) {
