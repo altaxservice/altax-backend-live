@@ -125,8 +125,13 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   const phone = String(body.phone || "").trim();
   const startTime = String(body.startTime || "").trim();
   const reason = String(body.reason || "").trim();
-  if (!name || !email || !phone || !startTime) {
-    return res.status(400).json({ error: "Name, email, phone, and a time slot are required." });
+  // Phone/email are how we'd confirm or remind someone, but the fields stay
+  // optional rather than required — a walk-in prospect who'd rather not share
+  // either shouldn't be blocked from getting on the calendar at all. If both
+  // are left blank, createAppointment() below just skips the confirmation
+  // send (see notifyAppointment's early return) rather than failing.
+  if (!name || !startTime) {
+    return res.status(400).json({ error: "Name and a time slot are required." });
   }
 
   const startMs = new Date(startTime).getTime();
@@ -164,8 +169,8 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     const html = `
       <h2>New consultation booked online</h2>
       <p><strong>Name:</strong> ${name}</p>
-      <p><strong>Phone:</strong> ${phone}</p>
-      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Phone:</strong> ${phone || "not provided"}</p>
+      <p><strong>Email:</strong> ${email || "not provided"}</p>
       <p><strong>When:</strong> ${when} ET</p>
       ${reason ? `<p><strong>Notes:</strong><br>${reason.replace(/\n/g, "<br>")}</p>` : ""}
       <p style="color:#777;font-size:12px;">Booked via the public /book page · ${appointmentId}</p>

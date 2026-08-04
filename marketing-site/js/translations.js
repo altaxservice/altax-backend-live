@@ -384,6 +384,8 @@ const TRANSLATIONS = {
   "book.loading": { en: "Loading…", ar: "جارٍ التحميل…" },
   "book.noSlots": { en: "No open times that day — try another date.", ar: "لا توجد أوقات متاحة في ذلك اليوم — جرّب تاريخًا آخر." },
   "book.nameLabel": { en: "Full name *", ar: "الاسم الكامل *" },
+  "book.phoneLabel": { en: "Phone (optional)", ar: "الهاتف (اختياري)" },
+  "book.emailLabel": { en: "Email (optional)", ar: "البريد الإلكتروني (اختياري)" },
   "book.reasonLabel": { en: "What would you like to discuss? (optional)", ar: "ما الذي ترغب في مناقشته؟ (اختياري)" },
   "book.submit": { en: "Confirm Appointment", ar: "تأكيد الموعد" },
   "book.successMessage": { en: "Your appointment is confirmed — check your email/text for details.", ar: "تم تأكيد موعدكم — يرجى مراجعة بريدكم الإلكتروني أو رسائلكم النصية للتفاصيل." },
