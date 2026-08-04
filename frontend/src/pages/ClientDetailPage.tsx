@@ -23,7 +23,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import type { PoaFiling } from "../api/poaForms";
 import { FORM_LABELS, SUBMIT_VIA_OPTIONS, STATUS_COLOR } from "../api/poaForms";
 import { GeneratePoaFormModal } from "../components/GeneratePoaFormModal";
-import type { GovFormFiling } from "../api/govForms";
+import type { GovFormFiling, ClientGovFormType } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
@@ -1626,6 +1626,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [editingFiling, setEditingFiling] = useState<GovFormFiling | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
@@ -1748,6 +1749,9 @@ function GovFormsSection({ clientId }: { clientId: string }) {
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
                       {f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" onClick={() => setEditingFiling(f)}>Edit</button>
+                      )}
+                      {f.status === "Draft" && (
                         <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now (In Person)</button>
                       )}
                       {f.status === "Signed" && (
@@ -1824,6 +1828,14 @@ function GovFormsSection({ clientId }: { clientId: string }) {
 
       {generating && (
         <GenerateGovFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
+      )}
+      {editingFiling && (
+        <GenerateGovFormModal
+          clientId={clientId}
+          editingFiling={{ filing_id: editingFiling.filing_id, form_type: editingFiling.form_type as ClientGovFormType, form_data: editingFiling.form_data }}
+          onClose={() => setEditingFiling(null)}
+          onDone={() => { setEditingFiling(null); load(); }}
+        />
       )}
     </div>
   );

@@ -40,21 +40,29 @@ const EMPTY_SHAREHOLDER: Shareholder = { name: "", address: "", idNumber: "", sh
  * physical-signature-only, same rule as every other government form and
  * client contract in this app.
  */
-export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDone }: {
+interface FirmProfileLite { firmName: string; street: string; city: string; state: string; zipCode: string; phone: string; email: string }
+
+export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling, onClose, onDone }: {
   clientId: string;
   defaultFormType?: ClientGovFormType;
+  /** Pass an existing Draft filing to edit it in place (PATCH) instead of creating a new one — form type is then locked to whatever the filing already is. */
+  editingFiling?: { filing_id: string; form_type: ClientGovFormType; form_data: Record<string, any> };
   onClose: () => void;
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
+  const isEditing = !!editingFiling;
   const [meta, setMeta] = useState<GovFormsMeta | null>(null);
   const [identity, setIdentity] = useState<ClientIdentity | null>(null);
+  const [firmProfile, setFirmProfile] = useState<FirmProfileLite | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [formType, setFormType] = useState<ClientGovFormType>(defaultFormType || "SS4");
+  const [formType, setFormType] = useState<ClientGovFormType>(editingFiling?.form_type || defaultFormType || "SS4");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Only offered when creating a fresh CRA filing — see the CRA section below.
+  const [craGeneratePoa, setCraGeneratePoa] = useState(false);
 
   // Form SS-4 state
   const [ss4, setSs4] = useState({
@@ -114,10 +122,30 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
     Promise.all([
       api.get<GovFormsMeta>("/gov-forms/meta"),
       api.get<{ client: ClientIdentity }>(`/gov-forms/client/${clientId}/identity`),
+      api.get<FirmProfileLite>("/firm-settings"),
     ])
-      .then(([m, res]) => {
+      .then(([m, res, firm]) => {
         setMeta(m);
         setIdentity(res.client);
+        setFirmProfile(firm);
+
+        // Editing an existing Draft: initialize every field from what's
+        // already saved on the filing, not a fresh re-prefill from the
+        // client record — the client's own data may have changed since this
+        // filing was first created, and a filing is a snapshot, not a live view.
+        if (editingFiling) {
+          const d = editingFiling.form_data || {};
+          if (editingFiling.form_type === "SS4") setSs4((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "2553") {
+            setF2553((f) => ({ ...f, ...d }));
+            if (Array.isArray(d.shareholders) && d.shareholders.length) setShareholders(d.shareholders);
+          }
+          if (editingFiling.form_type === "W9") setW9((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "CRA") setCra((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "8332") setF8332((f) => ({ ...f, ...d }));
+          return;
+        }
+
         const addr = combinedAddress(res.client);
         setF2553((f) => ({
           ...f, corporationName: res.client.client_name, corporationAddress: addr, ein: res.client.ein || "",
@@ -137,8 +165,20 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
         const officer = splitName(res.client.company_contact_name);
         setCra((f) => ({
           ...f,
-          fein: res.client.ein || "", ssn: res.client.individual_ssn || "", datEntityId: res.client.secretary_of_state_id || "",
-          legalLastName: res.client.client_name,
+          fein: res.client.ein || "", ssn: res.client.individual_ssn || "",
+          // SDAT Entity ID is deliberately never autofilled, even though the
+          // client record has one on file (secretary_of_state_id) — the
+          // number that belongs on this exact filing isn't always the same
+          // as whatever's stored on the client profile (e.g. a fresh
+          // registration, or a correction), so it's typed in by hand every
+          // time rather than risk silently carrying over a stale/wrong ID.
+          datEntityId: "",
+          // Box 2a on the real form is "Legal FIRST name" — but for an
+          // entity filing (the overwhelming majority of CRA use here) the
+          // full legal business name goes entirely in 2a, with 2b left
+          // blank, not split across the two boxes. See cra.ts's CraData
+          // comment.
+          legalFirstName: res.client.client_name,
           street1: res.client.street_address || "", city: res.client.city || "", state: res.client.state || "MD", zip: res.client.zip_code || "",
           phone: res.client.phone || "", email: res.client.email || "",
           officerFirstName: officer.first, officerLastName: officer.last, officerSsn: res.client.company_contact_ssn || "",
@@ -174,7 +214,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
       return { ...w9 };
     }
     if (formType === "CRA") {
-      if (!cra.legalLastName.trim()) { setSaveError("Legal name is required."); return null; }
+      if (!cra.legalFirstName.trim()) { setSaveError("Legal name is required."); return null; }
       if (!cra.street1.trim() || !cra.city.trim() || !cra.zip.trim()) { setSaveError("Physical business address is required."); return null; }
       if (cra.taxTypes.length === 0) { setSaveError("Select at least one tax account being requested."); return null; }
       return { ...cra };
@@ -202,11 +242,36 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
     if (!formData) return;
     setSaving(true);
     try {
-      await api.post(`/gov-forms/client/${clientId}`, { formType, formData });
+      if (isEditing) {
+        await api.patch(`/gov-forms/${editingFiling!.filing_id}`, { formData });
+      } else {
+        await api.post(`/gov-forms/client/${clientId}`, { formType, formData });
+        // Best-effort, separate request — a failure here shouldn't undo the
+        // CRA filing that already succeeded; the checkbox is a convenience,
+        // not a transaction. Staff can always create the POA by hand from
+        // the POA Filings section if this second call fails.
+        if (formType === "CRA" && craGeneratePoa && firmProfile) {
+          try {
+            await api.post(`/poa-forms/client/${clientId}`, {
+              formType: "548",
+              representatives: [{
+                name: firmProfile.firmName,
+                address: [firmProfile.street, [firmProfile.city, firmProfile.state, firmProfile.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(", "),
+                phone: firmProfile.phone || undefined,
+                email: firmProfile.email || undefined,
+              }],
+              taxMatters: [{ description: `Maryland business tax registration (${cra.taxTypes.join(", ") || "Combined Registration Application"})`, taxForm: "CRA" }],
+              notes: "Auto-generated alongside the Maryland CRA filing for this registration.",
+            });
+          } catch {
+            // Swallowed intentionally — see comment above.
+          }
+        }
+      }
       onDone();
       onClose();
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not create this filing.");
+      setSaveError(err instanceof ApiError ? err.message : `Could not ${isEditing ? "save" : "create"} this filing.`);
     } finally {
       setSaving(false);
     }
@@ -216,12 +281,12 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
     <div className="modal-overlay" onClick={onClose}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-gov-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 id="generate-gov-form-title">Generate Government Form</h2>
+          <h2 id="generate-gov-form-title">{isEditing ? "Edit Draft Filing" : "Generate Government Form"}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
 
         {loadError && <ErrorBanner error={loadError} />}
-        {!meta || !identity ? (
+        {!meta || !identity || !firmProfile ? (
           <p className="muted">Loading…</p>
         ) : (
           <div>
@@ -229,9 +294,13 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
 
             <div className="field">
               <label htmlFor="gf-type">Form</label>
-              <select id="gf-type" value={formType} onChange={(e) => setFormType(e.target.value as ClientGovFormType)}>
-                {meta.clientFormTypes.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
+              {isEditing ? (
+                <input id="gf-type" value={meta.clientFormTypes.find((f) => f.value === formType)?.label || formType} disabled readOnly />
+              ) : (
+                <select id="gf-type" value={formType} onChange={(e) => setFormType(e.target.value as ClientGovFormType)}>
+                  {meta.clientFormTypes.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              )}
             </div>
 
             {formType === "SS4" && (
@@ -528,10 +597,17 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                   tobacco, motor fuel, successor-employer history) are left for the preparer to complete by hand from the
                   form's own printed instructions, since they depend on facts this app doesn't track.
                 </p>
+                {!isEditing && (
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
+                    <input type="checkbox" checked={craGeneratePoa} onChange={(e) => setCraGeneratePoa(e.target.checked)} />
+                    Also generate a Maryland Form 548 (Power of Attorney), authorizing {firmProfile.firmName} to handle this
+                    registration with the Comptroller — creates a second Draft filing alongside this one, in the POA Filings section.
+                  </label>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label htmlFor="gf-cra-legal-name">Legal name of entity</label>
-                    <input id="gf-cra-legal-name" value={cra.legalLastName} onChange={(e) => setCra({ ...cra, legalLastName: e.target.value })} />
+                    <label htmlFor="gf-cra-legal-name">Legal name of entity <span className="muted">(Box 2a)</span></label>
+                    <input id="gf-cra-legal-name" value={cra.legalFirstName} onChange={(e) => setCra({ ...cra, legalFirstName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-cra-trade-name">Trade name <span className="muted">(optional)</span></label>
@@ -548,7 +624,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, onClose, onDon
                     <input id="gf-cra-ssn" value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID</label>
+                    <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID <span className="muted">(enter manually)</span></label>
                     <input id="gf-cra-dat-entity-id" value={cra.datEntityId} onChange={(e) => setCra({ ...cra, datEntityId: e.target.value })} />
                   </div>
                 </div>

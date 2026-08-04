@@ -385,6 +385,28 @@ govFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asy
   res.json({ filing });
 }));
 
+/** Edits a Draft filing's data in place — same Draft-only rule as delete below (once signed it's a real record, not a mistake to correct by silently rewriting). Re-validates via generateGovForm first, same fail-fast-before-saving rule the create routes already use. */
+govFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await loadFiling(req, req.params.filingId);
+  if (filing === null) return res.status(404).json({ error: "Filing not found." });
+  if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  if (filing.status !== "Draft") return res.status(400).json({ error: "Only a Draft filing can be edited — this one has been signed." });
+
+  const formData = req.body?.formData;
+  if (!formData || typeof formData !== "object") return res.status(400).json({ error: "Form data is required." });
+
+  try {
+    await generateGovForm(filing.form_type, formData);
+  } catch (err: any) {
+    return res.status(400).json({ error: `Could not generate this form: ${err?.message || "invalid data."}` });
+  }
+
+  await query(`UPDATE altax.v3_gov_form_filings SET form_data=$2, updated_at=now() WHERE filing_id=$1`, [filing.filing_id, JSON.stringify(formData)]);
+  await logAudit("Tools", "UPDATE_GOV_FORM", filing.filing_id, "", "", filing.form_type,
+    `${FORM_LABELS[filing.form_type] || filing.form_type} draft edited by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 govFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });

@@ -85,8 +85,10 @@ export interface CraData {
   fein?: string;
   ssn?: string;
   datEntityId?: string;
-  legalFirstName?: string;
-  legalLastName: string;
+  /** Box 2a on the real form — where the client's full legal name (entity or individual) goes; see this file's header comment. */
+  legalFirstName: string;
+  /** Box 2b — left blank for an entity filing; only used if a preparer wants to split an individual's name into first/last. */
+  legalLastName?: string;
   tradeName?: string;
   street1: string;
   street2?: string;
@@ -203,8 +205,8 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
       fein: data.fein || "",
       ssn: data.ssn || "",
       datEntityId: data.datEntityId || "",
-      legalFirstName: data.legalFirstName || "",
-      legalLastName: data.legalLastName,
+      legalFirstName: data.legalFirstName,
+      legalLastName: data.legalLastName || "",
       tradeName: data.tradeName || "",
       street1: data.street1,
       street2: data.street2 || "",
