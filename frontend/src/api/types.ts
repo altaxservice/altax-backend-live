@@ -119,4 +119,6 @@ export interface Appointment {
   notify_client: boolean;
   reminder_sent_at: string | null;
   created_by: string | null;
+  appointment_type_id: string | null;
+  appointment_type_name: string | null;
 }

@@ -1,7 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { useToast } from "./Toast";
+import { useNotify } from "./ConfirmProvider";
 import { ErrorBanner } from "./ErrorBanner";
+
+interface AppointmentType {
+  appointmentTypeId: string;
+  name: string;
+  durationMinutes: number;
+  active: boolean;
+  sortOrder: number;
+}
 
 interface DayHours {
   startHour: number | null;
@@ -55,6 +64,134 @@ function fmtHour(h: number): string {
 }
 
 /**
+ * The list of named durations a client picks on /book and staff pick when
+ * creating an appointment (e.g. "Quick Question" 15 min, "Full Consultation"
+ * 60 min) — see sql/036_appointment_types.sql. Kept as its own manager rather
+ * than a plain list, since add/edit/deactivate each need their own small
+ * form; a deactivated type stays visible (greyed) so its name is still
+ * recognizable on appointments already booked under it.
+ */
+function AppointmentTypesManager() {
+  const notify = useNotify();
+  const [types, setTypes] = useState<AppointmentType[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDuration, setEditDuration] = useState(30);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDuration, setNewDuration] = useState(30);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    api.get<{ types: AppointmentType[] }>("/appointment-settings/types")
+      .then((res) => setTypes(res.types))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load appointment types."));
+  }
+  useEffect(load, []);
+
+  async function handleAdd() {
+    if (!newName.trim()) return;
+    setBusy(true);
+    try {
+      await api.post("/appointment-settings/types", { name: newName.trim(), durationMinutes: newDuration });
+      setNewName(""); setNewDuration(30); setAdding(false);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not add this appointment type.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEdit(t: AppointmentType) {
+    setEditingId(t.appointmentTypeId); setEditName(t.name); setEditDuration(t.durationMinutes);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingId || !editName.trim()) return;
+    setBusy(true);
+    try {
+      await api.patch(`/appointment-settings/types/${editingId}`, { name: editName.trim(), durationMinutes: editDuration });
+      setEditingId(null);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this appointment type.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleToggleActive(t: AppointmentType) {
+    setBusy(true);
+    try {
+      await api.patch(`/appointment-settings/types/${t.appointmentTypeId}`, { active: !t.active });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this appointment type.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) return <p className="muted" style={{ fontSize: 13, color: "var(--red)" }}>{error}</p>;
+
+  return (
+    <div className="field">
+      <label>Appointment Types</label>
+      <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+        The durations a client can choose from on the public booking page, and staff can pick from when scheduling internally — e.g. a
+        short "Quick Question" alongside a longer "Full Consultation".
+      </p>
+      <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+        {!types ? (
+          <div className="muted" style={{ padding: 12, fontSize: 13 }}>Loading…</div>
+        ) : types.length === 0 ? (
+          <div className="muted" style={{ padding: 12, fontSize: 13 }}>No appointment types yet — add one below.</div>
+        ) : (
+          types.map((t) => (
+            <div key={t.appointmentTypeId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)", opacity: t.active ? 1 : 0.55 }}>
+              {editingId === t.appointmentTypeId ? (
+                <>
+                  <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ flex: 1, minWidth: 0 }} aria-label="Type name" />
+                  <select value={editDuration} onChange={(e) => setEditDuration(Number(e.target.value))} aria-label="Duration">
+                    {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
+                  </select>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={handleSaveEdit}>Save</button>
+                  <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => setEditingId(null)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, fontSize: 13.5, fontWeight: 600 }}>{t.name}</span>
+                  <span className="muted" style={{ fontSize: 12.5 }}>{t.durationMinutes} min</span>
+                  {!t.active && <span className="status-pill status-gray" style={{ fontSize: 11 }}>Inactive</span>}
+                  <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => startEdit(t)}>Edit</button>
+                  <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => handleToggleActive(t)}>{t.active ? "Deactivate" : "Reactivate"}</button>
+                </>
+              )}
+            </div>
+          ))
+        )}
+        {adding ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px" }}>
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Quick Question" style={{ flex: 1, minWidth: 0 }} aria-label="New type name" autoFocus />
+            <select value={newDuration} onChange={(e) => setNewDuration(Number(e.target.value))} aria-label="New type duration">
+              {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
+            </select>
+            <button type="button" className="btn btn-sm btn-primary" disabled={busy || !newName.trim()} onClick={handleAdd}>Add</button>
+            <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => setAdding(false)}>Cancel</button>
+          </div>
+        ) : (
+          <div style={{ padding: "8px 12px" }}>
+            <button type="button" className="ghost-button btn-sm" onClick={() => setAdding(true)}>+ Add Appointment Type</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Calendar Settings (admin-only) — controls what the public /book page and the
  * "+ New Appointment" default offer: which weekdays are bookable, business
  * hours, slot length, how far ahead someone can book, the office
@@ -97,8 +234,8 @@ export function CalendarSettingsPanel() {
       {error && <ErrorBanner error={error} />}
       <p className="muted" style={{ marginTop: 0, marginBottom: 16, fontSize: 13 }}>
         Controls the public "Book a Consultation" page, the SMS/WhatsApp greeting link, and every appointment
-        confirmation/reminder — which days and hours are bookable, how long a slot is, the office location, and the
-        policy text that gets appended in English and Arabic.
+        confirmation/reminder — which days and hours are bookable, the appointment durations someone can choose from,
+        the office location, and the policy text that gets appended in English and Arabic.
       </p>
 
       <div className="field">
@@ -117,9 +254,11 @@ export function CalendarSettingsPanel() {
         </div>
       </div>
 
+      <AppointmentTypesManager />
+
       <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div className="field">
-          <label htmlFor="cal-slot-minutes">Slot Length</label>
+          <label htmlFor="cal-slot-minutes">Time Grid <span className="muted" style={{ fontWeight: 400 }}>(spacing between start times)</span></label>
           <select id="cal-slot-minutes" value={settings.slotMinutes} onChange={(e) => setSettings((s) => s && { ...s, slotMinutes: Number(e.target.value) })}>
             {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
           </select>

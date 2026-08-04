@@ -19,6 +19,7 @@ import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { logAudit } from "../../common/audit";
 import { createAppointment, notifyAppointment } from "../appointments/appointments.routes";
 import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
+import { listAppointmentTypes, resolveAppointmentDuration } from "../../common/appointmentTypes";
 import { escapeHtml } from "../../common/html";
 
 export const publicAppointmentsRouter = Router();
@@ -44,8 +45,17 @@ function slotToUtcIso(y: number, m: number, d: number, hour: number, minute: num
   return new Date(utcMs).toISOString();
 }
 
-/** Real open slots for one calendar date, honoring Calendar Settings (bookable weekdays, hours, slot length, booking horizon) and already-booked appointments. Shared by the availability endpoint and the reschedule flow. */
-async function computeAvailableSlots(y: number, mo: number, d: number, settings: AppointmentSettings, excludeAppointmentId?: string): Promise<string[]> {
+/**
+ * Real open slots for one calendar date, honoring Calendar Settings (bookable
+ * weekdays, hours, the time grid, booking horizon) and already-booked
+ * appointments. `durationMinutes` is how long the appointment itself would
+ * run (from the chosen Appointment Type) — separate from
+ * `settings.slotMinutes`, which is only the spacing between candidate start
+ * times on the grid. A candidate slot is offered only if the FULL duration
+ * fits before closing time, not just its start. Shared by the availability
+ * endpoint and the reschedule flow.
+ */
+async function computeAvailableSlots(y: number, mo: number, d: number, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string): Promise<string[]> {
   const today = new Date();
   const requested = new Date(Date.UTC(y, mo - 1, d));
   const daysAhead = Math.floor((requested.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
@@ -68,12 +78,14 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   const slots: string[] = [];
   const nowMs = Date.now();
   const { startHour, endHour } = hoursForDay(settings, jsDay);
+  const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
   for (let hour = startHour; hour < endHour; hour++) {
     for (let minute = 0; minute < 60; minute += settings.slotMinutes) {
       const startIso = slotToUtcIso(y, mo, d, hour, minute);
       const startMs = new Date(startIso).getTime();
-      const endMs = startMs + settings.slotMinutes * 60 * 1000;
+      const endMs = startMs + durationMinutes * 60 * 1000;
       if (startMs <= nowMs) continue;
+      if (endMs > dayCloseMs) continue;
       const overlaps = bookedRanges.some((r) => startMs < r.end && endMs > r.start);
       if (!overlaps) slots.push(startIso);
     }
@@ -126,7 +138,7 @@ async function withDayBookingLock<T>(startTime: string, fn: () => Promise<T>): P
   }
 }
 
-function isSlotWithinSettings(startTime: string, settings: AppointmentSettings): boolean {
+function isSlotWithinSettings(startTime: string, settings: AppointmentSettings, durationMinutes: number): boolean {
   const { y, mo, d, hour, minute } = etDateParts(startTime);
   const today = new Date();
   const daysAhead = Math.floor((Date.UTC(y, mo - 1, d) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
@@ -139,7 +151,10 @@ function isSlotWithinSettings(startTime: string, settings: AppointmentSettings):
   // otherwise a forged startTime like 09:07 straddles two real slots
   // (09:00-09:30 and 09:30-10:00 both show as unavailable afterward) without
   // ever showing up as a bookable option in /availability.
-  return minute % settings.slotMinutes === 0;
+  if (minute % settings.slotMinutes !== 0) return false;
+  // The appointment's full length must still fit before closing time — a
+  // long appointment type starting late in the day can't run past endHour.
+  return hour * 60 + minute + durationMinutes <= endHour * 60;
 }
 
 /**
@@ -162,13 +177,31 @@ publicAppointmentsRouter.get("/settings", availabilityLimiter, asyncHandler(asyn
   });
 }));
 
+/** Active appointment types for the /book page's duration picker. */
+publicAppointmentsRouter.get("/appointment-types", availabilityLimiter, asyncHandler(async (_req: Request, res: Response) => {
+  res.json({ types: await listAppointmentTypes(true) });
+}));
+
 publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
   const parsed = parseDateParam(req.query.date);
   if (!parsed) return res.status(400).json({ error: "date is required as YYYY-MM-DD." });
   const settings = await getAppointmentSettings();
   const excludeAppointmentId = String(req.query.excludeAppointmentId || "").trim() || undefined;
-  const slots = await computeAvailableSlots(parsed.y, parsed.mo, parsed.d, settings, excludeAppointmentId);
-  res.json({ slots, slotMinutes: settings.slotMinutes });
+  // appointmentTypeId is looked up server-side (trusted). A raw durationMinutes
+  // is accepted too, purely so the reschedule page — which already knows an
+  // existing appointment's actual duration from its own start/end fetch — can
+  // preview slots sized to match it; this is informational only, since the
+  // real write path (/book, /manage/:token/reschedule) always re-resolves the
+  // duration itself rather than trusting anything from this response.
+  const rawDuration = Number(req.query.durationMinutes);
+  let durationMinutes = settings.slotMinutes;
+  if (Number.isFinite(rawDuration) && rawDuration > 0 && rawDuration <= 480) {
+    durationMinutes = Math.trunc(rawDuration);
+  } else {
+    durationMinutes = (await resolveAppointmentDuration(String(req.query.appointmentTypeId || ""), settings.slotMinutes)).durationMinutes;
+  }
+  const slots = await computeAvailableSlots(parsed.y, parsed.mo, parsed.d, settings, durationMinutes, excludeAppointmentId);
+  res.json({ slots, slotMinutes: settings.slotMinutes, durationMinutes });
 }));
 
 publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Request, res: Response) => {
@@ -195,9 +228,10 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     return res.status(400).json({ error: "That time slot is no longer valid — please pick another." });
   }
   const settings = await getAppointmentSettings();
-  const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
+  const { durationMinutes, appointmentTypeId, appointmentTypeName } = await resolveAppointmentDuration(String(body.appointmentTypeId || ""), settings.slotMinutes);
+  const endTime = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
 
-  if (!isSlotWithinSettings(startTime, settings)) {
+  if (!isSlotWithinSettings(startTime, settings, durationMinutes)) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
@@ -215,8 +249,9 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       );
       if (clash.length) throw new Error("That time slot was just booked by someone else — please pick another.");
       const created = await createAppointment({
-        title: "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
+        title: appointmentTypeName || "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
         startTime, endTime, notes: reason || undefined, notifyClient: true,
+        appointmentTypeId, appointmentTypeName,
         createdBy: "Public Booking Form", req,
       });
       return created.appointmentId;
@@ -320,9 +355,12 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
     return res.status(400).json({ error: "That time slot is no longer valid — please pick another." });
   }
   const settings = await getAppointmentSettings();
-  const endTime = new Date(startMs + settings.slotMinutes * 60 * 1000).toISOString();
+  // Reschedule keeps the appointment's existing duration/type — a client
+  // moving their time slot shouldn't also silently change how long it runs.
+  const existingDurationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
+  const endTime = new Date(startMs + existingDurationMinutes * 60 * 1000).toISOString();
 
-  if (!isSlotWithinSettings(startTime, settings)) {
+  if (!isSlotWithinSettings(startTime, settings, existingDurationMinutes)) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 

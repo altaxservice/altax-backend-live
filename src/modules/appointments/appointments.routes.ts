@@ -44,6 +44,9 @@ export interface CreateAppointmentInput {
   assignedTo?: string | null;
   notifyClient?: boolean;
   createdBy: string;
+  /** Informational snapshot of which Appointment Type this was booked as — see sql/036_appointment_types.sql. Both null for an appointment with no type (e.g. most internal staff-created ones, or before this feature existed). */
+  appointmentTypeId?: string | null;
+  appointmentTypeName?: string | null;
   /** Skips the confirmation send (still creates + logs) — used when a caller wants to send it separately. */
   req?: Request;
 }
@@ -109,11 +112,13 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
   await query(
     `INSERT INTO altax.v3_appointments
        (appointment_id, title, client_id, contact_name, contact_email, contact_phone,
-        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by, manage_token)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14)`,
+        start_time, end_time, location, notes, assigned_to, status, notify_client, created_by, manage_token,
+        appointment_type_id, appointment_type_name)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14,$15,$16)`,
     [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
       input.startTime, input.endTime, input.location?.trim() || null, input.notes?.trim() || null,
-      assignedTo, notifyClient, input.createdBy, manageToken]
+      assignedTo, notifyClient, input.createdBy, manageToken,
+      input.appointmentTypeId || null, input.appointmentTypeName || null]
   );
 
   const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
@@ -157,14 +162,15 @@ export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Re
 function buildAppointmentPlainText(
   resolved: { message_english: string; message_arabic: string },
   includeDetails: boolean, manageUrl: string,
-  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null
+  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null,
+  durationMinutes: number
 ): { english: string; arabic: string } {
   if (!includeDetails || !settings) {
     return { english: resolved.message_english, arabic: resolved.message_arabic };
   }
   const english = [
     resolved.message_english,
-    `${settings.slotMinutes} min appointment — available weekly on ${bookableWeekdayLabel(settings, "en")}`,
+    `${durationMinutes} min appointment — available weekly on ${bookableWeekdayLabel(settings, "en")}`,
     `${settings.locationName}, ${settings.locationAddress}`,
     settings.locationMapUrl || "",
     "",
@@ -174,7 +180,7 @@ function buildAppointmentPlainText(
 
   const arabic = [
     resolved.message_arabic,
-    `مدة الموعد ${settings.slotMinutes} دقيقة — متاح أسبوعيًا أيام ${bookableWeekdayLabel(settings, "ar")}`,
+    `مدة الموعد ${durationMinutes} دقيقة — متاح أسبوعيًا أيام ${bookableWeekdayLabel(settings, "ar")}`,
     `${settings.locationName}, ${settings.locationAddress}`,
     settings.locationMapUrl || "",
     "",
@@ -197,7 +203,8 @@ function buildAppointmentPlainText(
 export function buildAppointmentEmailHtml(
   resolved: { message_english: string; message_arabic: string },
   includeDetails: boolean, manageUrl: string,
-  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null
+  settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null,
+  durationMinutes: number
 ): string {
   const englishHtml = escapeHtml(resolved.message_english).replace(/\n/g, "<br>");
   const arabicHtml = escapeHtml(resolved.message_arabic).replace(/\n/g, "<br>");
@@ -209,7 +216,7 @@ export function buildAppointmentEmailHtml(
       : "";
     detailsHtml = `
       <div style="margin:18px 0; padding:16px 0; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; text-align:center;">
-        <div style="font-weight:700;">${settings.slotMinutes} min appointment</div>
+        <div style="font-weight:700;">${durationMinutes} min appointment</div>
         <div style="color:#6b7280; font-size:12.5px; margin-top:3px;">
           <bdi dir="ltr">${escapeHtml(bookableWeekdayLabel(settings, "en"))}</bdi>
           &nbsp;/&nbsp;
@@ -272,7 +279,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
   const settings = includeDetails ? await getAppointmentSettings() : null;
-  const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, settings);
+  const durationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
+  const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
 
   const marker = templateName === "Appointment Reminder" ? "REM" : templateName === "Appointment Cancelled" ? "CANCEL" : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
@@ -287,7 +295,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     let sendError: string | undefined;
     try {
       if (channel === "Email") {
-        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings);
+        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
         await sendEmail({ to, subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
       } else {
         // SMS stays short — the full policy/location text only goes in the email (see
@@ -490,6 +498,7 @@ appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHa
       contactName: body.contactName, contactEmail: body.contactEmail, contactPhone: body.contactPhone,
       startTime: String(body.startTime || ""), endTime: String(body.endTime || ""),
       location: body.location, notes: body.notes, assignedTo: body.assignedTo,
+      appointmentTypeId: body.appointmentTypeId || null, appointmentTypeName: body.appointmentTypeName || null,
       notifyClient: body.notifyClient !== false, createdBy: req.user!.email, req,
     });
     res.status(201).json({ ok: true, appointmentId });
@@ -531,6 +540,7 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
        notify_client = $8,
        reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END,
        reminder_lead_minutes_sent = CASE WHEN $9 THEN '{}' ELSE reminder_lead_minutes_sent END,
+       appointment_type_id = $10, appointment_type_name = $11,
        updated_at = now()
      WHERE appointment_id = $1`,
     [appointmentId, title, startTime, endTime,
@@ -538,7 +548,9 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
       body.notes !== undefined ? String(body.notes).trim() || null : existing.notes,
       body.assignedTo !== undefined ? String(body.assignedTo).trim() || null : existing.assigned_to,
       body.notifyClient !== undefined ? !!body.notifyClient : existing.notify_client,
-      timeChanged]
+      timeChanged,
+      body.appointmentTypeId !== undefined ? String(body.appointmentTypeId).trim() || null : existing.appointment_type_id,
+      body.appointmentTypeName !== undefined ? String(body.appointmentTypeName).trim() || null : existing.appointment_type_name]
   );
 
   if (timeChanged || assignmentChanged) {

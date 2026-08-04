@@ -3,8 +3,44 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { getAppointmentSettings, updateAppointmentSettings, REMINDER_LEAD_PRESETS, STAFF_REMINDER_CHANNELS, type StaffReminderChannel } from "../../common/appointmentSettings";
+import { listAppointmentTypes, createAppointmentType, updateAppointmentType } from "../../common/appointmentTypes";
 
 export const appointmentSettingsRouter = Router();
+
+/** Any authed staff/admin can read — the "+ New Appointment" form needs the full list (including any an admin has deactivated, so an existing appointment still shows its original type name via the frontend's own fallback). */
+appointmentSettingsRouter.get("/types", requireAuth, asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json({ types: await listAppointmentTypes(false) });
+}));
+
+appointmentSettingsRouter.post("/types", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  try {
+    const type = await createAppointmentType({ name: String(body.name || ""), durationMinutes: Number(body.durationMinutes), sortOrder: Number(body.sortOrder) || 0 });
+    await logAudit("Calendar", "CREATE_APPOINTMENT_TYPE", type.appointmentTypeId, "", "", type.name,
+      `Appointment type "${type.name}" (${type.durationMinutes} min) created by ${req.user!.email}.`, req.user!.email);
+    res.status(201).json(type);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || "Could not create this appointment type." });
+  }
+}));
+
+appointmentSettingsRouter.patch("/types/:id", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  try {
+    const type = await updateAppointmentType(req.params.id, {
+      name: typeof body.name === "string" ? body.name : undefined,
+      durationMinutes: typeof body.durationMinutes === "number" ? body.durationMinutes : undefined,
+      active: typeof body.active === "boolean" ? body.active : undefined,
+      sortOrder: typeof body.sortOrder === "number" ? body.sortOrder : undefined,
+    });
+    await logAudit("Calendar", "UPDATE_APPOINTMENT_TYPE", type.appointmentTypeId, "", "", type.name,
+      `Appointment type "${type.name}" updated by ${req.user!.email}.`, req.user!.email);
+    res.json(type);
+  } catch (err: any) {
+    const notFound = err?.message === "Appointment type not found.";
+    res.status(notFound ? 404 : 400).json({ error: err?.message || "Could not update this appointment type." });
+  }
+}));
 
 /** Any authed staff/admin can read — the "+ New Appointment" and Calendar views both need slot length/hours to build a sane default. */
 appointmentSettingsRouter.get("/", requireAuth, asyncHandler(async (_req: AuthedRequest, res: Response) => {

@@ -20,6 +20,12 @@ function toDateInput(iso: string): string {
 function toTimeInput(iso: string): string {
   return new Date(iso).toTimeString().slice(0, 5);
 }
+interface AppointmentType {
+  appointmentTypeId: string;
+  name: string;
+  durationMinutes: number;
+  active: boolean;
+}
 
 /**
  * Book an appointment — with an existing client (pulls their email/phone
@@ -49,18 +55,25 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
     contactName: appointment.contact_name || "", contactEmail: appointment.contact_email || "", contactPhone: appointment.contact_phone || "",
     date: toDateInput(appointment.start_time), startTime: toTimeInput(appointment.start_time), endTime: toTimeInput(appointment.end_time),
     location: appointment.location || "", notes: appointment.notes || "", assignedTo: appointment.assigned_to || "", notifyClient: appointment.notify_client,
+    appointmentTypeId: appointment.appointment_type_id || "",
   } : {
     title: "", clientId: "", contactName: "", contactEmail: "", contactPhone: "",
     date: today, startTime: "09:00", endTime: "10:00", location: "", notes: "", assignedTo: "", notifyClient: true,
+    appointmentTypeId: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  const [types, setTypes] = useState<AppointmentType[]>([]);
 
   useEffect(() => {
     api.get<{ users: PortalUser[] }>("/users")
       .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
       .catch(() => {});
+    api.get<{ types: AppointmentType[] }>("/appointment-settings/types")
+      .then((res) => setTypes(res.types.filter((t) => t.active || t.appointmentTypeId === appointment?.appointment_type_id)))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -74,6 +87,12 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Picking a Duration recomputes End Time from Start Time — still freely editable afterward, same as before this feature existed. */
+  function handleDurationChange(appointmentTypeId: string) {
+    const type = types.find((t) => t.appointmentTypeId === appointmentTypeId);
+    setForm((f) => ({ ...f, appointmentTypeId, endTime: type ? addMinutes(f.startTime, type.durationMinutes) : f.endTime }));
+  }
+
   const selectedClient = clients.find((c) => c.client_id === form.clientId);
 
   async function handleSubmit() {
@@ -84,12 +103,14 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
     if (new Date(endTime) < new Date(startTime)) return setError("End time can't be before start time.");
     setSaving(true);
     setError(null);
+    const selectedType = types.find((t) => t.appointmentTypeId === form.appointmentTypeId);
     try {
       if (isEditing) {
         await api.patch(`/appointments/${appointment!.appointment_id}`, {
           title: form.title.trim(), startTime, endTime,
           location: form.location.trim() || undefined, notes: form.notes.trim() || undefined,
           assignedTo: form.assignedTo || "", notifyClient: form.notifyClient,
+          appointmentTypeId: form.appointmentTypeId || null, appointmentTypeName: selectedType?.name || null,
         });
       } else {
         await api.post("/appointments", {
@@ -98,6 +119,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           contactPhone: form.contactPhone.trim() || undefined, startTime, endTime,
           location: form.location.trim() || undefined, notes: form.notes.trim() || undefined,
           assignedTo: form.assignedTo || undefined, notifyClient: form.notifyClient,
+          appointmentTypeId: form.appointmentTypeId || undefined, appointmentTypeName: selectedType?.name || undefined,
         });
       }
       onDone();
@@ -145,8 +167,22 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
         )}
         <div className="form-grid">
           <div className="field"><label htmlFor="appt-date">Date</label><input id="appt-date" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="appt-start-time">Start Time</label><input id="appt-start-time" type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="appt-end-time">End Time</label><input id="appt-end-time" type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} /></div>
+          <div className="field">
+            <label htmlFor="appt-start-time">Start Time</label>
+            <input id="appt-start-time" type="time" value={form.startTime} onChange={(e) => {
+              const startTime = e.target.value;
+              const type = types.find((t) => t.appointmentTypeId === form.appointmentTypeId);
+              setForm((f) => ({ ...f, startTime, endTime: type ? addMinutes(startTime, type.durationMinutes) : f.endTime }));
+            }} />
+          </div>
+          <div className="field">
+            <label htmlFor="appt-duration">Duration</label>
+            <select id="appt-duration" value={form.appointmentTypeId} onChange={(e) => handleDurationChange(e.target.value)}>
+              <option value="">Custom (set End Time manually)</option>
+              {types.map((t) => <option key={t.appointmentTypeId} value={t.appointmentTypeId}>{t.name} — {t.durationMinutes} min</option>)}
+            </select>
+          </div>
+          <div className="field"><label htmlFor="appt-end-time">End Time</label><input id="appt-end-time" type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value, appointmentTypeId: "" }))} /></div>
           <div className="field"><label htmlFor="appt-location">Location (optional)</label><input id="appt-location" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Office, video call, etc." /></div>
           <div className="field">
             <label htmlFor="appt-assigned-to">Assigned Staff</label>

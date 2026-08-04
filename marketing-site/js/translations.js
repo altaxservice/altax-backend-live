@@ -378,6 +378,7 @@ const TRANSLATIONS = {
   "book.lead": { en: "Choose a date and an open time slot below, and we'll confirm your free consultation by email and text right away.", ar: "اختر تاريخًا ووقتًا متاحًا أدناه، وسنؤكد استشارتكم المجانية عبر البريد الإلكتروني والرسائل النصية فورًا." },
   "book.hoursNote": { en: "Appointments are available Monday–Friday, 9:00 AM – 5:00 PM Eastern.", ar: "المواعيد متاحة من الاثنين إلى الجمعة، من الساعة 9:00 صباحًا حتى 5:00 مساءً بتوقيت شرق أمريكا." },
   "book.formHeading": { en: "Schedule your free consultation", ar: "حدد موعد استشارتك المجانية" },
+  "book.typeLabel": { en: "What kind of appointment?", ar: "ما نوع الموعد؟" },
   "book.dateLabel": { en: "Date", ar: "التاريخ" },
   "book.timeLabel": { en: "Available Times (Eastern)", ar: "الأوقات المتاحة (بتوقيت شرق أمريكا)" },
   "book.pickDate": { en: "Pick a date to see open times.", ar: "اختر تاريخًا لعرض الأوقات المتاحة." },

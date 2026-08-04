@@ -245,7 +245,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookStatusEl = document.getElementById('book-form-status');
     const bookSubmitBtn = document.getElementById('book-submit-btn');
     const bookSubmitLabel = bookSubmitBtn ? bookSubmitBtn.querySelector('span') : null;
+    const typeFieldEl = document.getElementById('book-type-field');
+    const typeSelectEl = document.getElementById('book-type');
     let selectedSlot = null;
+
+    // Appointment Types — which duration a visitor is booking (e.g. a short
+    // "Quick Question" vs. a longer "Full Consultation"). The picker only
+    // shows when there's a real choice to make; with just one active type
+    // (the common case for a firm that hasn't set up multiple yet) it stays
+    // hidden and that one type is used automatically, same as before this
+    // feature existed.
+    fetch('/public/appointments/appointment-types').then((r) => r.json()).then((data) => {
+      const types = data.types || [];
+      if (typeSelectEl) {
+        typeSelectEl.innerHTML = '';
+        types.forEach((t) => {
+          const opt = document.createElement('option');
+          opt.value = t.appointmentTypeId;
+          opt.textContent = t.name + ' (' + t.durationMinutes + ' min)';
+          typeSelectEl.appendChild(opt);
+        });
+      }
+      if (typeFieldEl) typeFieldEl.style.display = types.length > 1 ? 'block' : 'none';
+      if (typeSelectEl) typeSelectEl.addEventListener('change', loadSlots);
+    }).catch(() => {});
 
     let apptSettings = null;
     const WEEKDAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -335,7 +358,9 @@ document.addEventListener('DOMContentLoaded', () => {
       slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
       bookForm.style.display = 'none';
       try {
-        const res = await fetch('/public/appointments/availability?date=' + encodeURIComponent(bookDateInput.value));
+        let url = '/public/appointments/availability?date=' + encodeURIComponent(bookDateInput.value);
+        if (typeSelectEl && typeSelectEl.value) url += '&appointmentTypeId=' + encodeURIComponent(typeSelectEl.value);
+        const res = await fetch(url);
         const data = await res.json();
         renderSlots(data.slots || []);
       } catch (err) {
@@ -355,6 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
         phone: document.getElementById('book-phone').value.trim(),
         reason: document.getElementById('book-reason').value.trim(),
         startTime: selectedSlot,
+        appointmentTypeId: typeSelectEl ? typeSelectEl.value : undefined,
         website: document.getElementById('book-website').value, // honeypot
       };
       if (bookStatusEl) bookStatusEl.style.display = 'none';
@@ -406,6 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pastNoticeEl = document.getElementById('manage-past-notice');
     const token = new URLSearchParams(window.location.search).get('token') || '';
     let selectedSlot = null;
+    let currentAppt = null;
 
     function showStatus(kind, message) {
       statusEl.className = 'form-status ' + kind;
@@ -414,6 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderAppointment(appt) {
+      currentAppt = appt;
       titleEl.textContent = appt.title;
       const when = new Date(appt.startTime).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'full', timeStyle: 'short' });
       whenEl.textContent = when + ' ET · ' + appt.status;
@@ -503,7 +531,16 @@ document.addEventListener('DOMContentLoaded', () => {
       slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
       confirmRescheduleBtn.disabled = true;
       try {
-        const res = await fetch('/public/appointments/availability?date=' + encodeURIComponent(dateInput.value));
+        // A reschedule keeps the appointment's existing duration (the server
+        // enforces this regardless — see /manage/:token/reschedule) — passed
+        // here too so the slot list previewed matches what will actually be
+        // bookable, rather than defaulting to the firm-wide grid duration.
+        let url = '/public/appointments/availability?date=' + encodeURIComponent(dateInput.value);
+        if (currentAppt && currentAppt.startTime && currentAppt.endTime) {
+          const durationMinutes = Math.round((new Date(currentAppt.endTime) - new Date(currentAppt.startTime)) / 60000);
+          url += '&durationMinutes=' + durationMinutes;
+        }
+        const res = await fetch(url);
         const data = await res.json();
         renderRescheduleSlots(data.slots || []);
       } catch (err) {
