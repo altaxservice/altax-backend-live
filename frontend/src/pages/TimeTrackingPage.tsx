@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
+import { useToast } from "../components/Toast";
+import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
+import { useStickyState } from "../utils/listState";
 import type { Client } from "../api/types";
 
 interface TimeEntry {
@@ -34,12 +37,21 @@ const money = (n: number | string | null | undefined) => `$${(Number(n) || 0).to
 export function TimeTrackingPage() {
   const confirmDialog = useConfirm();
   const notify = useNotify();
+  const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Sticky like every other list page — same reasoning: leaving this page and
+  // coming back (or reloading) shouldn't lose the filter you had set up.
+  const [search, setSearch] = useStickyState("timeTracking.search", "");
+  const [statusFilter, setStatusFilter] = useStickyState("timeTracking.status", "all");
+  const [billableFilter, setBillableFilter] = useStickyState("timeTracking.billable", "all");
+  const [period, setPeriod] = useState(activeViewDates());
 
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [clientId, setClientId] = useState("");
@@ -50,15 +62,37 @@ export function TimeTrackingPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  function load() {
+  function load(): Promise<void> {
     const qs = isAdmin && userFilter ? `?userEmail=${encodeURIComponent(userFilter)}` : "";
-    api.get<{ timeEntries: TimeEntry[] }>(`/time-tracking/entries${qs}`)
+    return api.get<{ timeEntries: TimeEntry[] }>(`/time-tracking/entries${qs}`)
       .then((res) => setEntries(res.timeEntries))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load time entries."));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, [userFilter]);
+  useEffect(() => { load(); }, [userFilter]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+      toast("Data refreshed.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  const filtered = useMemo(() => {
+    let rows = entries || [];
+    if (period.start) rows = rows.filter((e) => e.entry_date >= period.start);
+    if (period.end) rows = rows.filter((e) => e.entry_date <= period.end);
+    if (statusFilter !== "all") rows = rows.filter((e) => String(e.status || "").toLowerCase() === statusFilter.toLowerCase());
+    if (billableFilter === "billable") rows = rows.filter((e) => e.billable);
+    if (billableFilter === "internal") rows = rows.filter((e) => !e.billable);
+    const q = search.trim().toLowerCase();
+    if (q) rows = rows.filter((e) => [e.description, e.client_name, e.user_email].some((v) => String(v || "").toLowerCase().includes(q)));
+    return [...rows].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+  }, [entries, period, statusFilter, billableFilter, search]);
 
   async function handleSubmit() {
     setFormError(null);
@@ -103,8 +137,9 @@ export function TimeTrackingPage() {
 
   if (error) return <ErrorBanner error={error} />;
 
-  const totalHours = (entries || []).reduce((s, e) => s + Number(e.hours), 0);
-  const billableUnbilled = (entries || []).filter((e) => e.billable && !e.billed && e.status === "Approved");
+  const totalHours = filtered.reduce((s, e) => s + Number(e.hours), 0);
+  const billableUnbilled = filtered.filter((e) => e.billable && !e.billed && e.status === "Approved");
+  const statusOptions = Array.from(new Set((entries || []).map((e) => e.status).filter(Boolean))) as string[];
 
   return (
     <div>
@@ -152,11 +187,6 @@ export function TimeTrackingPage() {
       </div>
       {formError && <ErrorBanner error={formError} />}
 
-      <div className="metric-grid" style={{ marginBottom: 16 }}>
-        <div className="metric"><div className="metric-label">Total Hours Shown</div><div className="metric-value">{totalHours.toFixed(2)}</div></div>
-        <div className="metric"><div className="metric-label">Approved, Unbilled &amp; Billable</div><div className="metric-value">{billableUnbilled.length}</div></div>
-      </div>
-
       {isAdmin && (
         <div className="field" style={{ maxWidth: 260, marginBottom: 12 }}>
           <label htmlFor="tt-user-filter">Filter by Staff Email</label>
@@ -164,10 +194,35 @@ export function TimeTrackingPage() {
         </div>
       )}
 
+      <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: "Description, client, staff…" }}
+        selects={[
+          { label: "Status", value: statusFilter, options: statusOptions, onChange: setStatusFilter },
+          { label: "Billable", value: billableFilter, options: ["billable", "internal"], onChange: setBillableFilter },
+        ]}
+        period={{ start: period.start, end: period.end, onStartChange: (v) => setPeriod((p) => ({ ...p, start: v })), onEndChange: (v) => setPeriod((p) => ({ ...p, end: v })), onActiveView: () => setPeriod(activeViewDates()) }}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        onExportCsv={() => exportCsv("time-entries.csv", [
+          { key: "entry_date", label: "Date" }, { key: "user_email", label: "Staff" }, { key: "client_name", label: "Client" },
+          { key: "hours", label: "Hours" }, { key: "description", label: "Description" }, { key: "hourly_rate", label: "Rate" },
+          { key: "status", label: "Status" }, { key: "billed", label: "Billed" },
+        ], filtered as unknown as Record<string, unknown>[])}
+      />
+
+      <div className="metric-grid" style={{ margin: "12px 0 16px" }}>
+        <div className="metric"><div className="metric-label">Total Hours Shown</div><div className="metric-value">{totalHours.toFixed(2)}</div></div>
+        <div className="metric"><div className="metric-label">Approved, Unbilled &amp; Billable</div><div className="metric-value">{billableUnbilled.length}</div></div>
+      </div>
+
       {entries === null && !error && <div className="spinner-wrap">Loading time entries…</div>}
 
       {entries !== null && (
       <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+          <strong style={{ fontSize: 14 }}>Time Entries</strong>
+          <span className="muted" style={{ fontSize: 12 }}>{filtered.length} of {entries.length} entries</span>
+        </div>
         <div className="table-scroll">
           <table>
             <thead>
@@ -184,7 +239,7 @@ export function TimeTrackingPage() {
               </tr>
             </thead>
             <tbody>
-              {(entries || []).map((e) => {
+              {filtered.map((e) => {
                 const isOwner = e.user_email === user?.email;
                 const canDelete = !e.billed && (isAdmin || (isOwner && e.status === "Submitted"));
                 return (
@@ -211,8 +266,8 @@ export function TimeTrackingPage() {
                   </tr>
                 );
               })}
-              {!entries?.length && (
-                <tr><td colSpan={isAdmin ? 9 : 7} className="muted" style={{ textAlign: "center", padding: 24 }}>No time entries yet.</td></tr>
+              {!filtered.length && (
+                <tr><td colSpan={isAdmin ? 9 : 7} className="muted" style={{ textAlign: "center", padding: 24 }}>{entries?.length ? "No entries match." : "No time entries yet."}</td></tr>
               )}
             </tbody>
           </table>
