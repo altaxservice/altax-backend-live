@@ -457,7 +457,7 @@ authRouter.post("/2fa/setup", requireAuth, asyncHandler(async (req: AuthedReques
   }
 }));
 
-authRouter.post("/2fa/confirm", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+authRouter.post("/2fa/confirm", requireAuth, codeLimiter, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const code = String(req.body?.code || "").trim();
   if (!code) return res.status(400).json({ error: "Code is required." });
 
@@ -496,7 +496,7 @@ authRouter.get("/2fa/backup-codes", requireAuth, asyncHandler(async (req: Authed
  * current authenticator code: without that, anyone who walked up to an unlocked
  * screen could mint themselves a permanent way back into the account.
  */
-authRouter.post("/2fa/backup-codes/regenerate", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+authRouter.post("/2fa/backup-codes/regenerate", requireAuth, codeLimiter, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const code = String(req.body?.code || "").trim();
   const client = await pool.connect();
   try {
@@ -528,7 +528,7 @@ authRouter.post("/2fa/backup-codes/regenerate", requireAuth, asyncHandler(async 
  * (POST /users/:userId/2fa/reset) which forces fresh enrollment at the next
  * sign-in rather than leaving the account bare.
  */
-authRouter.post("/2fa/disable", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+authRouter.post("/2fa/disable", requireAuth, codeLimiter, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const role = String(req.user!.role || "").toLowerCase();
   if (rolesRequiring2fa().has(role)) {
     await logAudit("Security", "2FA_DISABLE_REFUSED", req.user!.sub, "", "", "",

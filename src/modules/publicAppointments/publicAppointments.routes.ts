@@ -12,13 +12,14 @@
  * appointmentSettings.ts, editable via the Calendar page's Settings tab.
  */
 import { Router, Request, Response } from "express";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, pool } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { logAudit } from "../../common/audit";
 import { createAppointment, notifyAppointment } from "../appointments/appointments.routes";
 import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
+import { escapeHtml } from "../../common/html";
 
 export const publicAppointmentsRouter = Router();
 
@@ -86,13 +87,13 @@ function parseDateParam(raw: unknown): { y: number; mo: number; d: number } | nu
   return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
 }
 
-function etDateParts(iso: string): { y: number; mo: number; d: number; hour: number } {
+function etDateParts(iso: string): { y: number; mo: number; d: number; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false,
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
   }).formatToParts(new Date(iso));
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
   const hour = get("hour");
-  return { y: get("year"), mo: get("month"), d: get("day"), hour: hour === 24 ? 0 : hour };
+  return { y: get("year"), mo: get("month"), d: get("day"), hour: hour === 24 ? 0 : hour, minute: get("minute") };
 }
 
 /**
@@ -103,15 +104,42 @@ function etDateParts(iso: string): { y: number; mo: number; d: number; hour: num
  * within the booking horizon rather than just "any future time that doesn't
  * clash with an existing appointment."
  */
+/**
+ * Serializes booking creation/reschedule for a given calendar day via a
+ * Postgres advisory lock. The clash-check SELECT and the eventual write
+ * (inside createAppointment, or the reschedule UPDATE) run on separate pooled
+ * connections, but the advisory lock is database-global, so a second request
+ * for the same day genuinely blocks here — closing the TOCTOU window between
+ * "is this slot still open" and "book it" that let two visitors both pass the
+ * clash check and both land in the same slot. Different days never contend.
+ */
+async function withDayBookingLock<T>(startTime: string, fn: () => Promise<T>): Promise<T> {
+  const { y, mo, d } = etDateParts(startTime);
+  const lockKey = `appt-book:${y}-${mo}-${d}`;
+  const client = await pool.connect();
+  try {
+    await client.query(`SELECT pg_advisory_lock(hashtext($1))`, [lockKey]);
+    return await fn();
+  } finally {
+    await client.query(`SELECT pg_advisory_unlock(hashtext($1))`, [lockKey]).catch(() => {});
+    client.release();
+  }
+}
+
 function isSlotWithinSettings(startTime: string, settings: AppointmentSettings): boolean {
-  const { y, mo, d, hour } = etDateParts(startTime);
+  const { y, mo, d, hour, minute } = etDateParts(startTime);
   const today = new Date();
   const daysAhead = Math.floor((Date.UTC(y, mo - 1, d) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
   if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return false;
   const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
   if (!isBookableWeekday(settings, jsDay)) return false;
   const { startHour, endHour } = hoursForDay(settings, jsDay);
-  return hour >= startHour && hour < endHour;
+  if (hour < startHour || hour >= endHour) return false;
+  // Must land on a real slot boundary (e.g. :00/:30 for a 30-minute grid) —
+  // otherwise a forged startTime like 09:07 straddles two real slots
+  // (09:00-09:30 and 09:30-10:00 both show as unavailable afterward) without
+  // ever showing up as a bookable option in /availability.
+  return minute % settings.slotMinutes === 0;
 }
 
 /**
@@ -173,22 +201,26 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
-  // Re-check the slot is still open right before booking — two visitors could
-  // otherwise both grab the same slot between loading availability and submitting.
-  const clash = await query<any>(
-    `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 LIMIT 1`,
-    [startTime, endTime]
-  );
-  if (clash.length) return res.status(409).json({ error: "That time slot was just booked by someone else — please pick another." });
-
   let appointmentId: string;
   try {
-    const created = await createAppointment({
-      title: "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
-      startTime, endTime, notes: reason || undefined, notifyClient: true,
-      createdBy: "Public Booking Form", req,
+    // Re-check the slot is still open right before booking, and hold the
+    // per-day advisory lock across both the check and the create — two
+    // visitors submitting for the same slot within milliseconds of each
+    // other now serialize here instead of both passing the check and both
+    // landing in the same slot.
+    appointmentId = await withDayBookingLock(startTime, async () => {
+      const clash = await query<any>(
+        `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 LIMIT 1`,
+        [startTime, endTime]
+      );
+      if (clash.length) throw new Error("That time slot was just booked by someone else — please pick another.");
+      const created = await createAppointment({
+        title: "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
+        startTime, endTime, notes: reason || undefined, notifyClient: true,
+        createdBy: "Public Booking Form", req,
+      });
+      return created.appointmentId;
     });
-    appointmentId = created.appointmentId;
   } catch (err: any) {
     return res.status(400).json({ error: err?.message || "Could not book this appointment." });
   }
@@ -198,17 +230,33 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       `SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`
     );
     const when = new Date(startTime).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
+    // This entire email is built from unauthenticated public input (name/phone/
+    // email/reason) — unlike every other email builder in this app, this one
+    // used to interpolate it raw. A booking named e.g. `<a href=...>Urgent...`
+    // would render as a live link inside the firm's own internal admin
+    // notification. Escape everything, and only convert newlines to <br> AFTER
+    // escaping so the <br> tags themselves don't get escaped too.
     const html = `
       <h2>New consultation booked online</h2>
-      <p><strong>Name:</strong> ${name}</p>
-      <p><strong>Phone:</strong> ${phone || "not provided"}</p>
-      <p><strong>Email:</strong> ${email || "not provided"}</p>
+      <p><strong>Name:</strong> ${escapeHtml(name)}</p>
+      <p><strong>Phone:</strong> ${phone ? escapeHtml(phone) : "not provided"}</p>
+      <p><strong>Email:</strong> ${email ? escapeHtml(email) : "not provided"}</p>
       <p><strong>When:</strong> ${when} ET</p>
-      ${reason ? `<p><strong>Notes:</strong><br>${reason.replace(/\n/g, "<br>")}</p>` : ""}
-      <p style="color:#777;font-size:12px;">Booked via the public /book page · ${appointmentId}</p>
+      ${reason ? `<p><strong>Notes:</strong><br>${escapeHtml(reason).replace(/\n/g, "<br>")}</p>` : ""}
+      <p style="color:#777;font-size:12px;">Booked via the public /book page &middot; ${escapeHtml(appointmentId)}</p>
     `;
+    // Per-admin try/catch — previously one admin's failed send (bad address,
+    // transient SMTP error) aborted the whole loop, so the rest of the firm's
+    // admins never learned a new consultation was booked online.
     for (const admin of admins) {
-      await sendEmail({ to: admin.email, subject: `New consultation booked — ${name}`, html });
+      try {
+        await sendEmail({ to: admin.email, subject: `New consultation booked — ${name}`, html });
+      } catch (err) {
+        if (!(err instanceof NotConfiguredError)) {
+          // eslint-disable-next-line no-console
+          console.error(`Public booking admin notification failed for ${admin.email}:`, err);
+        }
+      }
     }
   } catch (err) {
     if (!(err instanceof NotConfiguredError)) {
@@ -278,16 +326,26 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
-  const clash = await query<any>(
-    `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,
-    [appt.appointment_id, startTime, endTime]
-  );
-  if (clash.length) return res.status(409).json({ error: "That time slot was just booked by someone else — please pick another." });
-
-  await query(
-    `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, reminder_lead_minutes_sent = '{}', updated_at = now() WHERE appointment_id = $1`,
-    [appt.appointment_id, startTime, endTime]
-  );
+  // Same per-day advisory lock as /book — closes the same TOCTOU window
+  // between the clash-check and the actual write.
+  try {
+    await withDayBookingLock(startTime, async () => {
+      const clash = await query<any>(
+        `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,
+        [appt.appointment_id, startTime, endTime]
+      );
+      if (clash.length) throw new Error("__clash__");
+      await query(
+        `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, reminder_lead_minutes_sent = '{}', updated_at = now() WHERE appointment_id = $1`,
+        [appt.appointment_id, startTime, endTime]
+      );
+    });
+  } catch (err: any) {
+    if (err?.message === "__clash__") {
+      return res.status(409).json({ error: "That time slot was just booked by someone else — please pick another." });
+    }
+    throw err;
+  }
   await logAudit("Calendar", "UPDATE_APPOINTMENT", appt.appointment_id, "", "", appt.title,
     `Appointment "${appt.title}" rescheduled by the client via the manage-appointment link.`, "Public Manage Link");
 

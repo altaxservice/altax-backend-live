@@ -57,11 +57,32 @@ export interface CreateAppointmentInput {
  * exactly one client has that email on file) lets a public booking from an
  * existing client still land tagged to their record instead of a bare contact.
  */
+/**
+ * Whether `assignedTo` matches a real, currently-active admin/staff account
+ * (by name, email, or user_id — same alias matching notifyStaffAssigned uses
+ * to find who to notify). A typo or a since-removed name would otherwise be
+ * accepted silently, and that appointment would never notify anyone of its
+ * assignment — this catches it at write time instead.
+ */
+async function isActiveStaffAssignee(assignedTo: string): Promise<boolean> {
+  const match = await queryOne<any>(
+    `SELECT 1 FROM altax.v3_users
+      WHERE coalesce(active, true) AND lower(role) IN ('admin', 'staff')
+        AND (lower(email) = lower($1) OR lower(name) = lower($1) OR lower(user_id) = lower($1))`,
+    [assignedTo]
+  );
+  return !!match;
+}
+
 export async function createAppointment(input: CreateAppointmentInput): Promise<{ appointmentId: string }> {
   const title = input.title.trim();
   if (!title) throw new Error("Title is required.");
   if (!input.startTime || !input.endTime) throw new Error("Start and end time are required.");
   if (new Date(input.endTime) < new Date(input.startTime)) throw new Error("End time can't be before start time.");
+  const assignedTo = input.assignedTo?.trim() || null;
+  if (assignedTo && !(await isActiveStaffAssignee(assignedTo))) {
+    throw new Error(`"${assignedTo}" doesn't match an active staff/admin account — pick from the list.`);
+  }
 
   let clientId = input.clientId || null;
   let contactName = input.contactName?.trim() || null;
@@ -92,12 +113,21 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14)`,
     [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
       input.startTime, input.endTime, input.location?.trim() || null, input.notes?.trim() || null,
-      input.assignedTo?.trim() || null, notifyClient, input.createdBy, manageToken]
+      assignedTo, notifyClient, input.createdBy, manageToken]
   );
 
   const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (notifyClient && appt) {
     await notifyAppointment({ ...appt, client_name: client?.client_name }, "Appointment Confirmation", input.createdBy, input.req);
+  }
+  // The staff-assignment heads-up (notifyStaffAssigned, below) previously only
+  // fired when an EXISTING appointment got reassigned via PATCH — a brand new
+  // appointment created with assignedTo already set (the normal "+ New
+  // Appointment" flow) got no immediate notice at all, so the assignee never
+  // knew until the next reminder sweep, if the appointment was even inside its
+  // lead-time window yet.
+  if (appt?.assigned_to) {
+    await notifyStaffAssigned({ ...appt, client_name: client?.client_name }, input.req);
   }
 
   await logAudit("Calendar", "CREATE_APPOINTMENT", appointmentId, "", "", title,
@@ -487,6 +517,13 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
   const timeChanged = new Date(startTime).getTime() !== new Date(existing.start_time).getTime();
   const newAssignedTo = body.assignedTo !== undefined ? String(body.assignedTo).trim() || null : existing.assigned_to;
   const assignmentChanged = newAssignedTo !== existing.assigned_to;
+  // Only validate when the assignment is actually changing to a new value —
+  // an appointment already assigned to someone since made inactive (the
+  // frontend's "(Inactive)" option) must still be editable for its OTHER
+  // fields without being forced into a reassignment first.
+  if (assignmentChanged && newAssignedTo && !(await isActiveStaffAssignee(newAssignedTo))) {
+    return res.status(400).json({ error: `"${newAssignedTo}" doesn't match an active staff/admin account — pick from the list.` });
+  }
 
   await query(
     `UPDATE altax.v3_appointments SET

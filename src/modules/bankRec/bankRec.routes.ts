@@ -340,14 +340,30 @@ bankRecRouter.post("/:clientId/auto-match", requireAuth, requireRole("admin", "s
     }
   }
 
-  for (const m of matches) {
-    await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [m.lineId, m.glEntryId]);
-  }
+  // Candidates were computed from a snapshot taken above — applying them with
+  // plain unguarded UPDATEs would let a concurrent manual match (or another
+  // auto-match run) on the same line or GL entry get silently overwritten
+  // (last write wins). Each UPDATE re-checks both sides are still unclaimed
+  // at write time, inside one transaction, so a real conflict is skipped
+  // rather than clobbered.
+  let appliedCount = 0;
+  await withTransaction(async (db) => {
+    for (const m of matches) {
+      const updated = await db.query(
+        `UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2
+           WHERE line_id = $1 AND matched_gl_entry_id IS NULL
+             AND NOT EXISTS (SELECT 1 FROM altax.v3_bank_statement_lines WHERE matched_gl_entry_id = $2)
+           RETURNING line_id`,
+        [m.lineId, m.glEntryId]
+      );
+      if (updated.length) appliedCount++;
+    }
+  });
 
   await logAudit("Accounting", "AUTO_MATCH_BANK_REC", clientId, "Account", "", accountName,
-    `Auto-matched ${matches.length} bank line(s) for ${accountName} by ${req.user!.email}.`, req.user!.email);
+    `Auto-matched ${appliedCount} bank line(s) for ${accountName} by ${req.user!.email}.`, req.user!.email);
 
-  res.json({ ok: true, matched: matches.length, remaining: bankLines.length - matches.length });
+  res.json({ ok: true, matched: appliedCount, remaining: bankLines.length - appliedCount });
 }));
 
 /** Delete a bank statement line — a bad upload, a duplicate, or a footer/total row that got parsed as a transaction. Leaves any matched GL entry untouched; it just becomes unmatched again. */
@@ -356,13 +372,22 @@ bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff")
   const line = await queryOne<any>(`SELECT client_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   if (!line) return res.status(404).json({ error: "Bank statement line not found." });
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+
   // An Approved draft already posted a real GL entry from this line — deleting
   // the line would silently orphan that entry (nothing left to reconcile it
   // through). A Pending draft hasn't posted anything, so it's safe to let the
   // schema's ON DELETE CASCADE remove it along with the line.
-  const approvedDraft = await queryOne<any>(`SELECT je_draft_id FROM altax.v3_je_drafts WHERE bank_line_id = $1 AND status = 'Approved'`, [lineId]);
-  if (approvedDraft) return res.status(400).json({ error: "This line has an approved journal entry — reconcile it or reverse the GL entry manually before deleting." });
-  await query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
+  let hasApprovedDraft = false;
+  await withTransaction(async (db) => {
+    // FOR UPDATE here contends with approveJeDraft's own atomic claim UPDATE
+    // on this same je_drafts row — a draft approved in the same instant a
+    // delete is requested can no longer race past a stale "still Pending"
+    // read; whichever gets here first blocks the other until it commits.
+    const drafts = await db.query<any>(`SELECT status FROM altax.v3_je_drafts WHERE bank_line_id = $1 FOR UPDATE`, [lineId]);
+    if (drafts.some((d) => d.status === "Approved")) { hasApprovedDraft = true; return; }
+    await db.query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
+  });
+  if (hasApprovedDraft) return res.status(400).json({ error: "This line has an approved journal entry — reconcile it or reverse the GL entry manually before deleting." });
   res.json({ ok: true });
 }));
 
@@ -379,8 +404,6 @@ bankRecRouter.post("/:lineId/match", requireAuth, requireRole("admin", "staff"),
 
   const gl = await queryOne<any>(`SELECT gl_entry_id, (debit - credit) AS amount FROM altax.v3_gl_entries WHERE gl_entry_id = $1 AND client_id = $2`, [glEntryId, line.client_id]);
   if (!gl) return res.status(404).json({ error: "GL entry not found for this client." });
-  const alreadyClaimed = await queryOne<any>(`SELECT line_id FROM altax.v3_bank_statement_lines WHERE matched_gl_entry_id = $1`, [glEntryId]);
-  if (alreadyClaimed) return res.status(400).json({ error: "That GL entry is already matched to another bank line." });
   // Same exact-cents comparison as auto-match — a manual match that doesn't
   // actually balance would silently corrupt the cleared balance and hide the
   // real unmatched transaction (see bug found in the Accounting audit).
@@ -388,7 +411,25 @@ bankRecRouter.post("/:lineId/match", requireAuth, requireRole("admin", "staff"),
     return res.status(400).json({ error: `Amounts don't match: bank line is $${Number(line.amount).toFixed(2)}, GL entry is $${Number(gl.amount).toFixed(2)}.` });
   }
 
-  await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1`, [lineId, glEntryId]);
+  let claimedByOther = false;
+  let lineAlreadyMatched = false;
+  await withTransaction(async (db) => {
+    // Lock the GL entry row first — two concurrent /match calls naming the
+    // same glEntryId (from two different bank lines) now serialize here: the
+    // second one blocks until the first commits, then its re-check below sees
+    // the first's claim instead of both racing past a stale "not yet claimed"
+    // read and double-claiming the same GL entry.
+    await db.query(`SELECT gl_entry_id FROM altax.v3_gl_entries WHERE gl_entry_id = $1 FOR UPDATE`, [glEntryId]);
+    const stillClaimed = await db.query(`SELECT line_id FROM altax.v3_bank_statement_lines WHERE matched_gl_entry_id = $1`, [glEntryId]);
+    if (stillClaimed.length) { claimedByOther = true; return; }
+    const updated = await db.query(
+      `UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2 WHERE line_id = $1 AND matched_gl_entry_id IS NULL RETURNING line_id`,
+      [lineId, glEntryId]
+    );
+    if (!updated.length) lineAlreadyMatched = true;
+  });
+  if (claimedByOther) return res.status(400).json({ error: "That GL entry is already matched to another bank line." });
+  if (lineAlreadyMatched) return res.status(400).json({ error: "This line is already matched." });
   res.json({ ok: true });
 }));
 

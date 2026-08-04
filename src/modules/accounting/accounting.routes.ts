@@ -1,5 +1,5 @@
 import { Router, Response } from "express";
-import { query, queryOne, withTransaction } from "../../config/db";
+import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -77,11 +77,17 @@ function isPaycheckLockedForEdit(check: any): boolean {
  * line absurdly wide once it's embedded there (caught by printing an actual
  * paycheck onto real check stock and comparing against a real bank check).
  */
-async function nextCheckNumber(clientId: string): Promise<string> {
-  const row = await queryOne<any>(
-    `SELECT COUNT(*)::int AS count FROM altax.v3_paychecks WHERE client_id = $1`,
-    [clientId]
-  );
+/**
+ * Assigns the next auto-generated check number for a client — a plain
+ * COUNT(*)+1, no unique constraint on check_number backs it up, so it MUST
+ * run inside the caller's transaction, behind the same per-client advisory
+ * lock, or two concurrent paycheck creations for the same client (two staff
+ * members, or a batch run) can both count the same number of existing checks
+ * and both mint the identical "next" number.
+ */
+async function nextCheckNumberLocked(clientId: string, db: DbClient): Promise<string> {
+  await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`checknum:${clientId}`]);
+  const row = await db.queryOne<any>(`SELECT COUNT(*)::int AS count FROM altax.v3_paychecks WHERE client_id = $1`, [clientId]);
   return String(1001 + (row?.count || 0));
 }
 
@@ -370,23 +376,6 @@ accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), as
   // State, and INSERT a second row sharing the same rate_id instead of
   // updating — two active rows racing for the same rate_id, with
   // lookupRate() picking whichever one happens to sort first.
-  const existingRate = await queryOne<any>(
-    `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '')`,
-    [rateId]
-  );
-  if (existingRate) {
-    await query(
-      `UPDATE altax.v3_tax_rates SET rate_type = $2, rate = $3, state = $4, active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
-      [existingRate.tax_rate_row_id, categoryName, rateDecimal, state]
-    );
-  } else {
-    await query(
-      `INSERT INTO altax.v3_tax_rates (rate_id, scope, client_id, client_name, rate_type, rate, state, active)
-       VALUES ($1,'Global',NULL,NULL,$2,$3,$4,true)`,
-      [rateId, categoryName, rateDecimal, state]
-    );
-  }
-
   const fields = {
     category_name: categoryName,
     state,
@@ -397,20 +386,49 @@ accountingRouter.post("/sales-categories", requireAuth, requireRole("admin"), as
     notes: String(body.notes || "").trim() || null,
   };
 
-  const existing = await queryOne<any>(`SELECT category_id FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
-  if (existing) {
-    await query(
-      `UPDATE altax.v3_sales_tax_categories SET category_name=$2, state=$3, default_rate_id=$4, filing_box_label=$5,
-         display_order=$6, active=$7, notes=$8, updated_at = now() WHERE category_id = $1`,
-      [categoryId, ...Object.values(fields)]
+  // The category row and its dedicated 1:1 tax rate row are one logical
+  // record (see the doc comment above — "category_id IS the rate_id") — a
+  // crash between the two writes used to have a real chance of leaving one
+  // without the other. One transaction, atomic either way.
+  let isEdit = false;
+  await withTransaction(async (db) => {
+    const existingRate = await db.query<any>(
+      `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '')`,
+      [rateId]
     );
+    if (existingRate.length) {
+      await db.query(
+        `UPDATE altax.v3_tax_rates SET rate_type = $2, rate = $3, state = $4, active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
+        [existingRate[0].tax_rate_row_id, categoryName, rateDecimal, state]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO altax.v3_tax_rates (rate_id, scope, client_id, client_name, rate_type, rate, state, active)
+         VALUES ($1,'Global',NULL,NULL,$2,$3,$4,true)`,
+        [rateId, categoryName, rateDecimal, state]
+      );
+    }
+
+    const existing = await db.query<any>(`SELECT category_id FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
+    isEdit = existing.length > 0;
+    if (isEdit) {
+      await db.query(
+        `UPDATE altax.v3_sales_tax_categories SET category_name=$2, state=$3, default_rate_id=$4, filing_box_label=$5,
+           display_order=$6, active=$7, notes=$8, updated_at = now() WHERE category_id = $1`,
+        [categoryId, ...Object.values(fields)]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO altax.v3_sales_tax_categories (category_id, category_name, state, default_rate_id, filing_box_label, display_order, active, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [categoryId, ...Object.values(fields)]
+      );
+    }
+  });
+
+  if (isEdit) {
     await logAudit("Accounting", "EDIT_SALES_CATEGORY", categoryId, "rate", "", `${ratePercent}%`, `Sales tax category edited by ${req.user!.email}.`, req.user!.email);
   } else {
-    await query(
-      `INSERT INTO altax.v3_sales_tax_categories (category_id, category_name, state, default_rate_id, filing_box_label, display_order, active, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [categoryId, ...Object.values(fields)]
-    );
     await logAudit("Accounting", "CREATE_SALES_CATEGORY", categoryId, "rate", "", `${ratePercent}%`, `Sales tax category created by ${req.user!.email}.`, req.user!.email);
   }
 
@@ -449,11 +467,13 @@ accountingRouter.post("/sales-categories/:categoryId/delete", requireAuth, requi
     return res.status(400).json({ error: `This category is used on ${inUse.n} recorded sale(s) and can't be deleted — use Deactivate instead so it stops appearing in Sales Input but past sales stay intact.` });
   }
 
-  await query(`DELETE FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
-  if (category.default_rate_id) {
-    await query(`DELETE FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '') AND COALESCE(state, '') = $2`,
-      [category.default_rate_id, category.state || ""]);
-  }
+  await withTransaction(async (db) => {
+    await db.query(`DELETE FROM altax.v3_sales_tax_categories WHERE category_id = $1`, [categoryId]);
+    if (category.default_rate_id) {
+      await db.query(`DELETE FROM altax.v3_tax_rates WHERE rate_id = $1 AND scope = 'Global' AND (client_id IS NULL OR client_id = '') AND COALESCE(state, '') = $2`,
+        [category.default_rate_id, category.state || ""]);
+    }
+  });
   await logAudit("Accounting", "DELETE_SALES_CATEGORY", categoryId, "CategoryName", category.category_name || "", "",
     `Sales tax category permanently deleted by ${req.user!.email}.`, req.user!.email);
 
@@ -900,6 +920,13 @@ export async function createSinglePaycheck(
     [client.client_id, employeeName]
   );
   if (!employee) return { ok: false, error: "Payroll requires an active employee profile. Use the Contractors/1099 workflow for contractors." };
+  // The lookup above is case-insensitive, but everything downstream —
+  // capWagesToAnnualLimit's YTD sum, the payroll_input/paychecks rows, and
+  // the W-2/W-3/940/941 exports — all match on employee_name by exact string.
+  // Storing the caller's raw-cased input instead of the canonical name would
+  // silently split a paycheck out of that employee's YTD wage-cap tracking
+  // and tax-form totals the moment someone types a different casing.
+  employeeName = employee.employee_name;
   const employeeStatus = String(employee.status || "Active").trim().toLowerCase();
   if (["inactive", "archived", "deleted", "no", "false"].includes(employeeStatus)) {
     return { ok: false, error: "This worker is not active for payroll." };
@@ -936,7 +963,7 @@ export async function createSinglePaycheck(
 
     const payrollInputId = `PAYIN-${idSuffix()}`;
     const paycheckId = `CHK-${idSuffix()}`;
-    const checkNumber = String(body.checkNumber || "").trim() || await nextCheckNumber(client.client_id);
+    const explicitCheckNumber = String(body.checkNumber || "").trim();
     const payType = String(body.payType || employee.pay_type || "").trim() || null;
     const paymentMethod = await resolvePaymentMethod(client.client_id, "payroll", body.paymentMethodId);
 
@@ -944,7 +971,9 @@ export async function createSinglePaycheck(
     // withTransaction means a failure anywhere in here (including postPayrollGl's own
     // balance check) rolls back everything instead of leaving an orphaned paycheck with
     // no GL postings, or vice versa.
+    let checkNumber = explicitCheckNumber;
     await withTransaction(async (db) => {
+      if (!checkNumber) checkNumber = await nextCheckNumberLocked(client.client_id, db);
       await db.query(
         `INSERT INTO altax.v3_payroll_input
            (payroll_input_id, client_id, client_name, pay_date, employee, gross_wages, federal_withholding,

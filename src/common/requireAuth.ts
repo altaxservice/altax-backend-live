@@ -12,7 +12,19 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   if (!token) return res.status(401).json({ error: "Missing authentication token." });
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET as string) as AuthedRequest["user"];
+    const payload = jwt.verify(token, process.env.JWT_SECRET as string) as AuthedRequest["user"] & { purpose?: string };
+    // Login issues several short-lived, single-purpose tokens before a real
+    // session exists (2fa-challenge, 2fa-enroll, email-otp — see
+    // auth.routes.ts's readChallenge()), all signed with the same JWT_SECRET
+    // and all carrying the same `sub`. A real session token never has a
+    // `purpose` claim, so one of these narrowly-scoped tokens must never pass
+    // as a full session here — otherwise a 2fa-challenge token (which only
+    // requires knowing the password, not the second factor) could be handed
+    // to any requireAuth-only route, e.g. POST /auth/2fa/setup, letting an
+    // attacker overwrite the real account's TOTP secret before ever proving
+    // they hold it.
+    if (payload?.purpose) return res.status(401).json({ error: "Invalid or expired session." });
+    req.user = payload;
     next();
   } catch {
     return res.status(401).json({ error: "Invalid or expired session." });

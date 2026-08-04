@@ -289,7 +289,7 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
     return res.status(403).json({ error: "You do not have access to this client." });
   }
 
-  const client = await queryOne<any>(`SELECT client_id, client_name, email, preferred_language FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, preferred_language, sms_allowed, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: "Client not found." });
 
   const subject = String(body.subject || "AL TAX SERVICE").trim();
@@ -301,8 +301,18 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   const communicationId = nextCommunicationId();
   const channel = String(body.channel || "Portal Note").trim();
   const direction = String(body.direction || "Outbound").trim();
-  const sentTo = String(body.sentTo || client.email || "").trim();
-  const sendNow = body.sendNow === undefined ? true : Boolean(body.sendNow);
+  const isStaffOrAdmin = req.user!.role === "admin" || req.user!.role === "staff";
+  // The client/employee self-service composer (CommunicationsPage.tsx's
+  // SelfMessages) only ever creates a Portal Note for the firm to review —
+  // it never sets sendNow or a custom sentTo. Without this gate, though,
+  // nothing server-side stopped a portal account from calling this route
+  // directly with sendNow:true and an arbitrary channel/sentTo, turning it
+  // into an open relay that emails/texts anyone through AL TAX's own
+  // Resend/Twilio identity. Only admin/staff may actually dispatch a send or
+  // choose the recipient; every other role's message is always saved (never
+  // sent) and always addressed to the client's own email on file.
+  const sentTo = isStaffOrAdmin ? String(body.sentTo || client.email || "").trim() : (client.email || "").trim();
+  const sendNow = isStaffOrAdmin ? (body.sendNow === undefined ? true : Boolean(body.sendNow)) : false;
 
   const firmName = (await getFirmProfile()).firmName;
   const base = publicBaseUrl(req);
@@ -337,7 +347,16 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
     }
   }
   const portalUrl = attachmentSaved && base ? `${base}/login/client` : undefined;
-  const result = sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
+  // Same opt-in gate bulk-send already enforces (required for A2P 10DLC
+  // compliance) — a single-recipient send skipping it was an inconsistency
+  // in the same control, letting staff message a client who's opted out.
+  const normalizedChannel = normalizeText(channel);
+  const consentError = !sendNow ? null
+    : normalizedChannel === "email" && !client.email_allowed ? "Client has not opted in to email."
+    : (normalizedChannel === "sms" || normalizedChannel === "whatsapp") && !client.sms_allowed ? "Client has not opted in to SMS/WhatsApp."
+    : null;
+  const result = consentError ? { sent: false, error: consentError }
+    : sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(

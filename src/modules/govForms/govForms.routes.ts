@@ -330,7 +330,15 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
   const signerName = String(req.body?.signerName || "").trim();
   if (!signerName) return res.status(400).json({ error: "Type your full legal name to sign." });
   if (!req.body?.agree) return res.status(400).json({ error: "You must check the box confirming this is your electronic signature." });
-  const formData = { ...(filing.form_data || {}), ...(req.body?.formData || {}) };
+  // The employer/payer side (see /employee/:employeeId/send above) is never
+  // the employee's to fill in or change — without stripping these first, an
+  // employee signing could submit a falsified employerName/EIN and have this
+  // route generate + electronically sign a PDF asserting a fake employer
+  // identity as if the firm itself had prefilled it.
+  const EMPLOYER_ONLY_FIELDS = ["employerName", "employerAddress", "employerEin", "firstDateOfEmployment"];
+  const submittedFormData = { ...(req.body?.formData || {}) };
+  for (const field of EMPLOYER_ONLY_FIELDS) delete submittedFormData[field];
+  const formData = { ...(filing.form_data || {}), ...submittedFormData };
 
   let pdfBytes: Uint8Array;
   try {

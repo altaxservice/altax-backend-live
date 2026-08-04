@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, withTransaction } from "../../config/db";
 import { logAudit } from "../../common/audit";
 
 /**
@@ -95,24 +95,44 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
   if (session.metadata?.invoice_id !== String(invoice.invoice_id)) return false;
 
   const amount = money((session.amount_total ?? 0) / 100);
-  const total = money(invoice.total_amount);
-  const newPaid = money(Number(invoice.amount_paid || 0) + amount);
-  const balance = Math.max(0, money(total - newPaid));
-  const status = balance <= 0 ? "Paid" : "Partial";
-
   const paymentId = `PMT-STRIPE-${Date.now()}`;
-  await query(
-    `INSERT INTO altax.v3_payments
-       (payment_id, invoice_id, task_id, client_id, payment_date, expected_amount, actual_amount, method,
-        confirmation_number, notes, status, reversal_reason, source_system, source_record_id)
-     VALUES ($1,$2,NULL,$3,now(),$4,$5,'Card (Stripe)',$6,$7,'Active','','Stripe Checkout',$1)`,
-    [paymentId, invoice.invoice_id, invoice.client_id, money(invoice.balance_due), amount,
-      invoice.stripe_session_id, `Paid online via the invoice share link.`]
-  );
-  await query(
-    `UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
-    [invoice.invoice_id, newPaid, balance, status]
-  );
+  let recorded = false;
+  let newPaid = 0, balance = 0, status = "";
+
+  await withTransaction(async (db) => {
+    // Lock the invoice row and re-check idempotency under it — the public
+    // invoice link can be loaded (or "back"-button-reloaded) more than once
+    // right after a successful payment, and the plain checks above raced past
+    // each other on separate connections; this makes the whole
+    // check-then-insert-then-update sequence atomic per invoice, closing both
+    // the double-record risk and the same amount_paid lost-update pattern
+    // already fixed in POST /invoices/:invoiceId/payments.
+    const locked = await db.query<any>(`SELECT amount_paid, total_amount FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`, [invoice.invoice_id]);
+    if (!locked.length) return;
+    const stillUnrecorded = await db.query<any>(`SELECT 1 FROM altax.v3_payments WHERE confirmation_number = $1`, [invoice.stripe_session_id]);
+    if (stillUnrecorded.length) return;
+
+    const total = money(locked[0].total_amount);
+    newPaid = money(Number(locked[0].amount_paid || 0) + amount);
+    balance = Math.max(0, money(total - newPaid));
+    status = balance <= 0 ? "Paid" : "Partial";
+
+    await db.query(
+      `INSERT INTO altax.v3_payments
+         (payment_id, invoice_id, task_id, client_id, payment_date, expected_amount, actual_amount, method,
+          confirmation_number, notes, status, reversal_reason, source_system, source_record_id)
+       VALUES ($1,$2,NULL,$3,now(),$4,$5,'Card (Stripe)',$6,$7,'Active','','Stripe Checkout',$1)`,
+      [paymentId, invoice.invoice_id, invoice.client_id, money(invoice.balance_due), amount,
+        invoice.stripe_session_id, `Paid online via the invoice share link.`]
+    );
+    await db.query(
+      `UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
+      [invoice.invoice_id, newPaid, balance, status]
+    );
+    recorded = true;
+  });
+  if (!recorded) return false;
+
   await logAudit("Billing", "STRIPE_PAYMENT", paymentId, "Invoice", invoice.invoice_id, String(amount),
     `Card payment of $${amount.toFixed(2)} received via Stripe Checkout for invoice ${invoice.invoice_id} (${status}).`,
     "Stripe Checkout");

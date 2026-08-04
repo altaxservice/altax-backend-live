@@ -852,21 +852,30 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   if (amount <= 0) return res.status(400).json({ error: "Payment amount must be greater than zero." });
 
   const total = money(invoice.total_amount);
-  const existingPaid = money(invoice.amount_paid);
-  const newPaid = existingPaid + amount;
-  if (newPaid > total) {
-    return res.status(400).json({ error: "Payment exceeds invoice total." });
-  }
-  const balance = Math.max(0, total - newPaid);
-  const status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
-
   const paymentId = nextPaymentId();
   const paymentMethod = await resolvePaymentMethod(invoice.client_id, "invoices", body.paymentMethodId);
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
   const paymentDate = String(body.paymentDate || "").trim() || null;
+  let newPaid = 0, balance = 0, status = "";
+  let overpay = false;
   await withTransaction(async (db) => {
+    // Lock the invoice row and recompute amount_paid from THIS read, not the
+    // one taken before the transaction started — two concurrent/double-submitted
+    // payments against the same invoice both used to read the same stale
+    // amount_paid, both compute their own "new total" from it, and the second
+    // UPDATE (an absolute write, not an increment) silently overwrote the
+    // first payment's contribution even though both payment rows and both GL
+    // postings existed. Locking here also makes the over-payment cap below
+    // see the other payment's contribution instead of racing past it.
+    const locked = await db.query<{ amount_paid: string }>(`SELECT amount_paid FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`, [req.params.invoiceId]);
+    const existingPaid = money(locked[0]?.amount_paid);
+    newPaid = existingPaid + amount;
+    if (newPaid > total) { overpay = true; return; }
+    balance = Math.max(0, total - newPaid);
+    status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
+
     await db.query(
       `INSERT INTO altax.v3_payments
          (payment_id, invoice_id, task_id, client_id, payment_date, expected_amount, actual_amount, method,
@@ -893,6 +902,7 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
     const clientName = await getClientName(invoice.client_id);
     await postInvoicePaymentGl(invoice.client_id, clientName, paymentId, paymentDate || invoice.invoice_date, amount, false, db);
   });
+  if (overpay) return res.status(400).json({ error: "Payment exceeds invoice total." });
 
   await logAudit("Billing", "RECORD_PAYMENT", paymentId, "InvoiceID", "", req.params.invoiceId,
     `Payment recorded by ${req.user!.email}.`, req.user!.email);
@@ -991,22 +1001,37 @@ billingRouter.post("/payments/:paymentId/reverse", requireAuth, requireRole("adm
   }
 
   const total = money(invoice.total_amount);
-  const existingPaid = money(invoice.amount_paid);
-  const newPaid = Math.max(0, existingPaid - paymentAmount);
-  const balance = Math.max(0, total - newPaid);
-  const status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
-
+  let newPaid = 0, balance = 0, status = "";
+  let alreadyReversed = false;
   await withTransaction(async (db) => {
+    // Atomic claim first, same pattern as the Payroll/Bank Rec Agent draft
+    // fixes — two concurrent reverse calls for the same payment (a
+    // double-click) can no longer both pass the earlier status read and both
+    // subtract this payment from the invoice / post a duplicate reversal GL
+    // entry; only one UPDATE...WHERE status <> 'Reversed' can match the row.
+    const claimed = await db.query(
+      `UPDATE altax.v3_payments SET status = 'Reversed', reversal_reason = $2, updated_at = now() WHERE payment_id = $1 AND status <> 'Reversed' RETURNING payment_id`,
+      [req.params.paymentId, reason]
+    );
+    if (!claimed.length) { alreadyReversed = true; return; }
+
+    // Lock the invoice row and recompute from THIS read — same lost-update
+    // risk as recording a payment (see POST /invoices/:invoiceId/payments).
+    const locked = await db.query<{ amount_paid: string }>(`SELECT amount_paid FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`, [payment.invoice_id]);
+    const existingPaid = money(locked[0]?.amount_paid);
+    newPaid = Math.max(0, existingPaid - paymentAmount);
+    balance = Math.max(0, total - newPaid);
+    status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
+
     await db.query(`UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
       [payment.invoice_id, newPaid, balance, status]);
-    await db.query(`UPDATE altax.v3_payments SET status = 'Reversed', reversal_reason = $2, updated_at = now() WHERE payment_id = $1`,
-      [req.params.paymentId, reason]);
 
     const clientName = await getClientName(invoice.client_id);
     await postInvoicePaymentGl(invoice.client_id, clientName, req.params.paymentId, payment.payment_date || invoice.invoice_date, paymentAmount, true, db);
   });
+  if (alreadyReversed) return res.status(400).json({ error: "This payment has already been reversed." });
 
-  await logAudit("Billing", "REVERSE_PAYMENT", payment.invoice_id, "AmountPaid", String(existingPaid), String(newPaid), reason, req.user!.email);
+  await logAudit("Billing", "REVERSE_PAYMENT", payment.invoice_id, "AmountPaid", "", String(newPaid), reason, req.user!.email);
 
   res.json({ ok: true, invoiceId: payment.invoice_id, reversedPaymentId: req.params.paymentId, amountReversed: paymentAmount, amountPaid: newPaid, balanceDue: balance, status });
 }));
@@ -1234,13 +1259,19 @@ billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requir
 
   const invoiceId = `INV-${idSuffix()}`;
   const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
-  await query(
-    `INSERT INTO altax.v3_invoices
-       (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
-        status, source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
-    [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
-  );
+  await withTransaction(async (db) => {
+    await db.query(
+      `INSERT INTO altax.v3_invoices
+         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
+          status, source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
+      [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
+    );
+    // Every other invoice-creation path posts Dr AR / Cr Revenue immediately —
+    // this one didn't, so every "Use Now" recurring invoice was invisible to
+    // the GL/Trial Balance/P&L even though the invoice itself existed.
+    await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
+  });
   await query(
     `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
     [recurringBillingId, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
@@ -1328,13 +1359,19 @@ export async function runRecurringBillingSweep(
 
     const invoiceId = `INV-${idSuffix()}`;
     const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
-    await query(
-      `INSERT INTO altax.v3_invoices
-         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
-          status, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
-      [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
-    );
+    await withTransaction(async (db) => {
+      await db.query(
+        `INSERT INTO altax.v3_invoices
+           (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
+            status, source_system, source_record_id)
+         VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
+        [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
+      );
+      // Same GL posting every other invoice-creation path already does — the
+      // nightly sweep was silently skipping it, understating AR/revenue for
+      // every recurring-billing client (see the second audit round's finding).
+      await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
+    });
     await query(
       `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
       [schedule.recurring_billing_id, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
