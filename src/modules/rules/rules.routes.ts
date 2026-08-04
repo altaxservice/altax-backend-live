@@ -445,6 +445,20 @@ export async function runTaskRulesAgentSweep(actorEmail: string, opts: { runDate
     const period = computeDuePeriod(rule, runDate);
     if (!period) { skipped++; continue; }
 
+    // Never originate a brand-new draft for a period whose due date has
+    // already passed. Without this, the very first sweep for a rule (or a
+    // sweep that follows a long outage) would "discover" every historical
+    // period at once and draft all of them — most of which were already
+    // filed and completed by staff long before this feature existed. The
+    // duplicate-task guard in runRuleBatch deliberately excludes completed/
+    // closed tasks (so a straggler client can still get a fresh task for the
+    // *current* period even after everyone else's is done), which means it
+    // does NOT catch "this exact period was already finished" — so
+    // backfilling old periods reliably recreated already-done work. Once a
+    // period's due date has passed without ever being drafted, it's handled
+    // manually via the existing Create Batch Tasks flow, not by the agent.
+    if (dateOnly(period.dueDate).getTime() < runDate.getTime()) { skipped++; continue; }
+
     const draftFrom = addDays(dateOnly(period.dueDate), -parseMaxWarningDays(rule));
     if (draftFrom.getTime() > runDate.getTime()) { skipped++; continue; }
 
