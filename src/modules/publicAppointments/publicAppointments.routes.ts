@@ -174,12 +174,48 @@ publicAppointmentsRouter.get("/settings", availabilityLimiter, asyncHandler(asyn
     businessEndHour: settings.businessEndHour,
     dayHours: settings.dayHours,
     slotMinutes: settings.slotMinutes,
+    locationName: settings.locationName,
+    locationAddress: settings.locationAddress,
   });
 }));
 
 /** Active appointment types for the /book page's duration picker. */
 publicAppointmentsRouter.get("/appointment-types", availabilityLimiter, asyncHandler(async (_req: Request, res: Response) => {
   res.json({ types: await listAppointmentTypes(true) });
+}));
+
+/**
+ * Walks forward day by day from `from` (default: today) looking for the first
+ * bookable date with at least one open slot, and returns that date's slots
+ * directly — so the /book page never has to show a bare "no open times"
+ * dead end on first load just because it defaulted to today and today's
+ * hours already passed, or today isn't a bookable weekday at all. Each
+ * non-bookable day costs nothing (computeAvailableSlots short-circuits before
+ * any DB query), so this is cheap even walking the full booking horizon.
+ */
+publicAppointmentsRouter.get("/next-available", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const settings = await getAppointmentSettings();
+  const rawDuration = Number(req.query.durationMinutes);
+  let durationMinutes = settings.slotMinutes;
+  if (Number.isFinite(rawDuration) && rawDuration > 0 && rawDuration <= 480) {
+    durationMinutes = Math.trunc(rawDuration);
+  } else {
+    durationMinutes = (await resolveAppointmentDuration(String(req.query.appointmentTypeId || ""), settings.slotMinutes)).durationMinutes;
+  }
+  const now = new Date();
+  const from = parseDateParam(req.query.from) || { y: now.getUTCFullYear(), mo: now.getUTCMonth() + 1, d: now.getUTCDate() };
+
+  let cursor = new Date(Date.UTC(from.y, from.mo - 1, from.d));
+  for (let i = 0; i <= settings.maxDaysAhead; i++) {
+    const y = cursor.getUTCFullYear(), mo = cursor.getUTCMonth() + 1, d = cursor.getUTCDate();
+    const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes);
+    if (slots.length) {
+      const date = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      return res.json({ date, slots, durationMinutes });
+    }
+    cursor = new Date(cursor.getTime() + 86400000);
+  }
+  res.json({ date: null, slots: [], durationMinutes });
 }));
 
 publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(async (req: Request, res: Response) => {
@@ -214,13 +250,16 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   const phone = String(body.phone || "").trim();
   const startTime = String(body.startTime || "").trim();
   const reason = String(body.reason || "").trim();
-  // Phone/email are how we'd confirm or remind someone, but the fields stay
-  // optional rather than required — a walk-in prospect who'd rather not share
-  // either shouldn't be blocked from getting on the calendar at all. If both
-  // are left blank, createAppointment() below just skips the confirmation
-  // send (see notifyAppointment's early return) rather than failing.
   if (!name || !startTime) {
     return res.status(400).json({ error: "Name and a time slot are required." });
+  }
+  // Either channel alone is fine (a prospect who'd rather not share an email
+  // can leave it blank), but the page promises "we'll confirm by email and
+  // text" — allowing BOTH to be blank silently breaks that promise: nothing
+  // can ever be sent, and staff has no way to reach this person if something
+  // needs to change. So at least one is required.
+  if (!email && !phone) {
+    return res.status(400).json({ error: "Please add a phone number or email so we can confirm your appointment." });
   }
 
   const startMs = new Date(startTime).getTime();
@@ -260,6 +299,28 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     return res.status(400).json({ error: err?.message || "Could not book this appointment." });
   }
 
+  // Best-effort: if this booking matched an existing client (by email, inside
+  // createAppointment), leave a trace on their activity timeline so staff see
+  // it on the Client page without having to cross-reference the Calendar —
+  // "how did this appointment end up on the books" is otherwise invisible.
+  // A brand-new prospect (no match) has no client_id and gets nothing here;
+  // the admin notification email below is their only trace, by design (see
+  // this file's header comment — a fresh prospect isn't a v3_clients row).
+  let matchedClientId: string | null = null;
+  try {
+    const createdAppt = await queryOne<any>(`SELECT client_id FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
+    matchedClientId = createdAppt?.client_id || null;
+    if (matchedClientId) {
+      const when = new Date(startTime).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
+      await query(
+        `INSERT INTO altax.v3_client_activity_log (activity_id, client_id, activity_type, note, occurred_at, logged_by)
+         VALUES ($1,$2,'Online Booking',$3,now(),'Public Booking Form')`,
+        [`ACT-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, matchedClientId,
+          `Booked "${appointmentTypeName || "Consultation"}" for ${when} ET via the public website.`]
+      );
+    }
+  } catch { /* best-effort — never block the booking response over a timeline note */ }
+
   try {
     const admins = await query<any>(
       `SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`
@@ -271,8 +332,11 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     // would render as a live link inside the firm's own internal admin
     // notification. Escape everything, and only convert newlines to <br> AFTER
     // escaping so the <br> tags themselves don't get escaped too.
+    const badge = matchedClientId
+      ? `<span style="background:#e6f4ea;color:#1e7e34;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700;">RETURNING CLIENT</span>`
+      : `<span style="background:#fff4e5;color:#a15c00;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700;">NEW PROSPECT</span>`;
     const html = `
-      <h2>New consultation booked online</h2>
+      <h2>New consultation booked online ${badge}</h2>
       <p><strong>Name:</strong> ${escapeHtml(name)}</p>
       <p><strong>Phone:</strong> ${phone ? escapeHtml(phone) : "not provided"}</p>
       <p><strong>Email:</strong> ${email ? escapeHtml(email) : "not provided"}</p>
@@ -285,7 +349,7 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     // admins never learned a new consultation was booked online.
     for (const admin of admins) {
       try {
-        await sendEmail({ to: admin.email, subject: `New consultation booked — ${name}`, html });
+        await sendEmail({ to: admin.email, subject: `${matchedClientId ? "Consultation" : "New prospect"} booked — ${name}`, html });
       } catch (err) {
         if (!(err instanceof NotConfiguredError)) {
           // eslint-disable-next-line no-console

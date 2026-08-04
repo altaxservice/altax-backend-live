@@ -52,6 +52,19 @@
       <h2 data-i18n="book.heading">Pick a time that works for you</h2>
       <p data-i18n="book.lead">Choose a date and an open time slot below, and we'll confirm your free consultation by email and text right away.</p>
 
+      <ol class="book-steps">
+        <li><span class="book-step-num">1</span><span data-i18n="book.step1">Pick an open date &amp; time</span></li>
+        <li><span class="book-step-num">2</span><span data-i18n="book.step2">Tell us how to reach you</span></li>
+        <li><span class="book-step-num">3</span><span data-i18n="book.step3">We confirm by email &amp; text</span></li>
+      </ol>
+
+      <div class="contact-detail" id="book-office-address-row" style="display:none;">
+        <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12S3 16 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+        <div>
+          <div class="label" data-i18n="book.officeLabel">Meet us at</div>
+          <span class="value" id="book-office-address"></span>
+        </div>
+      </div>
       <div class="contact-detail">
         <div class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div>
         <div>
@@ -80,6 +93,7 @@
       <div class="field">
         <label for="book-date" data-i18n="book.dateLabel">Date</label>
         <input type="date" id="book-date">
+        <p id="book-next-available-note" class="book-next-available" style="display:none;"></p>
       </div>
       <div class="field">
         <label data-i18n="book.timeLabel">Available Times (Eastern)</label>
@@ -97,14 +111,15 @@
         </div>
         <div class="field field-row">
           <div>
-            <label for="book-phone" data-i18n="book.phoneLabel">Phone (optional)</label>
+            <label for="book-phone" data-i18n="book.phoneLabel">Phone</label>
             <input type="tel" id="book-phone" placeholder="(443) 000-0000" data-i18n-placeholder="contact.phonePlaceholder">
           </div>
           <div>
-            <label for="book-email" data-i18n="book.emailLabel">Email (optional)</label>
+            <label for="book-email" data-i18n="book.emailLabel">Email</label>
             <input type="email" id="book-email" placeholder="you@email.com" data-i18n-placeholder="contact.emailPlaceholder">
           </div>
         </div>
+        <p id="book-contact-hint" class="book-contact-hint" data-i18n="book.contactHint">Add a phone number or email so we can confirm — either one works.</p>
         <div class="field">
           <label for="book-reason" data-i18n="book.reasonLabel">What would you like to discuss? (optional)</label>
           <textarea id="book-reason" placeholder="Tell us a bit about what you need..." data-i18n-placeholder="contact.reasonPlaceholder"></textarea>

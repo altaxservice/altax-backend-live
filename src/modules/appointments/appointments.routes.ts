@@ -516,6 +516,36 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
   return { sent, failed };
 }
 
+/**
+ * A logged-in client's own upcoming (and recent past) appointments — the
+ * client portal's only view into appointments before this route existed was
+ * whatever confirmation/reminder email or text they'd received and kept;
+ * losing that message meant calling the office to even know their own
+ * appointment time. Read-only: the manage link (same one every confirmation/
+ * reminder already includes) covers cancel/reschedule, so this doesn't need
+ * its own separate write path. Scoped strictly to req.user.clientId — never
+ * accepts a clientId from the client, so one client can't fetch another's.
+ */
+appointmentsRouter.get("/mine", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = req.user!.clientId;
+  if (!clientId) return res.json({ appointments: [] });
+  const rows = await query<any>(
+    `SELECT appointment_id, title, start_time, end_time, location, status, manage_token, appointment_type_name
+       FROM altax.v3_appointments
+      WHERE client_id = $1 AND status = 'Scheduled' AND end_time > now() - interval '1 day'
+      ORDER BY start_time ASC`,
+    [clientId]
+  );
+  const base = publicBaseUrl(req);
+  res.json({
+    appointments: rows.map((r: any) => ({
+      appointmentId: r.appointment_id, title: r.title, startTime: r.start_time, endTime: r.end_time,
+      location: r.location, status: r.status, appointmentTypeName: r.appointment_type_name,
+      manageUrl: base && r.manage_token ? `${base}/manage-appointment?token=${r.manage_token}` : null,
+    })),
+  });
+}));
+
 appointmentsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const start = String(req.query.start || "").trim();
   const end = String(req.query.end || "").trim();

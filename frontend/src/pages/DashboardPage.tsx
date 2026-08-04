@@ -25,6 +25,15 @@ interface ClientTaxRow {
   payment_amount: string | number | null; confirmation_number: string | null; status: string;
 }
 
+interface MyAppointment {
+  appointmentId: string; title: string; startTime: string; endTime: string;
+  location: string | null; status: string; appointmentTypeName: string | null; manageUrl: string | null;
+}
+
+function fmtApptWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function CommandPanel({ title, note, action, children }: { title: React.ReactNode; note: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="command-panel">
@@ -311,6 +320,7 @@ export function DashboardPage() {
   const [docs, setDocs] = useState<DocumentRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [taxRows, setTaxRows] = useState<ClientTaxRow[]>([]);
+  const [appointments, setAppointments] = useState<MyAppointment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -321,8 +331,9 @@ export function DashboardPage() {
       api.get<{ requests: DocumentRequest[] }>("/documents/requests").catch(() => ({ requests: [] })),
       api.get<{ invoices: Invoice[] }>("/billing/invoices").catch(() => ({ invoices: [] })),
       api.get<{ rows: ClientTaxRow[] }>("/billing/client-tax-payments").catch(() => ({ rows: [] })),
+      api.get<{ appointments: MyAppointment[] }>("/appointments/mine").catch(() => ({ appointments: [] })),
     ])
-      .then(([t, c, d, i, tx]) => { setTasks(t.tasks); setClients(c.clients); setDocs(d.requests); setInvoices(i.invoices); setTaxRows(tx.rows); })
+      .then(([t, c, d, i, tx, ap]) => { setTasks(t.tasks); setClients(c.clients); setDocs(d.requests); setInvoices(i.invoices); setTaxRows(tx.rows); setAppointments(ap.appointments); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load dashboard data."))
       .finally(() => setLoading(false));
   }
@@ -332,7 +343,7 @@ export function DashboardPage() {
   if (error) return <ErrorBanner error={error} />;
   if (loading) return <div className="spinner-wrap">Loading…</div>;
 
-  if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} taxRows={taxRows} />;
+  if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} taxRows={taxRows} appointments={appointments} />;
   if (user?.role === "staff") return <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
   if (user?.role === "employee") return <EmployeeCommand />;
   return <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
@@ -628,7 +639,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   );
 }
 
-function ClientCommand({ docs, invoices, taxRows }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[] }) {
+function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[]; appointments: MyAppointment[] }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t, dir } = useLanguage();
@@ -671,6 +682,37 @@ function ClientCommand({ docs, invoices, taxRows }: { docs: DocumentRequest[]; i
           <div className="metric-note"><Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</div>
         </button>
       </div>
+
+      {appointments.length > 0 && (
+        <div className="command-panel" style={{ marginBottom: 14 }}>
+          <div className="command-panel-header">
+            <div>
+              <h2 className="command-panel-title">{t("dashboard.client.upcomingAppointments")}</h2>
+              <div className="command-panel-note"><Num>{appointments.length}</Num> {t("dashboard.visible")}</div>
+            </div>
+          </div>
+          <div className="work-card-list">
+            {appointments.slice(0, 3).map((a) => (
+              <article className="work-card" key={a.appointmentId}>
+                <div className="work-card-main">
+                  <div className="work-card-title">{a.appointmentTypeName || a.title}</div>
+                  <div className="work-card-meta">
+                    <span>{fmtApptWhen(a.startTime)} ET</span>
+                    {a.location && <span>{a.location}</span>}
+                  </div>
+                </div>
+                <div className="work-card-side">
+                  {a.manageUrl && (
+                    <a href={a.manageUrl} target="_blank" rel="noopener noreferrer" className="ghost-button btn-sm">
+                      {t("dashboard.client.rescheduleOrCancel")}
+                    </a>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="command-grid-even" style={{ display: "grid", gap: 14 }}>
         <CommandPanel title={t("dashboard.client.documentRequests")} note={<><Num>{openDocs.length}</Num> {t("dashboard.visible")}</>}>

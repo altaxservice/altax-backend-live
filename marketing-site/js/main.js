@@ -318,7 +318,16 @@ document.addEventListener('DOMContentLoaded', () => {
         ? ('المواعيد متاحة أيام ' + partsList + ' بتوقيت شرق أمريكا.')
         : ('Appointments are available ' + partsList + ' Eastern.');
     }
-    fetch('/public/appointments/settings').then((r) => r.json()).then((data) => { apptSettings = data; renderHoursNote(); }).catch(() => { renderHoursNote(); });
+    fetch('/public/appointments/settings').then((r) => r.json()).then((data) => {
+      apptSettings = data;
+      renderHoursNote();
+      const addrRow = document.getElementById('book-office-address-row');
+      const addrEl = document.getElementById('book-office-address');
+      if (addrRow && addrEl && data.locationAddress) {
+        addrEl.textContent = (data.locationName ? data.locationName + ' — ' : '') + data.locationAddress;
+        addrRow.style.display = 'flex';
+      }
+    }).catch(() => { renderHoursNote(); });
     document.querySelectorAll('.lang-toggle button').forEach((btn) => btn.addEventListener('click', renderHoursNote));
 
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -328,15 +337,45 @@ document.addEventListener('DOMContentLoaded', () => {
     bookDateInput.max = maxDate.toISOString().slice(0, 10);
     bookDateInput.value = todayStr;
 
+    function addDaysStr(dateStr, days) {
+      const d = new Date(dateStr + 'T00:00:00Z');
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    }
+    function fmtDateLabel(dateStr) {
+      const lang = getLang();
+      return new Date(dateStr + 'T12:00:00Z').toLocaleDateString(lang === 'ar' ? 'ar' : 'en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+    }
+    function showNextAvailableNote(dateStr) {
+      const noteEl = document.getElementById('book-next-available-note');
+      if (!noteEl) return;
+      if (!dateStr) { noteEl.style.display = 'none'; return; }
+      noteEl.textContent = (t('book.showingNext') || 'Showing the next available day —') + ' ' + fmtDateLabel(dateStr);
+      noteEl.style.display = 'block';
+    }
+
+    // Empty-state renders a "find the next open day" action instead of a bare
+    // dead end — previously, landing here after hours (or on a non-bookable
+    // weekday) just said "no open times," with nothing telling a first-time
+    // visitor which day WOULD work, so many likely just left.
     function renderSlots(slots) {
       slotsEl.innerHTML = '';
       selectedSlot = null;
       bookForm.style.display = 'none';
       if (!slots.length) {
+        const wrap = document.createElement('div');
+        wrap.className = 'book-slots-empty-wrap';
         const empty = document.createElement('span');
         empty.className = 'book-slots-empty';
         empty.textContent = t('book.noSlots') || 'No open times that day — try another date.';
-        slotsEl.appendChild(empty);
+        wrap.appendChild(empty);
+        const jumpBtn = document.createElement('button');
+        jumpBtn.type = 'button';
+        jumpBtn.className = 'book-jump-btn';
+        jumpBtn.textContent = t('book.findNext') || 'Find the next open day';
+        jumpBtn.addEventListener('click', () => jumpToNextAvailable(addDaysStr(bookDateInput.value, 1)));
+        wrap.appendChild(jumpBtn);
+        slotsEl.appendChild(wrap);
         return;
       }
       slots.forEach((iso) => {
@@ -354,7 +393,27 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    async function jumpToNextAvailable(fromDateStr) {
+      slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
+      try {
+        let url = '/public/appointments/next-available?from=' + encodeURIComponent(fromDateStr);
+        if (typeSelectEl && typeSelectEl.value) url += '&appointmentTypeId=' + encodeURIComponent(typeSelectEl.value);
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.date) {
+          bookDateInput.value = data.date;
+          renderSlots(data.slots || []);
+          showNextAvailableNote(data.date);
+        } else {
+          renderSlots([]);
+        }
+      } catch (err) {
+        renderSlots([]);
+      }
+    }
+
     async function loadSlots() {
+      showNextAvailableNote(null);
       slotsEl.innerHTML = '<span class="book-slots-empty">' + (t('book.loading') || 'Loading…') + '</span>';
       bookForm.style.display = 'none';
       try {
@@ -369,7 +428,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     bookDateInput.addEventListener('change', loadSlots);
-    loadSlots();
+    // First load is "smart" — jump straight to the next day with real open
+    // slots (which may well be today) instead of always showing today's
+    // picker even when today's hours have already passed or today isn't a
+    // bookable weekday at all.
+    jumpToNextAvailable(todayStr);
+
+    const contactHintEl = document.getElementById('book-contact-hint');
+    const bookPhoneEl = document.getElementById('book-phone');
+    const bookEmailEl = document.getElementById('book-email');
+    function clearContactHint() {
+      if (!contactHintEl) return;
+      contactHintEl.classList.remove('invalid');
+      contactHintEl.textContent = t('book.contactHint') || 'Add a phone number or email so we can confirm — either one works.';
+    }
+    if (bookPhoneEl) bookPhoneEl.addEventListener('input', clearContactHint);
+    if (bookEmailEl) bookEmailEl.addEventListener('input', clearContactHint);
 
     bookForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -383,6 +457,14 @@ document.addEventListener('DOMContentLoaded', () => {
         appointmentTypeId: typeSelectEl ? typeSelectEl.value : undefined,
         website: document.getElementById('book-website').value, // honeypot
       };
+      if (!payload.email && !payload.phone) {
+        if (contactHintEl) {
+          contactHintEl.classList.add('invalid');
+          contactHintEl.textContent = t('book.contactRequired') || 'Please add a phone number or email so we can confirm your appointment.';
+        }
+        if (bookPhoneEl) bookPhoneEl.focus();
+        return;
+      }
       if (bookStatusEl) bookStatusEl.style.display = 'none';
       if (bookSubmitBtn) bookSubmitBtn.disabled = true;
       if (bookSubmitLabel) bookSubmitLabel.textContent = t('contact.sending');

@@ -87,6 +87,8 @@ export const translations: Record<string, Record<Lang, string>> = {
   "dashboard.visible": { en: "visible", ar: "معروض" },
   "dashboard.client.noDocs": { en: "No open document requests.", ar: "لا توجد مستندات مطلوبة حالياً." },
   "dashboard.client.noInvoices": { en: "No open invoices.", ar: "لا توجد فواتير مستحقة." },
+  "dashboard.client.upcomingAppointments": { en: "Upcoming Appointments", ar: "المواعيد القادمة" },
+  "dashboard.client.rescheduleOrCancel": { en: "Reschedule / Cancel", ar: "إعادة الجدولة / الإلغاء" },
 
   // Documents — client portal
   "documents.client.title": { en: "Documents", ar: "المستندات" },
