@@ -112,6 +112,12 @@ export interface CraData {
   naicsCode?: string;
   businessActivity?: string;
   productOrService?: string;
+  /** MMDDYYYY per the form's own instructions. */
+  firstSaleDateMd?: string;
+  /** MMDDYYYY per the form's own instructions. */
+  firstWagesDateMd?: string;
+  /** Checks "Check here if a power of attorney form is attached." (Section F, page 4) — set true when a Form 548 is being filed alongside this CRA. */
+  poaAttached?: boolean;
   officerLastName?: string;
   officerFirstName?: string;
   officerSsn?: string;
@@ -190,6 +196,8 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
       naicsCode: "Enter your 6 digit NAICS Code that best describes the profit or nonprofit business activity that generates revenue",
       businessActivity: "Describe for profit or nonprofit business activity that generates revenue",
       productOrService: "Specify the product manufactured and/or sold, or the type of service performed",
+      firstSaleDateMd: "Enter Date first sales made in Maryland",
+      firstWagesDateMd: "Enter Date first wages paid in Maryland subject to",
       officerLastName: "Enter Last name_1",
       officerFirstName: "Enter first name_1",
       officerSsn: "Enter SSN_1",
@@ -226,6 +234,8 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
       naicsCode: data.naicsCode || "",
       businessActivity: data.businessActivity || "",
       productOrService: data.productOrService || "",
+      firstSaleDateMd: data.firstSaleDateMd || "",
+      firstWagesDateMd: data.firstWagesDateMd || "",
       officerLastName: data.officerLastName || "",
       officerFirstName: data.officerFirstName || "",
       officerSsn: data.officerSsn || "",
@@ -242,6 +252,7 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
   checkBox(doc, REASON_CHECKBOX[data.reason]);
   for (const t of data.taxTypes) checkBox(doc, TAX_TYPE_CHECKBOX[t]);
   checkBox(doc, OWNERSHIP_CHECKBOX[data.ownershipType]);
+  if (data.poaAttached) checkBox(doc, "Check Box 74");
 
   return extractFlattenedPages(doc, [0, 1, 2, 3]);
 }

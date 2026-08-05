@@ -102,6 +102,8 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     taxTypes: [] as string[],
     ownershipType: "Maryland corporation",
     naicsCode: "", businessActivity: "", productOrService: "",
+    firstSaleDateMd: "", firstWagesDateMd: "",
+    poaAttached: false,
     officerLastName: "", officerFirstName: "", officerSsn: "", officerTitle: "",
     officerStreet: "", officerCity: "", officerState: "", officerZip: "", officerPhone: "",
     preparerName: "AL TAX SERVICE",
@@ -599,11 +601,22 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 </p>
                 {!isEditing && (
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
-                    <input type="checkbox" checked={craGeneratePoa} onChange={(e) => setCraGeneratePoa(e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      checked={craGeneratePoa}
+                      onChange={(e) => {
+                        setCraGeneratePoa(e.target.checked);
+                        if (e.target.checked) setCra((f) => ({ ...f, poaAttached: true }));
+                      }}
+                    />
                     Also generate a Maryland Form 548 (Power of Attorney), authorizing {firmProfile.firmName} to handle this
                     registration with the Comptroller — creates a second Draft filing alongside this one, in the POA Filings section.
                   </label>
                 )}
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
+                  <input type="checkbox" checked={cra.poaAttached} onChange={(e) => setCra({ ...cra, poaAttached: e.target.checked })} />
+                  Check here if a power of attorney form is attached <span className="muted">(checks the CRA's own box — use this if a signed Form 548 is being filed alongside, whether generated above or already on hand)</span>
+                </label>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-cra-legal-name">Legal name of entity <span className="muted">(Box 2a)</span></label>
@@ -686,6 +699,17 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div className="field">
                   <label htmlFor="gf-cra-product-service">Product manufactured/sold or service performed</label>
                   <input id="gf-cra-product-service" value={cra.productOrService} onChange={(e) => setCra({ ...cra, productOrService: e.target.value })} />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-cra-first-sale-date">Date first sales made in Maryland <span className="muted">(MMDDYYYY, optional)</span></label>
+                    <input id="gf-cra-first-sale-date" placeholder="MMDDYYYY" value={cra.firstSaleDateMd} onChange={(e) => setCra({ ...cra, firstSaleDateMd: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-cra-first-wages-date">Date first wages paid in Maryland subject to withholding <span className="muted">(MMDDYYYY, optional)</span></label>
+                    <input id="gf-cra-first-wages-date" placeholder="MMDDYYYY" value={cra.firstWagesDateMd} onChange={(e) => setCra({ ...cra, firstWagesDateMd: e.target.value })} />
+                  </div>
                 </div>
 
                 <div className="field" style={{ marginTop: 6 }}>
