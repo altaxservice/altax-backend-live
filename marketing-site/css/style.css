@@ -508,7 +508,7 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   padding: 2.6rem;
   box-shadow: var(--shadow-lg);
 }
-.contact-form-card h3 { font-size: 1.3rem; }
+.contact-form-card h3 { font-size: 1.3rem; color: var(--color-dark); }
 .contact-form-card .contact-form-note { font-size: 0.85rem; color: #7a776f; margin: 0.4rem 0 1.4rem; line-height: 1.5; }
 .contact-form-card .contact-form-note a { color: var(--color-forest); font-weight: 700; text-decoration: underline; }
 .field { margin-bottom: 1.3rem; }
