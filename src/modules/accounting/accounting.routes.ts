@@ -936,63 +936,66 @@ export async function createSinglePaycheck(
     return { ok: false, error: "Contractors cannot be paid through payroll. Use the Contractors/1099 workflow instead." };
   }
 
-  // Same employee|pay_date duplicate guard payrollImport.routes.ts already
-  // enforces before calling this — moved here too so EVERY caller is
-  // protected, not just import. This is what was missing for the Payroll
-  // Agent: a stale next_pay_date (a backdated "next payday" at enrollment, or
-  // a schedule resumed after a long pause) walks its sweep forward one
-  // missed period per night and drafts each one — nothing previously checked
-  // whether a real paycheck already existed for that date before the draft
-  // was approved. Void checks don't count, so a legitimate re-issue after
-  // voiding the original still goes through.
-  const payDateForDupCheck = String(body.payDate || "").trim();
-  if (payDateForDupCheck) {
-    const duplicate = await queryOne<any>(
-      `SELECT paycheck_id FROM altax.v3_paychecks
-         WHERE client_id = $1 AND lower(employee) = lower($2) AND pay_date::date = $3::date AND lower(status) <> 'void'
-         LIMIT 1`,
-      [client.client_id, employeeName, payDateForDupCheck]
-    );
-    if (duplicate) return { ok: false, error: `A paycheck for ${employeeName} on ${payDateForDupCheck} already exists.` };
-  }
-
   try {
-    const calc = await calculatePaycheck(client.client_id, employeeName, employee, body, client.state);
-    const {
-      regularHours, regularRate, regularPay, gross, payDate,
-      overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay, otherTaxablePay, nonTaxableReimbursement,
-      preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
-      totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions,
-      federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
-      federal, state, ssEe, medEe, ssEr, medEr, futa, suta,
-      employeeTaxes, employerTaxes, netPay, totalCost,
-    } = calc;
-
-    // Neither this route nor the edit route below checked these before — a caller-
-    // overridden withholding larger than gross wages silently produced a negative net
-    // pay that still got written and GL-posted. Preview (calculatePaycheck's other
-    // caller) deliberately does NOT run this check, so a still-being-typed-out form can
-    // show the bad number on screen before the user finishes fixing it; only the actual
-    // save is blocked.
-    if (netPay < 0) {
-      throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
-    }
-    if (gross < 0) {
-      throw new Error("Gross wages cannot be negative.");
-    }
-
+    // calculatePaycheck (including its wage-cap-annual-limit reads) now runs INSIDE the
+    // transaction, after acquiring a per-client+employee advisory lock — not before it —
+    // so the whole read-YTD-then-insert sequence is atomic per employee. Two concurrent
+    // calls for the SAME employee (a double-click, a network retry, a manual entry racing
+    // a Payroll Agent draft approval, or two different pay dates submitted back-to-back)
+    // now fully serialize: the second call's lock acquisition blocks until the first
+    // commits, so it always sees the first one's already-inserted paycheck both for the
+    // duplicate-date check below AND for capWagesToAnnualLimit's YTD sum (accountingHelpers.ts)
+    // — closing both the duplicate-paycheck race and the SS/FUTA/SUTA wage-cap race with
+    // one lock. A per-payDate-only lock (the earlier version of this fix) would have missed
+    // the wage-cap race, since two different pay dates for the same employee don't collide
+    // on a date-scoped key but do both read/write the same annual wage total.
+    let calc!: Awaited<ReturnType<typeof calculatePaycheck>>;
     const payrollInputId = `PAYIN-${idSuffix()}`;
     const paycheckId = `CHK-${idSuffix()}`;
     const explicitCheckNumber = String(body.checkNumber || "").trim();
-    const payType = String(body.payType || employee.pay_type || "").trim() || null;
-    const paymentMethod = await resolvePaymentMethod(client.client_id, "payroll", body.paymentMethodId);
-
-    // The payroll_input audit row, the paycheck row, and its 4-5 GL lines are one unit —
-    // withTransaction means a failure anywhere in here (including postPayrollGl's own
-    // balance check) rolls back everything instead of leaving an orphaned paycheck with
-    // no GL postings, or vice versa.
     let checkNumber = explicitCheckNumber;
+
     await withTransaction(async (db) => {
+      await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`paycheck-create:${client.client_id}:${employeeName.toLowerCase()}`]);
+
+      const payDateForDupCheck = String(body.payDate || "").trim();
+      if (payDateForDupCheck) {
+        const dupeInsideLock = await db.queryOne<any>(
+          `SELECT paycheck_id FROM altax.v3_paychecks
+             WHERE client_id = $1 AND lower(employee) = lower($2) AND pay_date::date = $3::date AND lower(status) <> 'void'
+             LIMIT 1`,
+          [client.client_id, employeeName, payDateForDupCheck]
+        );
+        if (dupeInsideLock) throw new Error(`A paycheck for ${employeeName} on ${payDateForDupCheck} already exists.`);
+      }
+
+      calc = await calculatePaycheck(client.client_id, employeeName, employee, body, client.state);
+      const {
+        regularHours, regularRate, regularPay, gross, payDate,
+        overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay, otherTaxablePay, nonTaxableReimbursement,
+        preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
+        totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions,
+        federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+        federal, state, ssEe, medEe, ssEr, medEr, futa, suta,
+        employeeTaxes, employerTaxes, netPay, totalCost,
+      } = calc;
+
+      // Neither this route nor the edit route below checked these before — a caller-
+      // overridden withholding larger than gross wages silently produced a negative net
+      // pay that still got written and GL-posted. Preview (calculatePaycheck's other
+      // caller) deliberately does NOT run this check, so a still-being-typed-out form can
+      // show the bad number on screen before the user finishes fixing it; only the actual
+      // save is blocked.
+      if (netPay < 0) {
+        throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
+      }
+      if (gross < 0) {
+        throw new Error("Gross wages cannot be negative.");
+      }
+
+      const payType = String(body.payType || employee.pay_type || "").trim() || null;
+      const paymentMethod = await resolvePaymentMethod(client.client_id, "payroll", body.paymentMethodId);
+
       if (!checkNumber) checkNumber = await nextCheckNumberLocked(client.client_id, db);
       await db.query(
         `INSERT INTO altax.v3_payroll_input
@@ -1039,10 +1042,10 @@ export async function createSinglePaycheck(
       }, db);
     });
 
-    await logAudit("Accounting", "CREATE_PAYROLL", payrollInputId, "", "", String(gross),
+    await logAudit("Accounting", "CREATE_PAYROLL", payrollInputId, "", "", String(calc.gross),
       `Payroll recorded by ${userEmail}.`, userEmail);
 
-    return { ok: true, payrollInputId, paycheckId, gross, netPay, employeeTaxes, employerTaxes };
+    return { ok: true, payrollInputId, paycheckId, gross: calc.gross, netPay: calc.netPay, employeeTaxes: calc.employeeTaxes, employerTaxes: calc.employerTaxes };
   } catch (err: any) {
     return { ok: false, error: err?.message || "Could not create this paycheck." };
   }
@@ -1304,37 +1307,6 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
     ? money(body.federalWithholding) : Number(existing.federal_withholding) || money(estimateFederalWithholding(federalTaxableWages, employeeForState || {}));
   const state = body.stateTax !== undefined && body.stateTax !== ""
     ? money(body.stateTax) : Number(existing.state_tax) || money(await estimateStateWithholding(stateTaxableWages, employeeForState || {}, payrollState, clientId));
-  // Same SS wage-base cap as the create route above — excludes this paycheck's own
-  // prior (pre-edit) contribution from the YTD lookup via paycheckId, so editing a
-  // paycheck doesn't double-count it against its own cap.
-  const ssWageCap = await lookupWageCap("SS", 176100, clientId);
-  const ssTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, socialSecurityWages, ssWageCap, paycheckId, "social_security_wages");
-  const ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
-  const medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
-  const ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
-  const medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
-  // Same $7,000-style annual wage cap as the create route above — excludes this
-  // paycheck's own prior (pre-edit) contribution from the YTD lookup, so editing
-  // a paycheck doesn't double-count it against its own cap.
-  const futaWageCap = await lookupWageCap("FUTA", 7000, clientId);
-  const futaTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, federalTaxableWages, futaWageCap, paycheckId);
-  const futa = money(futaTaxableWages * (await lookupRate("FUTA", 0.006, clientId)));
-  const sutaWageCap = await lookupWageCap("SUTA", null, clientId, payrollState);
-  const sutaTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, stateTaxableWages, sutaWageCap, paycheckId);
-  const suta = money(sutaTaxableWages * (await lookupRate("SUTA", 0.025, clientId, payrollState)));
-  const employeeTaxes = money(ssEe + medEe + federal + state);
-  const employerTaxes = money(ssEr + medEr + futa + suta);
-  const netPay = money(gross + nonTaxableReimbursement - totalDeductions - employeeTaxes);
-  const totalCost = money(gross + nonTaxableReimbursement + employerTaxes);
-
-  // Same sanity bounds as the create route — a caller-overridden withholding/deduction
-  // larger than gross wages previously saved a negative net pay with no rejection.
-  if (netPay < 0) {
-    return res.status(400).json({ error: `Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.` });
-  }
-  if (gross < 0) {
-    return res.status(400).json({ error: "Gross wages cannot be negative." });
-  }
 
   // Every column this route recalculates gets written back. The earlier version
   // wrote only hours/rate and the tax totals, leaving regular_hours, regular_pay,
@@ -1346,7 +1318,49 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   // otherwise a failure between the DELETE and the repost leaves the paycheck with
   // no GL entry at all, or the UPDATE could commit against GL lines that no longer
   // match its own numbers.
+  //
+  // The wage-cap reads (SS/FUTA/SUTA) now run INSIDE this transaction too, behind
+  // the SAME per-client+employee advisory lock the create route uses — so an edit
+  // racing a concurrent create (or another edit) for this employee serializes
+  // against it instead of both reading the same pre-race YTD total and both
+  // applying the full remaining wage-cap headroom.
+  let ssEe = 0, medEe = 0, ssEr = 0, medEr = 0, futa = 0, suta = 0, employeeTaxes = 0, employerTaxes = 0, netPay = 0, totalCost = 0;
+  try {
   await withTransaction(async (db) => {
+    await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`paycheck-create:${clientId}:${existing.employee.toLowerCase()}`]);
+
+    // Same SS wage-base cap as the create route above — excludes this paycheck's own
+    // prior (pre-edit) contribution from the YTD lookup via paycheckId, so editing a
+    // paycheck doesn't double-count it against its own cap.
+    const ssWageCap = await lookupWageCap("SS", 176100, clientId);
+    const ssTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, socialSecurityWages, ssWageCap, paycheckId, "social_security_wages");
+    ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
+    medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
+    ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
+    medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
+    // Same $7,000-style annual wage cap as the create route above — excludes this
+    // paycheck's own prior (pre-edit) contribution from the YTD lookup, so editing
+    // a paycheck doesn't double-count it against its own cap.
+    const futaWageCap = await lookupWageCap("FUTA", 7000, clientId);
+    const futaTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, federalTaxableWages, futaWageCap, paycheckId);
+    futa = money(futaTaxableWages * (await lookupRate("FUTA", 0.006, clientId)));
+    const sutaWageCap = await lookupWageCap("SUTA", null, clientId, payrollState);
+    const sutaTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, stateTaxableWages, sutaWageCap, paycheckId);
+    suta = money(sutaTaxableWages * (await lookupRate("SUTA", 0.025, clientId, payrollState)));
+    employeeTaxes = money(ssEe + medEe + federal + state);
+    employerTaxes = money(ssEr + medEr + futa + suta);
+    netPay = money(gross + nonTaxableReimbursement - totalDeductions - employeeTaxes);
+    totalCost = money(gross + nonTaxableReimbursement + employerTaxes);
+
+    // Same sanity bounds as the create route — a caller-overridden withholding/deduction
+    // larger than gross wages previously saved a negative net pay with no rejection.
+    if (netPay < 0) {
+      throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
+    }
+    if (gross < 0) {
+      throw new Error("Gross wages cannot be negative.");
+    }
+
     await db.query(
       `UPDATE altax.v3_paychecks SET pay_date=$2, gross_wages=$3, social_security_ee=$4, medicare_ee=$5,
          federal_withholding=$6, state_tax=$7, employee_taxes=$8, net_pay=$9, social_security_er=$10,
@@ -1373,6 +1387,9 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
       gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
     }, db);
   });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "Could not save this paycheck edit." });
+  }
 
   await logAudit("Accounting", "EDIT_PAYCHECK", paycheckId, "GrossWages", String(existing.gross_wages ?? ""), String(gross),
     `Paycheck edited by ${req.user!.email}.`, req.user!.email);

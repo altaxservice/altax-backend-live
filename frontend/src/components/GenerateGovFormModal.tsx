@@ -68,7 +68,13 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   const [ss4, setSs4] = useState({
     legalName: "", tradeName: "", careOf: "", mailingAddress: "", physicalAddress: "", county: "", state: "MD",
     responsiblePartyName: "", responsiblePartyId: "",
-    isLlc: false, llcMemberCount: "", llcOrganizedInUs: true,
+    // isLlc must start in sync with entityType's own default ("LLC") — the
+    // entity-type <select>'s onChange keeps them in sync once touched, but if
+    // staff leave the dropdown on its default (already-selected) value, onChange
+    // never fires, and isLlc:false previously contradicted entityType:"LLC" —
+    // checking "No" for Line 8a and hiding the LLC-member-count field on a
+    // filing that IS for an LLC.
+    isLlc: true, llcMemberCount: "", llcOrganizedInUs: true,
     entityType: "LLC", incorporationState: "",
     reasonForApplying: "Started new business", reasonOther: "",
     dateBusinessStarted: "", closingMonth: "December",
@@ -765,6 +771,32 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     <input aria-label="Officer SSN" placeholder="SSN" value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
                     <input aria-label="Officer telephone" placeholder="Telephone" value={cra.officerPhone} onChange={(e) => setCra({ ...cra, officerPhone: e.target.value })} />
                   </div>
+                </div>
+                {/* This is the responsible party's OWN home address (form Section B), not the
+                    business address above — pre-filled from the business address as a starting
+                    point only, since the two are frequently different and the form previously
+                    had no way to view or correct it. */}
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="gf-cra-officer-street">Officer's home address</label>
+                  <input id="gf-cra-officer-street" placeholder="Street address" value={cra.officerStreet} onChange={(e) => setCra({ ...cra, officerStreet: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-officer-city">City</label><input id="gf-cra-officer-city" value={cra.officerCity} onChange={(e) => setCra({ ...cra, officerCity: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-officer-state">State</label><input id="gf-cra-officer-state" value={cra.officerState} onChange={(e) => setCra({ ...cra, officerState: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-officer-zip">ZIP</label><input id="gf-cra-officer-zip" value={cra.officerZip} onChange={(e) => setCra({ ...cra, officerZip: e.target.value })} /></div>
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label htmlFor="gf-cra-mailing-street1">Mailing address <span className="muted">(only if different from the physical location above — otherwise leave blank)</span></label>
+                  <input id="gf-cra-mailing-street1" placeholder="Street address — Line 1" value={cra.mailingStreet1} onChange={(e) => setCra({ ...cra, mailingStreet1: e.target.value })} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <input aria-label="Mailing address — Line 2 (optional)" placeholder="Street address — Line 2 (optional)" value={cra.mailingStreet2} onChange={(e) => setCra({ ...cra, mailingStreet2: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-mailing-city">City</label><input id="gf-cra-mailing-city" value={cra.mailingCity} onChange={(e) => setCra({ ...cra, mailingCity: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-mailing-state">State</label><input id="gf-cra-mailing-state" value={cra.mailingState} onChange={(e) => setCra({ ...cra, mailingState: e.target.value })} /></div>
+                  <div className="field" style={{ margin: 0 }}><label htmlFor="gf-cra-mailing-zip">ZIP</label><input id="gf-cra-mailing-zip" value={cra.mailingZip} onChange={(e) => setCra({ ...cra, mailingZip: e.target.value })} /></div>
                 </div>
 
                 <div className="field">

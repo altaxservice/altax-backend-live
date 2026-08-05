@@ -622,6 +622,13 @@ document.addEventListener('DOMContentLoaded', () => {
           const durationMinutes = Math.round((new Date(currentAppt.endTime) - new Date(currentAppt.startTime)) / 60000);
           url += '&durationMinutes=' + durationMinutes;
         }
+        // Without this, the client's own currently-booked slot (and any slot
+        // overlapping it) always shows as unavailable when picking a new time on
+        // the same day, even though the actual reschedule write path already
+        // excludes this appointment from the clash check and would allow it.
+        if (currentAppt && currentAppt.appointmentId) {
+          url += '&excludeAppointmentId=' + encodeURIComponent(currentAppt.appointmentId);
+        }
         const res = await fetch(url);
         const data = await res.json();
         renderRescheduleSlots(data.slots || []);

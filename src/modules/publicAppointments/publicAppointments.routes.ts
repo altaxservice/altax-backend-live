@@ -385,6 +385,11 @@ publicAppointmentsRouter.get("/manage/:token", manageLimiter, asyncHandler(async
   if (!appt) return res.status(404).json({ error: "Appointment not found." });
   const canManage = appt.status === "Scheduled" && new Date(appt.start_time).getTime() > Date.now();
   res.json({
+    // appointmentId is safe to return here (unlike the token-only lookup rule above,
+    // which is about the INPUT side) — the caller already proved ownership via the
+    // manage_token. The reschedule page's own availability check needs it to pass as
+    // excludeAppointmentId, so the client's own current slot doesn't show as taken.
+    appointmentId: appt.appointment_id,
     title: appt.title, startTime: appt.start_time, endTime: appt.end_time, status: appt.status,
     contactName: appt.contact_name, canManage,
   });

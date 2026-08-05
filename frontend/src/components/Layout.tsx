@@ -33,7 +33,7 @@ function showsClientPanel(pathname: string): boolean {
 // showGroupLabels below for why it only kicks in once the list is long enough
 // to actually need it (admin/staff), not for client/employee's short list.
 const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string; icon: ComponentType<LucideProps> }[] = [
-  { to: "/", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard },
+  { to: "/dashboard", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard },
   { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users },
   { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks },
   { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar },
@@ -68,7 +68,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
 ];
 
 const TITLES: Record<string, string> = {
-  "/": "Command Center",
+  "/dashboard": "Command Center",
   "/clients": "Clients",
   "/tasks": "Tasks",
   "/calendar": "Calendar",
@@ -101,7 +101,7 @@ const TITLES: Record<string, string> = {
 // Mirrors NAV_ITEMS' navKey — only the pages client/employee can actually reach
 // have a translation; everything else keeps its plain English title.
 const TITLE_KEYS: Record<string, string> = {
-  "/": "nav.commandCenter",
+  "/dashboard": "nav.commandCenter",
   "/billing": "nav.billing",
   "/documents": "nav.documents",
   "/communications": "nav.communications",
@@ -189,7 +189,7 @@ export function Layout() {
             return (
               <Fragment key={item.to}>
                 {showLabel && <div className="nav-group-label">{item.group}</div>}
-                <NavLink to={item.to} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <NavLink to={item.to} end={item.to === "/dashboard"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
                   <item.icon size={17} strokeWidth={2} aria-hidden="true" />
                   <span>{item.navKey ? t(item.navKey) : item.label}</span>
                 </NavLink>

@@ -1249,29 +1249,41 @@ billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requir
   const nextRun = dateOnly(schedule.next_run_date || schedule.start_date || runDate);
   const sourceRecordId = `${schedule.recurring_billing_id}:${dateString(nextRun)}`;
 
-  const existingInvoice = await queryOne<any>(
-    `SELECT invoice_id FROM altax.v3_invoices WHERE source_system = 'Recurring Billing' AND source_record_id = $1 AND lower(status) <> 'void'`,
-    [sourceRecordId]
-  );
-  if (existingInvoice) {
-    return res.status(400).json({ error: `An invoice for this period already exists (${existingInvoice.invoice_id}).` });
-  }
-
   const invoiceId = `INV-${idSuffix()}`;
   const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
-  await withTransaction(async (db) => {
-    await db.query(
-      `INSERT INTO altax.v3_invoices
-         (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
-          status, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
-      [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
-    );
-    // Every other invoice-creation path posts Dr AR / Cr Revenue immediately —
-    // this one didn't, so every "Use Now" recurring invoice was invisible to
-    // the GL/Trial Balance/P&L even though the invoice itself existed.
-    await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
-  });
+  // The pre-check used to run as a plain SELECT before this transaction opened,
+  // so two concurrent triggers for the same schedule/period (a double-click on
+  // "Use Now", or this manual run overlapping the nightly cron sweep in
+  // runRecurringBillingSweep below) could both pass it and both insert an
+  // invoice + Dr AR/Cr Revenue GL posting for the same period. This advisory
+  // lock — keyed the same way runRecurringBillingSweep locks below, so the two
+  // paths serialize against EACH OTHER too, not just against themselves —
+  // makes the re-check-then-insert atomic.
+  try {
+    await withTransaction(async (db) => {
+      await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`recurring-billing:${sourceRecordId}`]);
+      const existingInvoice = await db.queryOne<any>(
+        `SELECT invoice_id FROM altax.v3_invoices WHERE source_system = 'Recurring Billing' AND source_record_id = $1 AND lower(status) <> 'void'`,
+        [sourceRecordId]
+      );
+      if (existingInvoice) {
+        throw new Error(`An invoice for this period already exists (${existingInvoice.invoice_id}).`);
+      }
+      await db.query(
+        `INSERT INTO altax.v3_invoices
+           (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
+            status, source_system, source_record_id)
+         VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
+        [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
+      );
+      // Every other invoice-creation path posts Dr AR / Cr Revenue immediately —
+      // this one didn't, so every "Use Now" recurring invoice was invisible to
+      // the GL/Trial Balance/P&L even though the invoice itself existed.
+      await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
+    });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "Could not run this recurring billing." });
+  }
   await query(
     `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
     [recurringBillingId, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
@@ -1344,34 +1356,48 @@ export async function runRecurringBillingSweep(
     if (amount <= 0) { errors.push(`${schedule.recurring_billing_id}: amount is missing.`); continue; }
 
     const sourceRecordId = `${schedule.recurring_billing_id}:${dateString(nextRun)}`;
-    const existingInvoice = await queryOne<any>(
-      `SELECT invoice_id FROM altax.v3_invoices WHERE source_system = 'Recurring Billing' AND source_record_id = $1 AND lower(status) <> 'void'`,
-      [sourceRecordId]
-    );
-    if (existingInvoice) {
+    const invoiceId = `INV-${idSuffix()}`;
+    const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
+    // The duplicate check used to run as a plain SELECT before this transaction
+    // opened, so this nightly sweep overlapping a manual "Use Now" run (billing.ts
+    // route above, which locks on the SAME key) — or two sweep runs somehow
+    // overlapping — could both pass it and both create an invoice + GL posting for
+    // the same schedule/period. The advisory lock makes the re-check-then-insert
+    // atomic, and one bad/racing schedule reports its own error without blocking
+    // the rest of the sweep, matching the amount<=0 handling just above.
+    let existingInvoiceId: string | null = null;
+    try {
+      await withTransaction(async (db) => {
+        await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`recurring-billing:${sourceRecordId}`]);
+        const existingInvoice = await db.queryOne<any>(
+          `SELECT invoice_id FROM altax.v3_invoices WHERE source_system = 'Recurring Billing' AND source_record_id = $1 AND lower(status) <> 'void'`,
+          [sourceRecordId]
+        );
+        if (existingInvoice) { existingInvoiceId = existingInvoice.invoice_id; return; }
+        await db.query(
+          `INSERT INTO altax.v3_invoices
+             (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
+              status, source_system, source_record_id)
+           VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
+          [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
+        );
+        // Same GL posting every other invoice-creation path already does — the
+        // nightly sweep was silently skipping it, understating AR/revenue for
+        // every recurring-billing client (see the second audit round's finding).
+        await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
+      });
+    } catch (err: any) {
+      errors.push(`${schedule.recurring_billing_id}: ${err?.message || "Could not create this invoice."}`);
+      continue;
+    }
+    if (existingInvoiceId) {
       await query(
         `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
-        [schedule.recurring_billing_id, runDateString, existingInvoice.invoice_id, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
+        [schedule.recurring_billing_id, runDateString, existingInvoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]
       );
       skipped++;
       continue;
     }
-
-    const invoiceId = `INV-${idSuffix()}`;
-    const dueDate = dateString(addDays(runDate, schedule.due_days || 0));
-    await withTransaction(async (db) => {
-      await db.query(
-        `INSERT INTO altax.v3_invoices
-           (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid, balance_due,
-            status, source_system, source_record_id)
-         VALUES ($1,$2,$3,$4,$5,$6,0,$6,'Unpaid','Recurring Billing',$7)`,
-        [invoiceId, schedule.client_id, runDateString, dueDate, schedule.description || "Recurring service invoice", amount, sourceRecordId]
-      );
-      // Same GL posting every other invoice-creation path already does — the
-      // nightly sweep was silently skipping it, understating AR/revenue for
-      // every recurring-billing client (see the second audit round's finding).
-      await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
-    });
     await query(
       `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
       [schedule.recurring_billing_id, runDateString, invoiceId, dateString(nextRecurringDate(nextRun, schedule.frequency, schedule.interval_count, schedule.repeat_on_day))]

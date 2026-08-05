@@ -76,7 +76,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
   {
     // No FieldConfig entries — rendered as a special-cased checklist below
     // (multi-select doesn't fit the FieldKind union), same pattern AddressFields
-    // uses for the "Contact & Assignment" section.
+    // uses for the "Contact" section.
     title: "Services Provided",
     fields: [],
   },
@@ -110,9 +110,19 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     ],
   },
   {
-    title: "Contact & Assignment",
+    // Split from Contact — matches the Add Client form (ClientsListPage.tsx),
+    // which moved Assigned To out of the combined section into its own
+    // "Assignment & Forms" group: who owns this client internally is a
+    // different kind of fact than how to reach the client, and the two forms
+    // previously disagreed on the grouping (create had them split, edit didn't).
+    title: "Assigned To",
     fields: [
       { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "select" },
+    ],
+  },
+  {
+    title: "Contact",
+    fields: [
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
       { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "select", options: CONTACT_PREFS, hidden: (f) => !hasContact(f) },
@@ -316,6 +326,30 @@ export function ClientDetailPage() {
   // after creating the client.
   const openGovFormParam = searchParams.get("openGovForm");
   const openAuthFormParam = searchParams.get("openAuthForm");
+  // GovFormsSection/PoaFilingsSection each guard their own auto-open with a
+  // useRef so the modal opens exactly once per MOUNT — but nothing previously
+  // cleared these two params from the URL, so navigating away and back (e.g.
+  // browser Back) remounts this page with the same URL, the ref resets, and
+  // the generator modal pops open again unprompted. Stripping them here, once,
+  // right after they've been read into the consts above (so this render's
+  // props to the child sections are unaffected), makes the auto-open a true
+  // one-time action tied to the link that created it rather than to the URL.
+  const strippedAutoOpenParams = useRef(false);
+  useEffect(() => {
+    // Gated on tab === "Gov Forms" (not just !client) so this only strips the
+    // params AFTER the tabParam effect below has switched to that tab and
+    // mounted GovFormsSection/PoaFilingsSection with the still-intact prop
+    // value — stripping any earlier (e.g. as soon as client loads, before the
+    // tab switch commits) would race the tab switch and could clear the
+    // params before the child ever saw them, silently dropping the auto-open.
+    if (strippedAutoOpenParams.current || tab !== "Gov Forms") return;
+    if (!openGovFormParam && !openAuthFormParam) return;
+    strippedAutoOpenParams.current = true;
+    const next = new URLSearchParams(searchParams);
+    next.delete("openGovForm");
+    next.delete("openAuthForm");
+    setSearchParams(next, { replace: true });
+  }, [openGovFormParam, openAuthFormParam, tab, searchParams, setSearchParams]);
   const appliedTabParam = useRef<string | null>(null);
   useEffect(() => {
     if (!tabParam || !client || appliedTabParam.current === tabParam) return;
@@ -495,7 +529,7 @@ export function ClientDetailPage() {
                   )
                 ))}
               </div>
-              {section.title === "Contact & Assignment" && (
+              {section.title === "Contact" && (
                 <AddressFields
                   idPrefix="cd"
                   showStateField={false}

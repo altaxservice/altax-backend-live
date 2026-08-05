@@ -11,6 +11,7 @@ import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { rateLimit } from "../../common/rateLimit";
+import { escapeHtml } from "../../common/html";
 
 export const publicContactRouter = Router();
 
@@ -50,11 +51,11 @@ publicContactRouter.post("/", contactLimiter, asyncHandler(async (req: Request, 
       : "No — did not opt in to SMS/WhatsApp messages.";
     const html = `
       <h2>New contact form submission</h2>
-      <p><strong>Name:</strong> ${firstName} ${lastName}</p>
-      ${company ? `<p><strong>Company:</strong> ${company}</p>` : ""}
-      <p><strong>Phone:</strong> ${phone}</p>
-      <p><strong>Email:</strong> ${email}</p>
-      <p><strong>Message:</strong><br>${String(reason).replace(/\n/g, "<br>")}</p>
+      <p><strong>Name:</strong> ${escapeHtml(firstName)} ${escapeHtml(lastName)}</p>
+      ${company ? `<p><strong>Company:</strong> ${escapeHtml(company)}</p>` : ""}
+      <p><strong>Phone:</strong> ${escapeHtml(phone)}</p>
+      <p><strong>Email:</strong> ${escapeHtml(email)}</p>
+      <p><strong>Message:</strong><br>${escapeHtml(String(reason)).replace(/\n/g, "<br>")}</p>
       <p><strong>SMS/WhatsApp consent:</strong> ${consentLine}</p>
       <p style="color:#777;font-size:12px;">Submitted ${row.submitted_at} · Record #${row.id}</p>
     `;

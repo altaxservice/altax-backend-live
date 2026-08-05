@@ -32,7 +32,7 @@ const ICONS: Record<string, React.ReactNode> = {
 };
 
 const CLIENT_TABS = [
-  { to: "/", key: "tab.home", icon: "home" },
+  { to: "/dashboard", key: "tab.home", icon: "home" },
   { to: "/billing", key: "tab.billing", icon: "billing" },
   { to: "/documents", key: "tab.documents", icon: "documents" },
   { to: "/communications", key: "tab.messages", icon: "messages" },
@@ -40,7 +40,7 @@ const CLIENT_TABS = [
 ];
 
 const EMPLOYEE_TABS = [
-  { to: "/", key: "tab.home", icon: "home" },
+  { to: "/dashboard", key: "tab.home", icon: "home" },
   { to: "/documents", key: "tab.documents", icon: "documents" },
   { to: "/communications", key: "tab.messages", icon: "messages" },
   { to: "/guide", key: "tab.guide", icon: "guide" },
@@ -66,7 +66,7 @@ export function BottomTabBar() {
         <NavLink
           key={tab.to}
           to={tab.to}
-          end={tab.to === "/"}
+          end={tab.to === "/dashboard"}
           className={({ isActive }) => `bottom-tab-item ${isActive ? "active" : ""}`}
         >
           {ICONS[tab.icon]}

@@ -164,10 +164,18 @@ export interface MdFilingPeriod {
  * treating the whole requested range as one return — a report spanning
  * several months otherwise blends every period into a single wrong due date
  * (see mdDueDateForPeriod's own doc comment: it's meant for ONE period).
- * Each period's due date is always the 20th of the month after that
- * period's own true end (never the clamped/requested end below), since
- * that's the actual statutory deadline regardless of how much of the
- * period the caller happened to ask for.
+ * Each period's start/end are always that period's TRUE calendar
+ * boundaries, never clamped to the requested [from, to] — a period's real
+ * tax liability is everything filed for that whole period, not just the
+ * slice of it the caller happened to ask for. (An earlier version clamped
+ * to the requested range for tax-summing, which silently understated —
+ * or entirely hid — the liability whenever the report window didn't
+ * happen to cover a full period exactly, which is the common case: the
+ * default report view is "1st of this month to today," never aligned to
+ * a quarter/half-year/year boundary.) Callers must fetch sales data over
+ * each period's true [start, end], not just the requested range — see
+ * computeMdFilingForReport in reports.routes.ts, which widens its sales
+ * query to the full span of periods touched by the request.
  *
  * Periods are calendar-aligned (Jan-Mar/Apr-Jun/... for Quarterly,
  * Jan-Jun/Jul-Dec for Semiannual), not relative to the client's fiscal year
@@ -206,11 +214,9 @@ export function splitIntoMdFilingPeriods(
   let cursor = new Date(fromDate.getFullYear(), periodStartMonth, 1);
   while (cursor <= toDate) {
     const periodEnd = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 0);
-    const clampedStart = cursor < fromDate ? fromDate : cursor;
-    const clampedEnd = periodEnd > toDate ? toDate : periodEnd;
     periods.push({
-      start: clampedStart.toISOString().slice(0, 10),
-      end: clampedEnd.toISOString().slice(0, 10),
+      start: cursor.toISOString().slice(0, 10),
+      end: periodEnd.toISOString().slice(0, 10),
       dueDate: mdDueDateForPeriod(periodEnd.toISOString().slice(0, 10)),
     });
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 1);

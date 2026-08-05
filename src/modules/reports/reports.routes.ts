@@ -190,6 +190,12 @@ reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), async
  * app has no vendor-bills concept — only GL liability account balances,
  * which have no per-bill due date to bucket against — so AP aging would
  * need a whole new module, not this report.
+ *
+ * Admin-only (see the 3 routes below), same as /firm-summary just above —
+ * this is firm-wide financial data with no per-client filter or
+ * canAccessClient check, so a staff account without every client assigned
+ * would otherwise see every client's name and balance regardless of their
+ * own task-based assignments.
  */
 async function computeArAging() {
   const rows = await query<any>(
@@ -233,11 +239,11 @@ async function computeArAging() {
   };
 }
 
-reportsRouter.get("/ar-aging", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+reportsRouter.get("/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json(await computeArAging());
 }));
 
-reportsRouter.get("/pdf/ar-aging", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/pdf/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const data = await computeArAging();
   const { generateArAgingPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateArAgingPdf(data);
@@ -247,7 +253,7 @@ reportsRouter.get("/pdf/ar-aging", requireAuth, requireRole("admin", "staff"), a
   res.send(Buffer.from(pdfBytes));
 }));
 
-reportsRouter.get("/csv/ar-aging", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.get("/csv/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const data = await computeArAging();
   const csv = toCsv(
     ["Client", "Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days", "Total"],
@@ -308,16 +314,30 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
  * override (the Sales & Tax tab's own editable date field) — one payment
  * date compared against each period's own due date, matching the real
  * case of a client catching up several periods with a single payment.
+ *
+ * Fetches its OWN sales data over each period's true [start, end] rather
+ * than reusing the report's [from, to] sales — those are two different
+ * things. A period's real tax liability is everything filed for that
+ * whole period, not just the slice of it inside the requested report
+ * window (the default Sales & Tax view is "1st of this month to today,"
+ * which almost never lines up with a Quarterly/Semiannual/Annual
+ * boundary). Widening only this query — not the rest of the report —
+ * keeps "Tax by Category"/"Sales" honestly scoped to what was asked for
+ * while making the MD filing box always reflect the real due amount.
  */
 async function computeMdFilingForReport(
   client: ReportClientInfo,
-  sales: { saleDate: unknown; totalTaxDue: number }[],
   from: string,
   to: string,
   paidDateOverride?: string
 ) {
   if (client.state !== "MD") return null;
-  const { computeMdFilingBreakdown } = await import("../../common/mdFiling");
+  const { splitIntoMdFilingPeriods, computeMdFilingBreakdown } = await import("../../common/mdFiling");
+  const { periods } = splitIntoMdFilingPeriods(from, to, client.salesTaxFrequency);
+  if (periods.length === 0) return null;
+  const expandedFrom = periods[0].start;
+  const expandedTo = periods[periods.length - 1].end;
+  const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo);
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : new Date().toISOString().slice(0, 10);
   const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, paidDate);
   if (breakdown.periods.length === 0) return null;
@@ -547,6 +567,15 @@ reportsRouter.get("/pdf/sales-tax-payroll/:clientId", requireAuth, requireRole("
  * what a sales tax return actually needs filled in box by box, and until now the
  * only way to see it was opening each sale's Edit form one at a time.
  */
+/** Just sale_date + total_tax_due, for MD filing's per-period summing — deliberately lighter than loadSalesTaxForPeriod (no byCategory join) since it's sometimes called over a widened date range that spans full filing periods rather than just the requested report window. */
+async function loadSalesDatesAndTaxForPeriod(clientId: string, from: string, to: string) {
+  const rows = await query<any>(
+    `SELECT sale_date, total_tax_due FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date::date >= $2::date AND sale_date::date <= $3::date`,
+    [clientId, from, to]
+  );
+  return rows.map((r: any) => ({ saleDate: r.sale_date, totalTaxDue: Number(r.total_tax_due) || 0 }));
+}
+
 async function loadSalesTaxForPeriod(clientId: string, from: string, to: string) {
   const sales = await query<any>(
     `SELECT sale_id, sale_date, gross_sales, total_tax_due, adjustments
@@ -677,7 +706,7 @@ reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "sta
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
   res.json({ client, from: period.from, to: period.to, ...data, mdFiling });
 }));
 
@@ -696,7 +725,7 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
   res.json({ mdFiling });
 }));
 
@@ -708,7 +737,7 @@ reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", 
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
   const { generateSalesTaxPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateSalesTaxPdf({ client, from: period.from, to: period.to, ...data, mdFiling });
 
@@ -726,7 +755,7 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
   const rows: (string | number)[][] = data.byCategory.map((c) => [c.categoryName, c.state || "", `${(c.rate * 100).toFixed(2)}%`, c.taxableAmount.toFixed(2), c.taxAmount.toFixed(2)]);
   if (mdFiling) {
     rows.push(["", "", "", "", ""]);

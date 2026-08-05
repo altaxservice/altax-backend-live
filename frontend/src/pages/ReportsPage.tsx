@@ -502,7 +502,10 @@ export function ReportsPage() {
     navigate(`/clients/${clientId}?tab=Communications`);
   }
 
-  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Financial Overview");
+  // AR Aging is genuinely firm-wide (every client's name + balance, no per-client
+  // scoping) — now admin-only on the backend too, matching /firm-summary's
+  // precedent, so hide the tab for staff rather than showing them a 403.
+  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Financial Overview" && t !== "AR Aging");
 
   return (
     <div>
