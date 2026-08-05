@@ -8,8 +8,9 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend } from "../reports/reports.routes";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod } from "../reports/reports.routes";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
+import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -265,13 +266,111 @@ function fmtMoneyPlain(v: number): string {
 }
 
 /**
+ * Assembles a fully-resolved SwotEngineInput from real data (GL, tasks,
+ * invoices, tax liabilities, cash, MD filing, budgets, payroll) — the
+ * single place that gathers everything the structured-findings engine
+ * (swotFindingsEngine.ts) needs, so both the legacy "Auto-Fill" draft and
+ * the new "Generate Findings Now" action read off one consistent snapshot.
+ */
+async function assembleSwotEngineInput(clientId: string, clientRow: any): Promise<SwotEngineInput> {
+  const to = new Date();
+  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+  const fromStr = from.toISOString().slice(0, 10);
+  const toStr = to.toISOString().slice(0, 10);
+
+  const [financials, ops, cashBalance] = await Promise.all([
+    computeFirmSummary(fromStr, toStr, clientId),
+    computeClientOpsSummary(clientId),
+    computeClientCashBalance(clientId),
+  ]);
+  const { trendPct, startedFromZero } = computeRevenueTrend(financials.months);
+
+  const overdueInvoiceRows = await query<any>(
+    `SELECT invoice_id, balance_due, (CURRENT_DATE - due_date::date) AS days_overdue
+       FROM altax.v3_invoices
+      WHERE client_id = $1 AND status NOT IN ('Paid', 'Void') AND balance_due > 0
+            AND due_date IS NOT NULL AND (CURRENT_DATE - due_date::date) > 0
+      ORDER BY days_overdue DESC`,
+    [clientId]
+  );
+  const overdueInvoices = overdueInvoiceRows.map((r: any) => ({ invoiceId: r.invoice_id, balanceDue: Number(r.balance_due), daysOverdue: Number(r.days_overdue) }));
+
+  let mdFilingOnTime: boolean | null = null;
+  const mdLatePeriodEnds: string[] = [];
+  if (clientRow.state === "MD") {
+    const reportClient: ReportClientInfo = {
+      clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
+      state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
+    };
+    const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
+    if (mdFiling && mdFiling.periods.length > 0) {
+      mdFilingOnTime = mdFiling.periods.every((p) => p.onTime);
+      for (const p of mdFiling.periods) if (!p.onTime) mdLatePeriodEnds.push(p.end);
+    }
+  }
+
+  const currentServices: string[] = Array.isArray(clientRow.services) ? clientRow.services : [];
+  const eligible = clientRow.client_type === "Individual"
+    ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key))
+    : FIRM_SERVICES;
+  const serviceGaps = eligible.filter((s) => !s.legacy && !currentServices.includes(s.key)).map((s) => ({ key: s.key, label: s.label }));
+
+  const now = new Date();
+  const periodLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [budgetRows, actualRows, coaRows] = await Promise.all([
+    query<any>(`SELECT account_name, amount FROM altax.v3_budgets WHERE client_id = $1 AND year = $2 AND month = $3`, [clientId, now.getFullYear(), now.getMonth() + 1]),
+    query<any>(
+      `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+         FROM altax.v3_gl_entries
+        WHERE client_id = $1 AND EXTRACT(YEAR FROM entry_date) = $2 AND EXTRACT(MONTH FROM entry_date) = $3
+        GROUP BY account`,
+      [clientId, now.getFullYear(), now.getMonth() + 1]
+    ),
+    query<any>(`SELECT account_name, account_type FROM altax.v3_coa WHERE active = true AND account_type = ANY($1::text[])`, [["Income", "COGS", "Expense"]]),
+  ]);
+  const typeByAccount = new Map<string, "Income" | "COGS" | "Expense">(coaRows.map((a: any) => [a.account_name, a.account_type]));
+  const budgetVariances = budgetRows.map((b: any) => {
+    const actualRow = actualRows.find((r: any) => r.account === b.account_name);
+    const accountType = typeByAccount.get(b.account_name) || "Expense";
+    const actual = actualRow ? (accountType === "Income" ? Number(actualRow.credit) - Number(actualRow.debit) : Number(actualRow.debit) - Number(actualRow.credit)) : 0;
+    const budgetAmount = Number(b.amount);
+    return { accountName: b.account_name, accountType, budget: budgetAmount, actual: Math.round(actual * 100) / 100, variance: Math.round((actual - budgetAmount) * 100) / 100, periodLabel };
+  });
+
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [payrollThisMonth, payrollLastMonth] = await Promise.all([
+    loadPayrollForPeriod(clientId, thisMonthStart.toISOString().slice(0, 10), toStr),
+    loadPayrollForPeriod(clientId, lastMonthStart.toISOString().slice(0, 10), lastMonthEnd.toISOString().slice(0, 10)),
+  ]);
+
+  let yearsInBusiness: number | null = null;
+  if (clientRow.date_of_formation) {
+    const years = Math.floor((Date.now() - new Date(clientRow.date_of_formation).getTime()) / (365.25 * 24 * 3600 * 1000));
+    if (years >= 0) yearsInBusiness = years;
+  }
+
+  return {
+    clientId, industryCategory: clientRow.industry_category || null, yearsInBusiness,
+    currentServiceLabels: currentServices.map((k) => SERVICE_LABEL[k] || k), serviceGaps,
+    clientTypeIsIndividual: clientRow.client_type === "Individual",
+    revenue: financials.totals.revenue, profit: financials.totals.profit, trendPct, startedFromZero,
+    openTasks: ops.openTasks, balanceDue: ops.balanceDue, overdueInvoices,
+    taxLiabilities: financials.taxLiabilities, cashBalance,
+    mdFilingOnTime, mdLatePeriodEnds,
+    budgetVariances,
+    payrollThisMonthCost: payrollThisMonth.totalCost, payrollLastMonthCost: payrollLastMonth.totalCost, payrollPeriodLabel: periodLabel,
+  };
+}
+
+/**
  * Deterministic, rule-based draft for the 6 SWOT/advisory fields that have a
- * real data signal behind them — every sentence traces to an actual number
- * already in the system (revenue trend, open tasks, balance due, tax
- * liabilities, MD filing status, service-enrollment gaps). Matches this
- * codebase's established "no external AI, in-app deterministic automation"
- * choice (Payroll Agent, Bank Rec Agent, Task Rules Agent all made the same
- * call) — this is template sentences over computed numbers, not a model call.
+ * real data signal behind them. Now a thin wrapper around the structured
+ * findings engine (swotFindingsEngine.ts) — groups the same candidates the
+ * "Generate Findings Now" action persists into the 6 legacy paragraph
+ * fields, so the "Auto-Fill from Business Data" button's behavior is
+ * unchanged from before the structured-findings layer existed.
  *
  * Staffing/Marketing/Additional Notes are deliberately NOT drafted here —
  * nothing in this system tracks marketing performance or staffing adequacy,
@@ -280,110 +379,17 @@ function fmtMoneyPlain(v: number): string {
  * answers (target market, competitors, goals) shown alongside them.
  */
 async function computeSwotAutoDraft(clientRow: any, clientId: string) {
-  const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
-  const fromStr = from.toISOString().slice(0, 10);
-  const toStr = to.toISOString().slice(0, 10);
+  const input = await assembleSwotEngineInput(clientId, clientRow);
+  const findings = computeSwotFindings(input);
+  const legacy = groupFindingsToLegacyFields(findings);
 
-  const [financials, ops] = await Promise.all([
-    computeFirmSummary(fromStr, toStr, clientId),
-    computeClientOpsSummary(clientId),
-  ]);
-
-  const strengths: string[] = [];
-  const weaknesses: string[] = [];
-  const opportunities: string[] = [];
-  const threats: string[] = [];
-  const taxRecommendations: string[] = [];
-  const growthRecommendations: string[] = [];
-
-  // Revenue trend — shared with the At a Glance health score (computeRevenueTrend
-  // in reports.routes.ts) so the two never disagree about which direction
-  // revenue is moving.
-  const { trendPct, startedFromZero } = computeRevenueTrend(financials.months);
-  if (startedFromZero) strengths.push("Revenue activity began partway through the last 6 months — no prior-period baseline to compare against yet.");
-  else if (trendPct !== null && trendPct >= 10) strengths.push(`Revenue trended up ${trendPct}% over the last 6 months.`);
-  else if (trendPct !== null && trendPct <= -10) {
-    weaknesses.push(`Revenue trended down ${Math.abs(trendPct)}% over the last 6 months.`);
-    threats.push(`Declining revenue trend (${trendPct}% over the last 6 months) — worth investigating the cause before it compounds.`);
-  }
-
-  // Profit margin
-  if (financials.totals.revenue > 0) {
-    const margin = financials.totals.profit / financials.totals.revenue;
-    if (margin >= 0.15) strengths.push(`Healthy net margin of ${Math.round(margin * 100)}% over the last 6 months.`);
-    else if (financials.totals.profit < 0) weaknesses.push(`Net loss of ${fmtMoneyPlain(Math.abs(financials.totals.profit))} over the last 6 months.`);
-    else if (margin < 0.05) weaknesses.push(`Thin net margin of ${Math.round(margin * 100)}% over the last 6 months.`);
-  }
-
-  // Open tasks
-  if (ops.openTasks === 0) strengths.push("No overdue tasks — operations are current.");
-  else weaknesses.push(`${ops.openTasks} open task${ops.openTasks === 1 ? "" : "s"} as of today.`);
-
-  // Balance due
-  if (ops.balanceDue <= 0) strengths.push("No outstanding balance — account is current on billing.");
-  else weaknesses.push(`Outstanding balance of ${fmtMoneyPlain(ops.balanceDue)} across ${ops.openInvoices} invoice${ops.openInvoices === 1 ? "" : "s"}.`);
-
-  // Tax liabilities
-  if (financials.taxLiabilities > 0) {
-    threats.push(`Outstanding tax liability of ${fmtMoneyPlain(financials.taxLiabilities)} on the books.`);
-    taxRecommendations.push(`Prioritize the ${fmtMoneyPlain(financials.taxLiabilities)} outstanding tax liability before its due date to avoid additional penalty and interest.`);
-  }
-
-  // MD sales tax filing — current period only (no persisted filing history
-  // exists to build a real streak from; see the plan's own research note).
-  if (clientRow.state === "MD") {
-    const reportClient: ReportClientInfo = {
-      clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
-      state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
-    };
-    const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
-    if (mdFiling && mdFiling.periods.length > 0) {
-      const late = mdFiling.periods.filter((p) => !p.onTime);
-      if (late.length === 0) strengths.push("Sales tax filings are on time for the period(s) reviewed.");
-      else {
-        weaknesses.push(`${late.length} sales tax filing period${late.length === 1 ? "" : "s"} currently show as late as of today.`);
-        taxRecommendations.push("Set a recurring reminder ahead of each Maryland sales tax due date — the 10% late penalty plus monthly interest adds up fast on a missed filing.");
-      }
-    }
-  }
-
-  // Service-enrollment gaps
-  const currentServices: string[] = Array.isArray(clientRow.services) ? clientRow.services : [];
-  const eligible = clientRow.client_type === "Individual"
-    ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key))
-    : FIRM_SERVICES;
-  const gaps = eligible.filter((s) => !s.legacy && !currentServices.includes(s.key));
-  if (gaps.length > 0) {
-    opportunities.push(`Not currently enrolled in: ${gaps.map((g) => g.label).join(", ")} — potential to expand the engagement.`);
-  }
-
-  // Overview — orientation, not S/W/O/T
   const overviewParts: string[] = [];
-  if (clientRow.industry_category) overviewParts.push(`Operates in the ${clientRow.industry_category} industry`);
-  if (clientRow.date_of_formation) {
-    const years = Math.floor((Date.now() - new Date(clientRow.date_of_formation).getTime()) / (365.25 * 24 * 3600 * 1000));
-    if (years >= 0) overviewParts.push(`in business ${years} year${years === 1 ? "" : "s"}`);
-  }
-  if (currentServices.length > 0) overviewParts.push(`currently engaged for: ${currentServices.map((k) => SERVICE_LABEL[k] || k).join(", ")}`);
+  if (input.industryCategory) overviewParts.push(`Operates in the ${input.industryCategory} industry`);
+  if (input.yearsInBusiness !== null) overviewParts.push(`in business ${input.yearsInBusiness} year${input.yearsInBusiness === 1 ? "" : "s"}`);
+  if (input.currentServiceLabels.length > 0) overviewParts.push(`currently engaged for: ${input.currentServiceLabels.join(", ")}`);
   const overview = overviewParts.length ? `${overviewParts.join(", ")}.` : "";
 
-  // Growth plan — one sentence combining the trend and service-gap signals
-  if (trendPct !== null && trendPct >= 10) {
-    growthRecommendations.push(`Revenue is trending up — a good time to discuss expanding services${gaps.length ? `, such as ${gaps[0].label}` : ""}.`);
-  } else if (trendPct !== null && trendPct <= -10) {
-    growthRecommendations.push("Revenue is trending down — review pricing and cost structure, and clear any outstanding tax liability first to protect margin.");
-  }
-
-  return {
-    overview,
-    strengths: strengths.join(" "),
-    weaknesses: weaknesses.join(" "),
-    opportunities: opportunities.join(" "),
-    threats: threats.join(" "),
-    taxRecommendations: taxRecommendations.join(" "),
-    growthRecommendations: growthRecommendations.join(" "),
-  };
+  return { ...legacy, overview };
 }
 
 clientsRouter.post("/:clientId/swot/autodraft", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -399,6 +405,206 @@ clientsRouter.post("/:clientId/swot/autodraft", requireAuth, requireRole("admin"
   if (!clientRow) return res.status(404).json({ error: "Client not found." });
   const draft = await computeSwotAutoDraft(clientRow, clientId);
   res.json({ draft });
+}));
+
+const FINDING_FIELDS = [
+  "category", "subcategory", "findingText", "supportingData", "businessImpact",
+  "priority", "recommendedAction", "responsibleParty", "targetDate", "status", "dataType",
+] as const;
+const FINDING_COLUMNS: Record<(typeof FINDING_FIELDS)[number], string> = {
+  category: "category", subcategory: "subcategory", findingText: "finding_text", supportingData: "supporting_data",
+  businessImpact: "business_impact", priority: "priority", recommendedAction: "recommended_action",
+  responsibleParty: "responsible_party", targetDate: "target_date", status: "status", dataType: "data_type",
+};
+
+function findingRowToJson(row: any) {
+  const out: Record<string, any> = { findingId: row.finding_id, clientId: row.client_id };
+  for (const f of FINDING_FIELDS) out[f] = row[FINDING_COLUMNS[f]];
+  out.source = row.source;
+  out.autoTriggerKey = row.auto_trigger_key;
+  out.editedByStaff = row.edited_by_staff;
+  out.reviewedBy = row.reviewed_by;
+  out.reviewedAt = row.reviewed_at;
+  out.dismissedReason = row.dismissed_reason;
+  out.createdBy = row.created_by;
+  out.createdAt = row.created_at;
+  out.resolvedBy = row.resolved_by;
+  out.resolvedAt = row.resolved_at;
+  out.updatedAt = row.updated_at;
+  return out;
+}
+
+function nextFindingId(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `SWF-${ts}-${Math.floor(100 + Math.random() * 900)}`;
+}
+
+const PRIORITY_ORDER: Record<string, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
+const STATUS_ORDER: Record<string, number> = { Open: 0, "In Progress": 1, Resolved: 2, Dismissed: 3 };
+
+/**
+ * Structured findings — one row per discrete finding, each carrying the 8
+ * elements a real advisory item needs (finding, supporting data, impact,
+ * priority, recommended action, owner, due date, status). Sits alongside
+ * the free-text narrative fields above (v3_client_swot), not a replacement
+ * for them. See sql/040_swot_findings.sql.
+ */
+clientsRouter.get("/:clientId/swot-findings", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const rows = await query<any>(`SELECT * FROM altax.v3_swot_findings WHERE client_id = $1`, [clientId]);
+  const findings = rows
+    .map(findingRowToJson)
+    .sort((a: any, b: any) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || (PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]) || (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+  res.json({ findings });
+}));
+
+clientsRouter.post("/:clientId/swot-findings", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const body = req.body || {};
+  if (!body.category || !body.findingText) return res.status(400).json({ error: "Category and finding text are required." });
+  const findingId = nextFindingId();
+  await query(
+    `INSERT INTO altax.v3_swot_findings
+       (finding_id, client_id, category, subcategory, finding_text, supporting_data, business_impact,
+        priority, recommended_action, responsible_party, target_date, status, source, data_type, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Manual', $13, $14)`,
+    [
+      findingId, clientId, body.category, body.subcategory || null, body.findingText, body.supportingData || "",
+      body.businessImpact || null, body.priority || "Medium", body.recommendedAction || null,
+      body.responsibleParty || null, body.targetDate || null, body.status || "Open", body.dataType || "Fact",
+      req.user!.email,
+    ]
+  );
+  await logAudit("Clients", "CREATE_SWOT_FINDING", clientId, "finding", "", body.findingText, `Finding created by ${req.user!.email}.`, req.user!.email);
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_swot_findings WHERE finding_id = $1`, [findingId]);
+  res.status(201).json({ finding: findingRowToJson(row) });
+}));
+
+clientsRouter.patch("/:clientId/swot-findings/:findingId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, findingId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_swot_findings WHERE finding_id = $1 AND client_id = $2`, [findingId, clientId]);
+  if (!existing) return res.status(404).json({ error: "Finding not found." });
+
+  const body = req.body || {};
+  const sets: string[] = [];
+  const values: any[] = [];
+  let i = 1;
+  const auditLines: string[] = [];
+  for (const f of FINDING_FIELDS) {
+    if (body[f] === undefined) continue;
+    const col = FINDING_COLUMNS[f];
+    const oldVal = existing[col];
+    const newVal = body[f];
+    if (String(oldVal ?? "") === String(newVal ?? "")) continue;
+    sets.push(`${col} = $${i}`);
+    values.push(newVal === "" ? null : newVal);
+    i++;
+    auditLines.push(`${f}: "${oldVal ?? ""}" -> "${newVal ?? ""}"`);
+  }
+  if (sets.length === 0) return res.json({ finding: findingRowToJson(existing) });
+
+  // Every Auto-sourced finding is locked from future automated changes the
+  // moment a human edits it — the Phase 3 reconciliation sweep checks this
+  // flag before ever touching a row, so automation can never silently
+  // overwrite staff judgment.
+  sets.push(`edited_by_staff = true`, `updated_at = now()`);
+  if (!existing.reviewed_by) { sets.push(`reviewed_by = $${i}`, `reviewed_at = now()`); values.push(req.user!.email); i++; }
+
+  await query(`UPDATE altax.v3_swot_findings SET ${sets.join(", ")} WHERE finding_id = $${i}`, [...values, findingId]);
+  await logAudit("Clients", "EDIT_SWOT_FINDING", clientId, "finding", "", "", `Finding ${findingId} updated by ${req.user!.email}: ${auditLines.join("; ")}`, req.user!.email);
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_swot_findings WHERE finding_id = $1`, [findingId]);
+  res.json({ finding: findingRowToJson(row) });
+}));
+
+clientsRouter.post("/:clientId/swot-findings/:findingId/resolve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, findingId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const existing = await queryOne<any>(`SELECT finding_id FROM altax.v3_swot_findings WHERE finding_id = $1 AND client_id = $2`, [findingId, clientId]);
+  if (!existing) return res.status(404).json({ error: "Finding not found." });
+  await query(
+    `UPDATE altax.v3_swot_findings SET status = 'Resolved', resolved_by = $1, resolved_at = now(), edited_by_staff = true, updated_at = now() WHERE finding_id = $2`,
+    [req.user!.email, findingId]
+  );
+  await logAudit("Clients", "RESOLVE_SWOT_FINDING", clientId, "status", "Open", "Resolved", `Finding ${findingId} resolved by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+clientsRouter.post("/:clientId/swot-findings/:findingId/dismiss", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, findingId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const existing = await queryOne<any>(`SELECT finding_id FROM altax.v3_swot_findings WHERE finding_id = $1 AND client_id = $2`, [findingId, clientId]);
+  if (!existing) return res.status(404).json({ error: "Finding not found." });
+  const reason = String(req.body?.reason || "").slice(0, 2000) || null;
+  await query(
+    `UPDATE altax.v3_swot_findings SET status = 'Dismissed', dismissed_reason = $1, edited_by_staff = true, updated_at = now() WHERE finding_id = $2`,
+    [reason, findingId]
+  );
+  await logAudit("Clients", "DISMISS_SWOT_FINDING", clientId, "status", "Open", "Dismissed", `Finding ${findingId} dismissed by ${req.user!.email}.${reason ? ` Reason: ${reason}` : ""}`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/**
+ * Runs the rule engine and inserts any new candidate whose auto_trigger_key
+ * doesn't already have an open (non-Resolved/Dismissed) row for this client
+ * — existence-check-before-insert, same shape the Task Rules Agent already
+ * uses, with the partial unique index (sql/040_swot_findings.sql) as a hard
+ * backstop against a duplicate slipping through a race. Never touches an
+ * existing finding — that's the Phase 3 reconciliation sweep's job.
+ */
+clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const clientRow = await queryOne<any>(
+    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+       FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  if (!clientRow) return res.status(404).json({ error: "Client not found." });
+
+  const input = await assembleSwotEngineInput(clientId, clientRow);
+  const candidates: CandidateFinding[] = computeSwotFindings(input);
+
+  const openRows = await query<any>(
+    `SELECT auto_trigger_key FROM altax.v3_swot_findings WHERE client_id = $1 AND auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed')`,
+    [clientId]
+  );
+  const openKeys = new Set(openRows.map((r: any) => r.auto_trigger_key));
+
+  let created = 0;
+  for (const c of candidates) {
+    if (openKeys.has(c.autoTriggerKey)) continue;
+    const findingId = nextFindingId();
+    await query(
+      `INSERT INTO altax.v3_swot_findings
+         (finding_id, client_id, category, subcategory, finding_text, supporting_data, business_impact,
+          priority, recommended_action, status, source, data_type, auto_trigger_key, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Open', 'Auto', $10, $11, $12)
+       ON CONFLICT (client_id, auto_trigger_key) WHERE auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed') DO NOTHING`,
+      [findingId, clientId, c.category, c.subcategory || null, c.findingText, c.supportingData, c.businessImpact,
+        c.priority, c.recommendedAction, c.dataType, c.autoTriggerKey, "System (SWOT Findings Engine)"]
+    );
+    openKeys.add(c.autoTriggerKey);
+    created++;
+  }
+  await logAudit("Clients", "GENERATE_SWOT_FINDINGS", clientId, "", "", "", `${created} new finding(s) generated by ${req.user!.email}.`, req.user!.email);
+  res.json({ created, evaluated: candidates.length });
 }));
 
 function nextActivityId(): string {

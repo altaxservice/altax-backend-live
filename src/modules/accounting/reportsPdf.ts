@@ -870,6 +870,9 @@ export interface ClientSwotReportData {
   overview: string; strengths: string; weaknesses: string; opportunities: string; threats: string;
   taxRecommendations: string; staffingRecommendations: string; marketingRecommendations: string; growthRecommendations: string;
   additionalNotes: string;
+  // Structured findings (v3_swot_findings) — only Open/In Progress ones are
+  // worth printing for a client meeting; Resolved/Dismissed stay internal.
+  findings: { category: string; findingText: string; priority: string; status: string; recommendedAction: string | null; responsibleParty: string | null; targetDate: string | null }[];
 }
 
 /**
@@ -955,6 +958,32 @@ export async function generateClientSwotPdf(data: ClientSwotReportData): Promise
   await paragraphSection("Marketing", data.marketingRecommendations);
   await paragraphSection("Growth Plan", data.growthRecommendations);
   await paragraphSection("Additional Notes", data.additionalNotes);
+
+  const openFindings = data.findings.filter((f) => f.status === "Open" || f.status === "In Progress");
+  if (openFindings.length > 0) {
+    await ensureRoom(30);
+    y = sectionLabel(c, y, "Findings & Action Items");
+    for (const f of openFindings) {
+      await ensureRoom(30);
+      c.text(48, y, `[${f.category}${f.priority === "Urgent" || f.priority === "High" ? ` — ${f.priority} priority` : ""}]`, { size: 8.5, bold: true, color: f.priority === "Urgent" ? undefined : MUTED });
+      y += 12;
+      for (const line of wrapText(f.findingText, font, 10, PAGE_W - 96)) {
+        await ensureRoom(16);
+        c.text(48, y, line, { size: 10 });
+        y += 14;
+      }
+      if (f.recommendedAction) {
+        for (const line of wrapText(`Recommended: ${f.recommendedAction}`, font, 9, PAGE_W - 96)) {
+          await ensureRoom(14);
+          c.text(48, y, line, { size: 9, color: MUTED });
+          y += 12;
+        }
+      }
+      const meta = [f.responsibleParty ? `Owner: ${f.responsibleParty}` : null, f.targetDate ? `Target: ${f.targetDate}` : null].filter(Boolean).join("   ");
+      if (meta) { c.text(48, y, meta, { size: 8.5, color: MUTED }); y += 12; }
+      y += 8;
+    }
+  }
 
   drawFooter(c, profile.firmName, footerNote);
   return doc.save();

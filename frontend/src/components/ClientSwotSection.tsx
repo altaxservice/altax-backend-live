@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { api, ApiError, viewFile, downloadFile } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
-import { useNotify } from "./ConfirmProvider";
+import { useNotify, useConfirm } from "./ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
 
 interface ClientSwot {
@@ -26,6 +26,331 @@ const EMPTY_SWOT: ClientSwot = {
  * const array (not hardcoded per call site) so the merge-only-blank-fields logic below
  * can't accidentally list a field the route doesn't actually return. */
 const AUTO_DRAFT_FIELDS = ["overview", "strengths", "weaknesses", "opportunities", "threats", "taxRecommendations", "growthRecommendations"] as const;
+
+interface SwotFinding {
+  findingId: string; category: string; subcategory: string | null; findingText: string; supportingData: string;
+  businessImpact: string | null; priority: string; recommendedAction: string | null; responsibleParty: string | null;
+  targetDate: string | null; status: string; dataType: string; source: string; autoTriggerKey: string | null;
+  editedByStaff: boolean; reviewedBy: string | null; reviewedAt: string | null; dismissedReason: string | null;
+  createdBy: string | null; createdAt: string; resolvedBy: string | null; resolvedAt: string | null; updatedAt: string;
+}
+
+const FINDING_CATEGORIES = ["Strength", "Weakness", "Opportunity", "Threat", "Recommendation"] as const;
+const FINDING_SUBCATEGORIES = ["Tax", "Staffing", "Marketing", "Growth", "CostReduction", "RevenueGrowth", "CashFlow", "Compliance"] as const;
+const FINDING_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
+const FINDING_DATA_TYPES = ["Fact", "Estimate", "Assumption", "Recommendation"] as const;
+
+const EMPTY_NEW_FINDING = {
+  category: "Weakness" as string, subcategory: "" as string, findingText: "", supportingData: "",
+  businessImpact: "", priority: "Medium" as string, recommendedAction: "", responsibleParty: "", targetDate: "", dataType: "Assumption" as string,
+};
+
+function priorityPillClass(p: string): string {
+  return p === "Urgent" ? "status-red" : p === "High" ? "status-amber" : p === "Medium" ? "status-blue" : "status-gray";
+}
+function statusPillClass(s: string): string {
+  return s === "Open" ? "status-amber" : s === "In Progress" ? "status-blue" : s === "Resolved" ? "status-green" : "status-gray";
+}
+
+/**
+ * Structured findings — one row per discrete finding, each carrying the 8
+ * elements a real advisory item needs (finding, supporting data, impact,
+ * priority, recommended action, owner, due date, status). Sits above the
+ * free-text narrative fields below (v3_client_swot) — that's still the
+ * "executive summary" prose staff write; this is the trackable action list.
+ * "Generate Findings Now" runs the same deterministic rule engine behind
+ * "Auto-Fill from Business Data" but produces individually-actionable rows
+ * instead of one merged paragraph, and only ever adds a NEW row for a
+ * condition that doesn't already have an open one — it can never duplicate
+ * or silently overwrite something staff already edited.
+ */
+function FindingsPanel({ clientId }: { clientId: string }) {
+  const toast = useToast();
+  const notify = useNotify();
+  const confirm = useConfirm();
+  const [findings, setFindings] = useState<SwotFinding[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<SwotFinding>>({});
+  const [adding, setAdding] = useState(false);
+  const [newFinding, setNewFinding] = useState(EMPTY_NEW_FINDING);
+  const [savingNew, setSavingNew] = useState(false);
+
+  function load() {
+    setError(null);
+    api.get<{ findings: SwotFinding[] }>(`/clients/${clientId}/swot-findings`)
+      .then((res) => setFindings(res.findings))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load findings."));
+  }
+  useEffect(load, [clientId]);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      const res = await api.post<{ created: number; evaluated: number }>(`/clients/${clientId}/swot-findings/generate`, {});
+      toast(res.created > 0 ? `${res.created} new finding${res.created === 1 ? "" : "s"} added — review below.` : "No new findings right now — everything data-backed is already tracked or unchanged.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not generate findings.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleResolve(findingId: string) {
+    setBusyId(findingId);
+    try {
+      await api.post(`/clients/${clientId}/swot-findings/${findingId}/resolve`, {});
+      toast("Finding resolved.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not resolve this finding.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDismiss(findingId: string) {
+    const ok = await confirm({ message: "Dismiss this finding? It will move to the closed list.", confirmLabel: "Dismiss" });
+    if (!ok) return;
+    setBusyId(findingId);
+    try {
+      await api.post(`/clients/${clientId}/swot-findings/${findingId}/dismiss`, {});
+      toast("Finding dismissed.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not dismiss this finding.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleQuickUpdate(findingId: string, patch: Partial<SwotFinding>) {
+    setBusyId(findingId);
+    try {
+      await api.patch(`/clients/${clientId}/swot-findings/${findingId}`, patch);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this finding.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function startEdit(f: SwotFinding) {
+    setEditingId(f.findingId);
+    setEditForm({ findingText: f.findingText, supportingData: f.supportingData, businessImpact: f.businessImpact || "", recommendedAction: f.recommendedAction || "" });
+  }
+
+  async function saveEdit(findingId: string) {
+    setBusyId(findingId);
+    try {
+      await api.patch(`/clients/${clientId}/swot-findings/${findingId}`, editForm);
+      toast("Finding updated.");
+      setEditingId(null);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this finding.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleAddFinding() {
+    if (!newFinding.findingText.trim()) return;
+    setSavingNew(true);
+    try {
+      await api.post(`/clients/${clientId}/swot-findings`, {
+        ...newFinding,
+        subcategory: newFinding.category === "Recommendation" ? (newFinding.subcategory || null) : null,
+        targetDate: newFinding.targetDate || null,
+      });
+      toast("Finding added.");
+      setNewFinding(EMPTY_NEW_FINDING);
+      setAdding(false);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not add this finding.");
+    } finally {
+      setSavingNew(false);
+    }
+  }
+
+  if (error) return <ErrorBanner error={error} onRetry={load} />;
+
+  const visible = (findings || []).filter((f) => showClosed || (f.status !== "Resolved" && f.status !== "Dismissed"));
+
+  return (
+    <div className="card">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <h2 style={{ fontSize: 15, margin: 0 }}>Structured Findings &amp; Action Items</h2>
+          <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Each row traces to real data — finding, impact, priority, owner, due date, and status, all trackable.</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Show resolved/dismissed
+          </label>
+          <button type="button" className="btn btn-sm" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ Add Finding"}</button>
+          <button type="button" className="btn btn-sm" onClick={handleGenerate} disabled={generating} title="Runs the same deterministic engine as Auto-Fill, but produces trackable rows instead of one paragraph — never duplicates an already-open finding.">{generating ? "Analyzing…" : "Generate Findings Now"}</button>
+        </div>
+      </div>
+
+      {adding && (
+        <div style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Category</label>
+              <select value={newFinding.category} onChange={(e) => setNewFinding((f) => ({ ...f, category: e.target.value }))}>
+                {FINDING_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {newFinding.category === "Recommendation" && (
+              <div className="field" style={{ margin: 0 }}>
+                <label>Subcategory</label>
+                <select value={newFinding.subcategory} onChange={(e) => setNewFinding((f) => ({ ...f, subcategory: e.target.value }))}>
+                  <option value="">—</option>
+                  {FINDING_SUBCATEGORIES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="field" style={{ margin: 0 }}>
+              <label>Priority</label>
+              <select value={newFinding.priority} onChange={(e) => setNewFinding((f) => ({ ...f, priority: e.target.value }))}>
+                {FINDING_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Data Type</label>
+              <select value={newFinding.dataType} onChange={(e) => setNewFinding((f) => ({ ...f, dataType: e.target.value }))}>
+                {FINDING_DATA_TYPES.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Finding</label>
+            <textarea rows={2} value={newFinding.findingText} onChange={(e) => setNewFinding((f) => ({ ...f, findingText: e.target.value }))} placeholder="What did you observe?" />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Supporting Data</label>
+            <textarea rows={2} value={newFinding.supportingData} onChange={(e) => setNewFinding((f) => ({ ...f, supportingData: e.target.value }))} placeholder="The real number or fact behind this finding." />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Business Impact</label>
+              <input value={newFinding.businessImpact} onChange={(e) => setNewFinding((f) => ({ ...f, businessImpact: e.target.value }))} />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Recommended Action</label>
+              <input value={newFinding.recommendedAction} onChange={(e) => setNewFinding((f) => ({ ...f, recommendedAction: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Responsible Party</label>
+              <input value={newFinding.responsibleParty} onChange={(e) => setNewFinding((f) => ({ ...f, responsibleParty: e.target.value }))} />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Target Date</label>
+              <input type="date" value={newFinding.targetDate} onChange={(e) => setNewFinding((f) => ({ ...f, targetDate: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <button type="button" className="btn btn-sm btn-primary" onClick={handleAddFinding} disabled={savingNew || !newFinding.findingText.trim()}>{savingNew ? "Saving…" : "Add Finding"}</button>
+          </div>
+        </div>
+      )}
+
+      {!findings ? (
+        <div className="spinner-wrap">Loading…</div>
+      ) : visible.length === 0 ? (
+        <p className="muted" style={{ fontSize: 13 }}>No {showClosed ? "" : "open "}findings yet. Click "Generate Findings Now" to draft from real business data, or add one manually.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Category</th><th>Finding</th><th>Priority</th><th>Owner</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {visible.map((f) => (
+                <Fragment key={f.findingId}>
+                  <tr>
+                    <td>
+                      {f.category}{f.subcategory ? ` · ${f.subcategory}` : ""}
+                      {f.source === "Auto" && <span className="badge" style={{ marginLeft: 6, fontSize: 9 }}>Auto</span>}
+                    </td>
+                    <td style={{ maxWidth: 320 }}>
+                      <div>{f.findingText}</div>
+                      {f.recommendedAction && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Recommended: {f.recommendedAction}</div>}
+                    </td>
+                    <td>
+                      <select className={`inline-select ${priorityPillClass(f.priority)}`} value={f.priority} disabled={busyId === f.findingId} onChange={(e) => handleQuickUpdate(f.findingId, { priority: e.target.value })}>
+                        {FINDING_PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        key={f.responsibleParty || ""} style={{ fontSize: 12.5, width: 110 }} defaultValue={f.responsibleParty || ""} placeholder="Unassigned"
+                        onBlur={(e) => { if (e.target.value !== (f.responsibleParty || "")) handleQuickUpdate(f.findingId, { responsibleParty: e.target.value }); }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date" key={f.targetDate || ""} style={{ fontSize: 12.5, width: 130 }} defaultValue={f.targetDate || ""}
+                        onBlur={(e) => { if (e.target.value !== (f.targetDate || "")) handleQuickUpdate(f.findingId, { targetDate: (e.target.value || null) as any }); }}
+                      />
+                    </td>
+                    <td><span className={`status-pill ${statusPillClass(f.status)}`}>{f.status}</span></td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {f.status !== "Resolved" && f.status !== "Dismissed" && (
+                          <>
+                            <button type="button" className="btn btn-sm" onClick={() => startEdit(f)}>Edit</button>
+                            <button type="button" className="btn btn-sm" onClick={() => handleResolve(f.findingId)} disabled={busyId === f.findingId}>Resolve</button>
+                            <button type="button" className="btn btn-sm" onClick={() => handleDismiss(f.findingId)} disabled={busyId === f.findingId}>Dismiss</button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {editingId === f.findingId && (
+                    <tr key={`${f.findingId}-edit`}>
+                      <td colSpan={7}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 8, background: "var(--paper-alt, #f8f9fb)", borderRadius: 6 }}>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Finding</label>
+                            <textarea rows={2} value={editForm.findingText || ""} onChange={(e) => setEditForm((v) => ({ ...v, findingText: e.target.value }))} />
+                          </div>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Supporting Data</label>
+                            <textarea rows={2} value={editForm.supportingData || ""} onChange={(e) => setEditForm((v) => ({ ...v, supportingData: e.target.value }))} />
+                          </div>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Business Impact</label>
+                            <input value={editForm.businessImpact || ""} onChange={(e) => setEditForm((v) => ({ ...v, businessImpact: e.target.value }))} />
+                          </div>
+                          <div className="field" style={{ margin: 0 }}>
+                            <label>Recommended Action</label>
+                            <input value={editForm.recommendedAction || ""} onChange={(e) => setEditForm((v) => ({ ...v, recommendedAction: e.target.value }))} />
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button type="button" className="btn btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                            <button type="button" className="btn btn-sm btn-primary" onClick={() => saveEdit(f.findingId)} disabled={busyId === f.findingId}>Save</button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Per-client business advisory analysis — a living document staff write and
@@ -141,7 +466,9 @@ export function ClientSwotSection({ clientId }: { clientId: string }) {
   if (!swot) return <div className="spinner-wrap">Loading…</div>;
 
   return (
-    <div className="card">
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <FindingsPanel clientId={clientId} />
+      <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
         <div>
           <h2 style={{ fontSize: 15, margin: 0 }}>SWOT Analysis &amp; Business Advisory</h2>
@@ -211,6 +538,7 @@ export function ClientSwotSection({ clientId }: { clientId: string }) {
           <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Anything else supporting this strategy that doesn't fit above.</p>
           {field("additionalNotes", "Additional Notes", 5)}
         </div>
+      </div>
       </div>
     </div>
   );
