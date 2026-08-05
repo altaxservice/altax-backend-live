@@ -13,7 +13,7 @@ interface ClientRatios {
 }
 interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number }
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
-interface Deadline { label: string; date: string }
+interface Deadline { label: string; date: string; source?: string }
 interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {

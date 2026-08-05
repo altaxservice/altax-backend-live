@@ -9,6 +9,7 @@ import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/t
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
+import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
 
 /**
  * Firm-wide analytics — distinct from the existing per-client P&L/Balance
@@ -700,7 +701,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
   const clientRow = await queryOne<any>(
-    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`,
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
   if (!clientRow) return res.status(404).json({ error: "Client not found." });
@@ -767,20 +768,21 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     return { accountName: b.account_name, budget: Number(b.amount), actual: round2(actual), variance: round2(actual - Number(b.amount)) };
   }).sort((a: any, b: any) => Math.abs(b.variance) - Math.abs(a.variance));
 
-  // Upcoming deadlines — MD filing (current period only, per this codebase's
-  // documented limitation: no persisted per-period filing history exists) and
-  // the client's nearest scheduled payroll date.
-  const deadlines: { label: string; date: string }[] = [];
-  if (mdFiling && mdFiling.periods.length > 0) {
-    const lastPeriod = mdFiling.periods[mdFiling.periods.length - 1];
-    deadlines.push({ label: "MD Sales Tax Filing", date: lastPeriod.dueDate });
-  }
+  // Upcoming deadlines — every source this app can actually compute,
+  // aggregated by computeUpcomingDeadlines (complianceCalendar.ts): MD
+  // filing (current period only, per this codebase's documented
+  // limitation — no persisted per-period filing history exists), the
+  // client's nearest scheduled payroll date, and (if payroll is enabled)
+  // the next federal Form 941/940 due dates.
   const nextPayrollRow = await queryOne<any>(
     `SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`,
     [clientId]
   );
-  if (nextPayrollRow?.next_pay_date) deadlines.push({ label: "Next Payroll", date: new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) });
-  deadlines.sort((a, b) => a.date.localeCompare(b.date));
+  const deadlines = computeUpcomingDeadlines({
+    mdCurrentPeriodDueDate: mdFiling && mdFiling.periods.length > 0 ? mdFiling.periods[mdFiling.periods.length - 1].dueDate : null,
+    payrollNextDate: nextPayrollRow?.next_pay_date ? new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) : null,
+    payrollEnabled: Boolean(clientRow.payroll_enabled),
+  });
 
   res.json({
     period: { from, to },
