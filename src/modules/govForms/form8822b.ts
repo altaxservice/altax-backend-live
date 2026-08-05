@@ -9,7 +9,7 @@
  * fields) — extractFlattenedPages only pulls page index 0.
  *
  * Field-name verification: this revision ships all 22 AcroForm fields with
- * an empty /TU tooltip (same situation as SS-4/8332), so identity was
+ * an empty /TU tooltip (same situation as SS-4/8832), so identity was
  * confirmed by extracting each printed label's page position (pdfjs-dist
  * text content, with x/y) and each field's own widget rectangle (pdf-lib
  * `acroField.getWidgets()[0].getRectangle()`), then matching each field to

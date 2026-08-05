@@ -13,25 +13,26 @@ import {
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
   SS4_ENTITY_TYPES, SS4_REASONS, SS4_ACTIVITIES,
   CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES,
+  FORM8832_TYPE_OF_ELECTION, FORM8832_ENTITY_TYPES,
 } from "./govForms.service";
 
 /**
  * Tools → government forms: Form SS-4 (EIN application), Form 2553 (S-Corp
- * election), Form W-9 (TIN request), Form 8332 (release of dependency
- * exemption), Form W-4 (employee withholding certificate), Form 8822-B
+ * election), Form W-9 (TIN request), Form 8832 (entity classification
+ * election), Form W-4 (employee withholding certificate), Form 8822-B
  * (change of business address/responsible party), and Maryland Form CRA
  * (Combined Registration Application) — fills the agency's own real
  * fillable PDF, never a firm-drawn substitute (see the individual generator
  * files under this module for how every field was verified).
  *
- * SS4/2553/W9/8332/CRA/8822B are client-level (v3_gov_form_filings.client_id);
+ * SS4/2553/W9/8832/CRA/8822B are client-level (v3_gov_form_filings.client_id);
  * W4 and (when collected from a contractor rather than the client's own
  * business) W9 are employee-level (v3_gov_form_filings.employee_id), since a
  * withholding election or a contractor's own TIN certification belongs to
  * one person, not the client business itself. All share the same filing
  * lifecycle (Draft → Signed → Submitted, or Void).
  *
- * Physical-signature-only applies to SS-4/2553/8332/CRA/8822B and to a
+ * Physical-signature-only applies to SS-4/2553/8832/CRA/8822B and to a
  * client-level W-9 — same rule as the POA forms (2848/8821/548): those either go straight
  * to a government agency, whose own e-signature rules this app doesn't
  * implement, or (W-9 for the client's own business) are just as easily
@@ -56,7 +57,7 @@ const FORM_LABELS: Record<string, string> = {
   SS4: "IRS Form SS-4 — Application for Employer Identification Number",
   "2553": "IRS Form 2553 — Election by a Small Business Corporation",
   W9: "IRS Form W-9 — Request for Taxpayer Identification Number",
-  "8332": "IRS Form 8332 — Release of Claim to Exemption for Child",
+  "8832": "IRS Form 8832 — Entity Classification Election",
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
   CRA: "Maryland Form CRA — Combined Registration Application",
   "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",
@@ -75,6 +76,8 @@ govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHan
     craReasons: CRA_REASONS,
     craTaxTypes: CRA_TAX_TYPES,
     craOwnershipTypes: CRA_OWNERSHIP_TYPES,
+    form8832TypeOfElection: FORM8832_TYPE_OF_ELECTION,
+    form8832EntityTypes: FORM8832_ENTITY_TYPES,
   });
 }));
 
@@ -440,7 +443,7 @@ govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"
   res.json({ ok: true });
 }));
 
-/** The firm's own record of the manual step this app can't automate — mailing, faxing, hand-delivering, uploading online (SS-4), or simply kept on file (W-4/W-9/8332 never go to an agency). */
+/** The firm's own record of the manual step this app can't automate — mailing, faxing, hand-delivering, uploading online (SS-4), or simply kept on file (W-4/W-9 never go to an agency). */
 govFormsRouter.post("/:filingId/submit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });

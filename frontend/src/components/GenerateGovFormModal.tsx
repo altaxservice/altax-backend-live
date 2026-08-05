@@ -33,7 +33,7 @@ const EMPTY_SHAREHOLDER: Shareholder = { name: "", address: "", idNumber: "", sh
 
 /**
  * Generates one of the client-level government forms (SS-4, 2553, W-9,
- * 8332, CRA, 8822-B). Unlike the POA forms modal (one shared taxpayer/
+ * 8832, CRA, 8822-B). Unlike the POA forms modal (one shared taxpayer/
  * representatives shape across all three forms it covers), these forms have
  * almost nothing in common — the fields shown change entirely based on
  * which form is selected. Preview/Print/Download only, no e-sign: every one
@@ -124,12 +124,19 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     daytimePhone: "", title: "",
   });
 
-  // Form 8332 state
-  const [f8332, setF8332] = useState({
-    noncustodialParentName: "", noncustodialParentSsn: "", custodialParentSsn: "",
-    releaseCurrentYear: true, partIChildNames: "", partITaxYear: String(new Date().getFullYear()),
-    releaseFutureYears: false, partIIChildNames: "", partIIYears: "",
-    revokeRelease: false, partIIIChildNames: "", partIIIYears: "",
+  // Form 8832 state
+  const [f8832, setF8832] = useState({
+    legalName: "", ein: "", street: "", cityStateZip: "",
+    addressChange: false, lateReliefUnder200941: false, lateChangeReliefUnder201032: false,
+    typeOfElection: "Initial classification by a newly-formed entity",
+    priorElectionLast60Months: false, priorElectionWasInitialAtFormation: false,
+    moreThanOneOwner: true,
+    ownerName: "", ownerId: "",
+    parentCorpName: "", parentCorpEin: "",
+    entityType: "Domestic — partnership",
+    foreignCountryOfOrganization: "", effectiveDate: "",
+    contactNameTitle: "", contactPhone: "", signerTitle: "",
+    lateReliefExplanation: "", lateReliefSignerTitle: "",
   });
 
   useEffect(() => {
@@ -157,7 +164,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           if (editingFiling.form_type === "W9") setW9((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "CRA") setCra((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "8822B") setF8822b((f) => ({ ...f, ...d }));
-          if (editingFiling.form_type === "8332") setF8332((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "8832") setF8832((f) => ({ ...f, ...d }));
           return;
         }
 
@@ -214,6 +221,12 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           // blank rather than defaulted from the client record — same
           // reasoning as CRA's SDAT Entity ID.
         }));
+        setF8832((f) => ({
+          ...f,
+          legalName: res.client.client_name, ein: res.client.ein || "",
+          street: res.client.street_address || "",
+          cityStateZip: [res.client.city, [res.client.state, res.client.zip_code].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+        }));
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
   }, [clientId]);
@@ -255,21 +268,18 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
       }
       return { ...f8822b };
     }
-    // 8332
-    if (!f8332.noncustodialParentName.trim()) { setSaveError("Noncustodial parent's name is required."); return null; }
-    if (!f8332.releaseCurrentYear && !f8332.releaseFutureYears && !f8332.revokeRelease) {
-      setSaveError("Choose at least one part of the form to fill out (current year, future years, or a revocation).");
+    // 8832
+    if (!f8832.legalName.trim()) { setSaveError("Name of the eligible entity is required."); return null; }
+    if (!f8832.street.trim() || !f8832.cityStateZip.trim()) { setSaveError("Mailing address is required."); return null; }
+    if (f8832.moreThanOneOwner && (f8832.entityType.includes("single owner"))) {
+      setSaveError("Line 6's entity type says single owner, but line 3 says more than one owner — pick one.");
       return null;
     }
-    const data: Record<string, any> = {
-      noncustodialParentName: f8332.noncustodialParentName,
-      noncustodialParentSsn: f8332.noncustodialParentSsn || undefined,
-      custodialParentSsn: f8332.custodialParentSsn || undefined,
-    };
-    if (f8332.releaseCurrentYear) data.partI = { childNames: f8332.partIChildNames, taxYear: f8332.partITaxYear };
-    if (f8332.releaseFutureYears) data.partII = { childNames: f8332.partIIChildNames, years: f8332.partIIYears };
-    if (f8332.revokeRelease) data.partIII = { childNames: f8332.partIIIChildNames, years: f8332.partIIIYears };
-    return data;
+    if (f8832.lateReliefUnder200941 && !f8832.lateReliefExplanation.trim()) {
+      setSaveError("Explain why the election wasn't filed on time (Part II, line 11) — required when late relief is checked.");
+      return null;
+    }
+    return { ...f8832 };
   }
 
   async function handleSubmit() {
@@ -857,55 +867,133 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
               </div>
             )}
 
-            {formType === "8332" && (
+            {formType === "8832" && (
               <div>
-                <p className="muted" style={{ fontSize: 12 }}>For releasing (or revoking) a claim to a child's dependency exemption between two parents — not tied to this client's own business info.</p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Elects how this entity is classified for federal tax purposes — as a corporation, a partnership, or (single-owner only)
+                  disregarded as a separate entity. Covers Part I in full; Part II (late-election relief) is only needed when that box below is checked.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
-                    <label htmlFor="gf-8332-noncustodial-name">Noncustodial parent's name</label>
-                    <input id="gf-8332-noncustodial-name" value={f8332.noncustodialParentName} onChange={(e) => setF8332({ ...f8332, noncustodialParentName: e.target.value })} />
+                    <label htmlFor="gf-8832-legal-name">Name of eligible entity making election</label>
+                    <input id="gf-8832-legal-name" value={f8832.legalName} onChange={(e) => setF8832({ ...f8832, legalName: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label htmlFor="gf-8332-noncustodial-ssn">Noncustodial parent's SSN</label>
-                    <input id="gf-8332-noncustodial-ssn" value={f8332.noncustodialParentSsn} onChange={(e) => setF8332({ ...f8332, noncustodialParentSsn: e.target.value })} />
+                    <label htmlFor="gf-8832-ein">EIN</label>
+                    <input id="gf-8832-ein" value={f8832.ein} onChange={(e) => setF8832({ ...f8832, ein: e.target.value })} />
                   </div>
                 </div>
-                <div className="field" style={{ maxWidth: 260 }}>
-                  <label htmlFor="gf-8332-custodial-ssn">Custodial parent's SSN <span className="muted">(the signer)</span></label>
-                  <input id="gf-8332-custodial-ssn" value={f8332.custodialParentSsn} onChange={(e) => setF8332({ ...f8332, custodialParentSsn: e.target.value })} />
+                <div className="field"><label htmlFor="gf-8832-street">Number, street, and room or suite no.</label><input id="gf-8832-street" value={f8832.street} onChange={(e) => setF8832({ ...f8832, street: e.target.value })} /></div>
+                <div className="field"><label htmlFor="gf-8832-city-state-zip">City or town, state, and ZIP code</label><input id="gf-8832-city-state-zip" value={f8832.cityStateZip} onChange={(e) => setF8832({ ...f8832, cityStateZip: e.target.value })} /></div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>Check if:</label>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8832.addressChange} onChange={(e) => setF8832({ ...f8832, addressChange: e.target.checked })} />
+                      Address change
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8832.lateReliefUnder200941} onChange={(e) => setF8832({ ...f8832, lateReliefUnder200941: e.target.checked })} />
+                      Late classification relief sought under Revenue Procedure 2009-41
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8832.lateChangeReliefUnder201032} onChange={(e) => setF8832({ ...f8832, lateChangeReliefUnder201032: e.target.checked })} />
+                      Relief for a late change of entity classification election sought under Revenue Procedure 2010-32
+                    </label>
+                  </div>
                 </div>
 
-                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "10px 0 4px" }}>
-                  <input type="checkbox" checked={f8332.releaseCurrentYear} onChange={(e) => setF8332({ ...f8332, releaseCurrentYear: e.target.checked })} />
-                  Part I — Release for the current tax year
-                </label>
-                {f8332.releaseCurrentYear && (
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, marginLeft: 22 }}>
-                    <input placeholder="Child name(s)" value={f8332.partIChildNames} onChange={(e) => setF8332({ ...f8332, partIChildNames: e.target.value })} />
-                    <input placeholder="Tax year" value={f8332.partITaxYear} onChange={(e) => setF8332({ ...f8332, partITaxYear: e.target.value })} />
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label htmlFor="gf-8832-type-of-election">Line 1 — Type of election</label>
+                  <select id="gf-8832-type-of-election" value={f8832.typeOfElection} onChange={(e) => setF8832({ ...f8832, typeOfElection: e.target.value })}>
+                    {meta.form8832TypeOfElection.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                {f8832.typeOfElection === "Change in current classification" && (
+                  <div style={{ marginLeft: 22 }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "4px 0" }}>
+                      <input type="checkbox" checked={f8832.priorElectionLast60Months} onChange={(e) => setF8832({ ...f8832, priorElectionLast60Months: e.target.checked })} />
+                      Line 2a — Entity previously filed an election with an effective date within the last 60 months
+                    </label>
+                    {f8832.priorElectionLast60Months && (
+                      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "4px 0", marginLeft: 22 }}>
+                        <input type="checkbox" checked={f8832.priorElectionWasInitialAtFormation} onChange={(e) => setF8832({ ...f8832, priorElectionWasInitialAtFormation: e.target.checked })} />
+                        Line 2b — That prior election was an initial classification election effective on the date of formation
+                      </label>
+                    )}
                   </div>
                 )}
 
                 <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "10px 0 4px" }}>
-                  <input type="checkbox" checked={f8332.releaseFutureYears} onChange={(e) => setF8332({ ...f8332, releaseFutureYears: e.target.checked })} />
-                  Part II — Release for future tax years
+                  <input type="checkbox" checked={f8832.moreThanOneOwner} onChange={(e) => setF8832({ ...f8832, moreThanOneOwner: e.target.checked })} />
+                  Line 3 — Does the eligible entity have more than one owner?
                 </label>
-                {f8332.releaseFutureYears && (
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, marginLeft: 22 }}>
-                    <input placeholder="Child name(s)" value={f8332.partIIChildNames} onChange={(e) => setF8332({ ...f8332, partIIChildNames: e.target.value })} />
-                    <input placeholder="e.g. 2027 through 2030" value={f8332.partIIYears} onChange={(e) => setF8332({ ...f8332, partIIYears: e.target.value })} />
+                {!f8832.moreThanOneOwner && (
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginLeft: 22 }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label htmlFor="gf-8832-owner-name">Line 4a — Name of owner</label>
+                      <input id="gf-8832-owner-name" value={f8832.ownerName} onChange={(e) => setF8832({ ...f8832, ownerName: e.target.value })} />
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label htmlFor="gf-8832-owner-id">Line 4b — Identifying number of owner</label>
+                      <input id="gf-8832-owner-id" value={f8832.ownerId} onChange={(e) => setF8832({ ...f8832, ownerId: e.target.value })} />
+                    </div>
                   </div>
                 )}
 
-                <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, margin: "10px 0 4px" }}>
-                  <input type="checkbox" checked={f8332.revokeRelease} onChange={(e) => setF8332({ ...f8332, revokeRelease: e.target.checked })} />
-                  Part III — Revoke a prior release
-                </label>
-                {f8332.revokeRelease && (
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8, marginLeft: 22 }}>
-                    <input placeholder="Child name(s)" value={f8332.partIIIChildNames} onChange={(e) => setF8332({ ...f8332, partIIIChildNames: e.target.value })} />
-                    <input placeholder="Years being revoked" value={f8332.partIIIYears} onChange={(e) => setF8332({ ...f8332, partIIIYears: e.target.value })} />
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>Line 5 — If owned by one or more affiliated corporations filing a consolidated return <span className="muted">(optional)</span></label>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                    <input aria-label="Name of parent corporation" placeholder="Name of parent corporation" value={f8832.parentCorpName} onChange={(e) => setF8832({ ...f8832, parentCorpName: e.target.value })} />
+                    <input aria-label="EIN of parent corporation" placeholder="EIN" value={f8832.parentCorpEin} onChange={(e) => setF8832({ ...f8832, parentCorpEin: e.target.value })} />
                   </div>
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label htmlFor="gf-8832-entity-type">Line 6 — Type of entity</label>
+                  <select id="gf-8832-entity-type" value={f8832.entityType} onChange={(e) => setF8832({ ...f8832, entityType: e.target.value })}>
+                    {meta.form8832EntityTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                {f8832.entityType.startsWith("Foreign") && (
+                  <div className="field">
+                    <label htmlFor="gf-8832-foreign-country">Line 7 — Foreign country of organization</label>
+                    <input id="gf-8832-foreign-country" value={f8832.foreignCountryOfOrganization} onChange={(e) => setF8832({ ...f8832, foreignCountryOfOrganization: e.target.value })} />
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8832-effective-date">Line 8 — Effective date <span className="muted">(month, day, year)</span></label>
+                    <input id="gf-8832-effective-date" placeholder="MM/DD/YYYY" value={f8832.effectiveDate} onChange={(e) => setF8832({ ...f8832, effectiveDate: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8832-contact-name-title">Line 9 — Contact person's name and title</label>
+                    <input id="gf-8832-contact-name-title" value={f8832.contactNameTitle} onChange={(e) => setF8832({ ...f8832, contactNameTitle: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8832-contact-phone">Line 10 — Contact phone</label>
+                    <input id="gf-8832-contact-phone" value={f8832.contactPhone} onChange={(e) => setF8832({ ...f8832, contactPhone: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="gf-8832-signer-title">Consent statement — Title of first signer <span className="muted">(optional; Signature and Date are handwritten)</span></label>
+                  <input id="gf-8832-signer-title" value={f8832.signerTitle} onChange={(e) => setF8832({ ...f8832, signerTitle: e.target.value })} />
+                </div>
+
+                {f8832.lateReliefUnder200941 && (
+                  <>
+                    <div className="field" style={{ marginTop: 10 }}>
+                      <label htmlFor="gf-8832-late-relief-explanation">Part II, Line 11 — Explanation for why the election wasn't filed on time</label>
+                      <textarea id="gf-8832-late-relief-explanation" rows={3} value={f8832.lateReliefExplanation} onChange={(e) => setF8832({ ...f8832, lateReliefExplanation: e.target.value })} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="gf-8832-late-relief-signer-title">Part II consent statement — Title of first signer <span className="muted">(optional)</span></label>
+                      <input id="gf-8832-late-relief-signer-title" value={f8832.lateReliefSignerTitle} onChange={(e) => setF8832({ ...f8832, lateReliefSignerTitle: e.target.value })} />
+                    </div>
+                  </>
                 )}
               </div>
             )}

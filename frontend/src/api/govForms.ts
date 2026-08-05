@@ -1,6 +1,6 @@
-/** Shared types for Tools → Government Forms (2553, W-9, 8332 on a client; W-4 on an employee). */
+/** Shared types for Tools → Government Forms (2553, W-9, 8832 on a client; W-4 on an employee). */
 
-export type ClientGovFormType = "SS4" | "2553" | "W9" | "8332" | "CRA" | "8822B";
+export type ClientGovFormType = "SS4" | "2553" | "W9" | "8832" | "CRA" | "8822B";
 export type EmployeeGovFormType = "W4" | "W9";
 export type GovFormType = ClientGovFormType | EmployeeGovFormType;
 
@@ -36,13 +36,15 @@ export interface GovFormsMeta {
   craReasons: string[];
   craTaxTypes: string[];
   craOwnershipTypes: string[];
+  form8832TypeOfElection: string[];
+  form8832EntityTypes: string[];
 }
 
 export const GOV_FORM_LABELS: Record<GovFormType, string> = {
   SS4: "IRS Form SS-4 — Application for Employer Identification Number",
   "2553": "IRS Form 2553 — Election by a Small Business Corporation",
   W9: "IRS Form W-9 — Request for Taxpayer Identification Number",
-  "8332": "IRS Form 8332 — Release of Claim to Exemption for Child",
+  "8832": "IRS Form 8832 — Entity Classification Election",
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
   CRA: "Maryland Form CRA — Combined Registration Application",
   "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",

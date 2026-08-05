@@ -1609,8 +1609,8 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
 }
 
 /**
- * Form 2553 (S-Corp election), Form W-9 (TIN request), and Form 8332
- * (release of dependency exemption) — same physical-signature-only lifecycle
+ * Form 2553 (S-Corp election), Form W-9 (TIN request), and Form 8832
+ * (entity classification election) — same physical-signature-only lifecycle
  * as PoaFilingsSection just above (Draft → Signed → Submitted, or Void/
  * Delete while still Draft), just three forms that don't share a common data
  * shape with each other or with the POA forms, so they get their own section
@@ -1723,7 +1723,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-        <strong style={{ fontSize: 14 }}>Government Forms (SS-4 / 2553 / W-9 / 8332 / MD CRA)</strong>
+        <strong style={{ fontSize: 14 }}>Government Forms (SS-4 / 2553 / W-9 / 8832 / MD CRA)</strong>
         <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Government Form</button>
       </div>
 
@@ -1822,7 +1822,7 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       </div>
       {filings && filings.length === 0 && (
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>
-          No government forms on file yet — generate Form 2553, Form W-9, or Form 8332 as needed.
+          No government forms on file yet — generate Form 2553, Form W-9, or Form 8832 as needed.
         </p>
       )}
 

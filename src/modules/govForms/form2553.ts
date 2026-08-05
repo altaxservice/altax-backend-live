@@ -9,7 +9,7 @@
  * December 2017, the current revision as of this writing — 123,289 bytes,
  * verified against the server's content-length header so it isn't a
  * truncated fetch). It is a 4-page, 100-field AcroForm with no /TU tooltip
- * text anywhere (same situation as Form 8332 — the IRS shipped this one with
+ * text anywhere (same situation as Form 8832 — the IRS shipped this one with
  * plain f1_NN/f2_NN/c1_N-style names and no tooltips), so every field below
  * was confirmed the harder way: filled with its own field name (or, for the
  * shareholder table, a row-distinguishing test string), rendered via
@@ -72,7 +72,7 @@
  * name in a signature field is not a legal signature; this app only fills
  * the supporting print/text fields and leaves every signature line —
  * including each shareholder's individual consent signature on page 2 —
- * blank for a wet-ink signature, exactly like the POA forms and Form 8332.
+ * blank for a wet-ink signature, exactly like the POA forms and Form 8832.
  * The shareholder consent table's own "Date" column (K) is the date that
  * shareholder physically signed, which by definition isn't known until they
  * do, so it's left blank alongside the signature next to it rather than
