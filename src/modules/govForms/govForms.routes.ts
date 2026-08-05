@@ -63,6 +63,50 @@ const FORM_LABELS: Record<string, string> = {
   "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",
 };
 
+/**
+ * Mirrors GenerateGovFormModal.tsx's buildFormData client-side checks — the
+ * "fail fast on a broken field map" try/catch around generateGovForm below
+ * only catches missing pdf-lib FIELD NAMES, not missing DATA; pdf-lib just
+ * writes an empty string into a text field that's present but blank, so a
+ * malformed direct API call (or a future frontend regression) could
+ * otherwise create/edit a Draft filing with, say, no legal name at all and
+ * nothing here would object. Same field names, same messages as the
+ * frontend, so a caller who bypasses the UI sees the identical requirement.
+ */
+function validateGovFormRequiredFields(formType: string, formData: any): string | null {
+  const s = (v: unknown) => String(v ?? "").trim();
+  if (formType === "SS4") {
+    if (!s(formData.legalName)) return "Legal name is required.";
+    if (!s(formData.responsiblePartyName)) return "Responsible party name is required.";
+  } else if (formType === "2553") {
+    if (!s(formData.corporationName)) return "Corporation name is required.";
+    if (!Array.isArray(formData.shareholders) || !formData.shareholders.some((sh: any) => s(sh?.name))) return "Add at least one shareholder.";
+  } else if (formType === "W9") {
+    if (!s(formData.name)) return "Name is required.";
+  } else if (formType === "CRA") {
+    if (!s(formData.legalFirstName)) return "Legal name is required.";
+    if (!s(formData.street1) || !s(formData.city) || !s(formData.zip)) return "Physical business address is required.";
+    if (!Array.isArray(formData.taxTypes) || formData.taxTypes.length === 0) return "Select at least one tax account being requested.";
+  } else if (formType === "8822B") {
+    if (!s(formData.businessName)) return "Business name is required.";
+    if (!formData.affectsEmploymentReturns && !formData.affectsEmployeePlanReturns && !formData.affectsBusinessLocation) {
+      return "Check at least one box for what this change affects.";
+    }
+  } else if (formType === "8832") {
+    if (!s(formData.legalName)) return "Name of the eligible entity is required.";
+    if (!s(formData.street) || !s(formData.cityStateZip)) return "Mailing address is required.";
+    if (formData.moreThanOneOwner && s(formData.entityType).includes("single owner")) {
+      return "Line 6's entity type says single owner, but line 3 says more than one owner — pick one.";
+    }
+    if (formData.lateReliefUnder200941 && !s(formData.lateReliefExplanation)) {
+      return "Explain why the election wasn't filed on time (Part II, line 11) — required when late relief is checked.";
+    }
+  } else if (formType === "W4") {
+    if (!s(formData.firstName) || !s(formData.lastName)) return "First and last name are required.";
+  }
+  return null;
+}
+
 govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json({
     clientFormTypes: CLIENT_GOV_FORM_TYPES.map((t) => ({ value: t, label: FORM_LABELS[t] })),
@@ -147,6 +191,9 @@ govFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
 
   const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const requiredFieldError = validateGovFormRequiredFields(formType, formData);
+  if (requiredFieldError) return res.status(400).json({ error: requiredFieldError });
 
   // Fail fast on a broken field map rather than saving a filing whose PDF can never be generated.
   try {
@@ -244,6 +291,9 @@ govFormsRouter.post("/employee/:employeeId", requireAuth, requireRole("admin", "
   if (!(EMPLOYEE_GOV_FORM_TYPES as readonly string[]).includes(formType)) return res.status(400).json({ error: "Choose a form to generate." });
   const formData = req.body?.formData;
   if (!formData || typeof formData !== "object") return res.status(400).json({ error: "Form data is required." });
+
+  const requiredFieldError = validateGovFormRequiredFields(formType, formData);
+  if (requiredFieldError) return res.status(400).json({ error: requiredFieldError });
 
   try {
     await generateGovForm(formType, formData);
@@ -399,6 +449,9 @@ govFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
 
   const formData = req.body?.formData;
   if (!formData || typeof formData !== "object") return res.status(400).json({ error: "Form data is required." });
+
+  const requiredFieldError = validateGovFormRequiredFields(filing.form_type, formData);
+  if (requiredFieldError) return res.status(400).json({ error: requiredFieldError });
 
   try {
     await generateGovForm(filing.form_type, formData);

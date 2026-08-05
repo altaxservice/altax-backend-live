@@ -43,6 +43,25 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Parses a "YYYY-MM-DD" string as UTC midnight, not local midnight — every
+ * date built or compared in this file goes through this (or Date.UTC
+ * directly) and every field read back off it uses the UTC getters
+ * (getUTCFullYear/getUTCMonth/etc). `new Date(\`${iso}T00:00:00\`)` (no Z)
+ * parses as LOCAL midnight instead, which only happens to produce the right
+ * calendar date on hosts west of UTC (any negative offset, including US
+ * timezones) — a host configured with a POSITIVE UTC offset would parse
+ * local midnight as still being the previous day in UTC, silently shifting
+ * every period boundary and due date back one calendar day once formatted
+ * back out via toISOString(). Nothing in this repo sets TZ today, so Node
+ * defaults to UTC and the bug has never actually fired — this closes the
+ * gap so it can't, regardless of future deployment config.
+ */
+function parseIsoDateUTC(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
 async function getMdRateRow(rateId: string): Promise<{ rate: number; wageCap: number | null } | null> {
   const row = await queryOne<any>(
     `SELECT rate, wage_cap FROM altax.v3_tax_rates WHERE rate_id = $1 AND active = true AND (client_id IS NULL OR client_id = '') LIMIT 1`,
@@ -96,9 +115,9 @@ function computeDiscount(taxDue: number, params: MdFilingParams): number {
  */
 function monthsLateInclusive(dueDate: Date, paidDate: Date): number {
   if (paidDate <= dueDate) return 0;
-  let months = (paidDate.getFullYear() - dueDate.getFullYear()) * 12 + (paidDate.getMonth() - dueDate.getMonth());
+  let months = (paidDate.getUTCFullYear() - dueDate.getUTCFullYear()) * 12 + (paidDate.getUTCMonth() - dueDate.getUTCMonth());
   const monthMark = new Date(dueDate);
-  monthMark.setMonth(monthMark.getMonth() + months);
+  monthMark.setUTCMonth(monthMark.getUTCMonth() + months);
   if (paidDate > monthMark) months += 1;
   return Math.max(months, 1);
 }
@@ -123,14 +142,14 @@ export interface MdFilingResult {
  * report happens to be generated.
  */
 export function mdDueDateForPeriod(periodEndIso: string): string {
-  const end = new Date(`${periodEndIso}T00:00:00`);
-  const due = new Date(end.getFullYear(), end.getMonth() + 1, 20);
+  const end = parseIsoDateUTC(periodEndIso);
+  const due = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 20));
   return due.toISOString().slice(0, 10);
 }
 
 export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDateStr: string): Promise<MdFilingResult> {
-  const dueDate = new Date(`${dueDateStr}T00:00:00`);
-  const paidDate = new Date(`${paidDateStr}T00:00:00`);
+  const dueDate = parseIsoDateUTC(dueDateStr);
+  const paidDate = parseIsoDateUTC(paidDateStr);
   const params = await loadMdFilingParams();
 
   if (paidDate <= dueDate) {
@@ -195,8 +214,8 @@ export function splitIntoMdFilingPeriods(
   to: string,
   frequency: string | null | undefined
 ): { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null } {
-  const fromDate = new Date(`${from}T00:00:00`);
-  const toDate = new Date(`${to}T00:00:00`);
+  const fromDate = parseIsoDateUTC(from);
+  const toDate = parseIsoDateUTC(to);
   const normalized = String(frequency || "").trim().toLowerCase();
   let freq: MdFilingFrequency | null = null;
   if (normalized === "monthly") freq = "Monthly";
@@ -210,16 +229,16 @@ export function splitIntoMdFilingPeriods(
 
   const monthsPerPeriod = freq === "Monthly" ? 1 : freq === "Quarterly" ? 3 : freq === "Semiannual" ? 6 : 12;
   const periods: MdFilingPeriod[] = [];
-  const periodStartMonth = Math.floor(fromDate.getMonth() / monthsPerPeriod) * monthsPerPeriod;
-  let cursor = new Date(fromDate.getFullYear(), periodStartMonth, 1);
+  const periodStartMonth = Math.floor(fromDate.getUTCMonth() / monthsPerPeriod) * monthsPerPeriod;
+  let cursor = new Date(Date.UTC(fromDate.getUTCFullYear(), periodStartMonth, 1));
   while (cursor <= toDate) {
-    const periodEnd = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 0);
+    const periodEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + monthsPerPeriod, 0));
     periods.push({
       start: cursor.toISOString().slice(0, 10),
       end: periodEnd.toISOString().slice(0, 10),
       dueDate: mdDueDateForPeriod(periodEnd.toISOString().slice(0, 10)),
     });
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 1);
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + monthsPerPeriod, 1));
   }
   return { periods, frequencyUsed: freq };
 }

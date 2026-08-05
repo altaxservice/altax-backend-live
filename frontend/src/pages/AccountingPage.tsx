@@ -231,6 +231,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
   } | null>(null);
+  const [mdFilingLoading, setMdFilingLoading] = useState(false);
+  const [mdFilingError, setMdFilingError] = useState<string | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -363,12 +365,36 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   // doc comment for why. Deliberately hits the report-side endpoint, not
   // the client-agnostic /calculators/md-filing tool (no period/frequency
   // concept there).
+  //
+  // mdFilingRequestId guards against an in-flight request for an OLDER
+  // period/paid-date resolving after a newer one and overwriting it with
+  // stale figures — the setTimeout debounce below only cancels a request
+  // that hasn't fired yet, not one already in flight when the inputs change
+  // again. loading/error state (unlike the earlier silent .catch(() =>
+  // setMdFiling(null))) means a failed fetch shows a real error instead of
+  // the MD filing box just vanishing, which staff could otherwise misread
+  // as "nothing due" rather than "failed to load."
+  const mdFilingRequestId = useRef(0);
   useEffect(() => {
-    if (clientState !== "MD" || !period.start || !period.end) { setMdFiling(null); return; }
+    if (clientState !== "MD" || !period.start || !period.end) { setMdFiling(null); setMdFilingError(null); setMdFilingLoading(false); return; }
     const t = setTimeout(() => {
+      const requestId = ++mdFilingRequestId.current;
+      setMdFilingLoading(true);
+      setMdFilingError(null);
       api.get<{ mdFiling: typeof mdFiling }>(`/reports/md-filing/${clientId}?from=${period.start}&to=${period.end}&mdPaidDate=${mdPaidDate}`)
-        .then((r) => setMdFiling(r.mdFiling))
-        .catch(() => setMdFiling(null));
+        .then((r) => {
+          if (requestId !== mdFilingRequestId.current) return;
+          setMdFiling(r.mdFiling);
+        })
+        .catch((err) => {
+          if (requestId !== mdFilingRequestId.current) return;
+          setMdFiling(null);
+          setMdFilingError(err instanceof ApiError ? err.message : "Could not load the MD filing figures.");
+        })
+        .finally(() => {
+          if (requestId !== mdFilingRequestId.current) return;
+          setMdFilingLoading(false);
+        });
     }, 300);
     return () => clearTimeout(t);
   }, [clientId, clientState, period.start, period.end, mdPaidDate]);
@@ -550,6 +576,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         {clientState === "MD" && periodTax > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
+
+            {mdFilingError && <ErrorBanner error={mdFilingError} />}
+            {mdFilingLoading && <div className="spinner-wrap">Loading…</div>}
 
             {!period.start || !period.end ? (
               <p className="muted" style={{ fontSize: 12 }}>
