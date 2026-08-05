@@ -14,6 +14,7 @@ interface ClientRatios {
 interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number }
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
 interface Deadline { label: string; date: string }
+interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {
   period: { from: string; to: string };
@@ -42,6 +43,20 @@ function daysUntil(dateStr: string): number {
 }
 function deadlinePillClass(days: number): string {
   return days < 7 ? "status-red" : days < 30 ? "status-amber" : "status-gray";
+}
+
+/** Small vs-prior-month delta — green/up when the change is favorable for that metric (revenue up, expenses down), red/down otherwise. */
+function DeltaArrow({ current, prior, higherIsBetter = true }: { current: number; prior: number; higherIsBetter?: boolean }) {
+  if (prior === 0) return null;
+  const pct = Math.round(((current - prior) / Math.abs(prior)) * 100);
+  if (pct === 0) return <span className="muted" style={{ fontSize: 11 }}> · flat vs last month</span>;
+  const up = pct > 0;
+  const favorable = higherIsBetter ? up : !up;
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color: favorable ? "var(--green)" : "var(--red)" }}>
+      {" "}{up ? "▲" : "▼"} {Math.abs(pct)}% vs last month
+    </span>
+  );
 }
 
 /** Inline SVG polyline — no chart library exists in this frontend, and one line doesn't need one. */
@@ -79,18 +94,25 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [dash, setDash] = useState<ClientDashboard | null>(null);
+  const [snapshots, setSnapshots] = useState<MonthlySnapshot[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAdmin) { setDash(null); return; }
+    if (!isAdmin) { setDash(null); setSnapshots(null); return; }
     setLoading(true);
     setError(null);
-    api.get<ClientDashboard>(`/reports/client-dashboard/${clientId}`)
-      .then(setDash)
+    Promise.all([
+      api.get<ClientDashboard>(`/reports/client-dashboard/${clientId}`),
+      api.get<{ snapshots: MonthlySnapshot[] }>(`/reports/client-monthly-snapshots/${clientId}?months=12`).then((r) => r.snapshots).catch(() => []),
+    ])
+      .then(([d, s]) => { setDash(d); setSnapshots(s); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the client dashboard."))
       .finally(() => setLoading(false));
   }, [clientId, isAdmin]);
+
+  const priorMonth = snapshots && snapshots.length >= 2 ? snapshots[snapshots.length - 2] : null;
+  const latestMonth = snapshots && snapshots.length >= 1 ? snapshots[snapshots.length - 1] : null;
 
   const urgentDeadlines = dash ? dash.deadlines.filter((d) => daysUntil(d.date) < 7) : [];
   const showAlert = dash && (dash.health.band === "Red" || dash.arAging.d90Plus > 0 || urgentDeadlines.length > 0);
@@ -149,13 +171,49 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
                   <div className="metric"><div className="metric-label">Gross Profit</div><div className="metric-value">{fmtMoney(dash.financials.grossProfit)}</div><div className="metric-note">Revenue − COGS</div></div>
                   <div className={`metric${dash.financials.netProfit < 0 ? " metric-critical" : ""}`}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(dash.financials.netProfit)}</div><div className="metric-note">Last 6 months</div></div>
                 </div>
-                {dash.financials.months.length > 1 && (
+                {(snapshots && snapshots.length > 1 ? snapshots.length : dash.financials.months.length) > 1 && (
                   <div style={{ marginTop: 14 }}>
-                    <div className="metric-label" style={{ marginBottom: 4 }}>Revenue Trend (6 mo.)</div>
-                    <Sparkline points={dash.financials.months.map((m) => m.revenue)} color="var(--teal)" />
+                    <div className="metric-label" style={{ marginBottom: 4 }}>
+                      Revenue Trend ({snapshots && snapshots.length > 1 ? `${snapshots.length} mo.` : "6 mo."})
+                    </div>
+                    <Sparkline
+                      points={snapshots && snapshots.length > 1 ? snapshots.map((s) => s.revenue) : dash.financials.months.map((m) => m.revenue)}
+                      color="var(--teal)"
+                    />
                   </div>
                 )}
               </div>
+
+              {latestMonth && priorMonth && (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>This Month vs. Last Month</h2>
+                  <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{latestMonth.periodLabel} vs {priorMonth.periodLabel}, from the monthly snapshot history.</p>
+                  <div className="metric-grid">
+                    <div className="metric">
+                      <div className="metric-label">Revenue</div>
+                      <div className="metric-value">{fmtMoney(latestMonth.revenue)}</div>
+                      <DeltaArrow current={latestMonth.revenue} prior={priorMonth.revenue} higherIsBetter />
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Expenses</div>
+                      <div className="metric-value">{fmtMoney(latestMonth.expenses)}</div>
+                      <DeltaArrow current={latestMonth.expenses} prior={priorMonth.expenses} higherIsBetter={false} />
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Net Profit</div>
+                      <div className="metric-value">{fmtMoney(latestMonth.profit)}</div>
+                      <DeltaArrow current={latestMonth.profit} prior={priorMonth.profit} higherIsBetter />
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Health Score</div>
+                      <div className="metric-value">{latestMonth.healthScore ?? "—"}</div>
+                      {latestMonth.healthScore !== null && priorMonth.healthScore !== null && (
+                        <DeltaArrow current={latestMonth.healthScore} prior={priorMonth.healthScore} higherIsBetter />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Financial Position</h2>

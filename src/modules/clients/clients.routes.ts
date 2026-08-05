@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
@@ -434,11 +435,16 @@ function findingRowToJson(row: any) {
   return out;
 }
 
+// crypto.randomUUID() rather than a 3-digit random suffix — the nightly
+// sweep (runSwotFindingsSweep) can insert many rows across many clients
+// within the same wall-clock second, and a 900-value keyspace collided in
+// real testing (145 clients, 4 duplicate-key failures in one run). A UUID
+// slice makes that collision probability negligible.
 function nextFindingId(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `SWF-${ts}-${Math.floor(100 + Math.random() * 900)}`;
+  return `SWF-${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 const PRIORITY_ORDER: Record<string, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
@@ -559,27 +565,45 @@ clientsRouter.post("/:clientId/swot-findings/:findingId/dismiss", requireAuth, r
 }));
 
 /**
- * Runs the rule engine and inserts any new candidate whose auto_trigger_key
- * doesn't already have an open (non-Resolved/Dismissed) row for this client
- * — existence-check-before-insert, same shape the Task Rules Agent already
- * uses, with the partial unique index (sql/040_swot_findings.sql) as a hard
- * backstop against a duplicate slipping through a race. Never touches an
- * existing finding — that's the Phase 3 reconciliation sweep's job.
+ * The core generate+reconcile pass for one client, shared by the manual
+ * "Generate Findings Now" route and the nightly sweep (runSwotFindingsSweep
+ * below) so a manual run and an automated run can never disagree about
+ * behavior.
+ *
+ * Two halves:
+ * 1. Reconciliation — every existing Open/In Progress Auto finding whose
+ *    auto_trigger_key is no longer present in the freshly-computed
+ *    candidate set gets auto-resolved (kept for history, never deleted).
+ *    Skipped entirely for any finding a human has already edited
+ *    (edited_by_staff=true) — automation can never silently override staff
+ *    judgment. This is the piece that fulfills "remove outdated SWOT items
+ *    automatically."
+ * 2. Generate — inserts any candidate whose trigger key doesn't already
+ *    have an open row, existence-check-before-insert (same shape the Task
+ *    Rules Agent already uses), with the partial unique index
+ *    (sql/040_swot_findings.sql) as a hard backstop against a duplicate
+ *    slipping through a race.
  */
-clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const { clientId } = req.params;
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-  const clientRow = await queryOne<any>(
-    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
-       FROM altax.v3_clients WHERE client_id = $1`,
-    [clientId]
-  );
-  if (!clientRow) return res.status(404).json({ error: "Client not found." });
-
+async function runFindingsGenerateAndReconcile(clientId: string, clientRow: any, actorLabel: string): Promise<{ created: number; resolved: number; evaluated: number }> {
   const input = await assembleSwotEngineInput(clientId, clientRow);
   const candidates: CandidateFinding[] = computeSwotFindings(input);
+  const candidateKeys = new Set(candidates.map((c) => c.autoTriggerKey));
+
+  const openAutoRows = await query<any>(
+    `SELECT finding_id, auto_trigger_key FROM altax.v3_swot_findings
+      WHERE client_id = $1 AND source = 'Auto' AND edited_by_staff = false
+            AND auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed')`,
+    [clientId]
+  );
+  let resolved = 0;
+  for (const row of openAutoRows) {
+    if (candidateKeys.has(row.auto_trigger_key)) continue;
+    await query(
+      `UPDATE altax.v3_swot_findings SET status = 'Resolved', resolved_by = $1, resolved_at = now(), updated_at = now() WHERE finding_id = $2`,
+      [actorLabel, row.finding_id]
+    );
+    resolved++;
+  }
 
   const openRows = await query<any>(
     `SELECT auto_trigger_key FROM altax.v3_swot_findings WHERE client_id = $1 AND auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed')`,
@@ -598,14 +622,62 @@ clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Open', 'Auto', $10, $11, $12)
        ON CONFLICT (client_id, auto_trigger_key) WHERE auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed') DO NOTHING`,
       [findingId, clientId, c.category, c.subcategory || null, c.findingText, c.supportingData, c.businessImpact,
-        c.priority, c.recommendedAction, c.dataType, c.autoTriggerKey, "System (SWOT Findings Engine)"]
+        c.priority, c.recommendedAction, c.dataType, c.autoTriggerKey, actorLabel]
     );
     openKeys.add(c.autoTriggerKey);
     created++;
   }
-  await logAudit("Clients", "GENERATE_SWOT_FINDINGS", clientId, "", "", "", `${created} new finding(s) generated by ${req.user!.email}.`, req.user!.email);
-  res.json({ created, evaluated: candidates.length });
+
+  return { created, resolved, evaluated: candidates.length };
+}
+
+clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const clientRow = await queryOne<any>(
+    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+       FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  if (!clientRow) return res.status(404).json({ error: "Client not found." });
+
+  const result = await runFindingsGenerateAndReconcile(clientId, clientRow, req.user!.email);
+  await logAudit("Clients", "GENERATE_SWOT_FINDINGS", clientId, "", "", "", `${result.created} new finding(s) generated, ${result.resolved} auto-resolved, by ${req.user!.email}.`, req.user!.email);
+  res.json(result);
 }));
+
+/**
+ * Nightly automation: generate+reconcile for every active client in one
+ * pass. Matches the Payroll/Task Rules Agent cron shape (server.ts) —
+ * per-client errors are collected, not thrown, so one bad client can't
+ * abort the whole sweep.
+ */
+export async function runSwotFindingsSweep(actorEmail: string): Promise<{ clientsProcessed: number; created: number; resolved: number; errors: string[] }> {
+  const clients = await query<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+       FROM altax.v3_clients WHERE status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived')`
+  );
+  let created = 0;
+  let resolved = 0;
+  let clientsProcessed = 0;
+  const errors: string[] = [];
+  for (const c of clients) {
+    try {
+      const result = await runFindingsGenerateAndReconcile(c.client_id, c, actorEmail);
+      created += result.created;
+      resolved += result.resolved;
+      clientsProcessed++;
+    } catch (err) {
+      errors.push(`${c.client_id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  if (created > 0 || resolved > 0) {
+    await logAudit("Clients", "SWOT_FINDINGS_SWEEP", "Firm", "", "", "", `Nightly sweep: ${created} finding(s) created, ${resolved} auto-resolved across ${clientsProcessed} client(s).`, actorEmail);
+  }
+  return { clientsProcessed, created, resolved, errors };
+}
 
 function nextActivityId(): string {
   const now = new Date();

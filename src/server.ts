@@ -6,7 +6,8 @@ import path from "path";
 import { rateLimit } from "./common/rateLimit";
 import { pool } from "./config/db";
 import { authRouter } from "./modules/auth/auth.routes";
-import { clientsRouter } from "./modules/clients/clients.routes";
+import { clientsRouter, runSwotFindingsSweep } from "./modules/clients/clients.routes";
+import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { usersRouter } from "./modules/users/users.routes";
 import { estimatesRouter } from "./modules/estimates/estimates.routes";
 import { poaFormsRouter } from "./modules/poaForms/poaForms.routes";
@@ -375,6 +376,31 @@ cron.schedule("20 6 * * *", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Task Rules Agent sweep scheduled for 6:20AM America/New_York.");
+
+// SWOT Findings sweep — generates new structured advisory findings from real
+// data and auto-resolves any Auto finding whose condition has cleared (see
+// runFindingsGenerateAndReconcile's doc comment in clients.routes.ts).
+// Unlike the 3 Agents above, nothing here has a financial side effect (a
+// finding is advisory text, not a posted record), so there's no
+// Pending/Approve gate and no separate auto-run toggle — this always runs.
+cron.schedule("25 6 * * *", () => {
+  runSwotFindingsSweep("System (SWOT Findings Sweep)").catch((err) => {
+    alertAdmins("SWOT findings sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("SWOT findings sweep scheduled for 6:25AM America/New_York.");
+
+// Monthly client snapshot — 1st of each month, after the month it records
+// has fully closed. Feeds the At a Glance dashboard's "vs prior period" and
+// 12-month trend (see GET /reports/client-monthly-snapshots/:clientId).
+cron.schedule("0 7 1 * *", () => {
+  runMonthlySnapshotSweep("System (Monthly Snapshot Job)").catch((err) => {
+    alertAdmins("Monthly snapshot sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Monthly client snapshot sweep scheduled for 7:00AM America/New_York on the 1st of each month.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

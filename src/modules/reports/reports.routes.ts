@@ -308,8 +308,8 @@ async function computeArAging(clientId?: string) {
   };
 }
 
-/** Same aging buckets as computeArAging, scoped to one client, defaulting to all-zero when the client has no overdue invoices — used by the client dashboard so a clean client isn't treated as "no data." */
-async function computeClientArAging(clientId: string) {
+/** Same aging buckets as computeArAging, scoped to one client, defaulting to all-zero when the client has no overdue invoices — used by the client dashboard so a clean client isn't treated as "no data." Exported for the monthly snapshot sweep (monthlySnapshot.ts). */
+export async function computeClientArAging(clientId: string) {
   const { rows } = await computeArAging(clientId);
   return rows[0] || { clientId, clientName: "", current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90Plus: 0, total: 0 };
 }
@@ -391,8 +391,8 @@ export async function computeClientApEstimate(clientId: string): Promise<number>
   return round2(Number(row?.balance || 0));
 }
 
-/** COGS total for the window — computeFirmSummary doesn't split this out (it only needs revenue/expense for the P&L trend), so Gross Margin gets its own small query using the same bucketFor classification the rest of this file already uses. */
-async function computeClientCogs(clientId: string, from: string, to: string): Promise<number> {
+/** COGS total for the window — computeFirmSummary doesn't split this out (it only needs revenue/expense for the P&L trend), so Gross Margin gets its own small query using the same bucketFor classification the rest of this file already uses. Exported for the monthly snapshot sweep. */
+export async function computeClientCogs(clientId: string, from: string, to: string): Promise<number> {
   const rows = await query<any>(
     `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
        FROM altax.v3_gl_entries
@@ -797,6 +797,37 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
       "Current Ratio, Quick Ratio, and Debt-to-Equity are not shown — this system doesn't track a complete liabilities/equity picture, and a ratio built on partial data would be misleading.",
     ],
   });
+}));
+
+/**
+ * Real month-over-month history from v3_client_monthly_snapshot (populated
+ * by the monthly snapshot sweep, src/modules/clients/monthlySnapshot.ts) —
+ * powers the dashboard's 12-month trend and "vs prior period" deltas, both
+ * of which are otherwise unanswerable since every other figure in this file
+ * is always recomputed live from today's GL state. Admin-only, matching the
+ * rest of this file's financial data.
+ */
+reportsRouter.get("/client-monthly-snapshots/:clientId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const months = Math.min(36, Math.max(1, Number(req.query.months) || 12));
+  const rows = await query<any>(
+    `SELECT period_year, period_month, revenue, expenses, profit, cash_balance, ar_balance, ap_balance,
+            tax_liabilities, payroll_cost, health_score, health_band, open_tasks
+       FROM altax.v3_client_monthly_snapshot
+      WHERE client_id = $1
+      ORDER BY period_year DESC, period_month DESC
+      LIMIT $2`,
+    [clientId, months]
+  );
+  const snapshots = rows.reverse().map((r: any) => ({
+    periodLabel: `${r.period_year}-${String(r.period_month).padStart(2, "0")}`,
+    revenue: Number(r.revenue), expenses: Number(r.expenses), profit: Number(r.profit),
+    cashBalance: Number(r.cash_balance), arBalance: Number(r.ar_balance), apBalance: Number(r.ap_balance),
+    taxLiabilities: Number(r.tax_liabilities), payrollCost: Number(r.payroll_cost),
+    healthScore: r.health_score, healthBand: r.health_band, openTasks: r.open_tasks,
+  }));
+  res.json({ snapshots });
 }));
 
 function parsePeriod(req: AuthedRequest): { from: string; to: string } | null {
