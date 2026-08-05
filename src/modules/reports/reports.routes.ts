@@ -19,6 +19,18 @@ import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } fro
  */
 export const reportsRouter = Router();
 
+// Every report reflects live GL/sales/payroll data and is regenerated on
+// every request — without this, a browser (or an intermediary proxy) can
+// legitimately serve an old cached response for the exact same
+// URL+querystring, silently showing stale figures (discovered via the MD
+// filing penalty/interest fix: a client-side blob: URL tab stayed open with
+// pre-fix numbers, easy to mistake for a fresh reload since the tab title
+// gives no indication it's stale).
+reportsRouter.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 /**
  * Delegates to bucketFor (below) rather than its own substring rules — this
  * used to independently match `a.includes("sales")`, which also matched
