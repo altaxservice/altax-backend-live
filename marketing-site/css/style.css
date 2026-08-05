@@ -509,8 +509,8 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   box-shadow: var(--shadow-lg);
 }
 .contact-form-card h3 { font-size: 1.3rem; }
-.contact-form-note { font-size: 0.85rem; color: #7a776f; margin: 0.4rem 0 1.4rem; line-height: 1.5; }
-.contact-form-note a { color: var(--color-forest); font-weight: 700; text-decoration: underline; }
+.contact-form-card .contact-form-note { font-size: 0.85rem; color: #7a776f; margin: 0.4rem 0 1.4rem; line-height: 1.5; }
+.contact-form-card .contact-form-note a { color: var(--color-forest); font-weight: 700; text-decoration: underline; }
 .field { margin-bottom: 1.3rem; }
 .field label { display: block; color: var(--color-text); font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5em; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1.3rem; }
@@ -567,12 +567,12 @@ p { margin: 0 0 1em; color: var(--color-text-soft); }
   display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800;
 }
 
-.book-next-available { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--color-forest-deep); }
+.contact-form-card p.book-next-available { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--color-forest-deep); }
 .book-next-available button {
   background: none; border: none; padding: 0; color: var(--color-forest); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit;
 }
-.book-contact-hint { margin: -0.5rem 0 1.2rem; font-size: 0.82rem; color: var(--color-text-soft); }
-.book-contact-hint.invalid { color: #8a2c2c; font-weight: 600; }
+.contact-form-card p.book-contact-hint { margin: -0.5rem 0 1.2rem; font-size: 0.82rem; color: var(--color-text-soft); }
+.contact-form-card p.book-contact-hint.invalid { color: #8a2c2c; font-weight: 600; }
 
 /* ---------- Review CTA card ---------- */
 .review-cta {
