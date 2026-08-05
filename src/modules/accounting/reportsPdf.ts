@@ -55,6 +55,7 @@ export interface ReportClientInfo {
   ein: string | null;
   address: string | null;
   state?: string | null;
+  salesTaxFrequency?: string | null;
 }
 
 class Cursor {
@@ -490,7 +491,12 @@ export interface SalesTaxReportData {
   byCategory: SalesTaxCategoryRow[];
   sales: SalesTaxSaleRow[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
-  mdFiling?: (MdFilingResult & { dueDate: string; paidDate: string }) | null;
+  mdFiling?: {
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string })[];
+    totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
+    frequencyUsed: string | null;
+    paidDate: string;
+  } | null;
 }
 
 /**
@@ -581,7 +587,7 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
     }
   }
 
-  if (data.mdFiling) {
+  if (data.mdFiling && data.mdFiling.periods.length) {
     if (y > PAGE_H - 120) {
       drawFooter(c, profile.firmName);
       ({ page, c } = await newPage(doc, font, bold));
@@ -589,15 +595,39 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
     }
     y += 10;
     y = sectionLabel(c, y, "Filing Discount / Late Penalty (Form 202)");
-    y = row(c, y, "Return due date", fmtDate(data.mdFiling.dueDate));
     y = row(c, y, "Filing / payment date", fmtDate(data.mdFiling.paidDate));
-    if (data.mdFiling.onTime) {
-      y = row(c, y, "Timely discount (Line 18)", `− ${money(data.mdFiling.discount)}`);
-      y = row(c, y, "Balance due (Line 20)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
-    } else {
-      y = row(c, y, "Penalty — 10% (Line 37a)", money(data.mdFiling.penalty));
-      y = row(c, y, `Interest — ${(data.mdFiling.interestRateMonthly * 100).toFixed(4)}% × ${data.mdFiling.monthsLate} mo (Line 37b)`, money(data.mdFiling.interest));
-      y = row(c, y, "Balance due (Line 38)", money(data.mdFiling.balanceDue), { bold: true, accent: true });
+    if (!data.mdFiling.frequencyUsed) {
+      c.text(48, y, "Filing frequency not set on client profile — shown as one combined period; verify against the client's actual filing schedule.", { size: 8, color: MUTED });
+      y += 16;
+    }
+    for (const p of data.mdFiling.periods) {
+      if (y > PAGE_H - 110) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      y += 6;
+      c.text(48, y, `${fmtDate(p.start)} – ${fmtDate(p.end)}`, { size: 9, bold: true, color: TEAL });
+      y += 14;
+      y = row(c, y, "Return due date", fmtDate(p.dueDate), { indent: true });
+      y = row(c, y, "Tax due", money(p.taxDue), { indent: true });
+      if (p.onTime) {
+        y = row(c, y, "Timely discount (Line 18)", `− ${money(p.discount)}`, { indent: true });
+        y = row(c, y, "Balance due (Line 20)", money(p.balanceDue), { bold: true, accent: true, indent: true });
+      } else {
+        y = row(c, y, "Penalty — 10% (Line 37a)", money(p.penalty), { indent: true });
+        y = row(c, y, `Interest — ${(p.interestRateMonthly * 100).toFixed(4)}% × ${p.monthsLate} mo (Line 37b)`, money(p.interest), { indent: true });
+        y = row(c, y, "Balance due (Line 38)", money(p.balanceDue), { bold: true, accent: true, indent: true });
+      }
+    }
+    if (data.mdFiling.periods.length > 1) {
+      y += 6;
+      c.line(48, y, PAGE_W - 48, y, INK, 1);
+      y += 14;
+      y = row(c, y, "Total discount", `− ${money(data.mdFiling.totals.discount)}`);
+      y = row(c, y, "Total penalty", money(data.mdFiling.totals.penalty));
+      y = row(c, y, "Total interest", money(data.mdFiling.totals.interest));
+      y = row(c, y, "Total balance due", money(data.mdFiling.totals.balanceDue), { bold: true, accent: true });
     }
   }
 

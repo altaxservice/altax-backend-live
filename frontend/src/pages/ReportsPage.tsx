@@ -70,7 +70,12 @@ interface SalesTaxReport {
   byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
   sales: { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
-  mdFiling: (MdFilingResult & { dueDate: string; paidDate: string }) | null;
+  mdFiling: {
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string })[];
+    totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
+    frequencyUsed: string | null;
+    paidDate: string;
+  } | null;
 }
 
 interface ReportPaycheck {
@@ -772,36 +777,83 @@ export function ReportsPage() {
                     </div>
                   </div>
 
-                  {salesTaxReport.mdFiling && (
+                  {salesTaxReport.mdFiling && salesTaxReport.mdFiling.periods.length > 0 && (
                     <div className="command-panel" style={{ marginBottom: 16 }}>
                       <div className="command-panel-header">
                         <h2 className="command-panel-title">Filing Discount / Late Penalty (Form 202)</h2>
-                        <div className="command-panel-note">Return due {salesTaxReport.mdFiling.dueDate}</div>
+                        <div className="command-panel-note">
+                          {salesTaxReport.mdFiling.periods.length === 1
+                            ? `Return due ${salesTaxReport.mdFiling.periods[0].dueDate}`
+                            : `${salesTaxReport.mdFiling.periods.length} filing periods (${salesTaxReport.mdFiling.frequencyUsed || "combined"})`}
+                        </div>
                       </div>
                       <div style={{ padding: 16 }}>
                         <div className="field" style={{ maxWidth: 220, margin: "0 0 12px" }}>
                           <label htmlFor="rp-md-paid-date">Filing / payment date</label>
                           <input id="rp-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
                         </div>
-                        <div className="metric-grid metric-grid-3">
-                          {salesTaxReport.mdFiling.onTime ? (
-                            <>
-                              <div className="metric"><div className="metric-label">Timely Discount</div><div className="metric-value">− {fmtMoney(salesTaxReport.mdFiling.discount)}</div><div className="metric-note">Line 18</div></div>
-                              <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.balanceDue)}</div><div className="metric-note">Line 20</div></div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="metric"><div className="metric-label">Late Penalty — 10%</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.penalty)}</div><div className="metric-note">Line 37a</div></div>
-                              <div className="metric"><div className="metric-label">Interest — {salesTaxReport.mdFiling.monthsLate} mo</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.interest)}</div><div className="metric-note">Line 37b</div></div>
-                              <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.balanceDue)}</div><div className="metric-note">Line 38</div></div>
-                            </>
-                          )}
-                        </div>
-                        <p className="muted" style={{ fontSize: 11.5, margin: "10px 0 0" }}>
-                          {salesTaxReport.mdFiling.onTime
-                            ? "Filed and paid on or before the due date — eligible for the timely discount."
-                            : "Paid after the due date — no timely discount; penalty and interest apply instead."}
-                        </p>
+                        {!salesTaxReport.mdFiling.frequencyUsed && (
+                          <p className="muted" style={{ fontSize: 11.5, margin: "0 0 12px", color: "var(--red)" }}>
+                            Filing frequency isn't set on this client's profile, so the whole range above is shown as one combined period.
+                            Set Sales Tax Frequency on the client's profile for an accurate per-period breakdown.
+                          </p>
+                        )}
+                        {salesTaxReport.mdFiling.periods.length === 1 ? (
+                          <>
+                            <div className="metric-grid metric-grid-3">
+                              {salesTaxReport.mdFiling.periods[0].onTime ? (
+                                <>
+                                  <div className="metric"><div className="metric-label">Timely Discount</div><div className="metric-value">− {fmtMoney(salesTaxReport.mdFiling.periods[0].discount)}</div><div className="metric-note">Line 18</div></div>
+                                  <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.periods[0].balanceDue)}</div><div className="metric-note">Line 20</div></div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="metric"><div className="metric-label">Late Penalty — 10%</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.periods[0].penalty)}</div><div className="metric-note">Line 37a</div></div>
+                                  <div className="metric"><div className="metric-label">Interest — {salesTaxReport.mdFiling.periods[0].monthsLate} mo</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.periods[0].interest)}</div><div className="metric-note">Line 37b</div></div>
+                                  <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.periods[0].balanceDue)}</div><div className="metric-note">Line 38</div></div>
+                                </>
+                              )}
+                            </div>
+                            <p className="muted" style={{ fontSize: 11.5, margin: "10px 0 0" }}>
+                              {salesTaxReport.mdFiling.periods[0].onTime
+                                ? "Filed and paid on or before the due date — eligible for the timely discount."
+                                : "Paid after the due date — no timely discount; penalty and interest apply instead."}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <div className="table-scroll">
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Tax Due</th>
+                                    <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {salesTaxReport.mdFiling.periods.map((p) => (
+                                    <tr key={`${p.start}-${p.end}`}>
+                                      <td>{p.start} – {p.end}</td>
+                                      <td>{p.dueDate}</td>
+                                      <td>{fmtMoney(p.taxDue)}</td>
+                                      <td className={p.onTime ? "muted" : ""} style={p.onTime ? undefined : { color: "var(--red)", fontWeight: 600 }}>
+                                        {p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+                                      </td>
+                                      <td>{p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
+                                      <td>{p.onTime ? "—" : fmtMoney(p.interest)}</td>
+                                      <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="metric-grid metric-grid-3" style={{ marginTop: 12 }}>
+                              <div className="metric"><div className="metric-label">Total Discount</div><div className="metric-value">− {fmtMoney(salesTaxReport.mdFiling.totals.discount)}</div></div>
+                              <div className="metric"><div className="metric-label">Total Penalty + Interest</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.totals.penalty + salesTaxReport.mdFiling.totals.interest)}</div></div>
+                              <div className="metric"><div className="metric-label">Total Balance Due</div><div className="metric-value">{fmtMoney(salesTaxReport.mdFiling.totals.balanceDue)}</div></div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}

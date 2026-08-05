@@ -149,3 +149,124 @@ export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDa
     balanceDue: round2(taxDue + penalty + interest),
   };
 }
+
+export type MdFilingFrequency = "Monthly" | "Quarterly" | "Semiannual" | "Annually";
+
+export interface MdFilingPeriod {
+  start: string;
+  end: string;
+  dueDate: string;
+}
+
+/**
+ * Splits [from, to] into the client's real MD filing periods (calendar
+ * month/quarter/half/year, per their stored sales_tax_frequency) instead of
+ * treating the whole requested range as one return — a report spanning
+ * several months otherwise blends every period into a single wrong due date
+ * (see mdDueDateForPeriod's own doc comment: it's meant for ONE period).
+ * Each period's due date is always the 20th of the month after that
+ * period's own true end (never the clamped/requested end below), since
+ * that's the actual statutory deadline regardless of how much of the
+ * period the caller happened to ask for.
+ *
+ * Periods are calendar-aligned (Jan-Mar/Apr-Jun/... for Quarterly,
+ * Jan-Jun/Jul-Dec for Semiannual), not relative to the client's fiscal year
+ * or to whatever date the report happens to start on — this matches how
+ * the Comptroller assigns filing periods.
+ *
+ * When frequency is missing or not one of the four recognized values
+ * (frontend/src/utils/clientOptions.ts's FREQ_OPTIONS also allows "N/A",
+ * and the DB column has no CHECK constraint so legacy/typo values are
+ * possible), this deliberately does NOT guess a period length — guessing
+ * wrong changes the computed due date and therefore the penalty/interest
+ * shown to a client. It falls back to the pre-split behavior (whole range
+ * as one period) and reports frequencyUsed: null so the caller can flag it.
+ */
+export function splitIntoMdFilingPeriods(
+  from: string,
+  to: string,
+  frequency: string | null | undefined
+): { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null } {
+  const fromDate = new Date(`${from}T00:00:00`);
+  const toDate = new Date(`${to}T00:00:00`);
+  const normalized = String(frequency || "").trim().toLowerCase();
+  let freq: MdFilingFrequency | null = null;
+  if (normalized === "monthly") freq = "Monthly";
+  else if (normalized === "quarterly") freq = "Quarterly";
+  else if (normalized === "semiannual" || normalized === "semi-annual" || normalized === "semiannually") freq = "Semiannual";
+  else if (normalized === "annually" || normalized === "annual") freq = "Annually";
+
+  if (!freq) {
+    return { periods: [{ start: from, end: to, dueDate: mdDueDateForPeriod(to) }], frequencyUsed: null };
+  }
+
+  const monthsPerPeriod = freq === "Monthly" ? 1 : freq === "Quarterly" ? 3 : freq === "Semiannual" ? 6 : 12;
+  const periods: MdFilingPeriod[] = [];
+  const periodStartMonth = Math.floor(fromDate.getMonth() / monthsPerPeriod) * monthsPerPeriod;
+  let cursor = new Date(fromDate.getFullYear(), periodStartMonth, 1);
+  while (cursor <= toDate) {
+    const periodEnd = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 0);
+    const clampedStart = cursor < fromDate ? fromDate : cursor;
+    const clampedEnd = periodEnd > toDate ? toDate : periodEnd;
+    periods.push({
+      start: clampedStart.toISOString().slice(0, 10),
+      end: clampedEnd.toISOString().slice(0, 10),
+      dueDate: mdDueDateForPeriod(periodEnd.toISOString().slice(0, 10)),
+    });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + monthsPerPeriod, 1);
+  }
+  return { periods, frequencyUsed: freq };
+}
+
+export interface MdFilingPeriodResult extends MdFilingResult {
+  start: string;
+  end: string;
+  dueDate: string;
+}
+
+export interface MdFilingBreakdown {
+  periods: MdFilingPeriodResult[];
+  totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
+  frequencyUsed: MdFilingFrequency | null;
+}
+
+/**
+ * Line 18/37 for EVERY real filing period inside [from, to], not just one
+ * blended figure for the whole range — this is what actually happens when
+ * a client catches up several overdue (or on-time) returns with a single
+ * payment: each period keeps its own due date, and only one paid date is
+ * needed (the date of that one catch-up payment) since that's the real
+ * business event, not a separate payment per period. Periods with no tax
+ * due (no sales recorded) are skipped rather than shown as a zero row.
+ */
+export async function computeMdFilingBreakdown(
+  sales: { saleDate: string | null; totalTaxDue: number }[],
+  from: string,
+  to: string,
+  frequency: string | null | undefined,
+  paidDateStr: string
+): Promise<MdFilingBreakdown> {
+  const { periods, frequencyUsed } = splitIntoMdFilingPeriods(from, to, frequency);
+  const results: MdFilingPeriodResult[] = [];
+  for (const period of periods) {
+    const taxDue = round2(
+      sales
+        .filter((s) => s.saleDate && String(s.saleDate).slice(0, 10) >= period.start && String(s.saleDate).slice(0, 10) <= period.end)
+        .reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0)
+    );
+    if (taxDue <= 0) continue;
+    const result = await computeMdFiling(taxDue, period.dueDate, paidDateStr);
+    results.push({ ...result, start: period.start, end: period.end, dueDate: period.dueDate });
+  }
+  const totals = results.reduce(
+    (acc, r) => ({
+      taxDue: round2(acc.taxDue + r.taxDue),
+      discount: round2(acc.discount + r.discount),
+      penalty: round2(acc.penalty + r.penalty),
+      interest: round2(acc.interest + r.interest),
+      balanceDue: round2(acc.balanceDue + r.balanceDue),
+    }),
+    { taxDue: 0, discount: 0, penalty: 0, interest: 0, balanceDue: 0 }
+  );
+  return { periods: results, totals, frequencyUsed };
+}

@@ -276,27 +276,40 @@ function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "
 
 async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<ReportClientInfo | null> {
   if (!(await canAccessClient(req.user!, clientId))) return null;
-  const client = decryptClientPii(await queryOne<any>(`SELECT client_id, client_name, ein, address, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
+  const client = decryptClientPii(await queryOne<any>(`SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return null;
-  return { clientId: client.client_id, clientName: client.client_name, ein: client.ein, address: client.address, state: client.state };
+  return {
+    clientId: client.client_id, clientName: client.client_name, ein: client.ein, address: client.address, state: client.state,
+    salesTaxFrequency: client.sales_tax_frequency,
+  };
 }
 
 /**
- * Maryland Form 202 Line 18/37 discount/penalty/interest for a report's
- * fixed period — null for any other state, or when there's no tax due to
- * discount/penalize in the first place. Due date is derived from the
- * period end (mdDueDateForPeriod), not "today" — see that helper's own doc
- * comment. Paid date defaults to today (the report's generation date)
- * unless the caller passed an explicit override (the Sales & Tax tab's own
- * editable date field).
+ * Maryland Form 202 Line 18/37 discount/penalty/interest for EVERY real
+ * filing period inside the report's [from, to] range — null for any other
+ * state, or when no period in range has tax due to discount/penalize in
+ * the first place. A report spanning several months no longer collapses
+ * into one blended (and often wrong) due date; see
+ * computeMdFilingBreakdown's own doc comment for why splitting by the
+ * client's stored sales_tax_frequency matters. Paid date defaults to today
+ * (the report's generation date) unless the caller passed an explicit
+ * override (the Sales & Tax tab's own editable date field) — one payment
+ * date compared against each period's own due date, matching the real
+ * case of a client catching up several periods with a single payment.
  */
-async function maybeMdFiling(state: string | null | undefined, taxDue: number, periodEnd: string, paidDateOverride?: string) {
-  if (state !== "MD" || taxDue <= 0) return null;
-  const { computeMdFiling, mdDueDateForPeriod } = await import("../../common/mdFiling");
-  const dueDate = mdDueDateForPeriod(periodEnd);
+async function computeMdFilingForReport(
+  client: ReportClientInfo,
+  sales: { saleDate: string | null; totalTaxDue: number }[],
+  from: string,
+  to: string,
+  paidDateOverride?: string
+) {
+  if (client.state !== "MD") return null;
+  const { computeMdFilingBreakdown } = await import("../../common/mdFiling");
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : new Date().toISOString().slice(0, 10);
-  const result = await computeMdFiling(taxDue, dueDate, paidDate);
-  return { ...result, dueDate, paidDate };
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, paidDate);
+  if (breakdown.periods.length === 0) return null;
+  return { ...breakdown, paidDate };
 }
 
 async function loadBucketedGl(clientId: string, from: string, to: string) {
@@ -652,7 +665,7 @@ reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "sta
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await maybeMdFiling(client.state, data.totals.taxDue, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
   res.json({ client, from: period.from, to: period.to, ...data, mdFiling });
 }));
 
@@ -664,7 +677,7 @@ reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", 
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await maybeMdFiling(client.state, data.totals.taxDue, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
   const { generateSalesTaxPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateSalesTaxPdf({ client, from: period.from, to: period.to, ...data, mdFiling });
 
@@ -682,19 +695,35 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await maybeMdFiling(client.state, data.totals.taxDue, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
   const rows: (string | number)[][] = data.byCategory.map((c) => [c.categoryName, c.state || "", `${(c.rate * 100).toFixed(2)}%`, c.taxableAmount.toFixed(2), c.taxAmount.toFixed(2)]);
   if (mdFiling) {
     rows.push(["", "", "", "", ""]);
-    rows.push(["Return due date", "", "", "", mdFiling.dueDate]);
     rows.push(["Filing / payment date", "", "", "", mdFiling.paidDate]);
-    if (mdFiling.onTime) {
-      rows.push(["Timely discount", "", "", "", (-mdFiling.discount).toFixed(2)]);
-      rows.push(["Balance due", "", "", "", mdFiling.balanceDue.toFixed(2)]);
-    } else {
-      rows.push(["Late penalty (10%)", "", "", "", mdFiling.penalty.toFixed(2)]);
-      rows.push([`Interest (${mdFiling.monthsLate} mo)`, "", "", "", mdFiling.interest.toFixed(2)]);
-      rows.push(["Balance due", "", "", "", mdFiling.balanceDue.toFixed(2)]);
+    for (const p of mdFiling.periods) {
+      rows.push(["", "", "", "", ""]);
+      rows.push([`Period ${p.start} to ${p.end}`, "", "", "", ""]);
+      rows.push(["Return due date", "", "", "", p.dueDate]);
+      rows.push(["Tax due", "", "", "", p.taxDue.toFixed(2)]);
+      if (p.onTime) {
+        rows.push(["Timely discount", "", "", "", (-p.discount).toFixed(2)]);
+        rows.push(["Balance due", "", "", "", p.balanceDue.toFixed(2)]);
+      } else {
+        rows.push(["Late penalty (10%)", "", "", "", p.penalty.toFixed(2)]);
+        rows.push([`Interest (${p.monthsLate} mo)`, "", "", "", p.interest.toFixed(2)]);
+        rows.push(["Balance due", "", "", "", p.balanceDue.toFixed(2)]);
+      }
+    }
+    if (mdFiling.periods.length > 1) {
+      rows.push(["", "", "", "", ""]);
+      rows.push(["Total discount", "", "", "", (-mdFiling.totals.discount).toFixed(2)]);
+      rows.push(["Total penalty", "", "", "", mdFiling.totals.penalty.toFixed(2)]);
+      rows.push(["Total interest", "", "", "", mdFiling.totals.interest.toFixed(2)]);
+      rows.push(["Total balance due", "", "", "", mdFiling.totals.balanceDue.toFixed(2)]);
+    }
+    if (!mdFiling.frequencyUsed) {
+      rows.push(["", "", "", "", ""]);
+      rows.push(["Note", "", "", "", "Filing frequency not set on client profile — shown as one combined period; verify against actual Comptroller filing schedule."]);
     }
   }
   const csv = toCsv(["Category", "State", "Rate", "Taxable Amount", "Tax Amount"], rows);
