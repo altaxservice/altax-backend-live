@@ -309,6 +309,13 @@ export function ClientDetailPage() {
   // directly on the Notes tab with the add-note form already open, matching
   // the Task Detail "Notes & Messages" ?open=note pattern.
   const openParam = searchParams.get("open");
+  // Paired with ?tab=Gov Forms (see the Clients list "Add Client" card's
+  // quick-launch selects) — land on the Gov Forms tab with the matching
+  // generator modal already open and pre-set to the chosen form type, so
+  // staff aren't forced into a second manual "+ Generate…" click right
+  // after creating the client.
+  const openGovFormParam = searchParams.get("openGovForm");
+  const openAuthFormParam = searchParams.get("openAuthForm");
   const appliedTabParam = useRef<string | null>(null);
   useEffect(() => {
     if (!tabParam || !client || appliedTabParam.current === tabParam) return;
@@ -741,9 +748,9 @@ export function ClientDetailPage() {
 
           {tab === "Gov Forms" && canSeeStaffTabs && (
             <Fragment>
-              <PoaFilingsSection clientId={client.client_id} />
+              <PoaFilingsSection clientId={client.client_id} autoOpenFormType={openAuthFormParam} />
               <div style={{ marginTop: 16 }}>
-                <GovFormsSection clientId={client.client_id} />
+                <GovFormsSection clientId={client.client_id} autoOpenFormType={openGovFormParam} />
               </div>
             </Fragment>
           )}
@@ -1394,7 +1401,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
  * (mail/fax/hand-delivered/IRS online portal) since this app has no live
  * filing integration with the IRS or Comptroller.
  */
-function PoaFilingsSection({ clientId }: { clientId: string }) {
+function PoaFilingsSection({ clientId, autoOpenFormType }: { clientId: string; autoOpenFormType?: string | null }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1405,6 +1412,17 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // Deep-linked from the Clients list "Add Client" card's "Authorization
+  // Form" quick-launch select — see the ?openGovForm/?openAuthForm doc
+  // comment on ClientDetailPage's useSearchParams block. Ref-guarded so a
+  // later re-render (e.g. after the staff member closes the modal) doesn't
+  // reopen it.
+  const appliedAutoOpen = useRef(false);
+  useEffect(() => {
+    if (!autoOpenFormType || appliedAutoOpen.current) return;
+    appliedAutoOpen.current = true;
+    setGenerating(true);
+  }, [autoOpenFormType]);
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
   const [submitFor, setSubmitFor] = useState<string | null>(null);
@@ -1602,7 +1620,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
       )}
 
       {generating && (
-        <GeneratePoaFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
+        <GeneratePoaFormModal clientId={clientId} defaultFormType={autoOpenFormType || undefined} onClose={() => setGenerating(false)} onDone={load} />
       )}
     </div>
   );
@@ -1616,7 +1634,7 @@ function PoaFilingsSection({ clientId }: { clientId: string }) {
  * shape with each other or with the POA forms, so they get their own section
  * and their own filing table rather than being folded into PoaFilingsSection.
  */
-function GovFormsSection({ clientId }: { clientId: string }) {
+function GovFormsSection({ clientId, autoOpenFormType }: { clientId: string; autoOpenFormType?: string | null }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1627,6 +1645,13 @@ function GovFormsSection({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [editingFiling, setEditingFiling] = useState<GovFormFiling | null>(null);
+  // See PoaFilingsSection's matching comment — same quick-launch deep link.
+  const appliedAutoOpen = useRef(false);
+  useEffect(() => {
+    if (!autoOpenFormType || appliedAutoOpen.current) return;
+    appliedAutoOpen.current = true;
+    setGenerating(true);
+  }, [autoOpenFormType]);
   const [busy, setBusy] = useState<string | null>(null);
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
@@ -1827,7 +1852,12 @@ function GovFormsSection({ clientId }: { clientId: string }) {
       )}
 
       {generating && (
-        <GenerateGovFormModal clientId={clientId} onClose={() => setGenerating(false)} onDone={load} />
+        <GenerateGovFormModal
+          clientId={clientId}
+          defaultFormType={(autoOpenFormType as ClientGovFormType) || undefined}
+          onClose={() => setGenerating(false)}
+          onDone={load}
+        />
       )}
       {editingFiling && (
         <GenerateGovFormModal

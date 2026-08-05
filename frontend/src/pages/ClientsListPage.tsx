@@ -117,6 +117,13 @@ export function ClientsListPage() {
   const [uploadFor, setUploadFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [requestDocFor, setRequestDocFor] = useState<{ clientId: string; clientName: string } | null>(null);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  // Quick-launch selects (Assignment & Forms section) — not part of the
+  // client record itself, just which generator modal to jump straight into
+  // right after this client is created. See handleCreate's navigate() call.
+  const [quickGovForm, setQuickGovForm] = useState("");
+  const [quickAuthForm, setQuickAuthForm] = useState("");
+  const [govFormTypes, setGovFormTypes] = useState<{ value: string; label: string }[]>([]);
+  const [authFormTypes, setAuthFormTypes] = useState<{ value: string; label: string }[]>([]);
   // Free-text escapes for the two fixed lists on this form — the firm keeps hitting
   // engagements that don't map onto a predefined option, and previously the only
   // way to add one was a code change.
@@ -138,6 +145,12 @@ export function ClientsListPage() {
     if (!canCreate) return;
     api.get<{ users: PortalUser[] }>("/users")
       .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
+      .catch(() => {});
+    api.get<{ clientFormTypes: { value: string; label: string }[] }>("/gov-forms/meta")
+      .then((res) => setGovFormTypes(res.clientFormTypes))
+      .catch(() => {});
+    api.get<{ formTypes: { value: string; label: string }[] }>("/poa-forms/meta")
+      .then((res) => setAuthFormTypes(res.formTypes))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canCreate]);
@@ -181,17 +194,25 @@ export function ClientsListPage() {
           invite = { clientName: form.clientName, email: form.email };
         }
       }
+      // Captured before the resets below clear them.
+      const genParams = new URLSearchParams();
+      if (quickGovForm) genParams.set("openGovForm", quickGovForm);
+      if (quickAuthForm) genParams.set("openAuthForm", quickAuthForm);
+      if (quickGovForm || quickAuthForm) genParams.set("tab", "Gov Forms");
+
       setForm(EMPTY_CLIENT_FORM);
       setCreatePortalNow(false);
       setCustomServices([]);
       setNewCustomService("");
       setServiceTypeOther("");
+      setQuickGovForm("");
+      setQuickAuthForm("");
       setSearchParams({});
       await load();
       if (invite) setInviteInfo(invite);
       toast("Client created.");
       setSelectedClient(res.clientId, form.clientName);
-      navigate(`/clients/${res.clientId}`);
+      navigate(genParams.toString() ? `/clients/${res.clientId}?${genParams.toString()}` : `/clients/${res.clientId}`);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : "Could not create this client.");
     } finally {
@@ -625,7 +646,14 @@ export function ClientsListPage() {
             </>
           )}
 
-          <div className="form-section-title">Contact &amp; Assignment</div>
+          {/* Assigned To lives here, not under Contact — it's who at the firm
+              owns this client, not a way to reach the client, so grouping it
+              with Email/Phone read as the same kind of fact when it isn't.
+              The two generator selects are quick-launch shortcuts, not saved
+              client fields: picking one just reopens the Add Client flow's
+              result on the client's Gov Forms tab with that form's dialog
+              already open, via handleCreate's ?openGovForm/?openAuthForm. */}
+          <div className="form-section-title">Assignment &amp; Forms</div>
           <div className="form-grid-3">
             <div className="field">
               <label htmlFor="nc-assigned">Assigned To</label>
@@ -634,6 +662,30 @@ export function ClientsListPage() {
                 {staffOptions.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
+            <div className="field">
+              <label htmlFor="nc-gov-form">Government Form <span className="muted">(optional)</span></label>
+              <select id="nc-gov-form" value={quickGovForm} onChange={(e) => setQuickGovForm(e.target.value)}>
+                <option value="">None — skip for now</option>
+                {govFormTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              {quickGovForm && (
+                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Government Form dialog for this type right after the client is created.</div>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="nc-auth-form">Generate Authorization Form <span className="muted">(optional)</span></label>
+              <select id="nc-auth-form" value={quickAuthForm} onChange={(e) => setQuickAuthForm(e.target.value)}>
+                <option value="">None — skip for now</option>
+                {authFormTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              {quickAuthForm && (
+                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Authorization Form dialog for this type right after the client is created.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="form-section-title">Contact</div>
+          <div className="form-grid-3">
             <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
             <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
           </div>
