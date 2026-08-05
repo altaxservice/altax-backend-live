@@ -18,20 +18,21 @@ import {
 /**
  * Tools → government forms: Form SS-4 (EIN application), Form 2553 (S-Corp
  * election), Form W-9 (TIN request), Form 8332 (release of dependency
- * exemption), Form W-4 (employee withholding certificate), and Maryland
- * Form CRA (Combined Registration Application) — fills the agency's own
- * real fillable PDF, never a firm-drawn substitute (see the individual
- * generator files under this module for how every field was verified).
+ * exemption), Form W-4 (employee withholding certificate), Form 8822-B
+ * (change of business address/responsible party), and Maryland Form CRA
+ * (Combined Registration Application) — fills the agency's own real
+ * fillable PDF, never a firm-drawn substitute (see the individual generator
+ * files under this module for how every field was verified).
  *
- * SS4/2553/W9/8332/CRA are client-level (v3_gov_form_filings.client_id); W4
- * and (when collected from a contractor rather than the client's own
+ * SS4/2553/W9/8332/CRA/8822B are client-level (v3_gov_form_filings.client_id);
+ * W4 and (when collected from a contractor rather than the client's own
  * business) W9 are employee-level (v3_gov_form_filings.employee_id), since a
  * withholding election or a contractor's own TIN certification belongs to
  * one person, not the client business itself. All share the same filing
  * lifecycle (Draft → Signed → Submitted, or Void).
  *
- * Physical-signature-only applies to SS-4/2553/8332/CRA and to a client-level
- * W-9 — same rule as the POA forms (2848/8821/548): those either go straight
+ * Physical-signature-only applies to SS-4/2553/8332/CRA/8822B and to a
+ * client-level W-9 — same rule as the POA forms (2848/8821/548): those either go straight
  * to a government agency, whose own e-signature rules this app doesn't
  * implement, or (W-9 for the client's own business) are just as easily
  * handled the same conservative way. Employee-level W-4 and W-9 are
@@ -58,6 +59,7 @@ const FORM_LABELS: Record<string, string> = {
   "8332": "IRS Form 8332 — Release of Claim to Exemption for Child",
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
   CRA: "Maryland Form CRA — Combined Registration Application",
+  "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",
 };
 
 govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {

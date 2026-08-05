@@ -33,12 +33,12 @@ const EMPTY_SHAREHOLDER: Shareholder = { name: "", address: "", idNumber: "", sh
 
 /**
  * Generates one of the client-level government forms (SS-4, 2553, W-9,
- * 8332). Unlike the POA forms modal (one shared taxpayer/representatives
- * shape across all three forms it covers), these four forms have almost
- * nothing in common — the fields shown change entirely based on which form
- * is selected. Preview/Print/Download only, no e-sign: every one of these is
- * physical-signature-only, same rule as every other government form and
- * client contract in this app.
+ * 8332, CRA, 8822-B). Unlike the POA forms modal (one shared taxpayer/
+ * representatives shape across all three forms it covers), these forms have
+ * almost nothing in common — the fields shown change entirely based on
+ * which form is selected. Preview/Print/Download only, no e-sign: every one
+ * of these is physical-signature-only, same rule as every other government
+ * form and client contract in this app.
  */
 interface FirmProfileLite { firmName: string; street: string; city: string; state: string; zipCode: string; phone: string; email: string }
 
@@ -112,6 +112,18 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     setCra((f) => ({ ...f, taxTypes: f.taxTypes.includes(t) ? f.taxTypes.filter((x) => x !== t) : [...f.taxTypes, t] }));
   }
 
+  // Form 8822-B state
+  const [f8822b, setF8822b] = useState({
+    taxExemptOrg: false,
+    affectsEmploymentReturns: false, affectsEmployeePlanReturns: false, affectsBusinessLocation: false,
+    businessName: "", ein: "",
+    oldMailingAddress: "", oldMailingForeignCountry: "", oldMailingForeignProvince: "", oldMailingForeignPostalCode: "",
+    newMailingAddress: "", newMailingForeignCountry: "", newMailingForeignProvince: "", newMailingForeignPostalCode: "",
+    newBusinessLocation: "", newBusinessLocationForeignCountry: "", newBusinessLocationForeignProvince: "", newBusinessLocationForeignPostalCode: "",
+    newResponsiblePartyName: "", newResponsiblePartyId: "",
+    daytimePhone: "", title: "",
+  });
+
   // Form 8332 state
   const [f8332, setF8332] = useState({
     noncustodialParentName: "", noncustodialParentSsn: "", custodialParentSsn: "",
@@ -144,6 +156,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           }
           if (editingFiling.form_type === "W9") setW9((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "CRA") setCra((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "8822B") setF8822b((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "8332") setF8332((f) => ({ ...f, ...d }));
           return;
         }
@@ -188,6 +201,19 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           officerStreet: res.client.street_address || "", officerCity: res.client.city || "", officerState: res.client.state || "MD", officerZip: res.client.zip_code || "",
           officerPhone: res.client.company_contact_phone || res.client.phone || "",
         }));
+        setF8822b((f) => ({
+          ...f,
+          businessName: res.client.client_name, ein: res.client.ein || "",
+          // "Old" mailing address is genuinely the address on file today —
+          // unlike CRA's SDAT Entity ID or this form's own "new" fields
+          // below, prefilling this one doesn't risk carrying over stale
+          // data, since the whole point of line 5 is what it USED to be.
+          oldMailingAddress: addr,
+          // Everything the form is reporting as a CHANGE (new address, new
+          // business location, new responsible party) is deliberately left
+          // blank rather than defaulted from the client record — same
+          // reasoning as CRA's SDAT Entity ID.
+        }));
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
   }, [clientId]);
@@ -220,6 +246,14 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
       if (!cra.street1.trim() || !cra.city.trim() || !cra.zip.trim()) { setSaveError("Physical business address is required."); return null; }
       if (cra.taxTypes.length === 0) { setSaveError("Select at least one tax account being requested."); return null; }
       return { ...cra };
+    }
+    if (formType === "8822B") {
+      if (!f8822b.businessName.trim()) { setSaveError("Business name is required."); return null; }
+      if (!f8822b.affectsEmploymentReturns && !f8822b.affectsEmployeePlanReturns && !f8822b.affectsBusinessLocation) {
+        setSaveError("Check at least one box for what this change affects.");
+        return null;
+      }
+      return { ...f8822b };
     }
     // 8332
     if (!f8332.noncustodialParentName.trim()) { setSaveError("Noncustodial parent's name is required."); return null; }
@@ -726,6 +760,99 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div className="field">
                   <label htmlFor="gf-cra-preparer-name">Name of preparer <span className="muted">(if other than applicant)</span></label>
                   <input id="gf-cra-preparer-name" value={cra.preparerName} onChange={(e) => setCra({ ...cra, preparerName: e.target.value })} />
+                </div>
+              </div>
+            )}
+
+            {formType === "8822B" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Notifies the IRS of a change to this business's mailing address, physical location, or responsible party.
+                  Fill in only the line(s) that actually changed — leave the others blank.
+                </p>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 10px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
+                  <input type="checkbox" checked={f8822b.taxExemptOrg} onChange={(e) => setF8822b({ ...f8822b, taxExemptOrg: e.target.checked })} />
+                  This is a tax-exempt organization
+                </label>
+                <div className="field">
+                  <label>Check all boxes this change affects</label>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8822b.affectsEmploymentReturns} onChange={(e) => setF8822b({ ...f8822b, affectsEmploymentReturns: e.target.checked })} />
+                      Employment, excise, income, and other business returns (Forms 720, 940, 941, 990, 1041, 1065, 1120, etc.)
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8822b.affectsEmployeePlanReturns} onChange={(e) => setF8822b({ ...f8822b, affectsEmployeePlanReturns: e.target.checked })} />
+                      Employee plan returns (Forms 5500, 5500-EZ, etc.)
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                      <input type="checkbox" checked={f8822b.affectsBusinessLocation} onChange={(e) => setF8822b({ ...f8822b, affectsBusinessLocation: e.target.checked })} />
+                      Business location
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-business-name">Business name <span className="muted">(line 4a)</span></label>
+                    <input id="gf-8822b-business-name" value={f8822b.businessName} onChange={(e) => setF8822b({ ...f8822b, businessName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-ein">EIN <span className="muted">(line 4b)</span></label>
+                    <input id="gf-8822b-ein" value={f8822b.ein} onChange={(e) => setF8822b({ ...f8822b, ein: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label htmlFor="gf-8822b-old-address">Old mailing address <span className="muted">(line 5 — leave blank if only the responsible party changed)</span></label>
+                  <input id="gf-8822b-old-address" value={f8822b.oldMailingAddress} onChange={(e) => setF8822b({ ...f8822b, oldMailingAddress: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <input aria-label="Old mailing address foreign country" placeholder="Foreign country name" value={f8822b.oldMailingForeignCountry} onChange={(e) => setF8822b({ ...f8822b, oldMailingForeignCountry: e.target.value })} />
+                  <input aria-label="Old mailing address foreign province" placeholder="Foreign province/county" value={f8822b.oldMailingForeignProvince} onChange={(e) => setF8822b({ ...f8822b, oldMailingForeignProvince: e.target.value })} />
+                  <input aria-label="Old mailing address foreign postal code" placeholder="Foreign postal code" value={f8822b.oldMailingForeignPostalCode} onChange={(e) => setF8822b({ ...f8822b, oldMailingForeignPostalCode: e.target.value })} />
+                </div>
+
+                <div className="field" style={{ marginTop: 10 }}>
+                  <label htmlFor="gf-8822b-new-address">New mailing address <span className="muted">(line 6)</span></label>
+                  <input id="gf-8822b-new-address" value={f8822b.newMailingAddress} onChange={(e) => setF8822b({ ...f8822b, newMailingAddress: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <input aria-label="New mailing address foreign country" placeholder="Foreign country name" value={f8822b.newMailingForeignCountry} onChange={(e) => setF8822b({ ...f8822b, newMailingForeignCountry: e.target.value })} />
+                  <input aria-label="New mailing address foreign province" placeholder="Foreign province/county" value={f8822b.newMailingForeignProvince} onChange={(e) => setF8822b({ ...f8822b, newMailingForeignProvince: e.target.value })} />
+                  <input aria-label="New mailing address foreign postal code" placeholder="Foreign postal code" value={f8822b.newMailingForeignPostalCode} onChange={(e) => setF8822b({ ...f8822b, newMailingForeignPostalCode: e.target.value })} />
+                </div>
+
+                <div className="field" style={{ marginTop: 10 }}>
+                  <label htmlFor="gf-8822b-new-location">New business location <span className="muted">(line 7)</span></label>
+                  <input id="gf-8822b-new-location" value={f8822b.newBusinessLocation} onChange={(e) => setF8822b({ ...f8822b, newBusinessLocation: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <input aria-label="New business location foreign country" placeholder="Foreign country name" value={f8822b.newBusinessLocationForeignCountry} onChange={(e) => setF8822b({ ...f8822b, newBusinessLocationForeignCountry: e.target.value })} />
+                  <input aria-label="New business location foreign province" placeholder="Foreign province/county" value={f8822b.newBusinessLocationForeignProvince} onChange={(e) => setF8822b({ ...f8822b, newBusinessLocationForeignProvince: e.target.value })} />
+                  <input aria-label="New business location foreign postal code" placeholder="Foreign postal code" value={f8822b.newBusinessLocationForeignPostalCode} onChange={(e) => setF8822b({ ...f8822b, newBusinessLocationForeignPostalCode: e.target.value })} />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginTop: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-new-rp-name">New responsible party's name <span className="muted">(line 8)</span></label>
+                    <input id="gf-8822b-new-rp-name" value={f8822b.newResponsiblePartyName} onChange={(e) => setF8822b({ ...f8822b, newResponsiblePartyName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-new-rp-id">New responsible party's SSN/ITIN/EIN <span className="muted">(line 9)</span></label>
+                    <input id="gf-8822b-new-rp-id" value={f8822b.newResponsiblePartyId} onChange={(e) => setF8822b({ ...f8822b, newResponsiblePartyId: e.target.value })} />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-phone">Daytime telephone <span className="muted">(optional)</span></label>
+                    <input id="gf-8822b-phone" value={f8822b.daytimePhone} onChange={(e) => setF8822b({ ...f8822b, daytimePhone: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-8822b-title">Title of signer <span className="muted">(officer, owner, general partner, etc.)</span></label>
+                    <input id="gf-8822b-title" value={f8822b.title} onChange={(e) => setF8822b({ ...f8822b, title: e.target.value })} />
+                  </div>
                 </div>
               </div>
             )}
