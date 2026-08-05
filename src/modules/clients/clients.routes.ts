@@ -8,7 +8,7 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport } from "../reports/reports.routes";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend } from "../reports/reports.routes";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 
 /**
@@ -297,21 +297,10 @@ async function computeSwotAutoDraft(clientRow: any, clientId: string) {
   const taxRecommendations: string[] = [];
   const growthRecommendations: string[] = [];
 
-  // Revenue trend — first half vs. second half of the 6-month window, so a
-  // single unusual month can't flip the read the way month-over-month would.
-  // startedFromZero gets its own sentence rather than a misleading "100%"
-  // (a jump from $0 to any amount isn't really a doubling).
-  let trendPct: number | null = null;
-  let startedFromZero = false;
-  const months = financials.months;
-  if (months.length >= 2) {
-    const mid = Math.floor(months.length / 2);
-    const avg = (arr: typeof months) => arr.reduce((s, m) => s + m.revenue, 0) / arr.length;
-    const firstAvg = avg(months.slice(0, mid));
-    const secondAvg = avg(months.slice(mid));
-    if (firstAvg > 0) trendPct = Math.round(((secondAvg - firstAvg) / firstAvg) * 100);
-    else if (secondAvg > 0) startedFromZero = true;
-  }
+  // Revenue trend — shared with the At a Glance health score (computeRevenueTrend
+  // in reports.routes.ts) so the two never disagree about which direction
+  // revenue is moving.
+  const { trendPct, startedFromZero } = computeRevenueTrend(financials.months);
   if (startedFromZero) strengths.push("Revenue activity began partway through the last 6 months — no prior-period baseline to compare against yet.");
   else if (trendPct !== null && trendPct >= 10) strengths.push(`Revenue trended up ${trendPct}% over the last 6 months.`);
   else if (trendPct !== null && trendPct <= -10) {

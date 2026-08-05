@@ -256,15 +256,19 @@ reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), async
  * would otherwise see every client's name and balance regardless of their
  * own task-based assignments.
  */
-async function computeArAging() {
+// Optional clientId param added for computeClientArAging below (the per-client
+// dashboard) — the firm-wide /ar-aging, /pdf/ar-aging, /csv/ar-aging routes
+// below call this with no clientId, unchanged behavior.
+async function computeArAging(clientId?: string) {
   const rows = await query<any>(
     `SELECT i.client_id, c.client_name,
             i.balance_due, i.due_date,
             (CURRENT_DATE - i.due_date::date) AS days_overdue
        FROM altax.v3_invoices i
        JOIN altax.v3_clients c ON c.client_id = i.client_id
-      WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0
-      ORDER BY c.client_name ASC`
+      WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0 ${clientId ? "AND i.client_id = $1" : ""}
+      ORDER BY c.client_name ASC`,
+    clientId ? [clientId] : []
   );
 
   const byClient = new Map<string, { clientId: string; clientName: string; current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number }>();
@@ -296,6 +300,207 @@ async function computeArAging() {
     rows: clientRows.map((r) => ({ ...r, current: round2(r.current), d1_30: round2(r.d1_30), d31_60: round2(r.d31_60), d61_90: round2(r.d61_90), d90Plus: round2(r.d90Plus), total: round2(r.total) })),
     totals: { current: round2(totals.current), d1_30: round2(totals.d1_30), d31_60: round2(totals.d31_60), d61_90: round2(totals.d61_90), d90Plus: round2(totals.d90Plus), total: round2(totals.total) },
   };
+}
+
+/** Same aging buckets as computeArAging, scoped to one client, defaulting to all-zero when the client has no overdue invoices — used by the client dashboard so a clean client isn't treated as "no data." */
+async function computeClientArAging(clientId: string) {
+  const { rows } = await computeArAging(clientId);
+  return rows[0] || { clientId, clientName: "", current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90Plus: 0, total: 0 };
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+function fmtMoney(v: number): string {
+  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Revenue trend shared by the SWOT auto-draft engine (clients.routes.ts) and
+ * the dashboard health score below — first-half vs. second-half average of
+ * whatever month window is passed in, so a single unusual month can't flip
+ * the read the way month-over-month would. A jump from $0 in the first half
+ * to any amount in the second isn't really a "100% increase," so that case
+ * gets its own startedFromZero flag instead of a misleading percentage.
+ */
+export function computeRevenueTrend(months: { revenue: number }[]): { trendPct: number | null; startedFromZero: boolean } {
+  if (months.length < 2) return { trendPct: null, startedFromZero: false };
+  const mid = Math.floor(months.length / 2);
+  const avg = (arr: typeof months) => arr.reduce((s, m) => s + m.revenue, 0) / arr.length;
+  const firstAvg = avg(months.slice(0, mid));
+  const secondAvg = avg(months.slice(mid));
+  if (firstAvg > 0) return { trendPct: Math.round(((secondAvg - firstAvg) / firstAvg) * 100), startedFromZero: false };
+  if (secondAvg > 0) return { trendPct: null, startedFromZero: true };
+  return { trendPct: null, startedFromZero: false };
+}
+
+const CASH_HINTS = ["cash", "bank", "checking", "savings"];
+
+/**
+ * Estimated cash position — sums recorded GL activity (debit - credit) on
+ * every Asset-type COA account that looks like a bank/cash account (by
+ * detail_type or account name, the same hint-matching style bucketFor
+ * already uses for P&L/Balance Sheet). This is derived from ledger entries,
+ * not a real bank feed — opening balances or activity never entered as a GL
+ * entry aren't included, so it's always labeled "estimate" wherever shown
+ * (ClientAtAGlance.tsx, the SWOT PDF, and the health score).
+ */
+export async function computeClientCashBalance(clientId: string): Promise<number> {
+  const accounts = await query<any>(`SELECT account_name, detail_type FROM altax.v3_coa WHERE active = true AND account_type = 'Asset'`);
+  const cashAccounts = accounts
+    .filter((a: any) => {
+      const name = String(a.account_name || "").toLowerCase();
+      const detail = String(a.detail_type || "").toLowerCase();
+      return CASH_HINTS.some((h) => name.includes(h) || detail.includes(h));
+    })
+    .map((a: any) => a.account_name);
+  if (cashAccounts.length === 0) return 0;
+  const row = await queryOne<any>(
+    `SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM altax.v3_gl_entries WHERE client_id = $1 AND account = ANY($2::text[])`,
+    [clientId, cashAccounts]
+  );
+  return round2(Number(row?.balance || 0));
+}
+
+// Excluded here since computeFirmSummary's taxLiabilities already breaks these
+// three out separately — counting them again here would double-count the same
+// liability under two different dashboard tiles.
+const AP_EXCLUDED_ACCOUNTS = ["Sales Tax Payable", "Payroll Tax Payable", "Payroll Deduction Payable"];
+
+/**
+ * Estimated accounts payable — GL balance (credit - debit) of Liability
+ * accounts whose name contains "payable", excluding the tax/payroll
+ * liabilities already shown separately. This app has no vendor-bills
+ * subledger (no per-bill due date), so this is always labeled "GL balance —
+ * estimate" wherever it's shown, never presented as true AP aging.
+ */
+export async function computeClientApEstimate(clientId: string): Promise<number> {
+  const accounts = await query<any>(
+    `SELECT account_name FROM altax.v3_coa WHERE active = true AND account_type = 'Liability' AND account_name ILIKE '%payable%'`
+  );
+  const apAccounts = accounts.map((a: any) => a.account_name).filter((n: string) => !AP_EXCLUDED_ACCOUNTS.includes(n));
+  if (apAccounts.length === 0) return 0;
+  const row = await queryOne<any>(
+    `SELECT COALESCE(SUM(credit - debit), 0) AS balance FROM altax.v3_gl_entries WHERE client_id = $1 AND account = ANY($2::text[])`,
+    [clientId, apAccounts]
+  );
+  return round2(Number(row?.balance || 0));
+}
+
+/** COGS total for the window — computeFirmSummary doesn't split this out (it only needs revenue/expense for the P&L trend), so Gross Margin gets its own small query using the same bucketFor classification the rest of this file already uses. */
+async function computeClientCogs(clientId: string, from: string, to: string): Promise<number> {
+  const rows = await query<any>(
+    `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+       FROM altax.v3_gl_entries
+      WHERE client_id = $1 AND entry_date::date >= $2::date AND entry_date::date <= $3::date
+      GROUP BY account`,
+    [clientId, from, to]
+  );
+  const cogs = rows.filter((r: any) => bucketFor(r.account) === "cogs").reduce((s: number, r: any) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
+  return round2(cogs);
+}
+
+export interface ClientRatios {
+  netMarginPct: number | null;
+  grossMarginPct: number | null;
+  dso: number | null;
+  ar90PlusPct: number | null;
+  payrollPctOfRevenue: number | null;
+  taxLiabilityPctOfRevenue: number | null;
+}
+
+/**
+ * Only ratios this data honestly supports. Current Ratio / Quick Ratio /
+ * Debt-to-Equity are deliberately not computed anywhere in this app — there's
+ * no complete current-liabilities or equity picture (AP is a GL estimate with
+ * no bill-level detail, see computeClientApEstimate), and a ratio built on a
+ * partial balance sheet is worse than no ratio at all.
+ */
+export function computeClientRatios(params: {
+  revenue: number; profit: number; cogs: number;
+  arTotal: number; ar90Plus: number;
+  payrollCost: number; taxLiabilities: number;
+  periodDays: number;
+}): ClientRatios {
+  const { revenue, profit, cogs, arTotal, ar90Plus, payrollCost, taxLiabilities, periodDays } = params;
+  const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : null);
+  return {
+    netMarginPct: pct(profit, revenue),
+    grossMarginPct: pct(revenue - cogs, revenue),
+    dso: revenue > 0 && periodDays > 0 ? Math.round((arTotal / (revenue / periodDays)) * 10) / 10 : null,
+    ar90PlusPct: pct(ar90Plus, arTotal),
+    payrollPctOfRevenue: pct(payrollCost, revenue),
+    taxLiabilityPctOfRevenue: pct(taxLiabilities, revenue),
+  };
+}
+
+export interface HealthScoreComponent { label: string; points: number; maxPoints: number; detail: string }
+export interface ClientHealthScore { score: number; band: "Green" | "Yellow" | "Red"; components: HealthScoreComponent[] }
+
+/**
+ * Transparent 0-100 point score — always rendered with its component
+ * breakdown (frontend never shows the bare number), so staff can point to
+ * exactly which line cost points and explain it to a client rather than
+ * treating it as a black box.
+ */
+export function computeClientHealthScore(params: {
+  netMarginPct: number | null;
+  trendPct: number | null;
+  arD61_90: number; arD90Plus: number; arTotal: number;
+  taxLiabilities: number; revenue: number;
+  openTasks: number;
+  mdFilingOnTime: boolean | null;
+}): ClientHealthScore {
+  const components: HealthScoreComponent[] = [];
+
+  let profPts = 0;
+  let profDetail = "No revenue recorded in this window.";
+  if (params.netMarginPct !== null) {
+    if (params.netMarginPct >= 15) { profPts = 30; profDetail = `Net margin ${params.netMarginPct}% (healthy, ≥15%).`; }
+    else if (params.netMarginPct >= 5) { profPts = 20; profDetail = `Net margin ${params.netMarginPct}% (moderate, 5-15%).`; }
+    else if (params.netMarginPct >= 0) { profPts = 10; profDetail = `Net margin ${params.netMarginPct}% (thin, 0-5%).`; }
+    else { profPts = 0; profDetail = `Net margin ${params.netMarginPct}% (net loss).`; }
+  }
+  components.push({ label: "Profitability", points: profPts, maxPoints: 30, detail: profDetail });
+
+  let trendPts = 12;
+  let trendDetail = "Revenue roughly flat over the period.";
+  if (params.trendPct !== null) {
+    if (params.trendPct >= 10) { trendPts = 20; trendDetail = `Revenue up ${params.trendPct}% over the period.`; }
+    else if (params.trendPct <= -10) { trendPts = 0; trendDetail = `Revenue down ${Math.abs(params.trendPct)}% over the period.`; }
+    else { trendPts = 12; trendDetail = `Revenue roughly flat (${params.trendPct >= 0 ? "+" : ""}${params.trendPct}%).`; }
+  }
+  components.push({ label: "Revenue Trend", points: trendPts, maxPoints: 20, detail: trendDetail });
+
+  let arPts = 15;
+  let arDetail = "No overdue receivables.";
+  if (params.arD90Plus > 0) { arPts = 0; arDetail = `${fmtMoney(params.arD90Plus)} over 90 days past due.`; }
+  else if (params.arD61_90 > 0) { arPts = 5; arDetail = `${fmtMoney(params.arD61_90)} in the 61-90 day bucket.`; }
+  else if (params.arTotal > 0) { arPts = 10; arDetail = `${fmtMoney(params.arTotal)} overdue, within 60 days.`; }
+  components.push({ label: "AR Aging", points: arPts, maxPoints: 15, detail: arDetail });
+
+  let taxPts = 15;
+  let taxDetail = "No outstanding tax liability.";
+  if (params.taxLiabilities > 0) {
+    const pctOfRev = params.revenue > 0 ? (params.taxLiabilities / params.revenue) * 100 : 100;
+    if (pctOfRev < 5) { taxPts = 8; taxDetail = `${fmtMoney(params.taxLiabilities)} outstanding (<5% of revenue).`; }
+    else { taxPts = 0; taxDetail = `${fmtMoney(params.taxLiabilities)} outstanding (≥5% of revenue).`; }
+  }
+  components.push({ label: "Tax Liability", points: taxPts, maxPoints: 15, detail: taxDetail });
+
+  let taskPts = 10;
+  let taskDetail = "No open tasks.";
+  if (params.openTasks >= 4) { taskPts = 0; taskDetail = `${params.openTasks} open tasks.`; }
+  else if (params.openTasks >= 1) { taskPts = 6; taskDetail = `${params.openTasks} open task${params.openTasks === 1 ? "" : "s"}.`; }
+  components.push({ label: "Task Backlog", points: taskPts, maxPoints: 10, detail: taskDetail });
+
+  let compPts = 10;
+  let compDetail = "Not applicable (non-MD client or no filing period in range).";
+  if (params.mdFilingOnTime === true) { compPts = 10; compDetail = "Sales tax filings on time."; }
+  else if (params.mdFilingOnTime === false) { compPts = 0; compDetail = "One or more sales tax filings currently show as late."; }
+  components.push({ label: "Compliance", points: compPts, maxPoints: 10, detail: compDetail });
+
+  const score = components.reduce((s, c) => s + c.points, 0);
+  const band: "Green" | "Yellow" | "Red" = score >= 75 ? "Green" : score >= 50 ? "Yellow" : "Red";
+  return { score, band, components };
 }
 
 reportsRouter.get("/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
@@ -469,6 +674,121 @@ async function loadEmployeeSummaryForPeriod(clientId: string, from: string, to: 
     netPay: Number(r.net_pay) || 0, totalCost: Number(r.total_cost) || 0,
   }));
 }
+
+/**
+ * Single aggregated fetch backing the redesigned "At a Glance" dashboard —
+ * composes computeFirmSummary + cash/AP estimates + client AR aging +
+ * ratios + health score + current-month budget-vs-actual + payroll cost +
+ * upcoming deadlines into one response instead of 6+ separate round trips.
+ * Admin-only, matching every other financial route in this file
+ * (Financial Overview, AR Aging, client-summary) — staff still see
+ * operations-only data via the existing /clients/:clientId/summary route.
+ */
+reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const clientRow = await queryOne<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  if (!clientRow) return res.status(404).json({ error: "Client not found." });
+  const reportClient: ReportClientInfo = {
+    clientId: clientRow.client_id, clientName: clientRow.client_name, ein: clientRow.ein,
+    address: clientRow.address, state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
+  };
+
+  const { from, to } = defaultFirmSummaryRange();
+
+  const [financials, cashBalance, apEstimate, arAging, cogs, openTasksRow, payroll, mdFiling] = await Promise.all([
+    computeFirmSummary(from, to, clientId),
+    computeClientCashBalance(clientId),
+    computeClientApEstimate(clientId),
+    computeClientArAging(clientId),
+    computeClientCogs(clientId, from, to),
+    queryOne<any>(`SELECT COUNT(*)::int AS count FROM altax.v3_tasks WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`, [clientId]),
+    loadPayrollForPeriod(clientId, from, to),
+    computeMdFilingForReport(reportClient, from, to),
+  ]);
+
+  const openTasks = openTasksRow?.count || 0;
+  const periodDays = Math.max(1, Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86400000) + 1);
+  const ratios = computeClientRatios({
+    revenue: financials.totals.revenue, profit: financials.totals.profit, cogs,
+    arTotal: arAging.total, ar90Plus: arAging.d90Plus,
+    payrollCost: payroll.totalCost, taxLiabilities: financials.taxLiabilities,
+    periodDays,
+  });
+  const { trendPct } = computeRevenueTrend(financials.months);
+  const mdFilingOnTime = clientRow.state === "MD" && mdFiling && mdFiling.periods.length > 0
+    ? mdFiling.periods.every((p: any) => p.onTime)
+    : null;
+  const health = computeClientHealthScore({
+    netMarginPct: ratios.netMarginPct, trendPct,
+    arD61_90: arAging.d61_90, arD90Plus: arAging.d90Plus, arTotal: arAging.total,
+    taxLiabilities: financials.taxLiabilities, revenue: financials.totals.revenue,
+    openTasks, mdFilingOnTime,
+  });
+
+  // Budget vs actual for the current month only — the dashboard's mini-table;
+  // full-year detail stays on the dedicated Budget tab (budgets.routes.ts).
+  const now = new Date();
+  const budgetAccounts = await query<any>(
+    `SELECT account_name, account_type FROM altax.v3_coa WHERE active = true AND account_type = ANY($1::text[])`,
+    [["Income", "COGS", "Expense"]]
+  );
+  const budgetRows = await query<any>(
+    `SELECT account_name, amount FROM altax.v3_budgets WHERE client_id = $1 AND year = $2 AND month = $3`,
+    [clientId, now.getFullYear(), now.getMonth() + 1]
+  );
+  const actualRows = await query<any>(
+    `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+       FROM altax.v3_gl_entries
+      WHERE client_id = $1 AND EXTRACT(YEAR FROM entry_date) = $2 AND EXTRACT(MONTH FROM entry_date) = $3
+      GROUP BY account`,
+    [clientId, now.getFullYear(), now.getMonth() + 1]
+  );
+  const typeByAccount = new Map<string, string>(budgetAccounts.map((a: any) => [a.account_name, a.account_type]));
+  const budgetVsActual = budgetRows.map((b: any) => {
+    const actualRow = actualRows.find((r: any) => r.account === b.account_name);
+    const isIncome = typeByAccount.get(b.account_name) === "Income";
+    const actual = actualRow ? (isIncome ? Number(actualRow.credit) - Number(actualRow.debit) : Number(actualRow.debit) - Number(actualRow.credit)) : 0;
+    return { accountName: b.account_name, budget: Number(b.amount), actual: round2(actual), variance: round2(actual - Number(b.amount)) };
+  }).sort((a: any, b: any) => Math.abs(b.variance) - Math.abs(a.variance));
+
+  // Upcoming deadlines — MD filing (current period only, per this codebase's
+  // documented limitation: no persisted per-period filing history exists) and
+  // the client's nearest scheduled payroll date.
+  const deadlines: { label: string; date: string }[] = [];
+  if (mdFiling && mdFiling.periods.length > 0) {
+    const lastPeriod = mdFiling.periods[mdFiling.periods.length - 1];
+    deadlines.push({ label: "MD Sales Tax Filing", date: lastPeriod.dueDate });
+  }
+  const nextPayrollRow = await queryOne<any>(
+    `SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`,
+    [clientId]
+  );
+  if (nextPayrollRow?.next_pay_date) deadlines.push({ label: "Next Payroll", date: new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) });
+  deadlines.sort((a, b) => a.date.localeCompare(b.date));
+
+  res.json({
+    period: { from, to },
+    financials: {
+      revenue: financials.totals.revenue, expenses: financials.totals.expenses,
+      grossProfit: round2(financials.totals.revenue - cogs), netProfit: financials.totals.profit,
+      cogs, months: financials.months,
+    },
+    cashBalance, apEstimate, taxLiabilities: financials.taxLiabilities,
+    arAging, payrollCost: payroll.totalCost,
+    ratios, health,
+    budgetVsActual, budgetPeriodLabel: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    deadlines,
+    dataLimitations: [
+      "Cash Balance and Accounts Payable are estimates derived from recorded ledger (GL) activity, not a live bank feed or vendor-bill subledger.",
+      "Current Ratio, Quick Ratio, and Debt-to-Equity are not shown — this system doesn't track a complete liabilities/equity picture, and a ratio built on partial data would be misleading.",
+    ],
+  });
+}));
 
 function parsePeriod(req: AuthedRequest): { from: string; to: string } | null {
   const from = String(req.query.from || "").trim();
