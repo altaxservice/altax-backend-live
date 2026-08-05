@@ -12,6 +12,7 @@ import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVI
 import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod } from "../reports/reports.routes";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
+import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -279,10 +280,11 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   const fromStr = from.toISOString().slice(0, 10);
   const toStr = to.toISOString().slice(0, 10);
 
-  const [financials, ops, cashBalance] = await Promise.all([
+  const [financials, ops, cashBalance, alertSettings] = await Promise.all([
     computeFirmSummary(fromStr, toStr, clientId),
     computeClientOpsSummary(clientId),
     computeClientCashBalance(clientId),
+    getDashboardAlertSettings(),
   ]);
   const { trendPct, startedFromZero } = computeRevenueTrend(financials.months);
 
@@ -298,6 +300,9 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
 
   let mdFilingOnTime: boolean | null = null;
   const mdLatePeriodEnds: string[] = [];
+  let mdCurrentPeriodDueDate: string | null = null;
+  let mdCurrentPeriodTaxDue = 0;
+  let mdCurrentPeriodOnTime: boolean | null = null;
   if (clientRow.state === "MD") {
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
@@ -307,6 +312,10 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     if (mdFiling && mdFiling.periods.length > 0) {
       mdFilingOnTime = mdFiling.periods.every((p) => p.onTime);
       for (const p of mdFiling.periods) if (!p.onTime) mdLatePeriodEnds.push(p.end);
+      const current = mdFiling.periods[mdFiling.periods.length - 1];
+      mdCurrentPeriodDueDate = current.dueDate;
+      mdCurrentPeriodTaxDue = Number(current.taxDue) || 0;
+      mdCurrentPeriodOnTime = current.onTime;
     }
   }
 
@@ -359,9 +368,10 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     revenue: financials.totals.revenue, profit: financials.totals.profit, trendPct, startedFromZero,
     openTasks: ops.openTasks, balanceDue: ops.balanceDue, overdueInvoices,
     taxLiabilities: financials.taxLiabilities, cashBalance,
-    mdFilingOnTime, mdLatePeriodEnds,
+    mdFilingOnTime, mdLatePeriodEnds, mdCurrentPeriodDueDate, mdCurrentPeriodTaxDue, mdCurrentPeriodOnTime,
     budgetVariances,
     payrollThisMonthCost: payrollThisMonth.totalCost, payrollLastMonthCost: payrollLastMonth.totalCost, payrollPeriodLabel: periodLabel,
+    alertThresholds: { cashThreshold: alertSettings.cashThreshold, overdueDaysThreshold: alertSettings.overdueDaysThreshold, filingDeadlineDaysThreshold: alertSettings.filingDeadlineDaysThreshold },
   };
 }
 
@@ -584,7 +594,7 @@ clientsRouter.post("/:clientId/swot-findings/:findingId/dismiss", requireAuth, r
  *    (sql/040_swot_findings.sql) as a hard backstop against a duplicate
  *    slipping through a race.
  */
-async function runFindingsGenerateAndReconcile(clientId: string, clientRow: any, actorLabel: string): Promise<{ created: number; resolved: number; evaluated: number }> {
+async function runFindingsGenerateAndReconcile(clientId: string, clientRow: any, actorLabel: string): Promise<{ created: number; resolved: number; evaluated: number; createdFindings: CreatedFindingInfo[] }> {
   const input = await assembleSwotEngineInput(clientId, clientRow);
   const candidates: CandidateFinding[] = computeSwotFindings(input);
   const candidateKeys = new Set(candidates.map((c) => c.autoTriggerKey));
@@ -612,23 +622,28 @@ async function runFindingsGenerateAndReconcile(clientId: string, clientRow: any,
   const openKeys = new Set(openRows.map((r: any) => r.auto_trigger_key));
 
   let created = 0;
+  const createdFindings: CreatedFindingInfo[] = [];
   for (const c of candidates) {
     if (openKeys.has(c.autoTriggerKey)) continue;
     const findingId = nextFindingId();
-    await query(
+    const insertedRows = await query<any>(
       `INSERT INTO altax.v3_swot_findings
          (finding_id, client_id, category, subcategory, finding_text, supporting_data, business_impact,
           priority, recommended_action, status, source, data_type, auto_trigger_key, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Open', 'Auto', $10, $11, $12)
-       ON CONFLICT (client_id, auto_trigger_key) WHERE auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed') DO NOTHING`,
+       ON CONFLICT (client_id, auto_trigger_key) WHERE auto_trigger_key IS NOT NULL AND status NOT IN ('Resolved', 'Dismissed') DO NOTHING
+       RETURNING finding_id`,
       [findingId, clientId, c.category, c.subcategory || null, c.findingText, c.supportingData, c.businessImpact,
         c.priority, c.recommendedAction, c.dataType, c.autoTriggerKey, actorLabel]
     );
     openKeys.add(c.autoTriggerKey);
-    created++;
+    if (insertedRows.length > 0) {
+      created++;
+      createdFindings.push({ ...c, findingId, clientId, clientName: clientRow.client_name || clientId });
+    }
   }
 
-  return { created, resolved, evaluated: candidates.length };
+  return { created, resolved, evaluated: candidates.length, createdFindings };
 }
 
 clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -650,11 +665,15 @@ clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole
 
 /**
  * Nightly automation: generate+reconcile for every active client in one
- * pass. Matches the Payroll/Task Rules Agent cron shape (server.ts) —
- * per-client errors are collected, not thrown, so one bad client can't
- * abort the whole sweep.
+ * pass, then pushes an email/SMS alert (runDashboardAlertPush,
+ * dashboardAlerts.ts) for any newly-created finding urgent enough to
+ * page someone — folded in here rather than a separate cron so alerting
+ * always reflects the exact same sweep that created the finding, never a
+ * second, potentially-stale pass. Matches the Payroll/Task Rules Agent
+ * cron shape (server.ts) — per-client errors are collected, not thrown,
+ * so one bad client can't abort the whole sweep.
  */
-export async function runSwotFindingsSweep(actorEmail: string): Promise<{ clientsProcessed: number; created: number; resolved: number; errors: string[] }> {
+export async function runSwotFindingsSweep(actorEmail: string): Promise<{ clientsProcessed: number; created: number; resolved: number; alertsPushed: number; errors: string[] }> {
   const clients = await query<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
        FROM altax.v3_clients WHERE status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived')`
@@ -663,11 +682,13 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
   let resolved = 0;
   let clientsProcessed = 0;
   const errors: string[] = [];
+  const allCreatedFindings: CreatedFindingInfo[] = [];
   for (const c of clients) {
     try {
       const result = await runFindingsGenerateAndReconcile(c.client_id, c, actorEmail);
       created += result.created;
       resolved += result.resolved;
+      allCreatedFindings.push(...result.createdFindings);
       clientsProcessed++;
     } catch (err) {
       errors.push(`${c.client_id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -676,7 +697,14 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
   if (created > 0 || resolved > 0) {
     await logAudit("Clients", "SWOT_FINDINGS_SWEEP", "Firm", "", "", "", `Nightly sweep: ${created} finding(s) created, ${resolved} auto-resolved across ${clientsProcessed} client(s).`, actorEmail);
   }
-  return { clientsProcessed, created, resolved, errors };
+  let alertsPushed = 0;
+  try {
+    const alertResult = await runDashboardAlertPush(allCreatedFindings, actorEmail);
+    alertsPushed = alertResult.pushed;
+  } catch (err) {
+    errors.push(`alert push: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { clientsProcessed, created, resolved, alertsPushed, errors };
 }
 
 function nextActivityId(): string {

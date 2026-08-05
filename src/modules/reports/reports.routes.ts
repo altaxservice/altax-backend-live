@@ -7,6 +7,8 @@ import { decryptClientPii } from "../../common/encryption";
 import { logAudit } from "../../common/audit";
 import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
+import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
+import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 
 /**
  * Firm-wide analytics — distinct from the existing per-client P&L/Balance
@@ -828,6 +830,38 @@ reportsRouter.get("/client-monthly-snapshots/:clientId", requireAuth, requireRol
     healthScore: r.health_score, healthBand: r.health_band, openTasks: r.open_tasks,
   }));
   res.json({ snapshots });
+}));
+
+/**
+ * Admin toggle + thresholds for the Phase 4 dashboard alert push (see
+ * runDashboardAlertPush, clients/dashboardAlerts.ts) — lets a firm admin
+ * turn automated email/SMS alerts off entirely, or tune what counts as
+ * "urgent enough to page someone" without touching code.
+ */
+reportsRouter.get("/dashboard-alert-settings", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json(await getDashboardAlertSettings());
+}));
+
+reportsRouter.patch("/dashboard-alert-settings", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  await updateDashboardAlertSettings(
+    {
+      autoAlertsEnabled: typeof body.autoAlertsEnabled === "boolean" ? body.autoAlertsEnabled : undefined,
+      cashThreshold: body.cashThreshold !== undefined ? Number(body.cashThreshold) : undefined,
+      overdueDaysThreshold: body.overdueDaysThreshold !== undefined ? Number(body.overdueDaysThreshold) : undefined,
+      filingDeadlineDaysThreshold: body.filingDeadlineDaysThreshold !== undefined ? Number(body.filingDeadlineDaysThreshold) : undefined,
+    },
+    req.user!.email
+  );
+  await logAudit("Reports", "UPDATE_DASHBOARD_ALERT_SETTINGS", "Firm", "", "", "", `Dashboard alert settings updated by ${req.user!.email}.`, req.user!.email);
+  res.json(await getDashboardAlertSettings());
+}));
+
+/** Manual trigger for the monthly management summary (server.ts crons this automatically on the 1st of each month) — lets an admin send it on demand for testing or a mid-month re-send. */
+reportsRouter.post("/monthly-management-summary/run", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const result = await runMonthlyManagementSummary(req.user!.email);
+  await logAudit("Reports", "RUN_MONTHLY_MANAGEMENT_SUMMARY", "Firm", "", "", "", `Monthly management summary run by ${req.user!.email}: ${result.sent} sent, ${result.skipped} skipped.`, req.user!.email);
+  res.json(result);
 }));
 
 function parsePeriod(req: AuthedRequest): { from: string; to: string } | null {

@@ -8,6 +8,7 @@ import { pool } from "./config/db";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter, runSwotFindingsSweep } from "./modules/clients/clients.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
+import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
 import { usersRouter } from "./modules/users/users.routes";
 import { estimatesRouter } from "./modules/estimates/estimates.routes";
 import { poaFormsRouter } from "./modules/poaForms/poaForms.routes";
@@ -401,6 +402,18 @@ cron.schedule("0 7 1 * *", () => {
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Monthly client snapshot sweep scheduled for 7:00AM America/New_York on the 1st of each month.");
+
+// Monthly management summary — staggered 15 minutes after the snapshot
+// sweep so the figures it references (via each client's open SWOT
+// findings) are current. One email per staff member across their assigned
+// clients, idempotent per recipient per month.
+cron.schedule("15 7 1 * *", () => {
+  runMonthlyManagementSummary("System (Monthly Management Summary Job)").catch((err) => {
+    alertAdmins("Monthly management summary failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+}, { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Monthly management summary scheduled for 7:15AM America/New_York on the 1st of each month.");
 
 // Previously nothing caught these — a crash outside an Express request handler (a
 // bad async callback, a rejected promise nobody awaited) just died silently except

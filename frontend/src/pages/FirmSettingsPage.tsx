@@ -199,6 +199,107 @@ export function FirmSettingsPage() {
           </div>
         )}
       </form>
+
+      <DashboardAlertSettingsCard />
+    </div>
+  );
+}
+
+interface DashboardAlertSettings {
+  autoAlertsEnabled: boolean; cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number;
+  updatedBy: string | null; updatedAt: string | null;
+}
+
+/**
+ * Firm-wide on/off switch + thresholds for the At a Glance dashboard's
+ * automated email/SMS alerts (a client's cash going negative, a
+ * receivable going seriously overdue, a filing deadline closing in) —
+ * see runDashboardAlertPush, src/modules/clients/dashboardAlerts.ts.
+ */
+function DashboardAlertSettingsCard() {
+  const toast = useToast();
+  const [settings, setSettings] = useState<DashboardAlertSettings | null>(null);
+  const [form, setForm] = useState({ cashThreshold: "0", overdueDaysThreshold: "90", filingDeadlineDaysThreshold: "7" });
+  const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
+
+  function load() {
+    api.get<DashboardAlertSettings>("/reports/dashboard-alert-settings")
+      .then((res) => {
+        setSettings(res);
+        setForm({ cashThreshold: String(res.cashThreshold), overdueDaysThreshold: String(res.overdueDaysThreshold), filingDeadlineDaysThreshold: String(res.filingDeadlineDaysThreshold) });
+      })
+      .catch(() => {});
+  }
+  useEffect(load, []);
+
+  async function handleToggle() {
+    if (!settings || toggling) return;
+    setToggling(true);
+    try {
+      const res = await api.patch<DashboardAlertSettings>("/reports/dashboard-alert-settings", { autoAlertsEnabled: !settings.autoAlertsEnabled });
+      setSettings(res);
+      toast(res.autoAlertsEnabled ? "Dashboard alerts turned on." : "Dashboard alerts turned off.");
+    } catch {
+      toast("Could not update dashboard alert settings.");
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  async function handleSaveThresholds(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await api.patch<DashboardAlertSettings>("/reports/dashboard-alert-settings", {
+        cashThreshold: Number(form.cashThreshold) || 0,
+        overdueDaysThreshold: Number(form.overdueDaysThreshold) || 90,
+        filingDeadlineDaysThreshold: Number(form.filingDeadlineDaysThreshold) || 7,
+      });
+      setSettings(res);
+      toast("Alert thresholds saved.");
+    } catch {
+      toast("Could not save alert thresholds.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!settings) return null;
+
+  return (
+    <div className="card" style={{ maxWidth: 520, marginTop: 16 }}>
+      <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Dashboard Alerts</h2>
+      <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+        When on, a client whose cash goes low, receivable goes seriously overdue, or filing deadline closes in gets an
+        automatic email (and text, if a phone is on file) to their assigned staff member — checked nightly.
+      </p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <span>Automatic alerts are {settings.autoAlertsEnabled ? "on" : "off"}</span>
+        <button type="button" className="btn btn-sm" onClick={handleToggle} disabled={toggling}>
+          {toggling ? "Saving…" : settings.autoAlertsEnabled ? "Turn off" : "Turn on"}
+        </button>
+      </div>
+      <form onSubmit={handleSaveThresholds} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="field">
+          <label htmlFor="cash-threshold">Cash balance threshold ($)</label>
+          <input id="cash-threshold" type="number" step="0.01" value={form.cashThreshold} onChange={(e) => setForm((f) => ({ ...f, cashThreshold: e.target.value }))} />
+        </div>
+        <div className="field">
+          <label htmlFor="overdue-threshold">Overdue invoice alert threshold (days)</label>
+          <input id="overdue-threshold" type="number" min={1} value={form.overdueDaysThreshold} onChange={(e) => setForm((f) => ({ ...f, overdueDaysThreshold: e.target.value }))} />
+        </div>
+        <div className="field">
+          <label htmlFor="filing-threshold">Filing deadline alert threshold (days out)</label>
+          <input id="filing-threshold" type="number" min={1} value={form.filingDeadlineDaysThreshold} onChange={(e) => setForm((f) => ({ ...f, filingDeadlineDaysThreshold: e.target.value }))} />
+        </div>
+        <button type="submit" className="btn btn-sm btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : "Save Thresholds"}</button>
+      </form>
+      {settings.updatedBy && settings.updatedAt && (
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
+          Last updated by {settings.updatedBy} on {new Date(settings.updatedAt).toLocaleString()}
+        </div>
+      )}
     </div>
   );
 }

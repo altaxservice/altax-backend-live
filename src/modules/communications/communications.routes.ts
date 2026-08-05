@@ -5,8 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
-import { sendEmail, sendSms, sendWhatsApp, NotConfiguredError } from "../../common/notifications";
-import { wrapEmailHtml } from "../../common/emailTemplate";
+import { sendChannel, bodyToDirectionalHtml, type SendAttachment } from "../../common/sendChannel";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
@@ -136,90 +135,13 @@ const SMS_INLINE_MAX_CHARS = 400;
  */
 export const communicationsRouter = Router();
 
-export interface SendAttachment { filename: string; contentBase64: string; contentType?: string }
-
-const ARABIC_CHARS = /[؀-ۿݐ-ݿ]/;
-
-/**
- * Turns a plain-text body into email HTML with correct per-section text direction —
- * previously every send just wrapped the whole string in one <p> with no dir/align at
- * all, so an Arabic section (e.g. the "Both" language preference's English-then-"---"
- * -then-Arabic merge from communicationBodyForPreference) rendered left-to-right, with
- * embedded dollar amounts scrambling the reading order. Splits on that exact "---"
- * divider and gives each resulting block its own dir="rtl"/"ltr" based on whether it's
- * actually Arabic text, rather than guessing from which language came first.
- */
-export function bodyToDirectionalHtml(body: string): string {
-  const blocks = body.split(/\n\n---\n\n/);
-  return blocks
-    .map((block) => {
-      const isArabic = ARABIC_CHARS.test(block);
-      const html = block.trim().replace(/\n/g, "<br>");
-      return isArabic
-        ? `<div dir="rtl" style="direction:rtl; text-align:right; unicode-bidi:embed;">${html}</div>`
-        : `<div dir="ltr" style="direction:ltr; text-align:left;">${html}</div>`;
-    })
-    .join('<hr style="border:none; border-top:1px solid #e5e7eb; margin:14px 0;">');
-}
-
-/**
- * Attempts a real send for Email/SMS/WhatsApp channels; Portal Note and Phone are
- * always log-only. Never throws — a missing provider key or a delivery failure is
- * reported back as { sent: false, error } rather than blocking the communication log
- * write, exactly like sendInviteEmail() in users.routes.ts.
- *
- * Email goes out through wrapEmailHtml — the same branded header/footer shell (firm
- * name + logo, styled body, firm contact info) every other outbound email in the app
- * already uses — instead of a bare <p> tag, and can carry one real attachment.
- * SMS/WhatsApp have no display-name concept at all (the client just sees a phone
- * number), so the firm's name is prefixed onto the body itself. Neither can carry a
- * real file (no MMS wired up) — when there's an attachment, the caller saves it as a
- * Document first (saveMessageAttachmentAsDocument) and passes the resulting
- * opts.documentUrl here, so the text can point straight at a real, secure download
- * link instead of silently dropping the file.
- */
-async function sendChannel(
-  channel: string, to: string, subject: string, body: string,
-  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string; documentUrl?: string; portalUrl?: string } = {}
-): Promise<{ sent: boolean; error?: string }> {
-  const normalized = normalizeText(channel);
-  if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
-  try {
-    if (normalized === "email") {
-      const html = await wrapEmailHtml(bodyToDirectionalHtml(body), opts.req);
-      const attachments = opts.attachment
-        ? [{ filename: opts.attachment.filename, content: Buffer.from(opts.attachment.contentBase64, "base64"), contentType: opts.attachment.contentType }]
-        : undefined;
-      await sendEmail({ to, subject, html, attachments });
-    } else {
-      const firmName = opts.firmName || "AL Tax Service";
-      // Long bodies (a full bilingual report) can't fit SMS/WhatsApp in a readable
-      // number of segments — send a short pointer to the public view page instead
-      // of the whole text. Short messages (reminders, follow-ups) are unaffected.
-      let effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
-        ? `${subject}. View / اطّلع على الرسالة: ${opts.viewUrl}`
-        : body;
-      // A file can't ride inside SMS/WhatsApp text regardless of length — normally
-      // offer both a direct secure download link and the client-portal option. When
-      // the caller marks the document sensitive (documentUrl omitted, portalUrl set),
-      // only the portal option is mentioned — the file is still saved and shows up in
-      // the client's portal Documents list either way, this only controls whether an
-      // unauthenticated direct link exists for it at all.
-      if (opts.documentUrl) {
-        effectiveBody += ` Attachment: ${opts.documentUrl}`;
-        if (opts.portalUrl) effectiveBody += ` Or view it securely in your client portal: ${opts.portalUrl}`;
-      } else if (opts.portalUrl) {
-        effectiveBody += ` Your attachment is available securely in your client portal: ${opts.portalUrl}`;
-      }
-      const prefixed = `${firmName}: ${effectiveBody}`;
-      if (normalized === "sms") await sendSms({ to, body: prefixed });
-      else await sendWhatsApp({ to, body: prefixed });
-    }
-    return { sent: true };
-  } catch (err: any) {
-    return { sent: false, error: err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.") };
-  }
-}
+// sendChannel/bodyToDirectionalHtml/SendAttachment moved to
+// src/common/sendChannel.ts (imported above) so the Phase 4 dashboard
+// alert sweep can reuse the exact same branded email/SMS/WhatsApp delivery
+// path instead of a second implementation. Re-exported here so nothing
+// else in this codebase importing from this module needs to change.
+export type { SendAttachment };
+export { bodyToDirectionalHtml };
 
 function idSuffix(): string {
   const now = new Date();

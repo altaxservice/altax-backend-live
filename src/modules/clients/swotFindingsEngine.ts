@@ -57,20 +57,37 @@ export interface SwotEngineInput {
 
   mdFilingOnTime: boolean | null; // null = not an MD client, or no period in range
   mdLatePeriodEnds: string[]; // period end dates (YYYY-MM-DD) currently showing late
+  // Current (most recent) filing period's own due date/tax due — separate
+  // from mdLatePeriodEnds because this drives the *upcoming* (not yet late)
+  // deadline warning below, not a past-due one.
+  mdCurrentPeriodDueDate: string | null;
+  mdCurrentPeriodTaxDue: number;
+  mdCurrentPeriodOnTime: boolean | null;
 
   budgetVariances: { accountName: string; accountType: "Income" | "COGS" | "Expense"; budget: number; actual: number; variance: number; periodLabel: string }[];
 
   payrollThisMonthCost: number;
   payrollLastMonthCost: number;
   payrollPeriodLabel: string;
+
+  // Admin-configurable (v3_dashboard_alert_settings) — read once by the
+  // caller and threaded through here so this stays a pure function with no
+  // DB access of its own. Also what separates "worth a finding" from
+  // "worth paging someone" (Urgent priority) for overdue AR and an
+  // upcoming filing deadline.
+  alertThresholds: { cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number };
+}
+
+function daysBetween(fromIso: string, toIso: string): number {
+  return Math.round((new Date(`${toIso}T00:00:00`).getTime() - new Date(`${fromIso}T00:00:00`).getTime()) / 86400000);
 }
 
 function fmtMoney(v: number): string {
   return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function overduePriority(days: number): "Low" | "Medium" | "High" | "Urgent" {
-  if (days > 90) return "Urgent";
+function overduePriority(days: number, urgentThreshold: number): "Low" | "Medium" | "High" | "Urgent" {
+  if (days > urgentThreshold) return "Urgent";
   if (days > 60) return "High";
   if (days > 30) return "Medium";
   return "Low";
@@ -170,8 +187,8 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
       category: "Threat", findingText: `Invoice ${inv.invoiceId} is ${inv.daysOverdue} days past due.`,
       supportingData: `Balance due ${fmtMoney(inv.balanceDue)}, ${inv.daysOverdue} days overdue.`,
       businessImpact: "Uncollected receivables directly reduce available cash.",
-      priority: overduePriority(inv.daysOverdue),
-      recommendedAction: inv.daysOverdue > 90 ? "Escalate collection — consider a firm deadline or stopping further work until paid." : "Send a payment reminder.",
+      priority: overduePriority(inv.daysOverdue, input.alertThresholds.overdueDaysThreshold),
+      recommendedAction: inv.daysOverdue > input.alertThresholds.overdueDaysThreshold ? "Escalate collection — consider a firm deadline or stopping further work until paid." : "Send a payment reminder.",
       dataType: "Fact", autoTriggerKey: `overdue_ar:${inv.invoiceId}`,
     });
   }
@@ -208,6 +225,26 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
     }
   }
 
+  // --- Upcoming (not yet late) filing deadline ---
+  // Distinct from the late-filing rule above: this fires while there's
+  // still time to act. Urgent once inside alertThresholds.filingDeadlineDaysThreshold
+  // (the push-worthy window), High out to 14 days (dashboard-visible only).
+  if (input.mdCurrentPeriodOnTime !== false && input.mdCurrentPeriodDueDate && input.mdCurrentPeriodTaxDue > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    const daysUntilDue = daysBetween(today, input.mdCurrentPeriodDueDate);
+    if (daysUntilDue >= 0 && daysUntilDue <= 14) {
+      findings.push({
+        category: "Weakness",
+        findingText: `Sales tax filing for the period ending ${input.mdCurrentPeriodDueDate} is due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.`,
+        supportingData: `Tax due ${fmtMoney(input.mdCurrentPeriodTaxDue)}, due date ${input.mdCurrentPeriodDueDate}.`,
+        businessImpact: "Missing the deadline triggers the 10% late penalty plus monthly interest.",
+        priority: daysUntilDue <= input.alertThresholds.filingDeadlineDaysThreshold ? "Urgent" : "High",
+        recommendedAction: "File and pay before the due date to avoid penalty and interest.",
+        dataType: "Fact", autoTriggerKey: `filing_deadline_soon:${input.mdCurrentPeriodDueDate}`,
+      });
+    }
+  }
+
   // --- Service enrollment gaps ---
   if (input.serviceGaps.length > 0) {
     findings.push({
@@ -221,11 +258,11 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
   }
 
   // --- Cash balance ---
-  if (input.cashBalance < 0) {
+  if (input.cashBalance < input.alertThresholds.cashThreshold) {
     findings.push({
-      category: "Threat", findingText: `Estimated cash balance is negative (${fmtMoney(input.cashBalance)}).`,
+      category: "Threat", findingText: `Estimated cash balance (${fmtMoney(input.cashBalance)}) is below the ${fmtMoney(input.alertThresholds.cashThreshold)} threshold.`,
       supportingData: `Estimated from recorded ledger activity on Bank/Cash-tagged accounts: ${fmtMoney(input.cashBalance)}.`,
-      businessImpact: "A negative cash position risks missed payments (payroll, vendors, taxes) if it isn't addressed.",
+      businessImpact: "A low cash position risks missed payments (payroll, vendors, taxes) if it isn't addressed.",
       priority: "Urgent", recommendedAction: "Review upcoming receipts and payments; consider a short-term cash-flow plan.",
       dataType: "Estimate", autoTriggerKey: "cash_balance_negative",
     });
