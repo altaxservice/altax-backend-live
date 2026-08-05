@@ -27,6 +27,8 @@ import type { GovFormFiling, ClientGovFormType } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
 import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
+import { ClientAtAGlance } from "../components/ClientAtAGlance";
+import { ClientSwotSection } from "../components/ClientSwotSection";
 
 type FieldKind = "text" | "select" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -150,12 +152,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -192,7 +194,7 @@ export function ClientDetailPage() {
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [comms, setComms] = useState<Communication[] | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
-  const [tab, setTab] = useState<DetailTab>("Profile");
+  const [tab, setTab] = useState<DetailTab>("At a Glance");
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
@@ -587,6 +589,14 @@ export function ClientDetailPage() {
               </button>
             ))}
           </div>
+
+          {tab === "At a Glance" && canSeeStaffTabs && (
+            <ClientAtAGlance clientId={client.client_id} summary={summary} />
+          )}
+
+          {tab === "SWOT Analysis" && canSeeStaffTabs && (
+            <ClientSwotSection clientId={client.client_id} />
+          )}
 
           {tab === "Profile" && (
             <>

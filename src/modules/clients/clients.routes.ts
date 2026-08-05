@@ -181,6 +181,63 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   });
 }));
 
+const SWOT_FIELDS = [
+  "overview", "strengths", "weaknesses", "opportunities", "threats",
+  "taxRecommendations", "staffingRecommendations", "marketingRecommendations", "growthRecommendations", "additionalNotes",
+] as const;
+const SWOT_COLUMNS: Record<(typeof SWOT_FIELDS)[number], string> = {
+  overview: "overview", strengths: "strengths", weaknesses: "weaknesses", opportunities: "opportunities", threats: "threats",
+  taxRecommendations: "tax_recommendations", staffingRecommendations: "staffing_recommendations",
+  marketingRecommendations: "marketing_recommendations", growthRecommendations: "growth_recommendations", additionalNotes: "additional_notes",
+};
+
+/**
+ * Per-client business advisory analysis — a living document staff write and
+ * revisit over time (one row per client, upserted below), not a dated log
+ * entry. Broader than a classic 4-box SWOT by explicit ask: alongside the
+ * standard Strengths/Weaknesses/Opportunities/Threats, staff can record
+ * concrete category recommendations (tax savings + penalty/interest
+ * avoidance, staffing, marketing, growth) plus an open "Additional Notes"
+ * intake card for anything else supporting the strategy. See
+ * sql/037_client_swot.sql.
+ */
+clientsRouter.get("/:clientId/swot", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_swot WHERE client_id = $1`, [clientId]);
+  const swot: Record<string, any> = {};
+  for (const field of SWOT_FIELDS) swot[field] = row?.[SWOT_COLUMNS[field]] || "";
+  swot.updatedBy = row?.updated_by || null;
+  swot.updatedAt = row?.updated_at || null;
+  res.json({ swot });
+}));
+
+clientsRouter.patch("/:clientId/swot", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const body = req.body || {};
+  const values = SWOT_FIELDS.map((f) => (body[f] !== undefined ? String(body[f]) : ""));
+
+  await query(
+    `INSERT INTO altax.v3_client_swot
+       (client_id, overview, strengths, weaknesses, opportunities, threats,
+        tax_recommendations, staffing_recommendations, marketing_recommendations, growth_recommendations, additional_notes,
+        updated_by, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+     ON CONFLICT (client_id) DO UPDATE SET
+       overview=$2, strengths=$3, weaknesses=$4, opportunities=$5, threats=$6,
+       tax_recommendations=$7, staffing_recommendations=$8, marketing_recommendations=$9, growth_recommendations=$10, additional_notes=$11,
+       updated_by=$12, updated_at=now()`,
+    [clientId, ...values, req.user!.email]
+  );
+  await logAudit("Clients", "EDIT_SWOT", clientId, "", "", "", `Business advisory analysis (SWOT) updated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 function nextActivityId(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");

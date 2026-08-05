@@ -141,9 +141,26 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           <input id="appt-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Tax review" />
         </div>
         {isEditing ? (
-          <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>
-            With {appointment!.client_name || appointment!.contact_name || "—"} — who this is with can't be changed here; cancel and rebook to change the client/contact.
-          </p>
+          // Every field here already comes back from GET /appointments (SELECT a.* — a
+          // full row), it just previously had nowhere to render once you opened Edit:
+          // Email/Phone were only shown on the NEW-appointment form (gated !isEditing
+          // below), and Status/Type/Created-by weren't shown anywhere in this modal at
+          // all — the only thing visible was the "With {name}" line, which reads as
+          // "the name is missing" for a nameless blocked-time appointment even though
+          // that's legitimate (Title alone is enough to create one).
+          <div className="card" style={{ margin: "0 0 12px", padding: 12, background: "var(--surface)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12 }}>
+              <div><span className="muted">With:</span> {appointment!.client_name || appointment!.contact_name || "—"}</div>
+              <div><span className="muted">Status:</span> {appointment!.status}</div>
+              <div><span className="muted">Email:</span> {appointment!.contact_email || "—"}</div>
+              <div><span className="muted">Phone:</span> {appointment!.contact_phone || "—"}</div>
+              {appointment!.appointment_type_name && <div><span className="muted">Type:</span> {appointment!.appointment_type_name}</div>}
+              {appointment!.created_by && <div><span className="muted">Created by:</span> {appointment!.created_by}</div>}
+            </div>
+            <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+              Who this is with can't be changed here — cancel and rebook to change the client/contact.
+            </p>
+          </div>
         ) : (
           <div className="field">
             <label htmlFor="appt-client">Client (optional)</label>

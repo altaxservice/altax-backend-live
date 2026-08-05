@@ -145,6 +145,23 @@ reportsRouter.get("/firm-summary", requireAuth, requireRole("admin"), asyncHandl
   res.json(await computeFirmSummary(rangeFrom, rangeTo, clientId));
 }));
 
+/**
+ * Same computeFirmSummary a client scoped down to just this one client — powers
+ * the "Financial Snapshot" on Client Detail's "At a Glance" tab. Admin-only,
+ * matching every other route in this file that surfaces this revenue/expense
+ * data (Financial Overview and AR Aging are both admin-only too) — the
+ * frontend only calls this when the logged-in user is an admin, so a staff
+ * session never even attempts it.
+ */
+reportsRouter.get("/client-summary/:clientId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json(await computeFirmSummary(rangeFrom, rangeTo, clientId));
+}));
+
 reportsRouter.get("/pdf/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { from, to } = defaultFirmSummaryRange();
   const rangeFrom = String(req.query.from || "").slice(0, 10) || from;

@@ -241,13 +241,24 @@ export function TaskCalendarPage() {
                       <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
                       <tbody>
                         {selectedAppts.map((a) => (
-                          <tr key={a.appointment_id}>
+                          // Whole row opens the same edit/detail view as the "Edit" button —
+                          // previously only that small button was clickable, unlike the Tasks
+                          // Due table just below, whose entire row already opens its detail
+                          // page. The action buttons stop propagation so clicking one of them
+                          // still just does its own thing instead of also opening Edit.
+                          <tr
+                            key={a.appointment_id}
+                            style={{ cursor: "pointer" }}
+                            tabIndex={0}
+                            onClick={() => setEditingAppt(a)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditingAppt(a); } }}
+                          >
                             <td>{fmtApptTime(a)}</td>
                             <td>{a.title}</td>
                             <td>{a.client_name || a.contact_name || "—"}</td>
                             <td>{a.assigned_to || "—"}</td>
                             <td><StatusBadge status={a.status} /></td>
-                            <td>
+                            <td onClick={(e) => e.stopPropagation()}>
                               <div style={{ display: "flex", gap: 4 }}>
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => handleCancelAppointment(a.appointment_id)}>Cancel</button>}
