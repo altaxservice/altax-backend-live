@@ -669,6 +669,25 @@ reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "sta
   res.json({ client, from: period.from, to: period.to, ...data, mdFiling });
 }));
 
+/**
+ * Same per-real-filing-period MD Form 202 breakdown as the JSON above, but
+ * standalone (no byCategory/sales/totals) — used by Accounting → Sales &
+ * Tax by Period so that working tab shares the exact same due-date/
+ * frequency-aware math as the client-facing report, instead of the
+ * client-agnostic /calculators/md-filing endpoint (which has no period or
+ * filing-frequency concept and was blending everything into one due date).
+ */
+reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const period = parsePeriod(req);
+  if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
+  const mdFiling = await computeMdFilingForReport(client, data.sales, period.from, period.to, mdPaidDate);
+  res.json({ mdFiling });
+}));
+
 reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
