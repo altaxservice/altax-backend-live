@@ -4,7 +4,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
-import { sendEmail, sendSms, NotConfiguredError } from "../../common/notifications";
+import { sendEmail, sendSms, NotConfiguredError, parseEmailList } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
@@ -43,6 +43,8 @@ export interface CreateAppointmentInput {
   notes?: string | null;
   assignedTo?: string | null;
   notifyClient?: boolean;
+  /** "Invite Others" — additional emails CC'd on the confirmation/reminder/cancellation sends, alongside the primary contact. Not a portal account or a real RSVP flow. */
+  guestEmails?: string[] | null;
   createdBy: string;
   /** Informational snapshot of which Appointment Type this was booked as — see sql/036_appointment_types.sql. Both null for an appointment with no type (e.g. most internal staff-created ones, or before this feature existed). */
   appointmentTypeId?: string | null;
@@ -109,16 +111,17 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
   const notifyClient = input.notifyClient !== false;
   const appointmentId = `APT-${idSuffix()}`;
   const manageToken = crypto.randomBytes(24).toString("hex");
+  const guestEmails = input.guestEmails?.length ? input.guestEmails : null;
   await query(
     `INSERT INTO altax.v3_appointments
        (appointment_id, title, client_id, contact_name, contact_email, contact_phone,
         start_time, end_time, location, notes, assigned_to, status, notify_client, created_by, manage_token,
-        appointment_type_id, appointment_type_name)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14,$15,$16)`,
+        appointment_type_id, appointment_type_name, guest_emails)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Scheduled',$12,$13,$14,$15,$16,$17)`,
     [appointmentId, title, clientId, contactName, contactEmail, contactPhone,
       input.startTime, input.endTime, input.location?.trim() || null, input.notes?.trim() || null,
       assignedTo, notifyClient, input.createdBy, manageToken,
-      input.appointmentTypeId || null, input.appointmentTypeName || null]
+      input.appointmentTypeId || null, input.appointmentTypeName || null, guestEmails]
   );
 
   const appt = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
@@ -296,7 +299,10 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     try {
       if (channel === "Email") {
         const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
-        await sendEmail({ to, subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
+        // "Invite Others" guests are CC'd on the same confirmation/reminder/
+        // cancellation email the primary contact gets — no separate send
+        // path, no portal account, matching the existing Cc/Bcc convention.
+        await sendEmail({ to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
       } else {
         // SMS stays short — the full policy/location text only goes in the email (see
         // SMS_INLINE_MAX_CHARS convention in communications.routes.ts) — but the manage
@@ -574,7 +580,7 @@ appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHa
       startTime: String(body.startTime || ""), endTime: String(body.endTime || ""),
       location: body.location, notes: body.notes, assignedTo: body.assignedTo,
       appointmentTypeId: body.appointmentTypeId || null, appointmentTypeName: body.appointmentTypeName || null,
-      notifyClient: body.notifyClient !== false, createdBy: req.user!.email, req,
+      notifyClient: body.notifyClient !== false, guestEmails: parseEmailList(body.guestEmails) || null, createdBy: req.user!.email, req,
     });
     res.status(201).json({ ok: true, appointmentId });
   } catch (err: any) {
@@ -615,7 +621,7 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
        notify_client = $8,
        reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END,
        reminder_lead_minutes_sent = CASE WHEN $9 THEN '{}' ELSE reminder_lead_minutes_sent END,
-       appointment_type_id = $10, appointment_type_name = $11,
+       appointment_type_id = $10, appointment_type_name = $11, guest_emails = $12,
        updated_at = now()
      WHERE appointment_id = $1`,
     [appointmentId, title, startTime, endTime,
@@ -634,7 +640,8 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
       // picker shown when there's only one type), so editing and saving any
       // of them hit this on every single save.
       body.appointmentTypeId !== undefined ? (body.appointmentTypeId ? String(body.appointmentTypeId).trim() || null : null) : existing.appointment_type_id,
-      body.appointmentTypeName !== undefined ? (body.appointmentTypeName ? String(body.appointmentTypeName).trim() || null : null) : existing.appointment_type_name]
+      body.appointmentTypeName !== undefined ? (body.appointmentTypeName ? String(body.appointmentTypeName).trim() || null : null) : existing.appointment_type_name,
+      body.guestEmails !== undefined ? (parseEmailList(body.guestEmails) || null) : existing.guest_emails]
   );
 
   if (timeChanged || assignmentChanged) {

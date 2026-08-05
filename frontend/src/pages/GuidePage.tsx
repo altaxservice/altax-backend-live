@@ -103,6 +103,42 @@ const SECTIONS: Section[] = [
         useWhen: "Use Referral Source consistently so you can eventually answer \"where do our clients actually come from\" — pull it up when deciding where to spend marketing effort.",
       },
       {
+        heading: "At a Glance tab — the client's financial dashboard",
+        steps: [
+          "Open any client, click the At a Glance tab (it's the default tab when you open a client).",
+          "Operations tiles (Open Tasks, Document Requests, Invoices, Balance Due, Employees) are visible to staff and admin alike.",
+          "Everything below that — Health Score, This Period, Financial Position, Ratios, Budget vs Actual, Upcoming Deadlines — is admin-only, same restriction as Reports → Financial Overview.",
+          "The Business Health Score (0-100, Green/Yellow/Red) is never just a number — the breakdown underneath it always shows exactly which of the 6 factors (profitability, revenue trend, AR aging, tax liability, task backlog, MD filing status) cost or earned points, so you can explain it to a client.",
+          "The red banner at the top only appears when something genuinely needs attention (Red health score, an invoice over 90 days past due, or a deadline inside 7 days) — no banner means nothing urgent right now.",
+          "Cash Balance and Accounts Payable are labeled \"estimate\" on purpose — they're derived from recorded ledger activity, not a live bank feed or a vendor-bill system, so treat them as a strong approximation, not a bank statement.",
+        ],
+        useWhen: "Open this tab before any client call — it's the fastest way to walk in already knowing where the client stands.",
+      },
+      {
+        heading: "SWOT Analysis & Business Advisory tab",
+        steps: [
+          "Open a client, click the SWOT Analysis tab.",
+          "\"Auto-Fill from Business Data\" drafts the Overview/Strengths/Weaknesses/Opportunities/Threats/Tax Strategy/Growth Plan text fields from real numbers already in the system — it only fills fields that are still blank, so it can never overwrite something you already wrote.",
+          "Staffing and Marketing recommendations stay manual — nothing in this system tracks staffing adequacy or marketing performance, so use the Business Intake answers and your own judgment there.",
+          "Business Intake (Target Market, Competitors, Business Goals, Known Challenges) is for context no transaction can tell you — fill it in from the actual client conversation; it informs the Staffing/Marketing fields.",
+          "\"View Report\" / \"Download PDF\" generates the actual client-facing document — a printable Business Advisory Report with the firm's letterhead, built specifically to hand to or email a client, unlike the internal Financial Overview report.",
+        ],
+      },
+      {
+        heading: "Structured Findings & Action Items (on the SWOT Analysis tab)",
+        steps: [
+          "This is the table at the top of the SWOT Analysis tab, above the narrative text fields — it's a trackable list, not prose: every row has a Finding, Priority, Owner, Due Date, and Status.",
+          "Click \"Generate Findings Now\" to run the same rule-based engine as Auto-Fill, but it creates individual trackable rows instead of one paragraph — it never creates a duplicate for a condition that's already tracked as an open finding.",
+          "Rows tagged \"Auto\" came from the engine; anything you create with \"+ Add Finding\" is tagged Manual. Editing any field on an Auto row locks it from future automated changes — the system will never silently overwrite something you touched.",
+          "Priority and Status can be changed inline (the colored dropdown); Owner and Due Date are editable inline text/date fields that save when you click away.",
+          "Resolve closes a finding as done (kept for history, not deleted); Dismiss closes it as not applicable, with an optional reason.",
+          "Check \"Show resolved/dismissed\" to see the full history instead of just what's still open.",
+          "A nightly automated sweep also runs this same engine for every client — it creates new findings for conditions that just appeared, and automatically resolves any Auto finding whose underlying condition has cleared (e.g., an overdue invoice that got paid). It never touches anything you've edited.",
+          "If Dashboard Alerts are turned on (ask an admin), the most urgent new findings (negative cash balance, an invoice newly over 90 days late, a filing deadline inside 7 days) also trigger an email/SMS to the client's assigned staff automatically.",
+        ],
+        useWhen: "Use this table, not the narrative fields, when you need to actually assign and track follow-up work rather than just describe the situation.",
+      },
+      {
         heading: "Logging an activity (calls, walk-ins, meetings)",
         steps: [
           "On the client's Communications tab, click \"+ Log Activity\" any time you call, meet with, or talk to a client outside the app.",

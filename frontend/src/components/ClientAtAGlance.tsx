@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
@@ -59,6 +60,27 @@ function DeltaArrow({ current, prior, higherIsBetter = true }: { current: number
   );
 }
 
+/**
+ * Every tile in this app that can meaningfully take you somewhere is a
+ * `<button class="metric metric-clickable">`, not a plain div (established
+ * pattern — see DashboardPage.tsx, TasksListPage.tsx, InvoicesListPage.tsx).
+ * Renders a plain non-interactive div when no onClick is given, so a tile
+ * with no real destination doesn't pretend to be clickable.
+ */
+function MetricTile({ label, value, note, critical, onClick }: { label: string; value: ReactNode; note?: ReactNode; critical?: boolean; onClick?: () => void }) {
+  const cls = `metric${critical ? " metric-critical" : ""}${onClick ? " metric-clickable" : ""}`;
+  const inner = (
+    <>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
+      {note}
+    </>
+  );
+  return onClick
+    ? <button type="button" className={cls} onClick={onClick}>{inner}</button>
+    : <div className={cls}>{inner}</div>;
+}
+
 /** Inline SVG polyline — no chart library exists in this frontend, and one line doesn't need one. */
 function Sparkline({ points, color }: { points: number[]; color: string }) {
   const w = 240, h = 48, pad = 4;
@@ -90,9 +112,11 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
  *   GL-derived estimates (no bank feed or vendor-bill subledger exists in
  *   this app) — always labeled as such per dataLimitations from the API.
  */
-export function ClientAtAGlance({ clientId, summary }: { clientId: string; summary: ClientSummary | null }) {
+export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId: string; summary: ClientSummary | null; onNavigateTab: (tab: string) => void }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
+  const goToReports = () => navigate(`/reports?clientId=${clientId}`);
   const [dash, setDash] = useState<ClientDashboard | null>(null);
   const [snapshots, setSnapshots] = useState<MonthlySnapshot[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,11 +146,11 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Operations</h2>
         <div className="metric-grid">
-          <div className="metric"><div className="metric-label">Open Tasks</div><div className="metric-value">{summary ? summary.openTasks : "—"}</div></div>
-          <div className="metric"><div className="metric-label">Open Document Requests</div><div className="metric-value">{summary ? summary.openRequests : "—"}</div></div>
-          <div className="metric"><div className="metric-label">Open Invoices</div><div className="metric-value">{summary ? summary.openInvoices : "—"}</div></div>
-          <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{summary ? fmtMoney(summary.balanceDue) : "—"}</div></div>
-          <div className="metric"><div className="metric-label">Employees</div><div className="metric-value">{summary ? summary.employeesCount : "—"}</div></div>
+          <MetricTile label="Open Tasks" value={summary ? summary.openTasks : "—"} onClick={() => onNavigateTab("Tasks")} />
+          <MetricTile label="Open Document Requests" value={summary ? summary.openRequests : "—"} onClick={() => onNavigateTab("Documents")} />
+          <MetricTile label="Open Invoices" value={summary ? summary.openInvoices : "—"} onClick={() => onNavigateTab("Billing")} />
+          <MetricTile label="Balance Due" value={summary ? fmtMoney(summary.balanceDue) : "—"} onClick={() => onNavigateTab("Billing")} />
+          <MetricTile label="Employees" value={summary ? summary.employeesCount : "—"} onClick={() => onNavigateTab("Account")} />
         </div>
       </div>
 
@@ -147,7 +171,7 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
                 </div>
               )}
 
-              <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card" style={{ marginBottom: 16 }} id="health-score-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <h2 style={{ fontSize: 15, margin: 0 }}>Business Health Score</h2>
                   <span className={`status-pill ${bandPillClass(dash.health.band)}`}>{dash.health.band}</span>
@@ -166,10 +190,10 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
               <div className="card" style={{ marginBottom: 16 }}>
                 <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>This Period</h2>
                 <div className="metric-grid">
-                  <div className="metric"><div className="metric-label">Revenue</div><div className="metric-value">{fmtMoney(dash.financials.revenue)}</div><div className="metric-note">Last 6 months</div></div>
-                  <div className="metric"><div className="metric-label">Expenses</div><div className="metric-value">{fmtMoney(dash.financials.expenses)}</div><div className="metric-note">Last 6 months</div></div>
-                  <div className="metric"><div className="metric-label">Gross Profit</div><div className="metric-value">{fmtMoney(dash.financials.grossProfit)}</div><div className="metric-note">Revenue − COGS</div></div>
-                  <div className={`metric${dash.financials.netProfit < 0 ? " metric-critical" : ""}`}><div className="metric-label">Net Profit</div><div className="metric-value">{fmtMoney(dash.financials.netProfit)}</div><div className="metric-note">Last 6 months</div></div>
+                  <MetricTile label="Revenue" value={fmtMoney(dash.financials.revenue)} note={<div className="metric-note">Last 6 months</div>} onClick={goToReports} />
+                  <MetricTile label="Expenses" value={fmtMoney(dash.financials.expenses)} note={<div className="metric-note">Last 6 months</div>} onClick={goToReports} />
+                  <MetricTile label="Gross Profit" value={fmtMoney(dash.financials.grossProfit)} note={<div className="metric-note">Revenue − COGS</div>} onClick={goToReports} />
+                  <MetricTile label="Net Profit" value={fmtMoney(dash.financials.netProfit)} note={<div className="metric-note">Last 6 months</div>} critical={dash.financials.netProfit < 0} onClick={goToReports} />
                 </div>
                 {(snapshots && snapshots.length > 1 ? snapshots.length : dash.financials.months.length) > 1 && (
                   <div style={{ marginTop: 14 }}>
@@ -189,28 +213,23 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
                   <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>This Month vs. Last Month</h2>
                   <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>{latestMonth.periodLabel} vs {priorMonth.periodLabel}, from the monthly snapshot history.</p>
                   <div className="metric-grid">
-                    <div className="metric">
-                      <div className="metric-label">Revenue</div>
-                      <div className="metric-value">{fmtMoney(latestMonth.revenue)}</div>
-                      <DeltaArrow current={latestMonth.revenue} prior={priorMonth.revenue} higherIsBetter />
-                    </div>
-                    <div className="metric">
-                      <div className="metric-label">Expenses</div>
-                      <div className="metric-value">{fmtMoney(latestMonth.expenses)}</div>
-                      <DeltaArrow current={latestMonth.expenses} prior={priorMonth.expenses} higherIsBetter={false} />
-                    </div>
-                    <div className="metric">
-                      <div className="metric-label">Net Profit</div>
-                      <div className="metric-value">{fmtMoney(latestMonth.profit)}</div>
-                      <DeltaArrow current={latestMonth.profit} prior={priorMonth.profit} higherIsBetter />
-                    </div>
-                    <div className="metric">
-                      <div className="metric-label">Health Score</div>
-                      <div className="metric-value">{latestMonth.healthScore ?? "—"}</div>
-                      {latestMonth.healthScore !== null && priorMonth.healthScore !== null && (
-                        <DeltaArrow current={latestMonth.healthScore} prior={priorMonth.healthScore} higherIsBetter />
-                      )}
-                    </div>
+                    <MetricTile
+                      label="Revenue" value={fmtMoney(latestMonth.revenue)} onClick={goToReports}
+                      note={<DeltaArrow current={latestMonth.revenue} prior={priorMonth.revenue} higherIsBetter />}
+                    />
+                    <MetricTile
+                      label="Expenses" value={fmtMoney(latestMonth.expenses)} onClick={goToReports}
+                      note={<DeltaArrow current={latestMonth.expenses} prior={priorMonth.expenses} higherIsBetter={false} />}
+                    />
+                    <MetricTile
+                      label="Net Profit" value={fmtMoney(latestMonth.profit)} onClick={goToReports}
+                      note={<DeltaArrow current={latestMonth.profit} prior={priorMonth.profit} higherIsBetter />}
+                    />
+                    <MetricTile
+                      label="Health Score" value={latestMonth.healthScore ?? "—"}
+                      onClick={() => { /* scroll to the Business Health Score card above, where the full breakdown lives */ document.getElementById("health-score-card")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                      note={latestMonth.healthScore !== null && priorMonth.healthScore !== null ? <DeltaArrow current={latestMonth.healthScore} prior={priorMonth.healthScore} higherIsBetter /> : undefined}
+                    />
                   </div>
                 </div>
               )}
@@ -218,19 +237,27 @@ export function ClientAtAGlance({ clientId, summary }: { clientId: string; summa
               <div className="card" style={{ marginBottom: 16 }}>
                 <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Financial Position</h2>
                 <div className="metric-grid">
-                  <div className="metric"><div className="metric-label">Cash Balance</div><div className="metric-value">{fmtMoney(dash.cashBalance)}</div><div className="metric-note">Estimate — see note below</div></div>
-                  <div className={`metric${dash.arAging.d90Plus > 0 ? " metric-critical" : ""}`}><div className="metric-label">Accounts Receivable</div><div className="metric-value">{fmtMoney(dash.arAging.total)}</div><div className="metric-note">{dash.arAging.d90Plus > 0 ? `${fmtMoney(dash.arAging.d90Plus)} over 90 days` : "None over 90 days"}</div></div>
-                  <div className="metric"><div className="metric-label">Accounts Payable</div><div className="metric-value">{fmtMoney(dash.apEstimate)}</div><div className="metric-note">GL estimate — see note below</div></div>
-                  <div className={`metric${dash.taxLiabilities > 0 ? " metric-critical" : ""}`}><div className="metric-label">Tax Liabilities</div><div className="metric-value">{fmtMoney(dash.taxLiabilities)}</div><div className="metric-note">Sales/payroll tax payable, current balance</div></div>
+                  <MetricTile label="Cash Balance" value={fmtMoney(dash.cashBalance)} note={<div className="metric-note">Estimate — see note below</div>} onClick={goToReports} />
+                  <MetricTile
+                    label="Accounts Receivable" value={fmtMoney(dash.arAging.total)} critical={dash.arAging.d90Plus > 0}
+                    note={<div className="metric-note">{dash.arAging.d90Plus > 0 ? `${fmtMoney(dash.arAging.d90Plus)} over 90 days` : "None over 90 days"}</div>}
+                    onClick={() => onNavigateTab("Billing")}
+                  />
+                  <MetricTile label="Accounts Payable" value={fmtMoney(dash.apEstimate)} note={<div className="metric-note">GL estimate — see note below</div>} onClick={goToReports} />
+                  <MetricTile
+                    label="Tax Liabilities" value={fmtMoney(dash.taxLiabilities)} critical={dash.taxLiabilities > 0}
+                    note={<div className="metric-note">Sales/payroll tax payable, current balance</div>}
+                    onClick={() => onNavigateTab("Tax Payments")}
+                  />
                 </div>
               </div>
 
               <div className="card" style={{ marginBottom: 16 }}>
                 <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Ratios</h2>
                 <div className="metric-grid metric-grid-3">
-                  <div className="metric"><div className="metric-label">Net Profit Margin</div><div className="metric-value">{fmtPct(dash.ratios.netMarginPct)}</div></div>
-                  <div className="metric"><div className="metric-label">Days Sales Outstanding</div><div className="metric-value">{dash.ratios.dso === null ? "—" : dash.ratios.dso}</div><div className="metric-note">Days</div></div>
-                  <div className="metric"><div className="metric-label">Payroll % of Revenue</div><div className="metric-value">{fmtPct(dash.ratios.payrollPctOfRevenue)}</div><div className="metric-note">{fmtMoney(dash.payrollCost)}</div></div>
+                  <MetricTile label="Net Profit Margin" value={fmtPct(dash.ratios.netMarginPct)} onClick={goToReports} />
+                  <MetricTile label="Days Sales Outstanding" value={dash.ratios.dso === null ? "—" : dash.ratios.dso} note={<div className="metric-note">Days</div>} onClick={() => onNavigateTab("Billing")} />
+                  <MetricTile label="Payroll % of Revenue" value={fmtPct(dash.ratios.payrollPctOfRevenue)} note={<div className="metric-note">{fmtMoney(dash.payrollCost)}</div>} onClick={goToReports} />
                 </div>
               </div>
 

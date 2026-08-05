@@ -121,4 +121,5 @@ export interface Appointment {
   created_by: string | null;
   appointment_type_id: string | null;
   appointment_type_name: string | null;
+  guest_emails: string[] | null;
 }

@@ -37,10 +37,10 @@ interface AppointmentType {
  *
  * Also doubles as the Edit modal — pass `appointment` to pre-fill and PATCH
  * instead of POST. The backend's PATCH route only accepts title/time/
- * location/notes/assignedTo/notifyClient (not client/contact — who an
- * appointment is with isn't editable, only when/who's running it), so those
- * fields are shown read-only in edit mode instead of hidden, so it's clear
- * editing doesn't touch them.
+ * location/notes/assignedTo/notifyClient/guestEmails (not client/contact —
+ * who an appointment is with isn't editable, only when/who's running it),
+ * so those fields are shown read-only in edit mode instead of hidden, so
+ * it's clear editing doesn't touch them.
  */
 export function NewAppointmentModal({ clients, defaultDate, appointment, onClose, onDone }: {
   clients: Client[]; defaultDate?: string; appointment?: Appointment; onClose: () => void; onDone: () => void;
@@ -56,10 +56,11 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
     date: toDateInput(appointment.start_time), startTime: toTimeInput(appointment.start_time), endTime: toTimeInput(appointment.end_time),
     location: appointment.location || "", notes: appointment.notes || "", assignedTo: appointment.assigned_to || "", notifyClient: appointment.notify_client,
     appointmentTypeId: appointment.appointment_type_id || "",
+    guestEmails: (appointment.guest_emails || []).join(", "),
   } : {
     title: "", clientId: "", contactName: "", contactEmail: "", contactPhone: "",
     date: today, startTime: "09:00", endTime: "10:00", location: "", notes: "", assignedTo: "", notifyClient: true,
-    appointmentTypeId: "",
+    appointmentTypeId: "", guestEmails: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +112,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           location: form.location.trim() || undefined, notes: form.notes.trim() || undefined,
           assignedTo: form.assignedTo || "", notifyClient: form.notifyClient,
           appointmentTypeId: form.appointmentTypeId || null, appointmentTypeName: selectedType?.name || null,
+          guestEmails: form.guestEmails,
         });
       } else {
         await api.post("/appointments", {
@@ -120,6 +122,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           location: form.location.trim() || undefined, notes: form.notes.trim() || undefined,
           assignedTo: form.assignedTo || undefined, notifyClient: form.notifyClient,
           appointmentTypeId: form.appointmentTypeId || undefined, appointmentTypeName: selectedType?.name || undefined,
+          guestEmails: form.guestEmails,
         });
       }
       onDone();
@@ -218,6 +221,11 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
               <option value="no">No — internal only</option>
             </select>
           </div>
+        </div>
+        <div className="field">
+          <label htmlFor="appt-guests">Invite Others <span className="muted">(comma-separated emails)</span></label>
+          <input id="appt-guests" value={form.guestEmails} onChange={(e) => setForm((f) => ({ ...f, guestEmails: e.target.value }))} placeholder="colleague@example.com, bookkeeper@example.com" />
+          <p className="muted" style={{ fontSize: 11, margin: "4px 0 0" }}>They'll be CC'd on the confirmation and reminder emails — this doesn't create a portal account for them.</p>
         </div>
         <div className="field"><label htmlFor="appt-notes">Notes</label><textarea id="appt-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>

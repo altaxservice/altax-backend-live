@@ -591,7 +591,11 @@ export function ClientDetailPage() {
           </div>
 
           {tab === "At a Glance" && canSeeStaffTabs && (
-            <ClientAtAGlance clientId={client.client_id} summary={summary} />
+            <ClientAtAGlance
+              clientId={client.client_id}
+              summary={summary}
+              onNavigateTab={(t) => { setTab(t as DetailTab); setSearchParams({ tab: t }, { replace: true }); }}
+            />
           )}
 
           {tab === "SWOT Analysis" && canSeeStaffTabs && (
