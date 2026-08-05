@@ -859,6 +859,107 @@ export async function generateArAgingPdf(data: ArAgingReportData): Promise<Uint8
   return doc.save();
 }
 
+export interface ClientSwotReportData {
+  client: ReportClientInfo;
+  asOfLabel: string;
+  preparedBy: string | null;
+  // Omitted entirely (not just zeroed) when the requester isn't an admin —
+  // matches the same admin-only restriction this data has everywhere else
+  // in the app (Financial Overview, AR Aging, the At a Glance tab itself).
+  financials: { totals: { revenue: number; expenses: number; profit: number }; unpaidBalance: number; taxLiabilities: number } | null;
+  overview: string; strengths: string; weaknesses: string; opportunities: string; threats: string;
+  taxRecommendations: string; staffingRecommendations: string; marketingRecommendations: string; growthRecommendations: string;
+  additionalNotes: string;
+}
+
+/**
+ * The actual client-facing deliverable for the SWOT/business-advisory
+ * analysis (ClientSwotSection.tsx on the client's own "SWOT Analysis" tab)
+ * — something a staff member can print or email to walk a client through
+ * where their business stands and what to do next, not just an internal
+ * screen. Client letterhead framing (drawFirmHeader, same as Firm Overview/
+ * AR Aging use for their own internal-analytics look), but the footer note
+ * makes clear this one IS meant for the client, unlike those two.
+ *
+ * Sections render sequentially (not a 2x2 SWOT grid) — this is meant to be
+ * read top to bottom like a real advisory memo, and a single column avoids
+ * the real complexity of tracking independent page-break points for two
+ * columns of unpredictable-length free text.
+ */
+export async function generateClientSwotPdf(data: ClientSwotReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  const footerNote = `Prepared exclusively for ${data.client.clientName}${data.preparedBy ? ` by ${data.preparedBy}` : ""} — for discussion purposes, not tax advice on its own.`;
+  let y = drawFirmHeader(page, c, "BUSINESS ADVISORY REPORT", data.asOfLabel, profile, logo);
+
+  c.text(48, y, data.client.clientName.toUpperCase(), { size: 13, bold: true, color: TEAL });
+  y += 22;
+
+  async function ensureRoom(needed: number) {
+    if (y + needed > PAGE_H - 60) {
+      drawFooter(c, profile.firmName, footerNote);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+  }
+
+  if (data.financials) {
+    await ensureRoom(120);
+    y = sectionLabel(c, y, "Financial Snapshot");
+    const row1: [string, string][] = [
+      ["Revenue", money(data.financials.totals.revenue)], ["Expenses", money(data.financials.totals.expenses)], ["Net Profit", money(data.financials.totals.profit)],
+    ];
+    const tileW3 = (PAGE_W - 96 - 2 * 10) / 3;
+    row1.forEach(([label, value], i) => {
+      const x = 48 + i * (tileW3 + 10);
+      c.rect(x, y, tileW3, 44, TEAL_TINT);
+      c.text(x + 10, y + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+      c.text(x + 10, y + 34, value, { size: 12, bold: true });
+    });
+    y += 58;
+    const row2: [string, string][] = [["Unpaid Balance", money(data.financials.unpaidBalance)], ["Tax Liabilities", money(data.financials.taxLiabilities)]];
+    const tileW2 = (PAGE_W - 96 - 10) / 2;
+    row2.forEach(([label, value], i) => {
+      const x = 48 + i * (tileW2 + 10);
+      c.rect(x, y, tileW2, 44, TEAL_TINT);
+      c.text(x + 10, y + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+      c.text(x + 10, y + 34, value, { size: 12, bold: true });
+    });
+    y += 66;
+  }
+
+  async function paragraphSection(title: string, text: string) {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    await ensureRoom(30);
+    y = sectionLabel(c, y, title);
+    for (const line of wrapText(clean, font, 10, PAGE_W - 96)) {
+      await ensureRoom(16);
+      c.text(48, y, line, { size: 10 });
+      y += 14;
+    }
+    y += 10;
+  }
+
+  await paragraphSection("Business Overview", data.overview);
+  await paragraphSection("Strengths", data.strengths);
+  await paragraphSection("Weaknesses", data.weaknesses);
+  await paragraphSection("Opportunities", data.opportunities);
+  await paragraphSection("Threats", data.threats);
+  await paragraphSection("Tax Strategy & Savings", data.taxRecommendations);
+  await paragraphSection("Staffing & Employees", data.staffingRecommendations);
+  await paragraphSection("Marketing", data.marketingRecommendations);
+  await paragraphSection("Growth Plan", data.growthRecommendations);
+  await paragraphSection("Additional Notes", data.additionalNotes);
+
+  drawFooter(c, profile.firmName, footerNote);
+  return doc.save();
+}
+
 export interface CalculatorSalesTaxLine { categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
 export interface CalculatorSalesTaxMdFiling {
   dueDate: string; paidDate: string; onTime: boolean;

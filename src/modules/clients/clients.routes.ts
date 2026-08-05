@@ -7,7 +7,9 @@ import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/encryption";
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
-import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY } from "../contracts/contractContent";
+import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
+import { computeFirmSummary, computeMdFilingForReport } from "../reports/reports.routes";
+import type { ReportClientInfo } from "../accounting/reportsPdf";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -122,16 +124,11 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
  * Lightweight per-client activity summary — powers the persistent client-context
  * panel (Open Tasks/Requests/Invoices/Balance) shown alongside Tasks, Documents,
  * Billing, Accounting, Reports, and Communications, mirroring the "ACCOUNT" block
- * in the legacy client side panel. Kept separate from the full profile fetch above
- * so pages that only need these counters don't pull the whole client row.
+ * in the legacy client side panel, and now also the SWOT auto-draft's operational
+ * signals below. Kept separate from the full profile fetch above so pages that
+ * only need these counters don't pull the whole client row.
  */
-clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to this client." });
-  const { clientId } = req.params;
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-
+async function computeClientOpsSummary(clientId: string) {
   const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
@@ -170,25 +167,40 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
     ),
   ]);
 
-  res.json({
+  return {
     openTasks: openTasks?.count || 0,
-    taskStatusBreakdown: (taskStatusBreakdown || []).map((r) => ({ status: r.status, count: r.count })),
+    taskStatusBreakdown: (taskStatusBreakdown || []).map((r: any) => ({ status: r.status, count: r.count })),
     openRequests: openRequests?.count || 0,
     openInvoices: invoiceBalance?.count || 0,
     balanceDue: Number(invoiceBalance?.balance || 0),
     employeesCount: employees?.count || 0,
     documentsCount: documents?.count || 0,
-  });
+  };
+}
+
+clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to this client." });
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  res.json(await computeClientOpsSummary(clientId));
 }));
 
 const SWOT_FIELDS = [
   "overview", "strengths", "weaknesses", "opportunities", "threats",
   "taxRecommendations", "staffingRecommendations", "marketingRecommendations", "growthRecommendations", "additionalNotes",
+  // Business Intake — qualitative context no transaction in this system can
+  // infer (target market, competitors, stated goals, known challenges),
+  // gathered directly from the client/staff conversation. See
+  // sql/038_client_swot_intake.sql.
+  "targetMarket", "competitors", "businessGoals", "knownChallenges",
 ] as const;
 const SWOT_COLUMNS: Record<(typeof SWOT_FIELDS)[number], string> = {
   overview: "overview", strengths: "strengths", weaknesses: "weaknesses", opportunities: "opportunities", threats: "threats",
   taxRecommendations: "tax_recommendations", staffingRecommendations: "staffing_recommendations",
   marketingRecommendations: "marketing_recommendations", growthRecommendations: "growth_recommendations", additionalNotes: "additional_notes",
+  targetMarket: "target_market", competitors: "competitors", businessGoals: "business_goals", knownChallenges: "known_challenges",
 };
 
 /**
@@ -222,20 +234,182 @@ clientsRouter.patch("/:clientId/swot", requireAuth, requireRole("admin", "staff"
   const body = req.body || {};
   const values = SWOT_FIELDS.map((f) => (body[f] !== undefined ? String(body[f]) : ""));
 
+  // Built from SWOT_FIELDS/SWOT_COLUMNS rather than a hand-written column
+  // list — the GET route above already loops over these arrays generically;
+  // this keeps the PATCH route in sync automatically the next time a field
+  // is added here, instead of needing this SQL edited by hand too.
+  const columns = SWOT_FIELDS.map((f) => SWOT_COLUMNS[f]);
+  const valuePlaceholders = columns.map((_, i) => `$${i + 2}`);
+  const updatedByPlaceholder = `$${columns.length + 2}`;
+  const setClause = columns.map((col, i) => `${col}=$${i + 2}`).join(", ");
   await query(
     `INSERT INTO altax.v3_client_swot
-       (client_id, overview, strengths, weaknesses, opportunities, threats,
-        tax_recommendations, staffing_recommendations, marketing_recommendations, growth_recommendations, additional_notes,
-        updated_by, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+       (client_id, ${columns.join(", ")}, updated_by, updated_at)
+     VALUES ($1, ${valuePlaceholders.join(", ")}, ${updatedByPlaceholder}, now())
      ON CONFLICT (client_id) DO UPDATE SET
-       overview=$2, strengths=$3, weaknesses=$4, opportunities=$5, threats=$6,
-       tax_recommendations=$7, staffing_recommendations=$8, marketing_recommendations=$9, growth_recommendations=$10, additional_notes=$11,
-       updated_by=$12, updated_at=now()`,
+       ${setClause}, updated_by=${updatedByPlaceholder}, updated_at=now()`,
     [clientId, ...values, req.user!.email]
   );
   await logAudit("Clients", "EDIT_SWOT", clientId, "", "", "", `Business advisory analysis (SWOT) updated by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
+}));
+
+// Individual clients have no payroll/registered-agent/sales-tax needs — same
+// filter frontend/src/utils/clientOptions.ts's INDIVIDUAL_SERVICE_KEYS applies
+// for the "check a new service" list, mirrored here since that constant isn't
+// exported backend-side (only FIRM_SERVICES/SERVICE_LABEL are, from contractContent.ts).
+const INDIVIDUAL_SERVICE_KEYS = ["personal_tax_prep", "immigration", "consulting"];
+
+function fmtMoneyPlain(v: number): string {
+  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Deterministic, rule-based draft for the 6 SWOT/advisory fields that have a
+ * real data signal behind them — every sentence traces to an actual number
+ * already in the system (revenue trend, open tasks, balance due, tax
+ * liabilities, MD filing status, service-enrollment gaps). Matches this
+ * codebase's established "no external AI, in-app deterministic automation"
+ * choice (Payroll Agent, Bank Rec Agent, Task Rules Agent all made the same
+ * call) — this is template sentences over computed numbers, not a model call.
+ *
+ * Staffing/Marketing/Additional Notes are deliberately NOT drafted here —
+ * nothing in this system tracks marketing performance or staffing adequacy,
+ * so inventing text for those would just be generic filler dressed as
+ * analysis. Those stay staff-written, informed by the Business Intake
+ * answers (target market, competitors, goals) shown alongside them.
+ */
+async function computeSwotAutoDraft(clientRow: any, clientId: string) {
+  const to = new Date();
+  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+  const fromStr = from.toISOString().slice(0, 10);
+  const toStr = to.toISOString().slice(0, 10);
+
+  const [financials, ops] = await Promise.all([
+    computeFirmSummary(fromStr, toStr, clientId),
+    computeClientOpsSummary(clientId),
+  ]);
+
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+  const opportunities: string[] = [];
+  const threats: string[] = [];
+  const taxRecommendations: string[] = [];
+  const growthRecommendations: string[] = [];
+
+  // Revenue trend — first half vs. second half of the 6-month window, so a
+  // single unusual month can't flip the read the way month-over-month would.
+  // startedFromZero gets its own sentence rather than a misleading "100%"
+  // (a jump from $0 to any amount isn't really a doubling).
+  let trendPct: number | null = null;
+  let startedFromZero = false;
+  const months = financials.months;
+  if (months.length >= 2) {
+    const mid = Math.floor(months.length / 2);
+    const avg = (arr: typeof months) => arr.reduce((s, m) => s + m.revenue, 0) / arr.length;
+    const firstAvg = avg(months.slice(0, mid));
+    const secondAvg = avg(months.slice(mid));
+    if (firstAvg > 0) trendPct = Math.round(((secondAvg - firstAvg) / firstAvg) * 100);
+    else if (secondAvg > 0) startedFromZero = true;
+  }
+  if (startedFromZero) strengths.push("Revenue activity began partway through the last 6 months — no prior-period baseline to compare against yet.");
+  else if (trendPct !== null && trendPct >= 10) strengths.push(`Revenue trended up ${trendPct}% over the last 6 months.`);
+  else if (trendPct !== null && trendPct <= -10) {
+    weaknesses.push(`Revenue trended down ${Math.abs(trendPct)}% over the last 6 months.`);
+    threats.push(`Declining revenue trend (${trendPct}% over the last 6 months) — worth investigating the cause before it compounds.`);
+  }
+
+  // Profit margin
+  if (financials.totals.revenue > 0) {
+    const margin = financials.totals.profit / financials.totals.revenue;
+    if (margin >= 0.15) strengths.push(`Healthy net margin of ${Math.round(margin * 100)}% over the last 6 months.`);
+    else if (financials.totals.profit < 0) weaknesses.push(`Net loss of ${fmtMoneyPlain(Math.abs(financials.totals.profit))} over the last 6 months.`);
+    else if (margin < 0.05) weaknesses.push(`Thin net margin of ${Math.round(margin * 100)}% over the last 6 months.`);
+  }
+
+  // Open tasks
+  if (ops.openTasks === 0) strengths.push("No overdue tasks — operations are current.");
+  else weaknesses.push(`${ops.openTasks} open task${ops.openTasks === 1 ? "" : "s"} as of today.`);
+
+  // Balance due
+  if (ops.balanceDue <= 0) strengths.push("No outstanding balance — account is current on billing.");
+  else weaknesses.push(`Outstanding balance of ${fmtMoneyPlain(ops.balanceDue)} across ${ops.openInvoices} invoice${ops.openInvoices === 1 ? "" : "s"}.`);
+
+  // Tax liabilities
+  if (financials.taxLiabilities > 0) {
+    threats.push(`Outstanding tax liability of ${fmtMoneyPlain(financials.taxLiabilities)} on the books.`);
+    taxRecommendations.push(`Prioritize the ${fmtMoneyPlain(financials.taxLiabilities)} outstanding tax liability before its due date to avoid additional penalty and interest.`);
+  }
+
+  // MD sales tax filing — current period only (no persisted filing history
+  // exists to build a real streak from; see the plan's own research note).
+  if (clientRow.state === "MD") {
+    const reportClient: ReportClientInfo = {
+      clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
+      state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
+    };
+    const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
+    if (mdFiling && mdFiling.periods.length > 0) {
+      const late = mdFiling.periods.filter((p) => !p.onTime);
+      if (late.length === 0) strengths.push("Sales tax filings are on time for the period(s) reviewed.");
+      else {
+        weaknesses.push(`${late.length} sales tax filing period${late.length === 1 ? "" : "s"} currently show as late as of today.`);
+        taxRecommendations.push("Set a recurring reminder ahead of each Maryland sales tax due date — the 10% late penalty plus monthly interest adds up fast on a missed filing.");
+      }
+    }
+  }
+
+  // Service-enrollment gaps
+  const currentServices: string[] = Array.isArray(clientRow.services) ? clientRow.services : [];
+  const eligible = clientRow.client_type === "Individual"
+    ? FIRM_SERVICES.filter((s) => INDIVIDUAL_SERVICE_KEYS.includes(s.key))
+    : FIRM_SERVICES;
+  const gaps = eligible.filter((s) => !s.legacy && !currentServices.includes(s.key));
+  if (gaps.length > 0) {
+    opportunities.push(`Not currently enrolled in: ${gaps.map((g) => g.label).join(", ")} — potential to expand the engagement.`);
+  }
+
+  // Overview — orientation, not S/W/O/T
+  const overviewParts: string[] = [];
+  if (clientRow.industry_category) overviewParts.push(`Operates in the ${clientRow.industry_category} industry`);
+  if (clientRow.date_of_formation) {
+    const years = Math.floor((Date.now() - new Date(clientRow.date_of_formation).getTime()) / (365.25 * 24 * 3600 * 1000));
+    if (years >= 0) overviewParts.push(`in business ${years} year${years === 1 ? "" : "s"}`);
+  }
+  if (currentServices.length > 0) overviewParts.push(`currently engaged for: ${currentServices.map((k) => SERVICE_LABEL[k] || k).join(", ")}`);
+  const overview = overviewParts.length ? `${overviewParts.join(", ")}.` : "";
+
+  // Growth plan — one sentence combining the trend and service-gap signals
+  if (trendPct !== null && trendPct >= 10) {
+    growthRecommendations.push(`Revenue is trending up — a good time to discuss expanding services${gaps.length ? `, such as ${gaps[0].label}` : ""}.`);
+  } else if (trendPct !== null && trendPct <= -10) {
+    growthRecommendations.push("Revenue is trending down — review pricing and cost structure, and clear any outstanding tax liability first to protect margin.");
+  }
+
+  return {
+    overview,
+    strengths: strengths.join(" "),
+    weaknesses: weaknesses.join(" "),
+    opportunities: opportunities.join(" "),
+    threats: threats.join(" "),
+    taxRecommendations: taxRecommendations.join(" "),
+    growthRecommendations: growthRecommendations.join(" "),
+  };
+}
+
+clientsRouter.post("/:clientId/swot/autodraft", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const clientRow = await queryOne<any>(
+    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+       FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  if (!clientRow) return res.status(404).json({ error: "Client not found." });
+  const draft = await computeSwotAutoDraft(clientRow, clientId);
+  res.json({ draft });
 }));
 
 function nextActivityId(): string {
