@@ -231,6 +231,19 @@ export interface MdFilingBreakdown {
 }
 
 /**
+ * pg returns a DATE column as a native JS Date (UTC midnight), not a
+ * string — String(dateObject) gives "Mon Jun 30 2026 00:00:00 GMT+...",
+ * which never matches a "YYYY-MM-DD" period boundary. Route callers pass
+ * raw rows straight through (see loadSalesTaxForPeriod's saleDate field),
+ * so this has to handle both a Date and an already-string value.
+ */
+function isoDateOnly(v: unknown): string | null {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
+/**
  * Line 18/37 for EVERY real filing period inside [from, to], not just one
  * blended figure for the whole range — this is what actually happens when
  * a client catches up several overdue (or on-time) returns with a single
@@ -240,7 +253,7 @@ export interface MdFilingBreakdown {
  * due (no sales recorded) are skipped rather than shown as a zero row.
  */
 export async function computeMdFilingBreakdown(
-  sales: { saleDate: string | null; totalTaxDue: number }[],
+  sales: { saleDate: unknown; totalTaxDue: number }[],
   from: string,
   to: string,
   frequency: string | null | undefined,
@@ -251,7 +264,10 @@ export async function computeMdFilingBreakdown(
   for (const period of periods) {
     const taxDue = round2(
       sales
-        .filter((s) => s.saleDate && String(s.saleDate).slice(0, 10) >= period.start && String(s.saleDate).slice(0, 10) <= period.end)
+        .filter((s) => {
+          const d = isoDateOnly(s.saleDate);
+          return d !== null && d >= period.start && d <= period.end;
+        })
         .reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0)
     );
     if (taxDue <= 0) continue;

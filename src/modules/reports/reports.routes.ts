@@ -299,7 +299,7 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
  */
 async function computeMdFilingForReport(
   client: ReportClientInfo,
-  sales: { saleDate: string | null; totalTaxDue: number }[],
+  sales: { saleDate: unknown; totalTaxDue: number }[],
   from: string,
   to: string,
   paidDateOverride?: string
