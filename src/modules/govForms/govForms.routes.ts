@@ -6,7 +6,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
-import { decryptClientPii, encryptValue } from "../../common/encryption";
+import { decryptClientPii, decryptValue, encryptValue } from "../../common/encryption";
 import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
 import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
@@ -73,6 +73,37 @@ const FORM_LABELS: Record<string, string> = {
  * nothing here would object. Same field names, same messages as the
  * frontend, so a caller who bypasses the UI sees the identical requirement.
  */
+/**
+ * form_data can carry a Responsible Party SSN/ITIN/EIN (SS-4), a contractor's
+ * SSN (W-9), or an employee's SSN (W-4 prefill) — typed straight into these
+ * forms, same category of PII as v3_clients' own individual_ssn/ein columns,
+ * which are already encrypted at rest (see encryption.ts's decryptClientPii).
+ * This column stayed plaintext JSONB until now purely because it's a JSON
+ * blob rather than a single VARCHAR. The whole object is serialized, run
+ * through the same envelope cipher as everything else in this app, and
+ * wrapped back into valid JSON as { __enc: "<ciphertext>" } — a shape none of
+ * this module's real form_data payloads (all flat field names, see the
+ * generators under this module) could ever produce by accident, so it also
+ * doubles as the "is this row encrypted yet" check. decryptFormData falls
+ * back to returning the row's plaintext object unchanged when that key isn't
+ * present, so a row that predates this change (or a migration that hasn't
+ * run yet) still reads correctly.
+ */
+function encryptFormDataForStorage(formData: any): string {
+  return JSON.stringify({ __enc: encryptValue(JSON.stringify(formData ?? {})) });
+}
+
+function decryptFormData(raw: any): any {
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.__enc === "string") {
+    try {
+      return JSON.parse(decryptValue(raw.__enc));
+    } catch {
+      return raw;
+    }
+  }
+  return raw && typeof raw === "object" ? raw : {};
+}
+
 function validateGovFormRequiredFields(formType: string, formData: any): string | null {
   const s = (v: unknown) => String(v ?? "").trim();
   if (formType === "SS4") {
@@ -177,7 +208,7 @@ govFormsRouter.get("/client/:clientId", requireAuth, requireRole("admin", "staff
        FROM altax.v3_gov_form_filings WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
-  res.json({ filings: rows });
+  res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
 govFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -206,7 +237,7 @@ govFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
   await query(
     `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
      VALUES ($1,$2,$3,$4,'Draft',$5)`,
-    [filingId, clientId, formType, JSON.stringify(formData), req.user!.email]
+    [filingId, clientId, formType, encryptFormDataForStorage(formData), req.user!.email]
   );
   await logAudit("Tools", "CREATE_GOV_FORM", filingId, "form_type", "", formType,
     `${FORM_LABELS[formType]} drafted for ${client.client_name} by ${req.user!.email}.`, req.user!.email);
@@ -224,7 +255,7 @@ govFormsRouter.get("/employee/:employeeId", requireAuth, requireRole("admin", "s
        FROM altax.v3_gov_form_filings WHERE employee_id = $1 ORDER BY created_at DESC`,
     [employeeId]
   );
-  res.json({ filings: rows });
+  res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
 /**
@@ -274,7 +305,7 @@ govFormsRouter.post("/employee/:employeeId/send", requireAuth, requireRole("admi
   await query(
     `INSERT INTO altax.v3_gov_form_filings (filing_id, employee_id, form_type, form_data, status, sent_to_employee_at, created_by)
      VALUES ($1,$2,$3,$4,'Draft',now(),$5)`,
-    [filingId, employeeId, formType, JSON.stringify(prefill), req.user!.email]
+    [filingId, employeeId, formType, encryptFormDataForStorage(prefill), req.user!.email]
   );
   await logAudit("Tools", "SEND_GOV_FORM_TO_EMPLOYEE", filingId, "form_type", "", formType,
     `${FORM_LABELS[formType]} sent to ${employee.employee_name}'s portal to complete and sign, by ${req.user!.email}.`, req.user!.email);
@@ -305,7 +336,7 @@ govFormsRouter.post("/employee/:employeeId", requireAuth, requireRole("admin", "
   await query(
     `INSERT INTO altax.v3_gov_form_filings (filing_id, employee_id, form_type, form_data, status, created_by)
      VALUES ($1,$2,$3,$4,'Draft',$5)`,
-    [filingId, employeeId, formType, JSON.stringify(formData), req.user!.email]
+    [filingId, employeeId, formType, encryptFormDataForStorage(formData), req.user!.email]
   );
   await logAudit("Tools", "CREATE_GOV_FORM", filingId, "form_type", "", formType,
     `${FORM_LABELS[formType]} drafted for ${employee.employee_name} by ${req.user!.email}.`, req.user!.email);
@@ -321,7 +352,7 @@ async function loadFiling(req: AuthedRequest, filingId: string) {
     const employee = await queryOne<any>(`SELECT client_id FROM altax.v3_employees WHERE employee_id = $1`, [filing.employee_id]);
     if (!employee || !(await canAccessClient(req.user!, employee.client_id))) return "forbidden";
   }
-  return filing;
+  return { ...filing, form_data: decryptFormData(filing.form_data) };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +378,7 @@ govFormsRouter.get("/my", requireAuth, asyncHandler(async (req: AuthedRequest, r
       ORDER BY created_at DESC`,
     [req.user!.employeeId]
   );
-  res.json({ filings: rows });
+  res.json({ filings: rows.map((r) => ({ ...r, form_data: decryptFormData(r.form_data) })) });
 }));
 
 govFormsRouter.get("/my/:filingId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -359,7 +390,7 @@ govFormsRouter.get("/my/:filingId", requireAuth, asyncHandler(async (req: Authed
   if (!filing || !filing.sent_to_employee_at || filing.employee_id !== req.user!.employeeId) {
     return res.status(404).json({ error: "Form not found." });
   }
-  res.json({ filing, formTypes: { w9TaxClassifications: W9_TAX_CLASSIFICATIONS, w4FilingStatuses: W4_FILING_STATUSES } });
+  res.json({ filing: { ...filing, form_data: decryptFormData(filing.form_data) }, formTypes: { w9TaxClassifications: W9_TAX_CLASSIFICATIONS, w4FilingStatuses: W4_FILING_STATUSES } });
 }));
 
 /**
@@ -393,7 +424,7 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
   const EMPLOYER_ONLY_FIELDS = ["employerName", "employerAddress", "employerEin", "firstDateOfEmployment"];
   const submittedFormData = { ...(req.body?.formData || {}) };
   for (const field of EMPLOYER_ONLY_FIELDS) delete submittedFormData[field];
-  const formData = { ...(filing.form_data || {}), ...submittedFormData };
+  const formData = { ...decryptFormData(filing.form_data), ...submittedFormData };
 
   let pdfBytes: Uint8Array;
   try {
@@ -425,7 +456,7 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
     `UPDATE altax.v3_gov_form_filings
         SET form_data=$2, status='Signed', signed_at=now(), signer_name=$3, signer_ip=$4, attached_upload_id=$5, recorded_by=$6, updated_at=now()
       WHERE filing_id=$1`,
-    [filing.filing_id, JSON.stringify(formData), signerName, signerIp, uploadId, req.user!.email]
+    [filing.filing_id, encryptFormDataForStorage(formData), signerName, signerIp, uploadId, req.user!.email]
   );
   await logAudit("Tools", "EMPLOYEE_SIGN_GOV_FORM", filing.filing_id, "status", "Draft", "Signed",
     `${FORM_LABELS[filing.form_type]} electronically signed by ${employee.employee_name} via the employee portal (IP ${signerIp || "unknown"}).`, req.user!.email);
@@ -459,7 +490,7 @@ govFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
     return res.status(400).json({ error: `Could not generate this form: ${err?.message || "invalid data."}` });
   }
 
-  await query(`UPDATE altax.v3_gov_form_filings SET form_data=$2, updated_at=now() WHERE filing_id=$1`, [filing.filing_id, JSON.stringify(formData)]);
+  await query(`UPDATE altax.v3_gov_form_filings SET form_data=$2, updated_at=now() WHERE filing_id=$1`, [filing.filing_id, encryptFormDataForStorage(formData)]);
   await logAudit("Tools", "UPDATE_GOV_FORM", filing.filing_id, "", "", filing.form_type,
     `${FORM_LABELS[filing.form_type] || filing.form_type} draft edited by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
