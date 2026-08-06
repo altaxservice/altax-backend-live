@@ -13,6 +13,9 @@ import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, comp
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
+import { sendEmail } from "../../common/notifications";
+import { wrapEmailHtml } from "../../common/emailTemplate";
+import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -228,7 +231,15 @@ const SWOT_COLUMNS: Record<(typeof SWOT_FIELDS)[number], string> = {
  * intake card for anything else supporting the strategy. See
  * sql/037_client_swot.sql.
  */
-clientsRouter.get("/:clientId/swot", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+// admin/staff only — this is internal advisory content (Weaknesses, Threats,
+// staff's private notes) never meant for a client or employee to read
+// directly. canAccessClient alone isn't enough here: for role "client" it
+// returns true for the client's OWN clientId, which would otherwise let a
+// client hit this endpoint directly (bypassing the frontend's staff-only
+// tab gate) and see internal-only content. See the separate, deliberately
+// narrower /business-intake routes below for what a client IS allowed to
+// read/write on this same table.
+clientsRouter.get("/:clientId/swot", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
@@ -266,6 +277,99 @@ clientsRouter.patch("/:clientId/swot", requireAuth, requireRole("admin", "staff"
     [clientId, ...values, req.user!.email]
   );
   await logAudit("Clients", "EDIT_SWOT", clientId, "", "", "", `Business advisory analysis (SWOT) updated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+// The 12 Business Intake questions only — a deliberately narrow subset of
+// SWOT_FIELDS. Reused here (not redefined) so a future new intake question
+// only ever needs adding to SWOT_FIELDS once.
+const INTAKE_FIELDS = SWOT_FIELDS.slice(10) as readonly (typeof SWOT_FIELDS)[number][];
+
+function intakeRowToJson(row: any) {
+  const out: Record<string, any> = {};
+  for (const field of INTAKE_FIELDS) out[field] = row?.[SWOT_COLUMNS[field]] || "";
+  out.updatedBy = row?.updated_by || null;
+  out.updatedAt = row?.updated_at || null;
+  return out;
+}
+
+/**
+ * Client self-service on the same 12 Business Intake questions staff see on
+ * the SWOT Analysis tab (sql/044) — a client answering these directly, in
+ * their own words, gets more clients actually covered than relying on staff
+ * to ask and type it in during a call. Deliberately narrower than the
+ * staff-only /swot routes above: only these 12 columns are readable/
+ * writable here, never the narrative Strengths/Weaknesses/Threats/
+ * Recommendations fields — those stay internal, staff-only. Employees are
+ * explicitly excluded (canAccessClient alone would allow them, same as
+ * client — but an employee is an individual worker, not the business
+ * owner, and has no business answering questions about the employer's
+ * competitors or growth plans).
+ */
+clientsRouter.get("/:clientId/business-intake", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to this." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_swot WHERE client_id = $1`, [clientId]);
+  res.json({ intake: intakeRowToJson(row) });
+}));
+
+clientsRouter.patch("/:clientId/business-intake", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to this." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const body = req.body || {};
+  const values = INTAKE_FIELDS.map((f) => (body[f] !== undefined ? String(body[f]) : undefined));
+  const columns = INTAKE_FIELDS.map((f) => SWOT_COLUMNS[f]);
+
+  // Only ever touches the 12 intake columns — an UPDATE, not the full
+  // upsert the staff /swot route uses, since a client submitting the intake
+  // form before any staff member has ever opened the SWOT tab for them
+  // still needs a row to exist first.
+  await query(
+    `INSERT INTO altax.v3_client_swot (client_id, updated_by, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (client_id) DO NOTHING`,
+    [clientId, req.user!.email]
+  );
+  const setParts: string[] = [];
+  const params: any[] = [clientId];
+  columns.forEach((col, i) => {
+    if (values[i] === undefined) return;
+    params.push(values[i]);
+    setParts.push(`${col} = $${params.length}`);
+  });
+  if (setParts.length > 0) {
+    params.push(req.user!.email);
+    await query(
+      `UPDATE altax.v3_client_swot SET ${setParts.join(", ")}, updated_by = $${params.length}, updated_at = now() WHERE client_id = $1`,
+      params
+    );
+  }
+
+  await logAudit("Clients", "EDIT_BUSINESS_INTAKE", clientId, "", "", "", `Business Intake questionnaire updated by ${req.user!.email}.`, req.user!.email);
+
+  // Best-effort heads-up to the assigned staff member when a CLIENT (not
+  // staff editing their own client) submits — otherwise a client filling
+  // this out has no way of knowing anyone noticed. Never blocks the save.
+  if (req.user!.role === "client") {
+    try {
+      const client = await queryOne<any>(`SELECT client_name, assigned_to FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+      const assigneeEmail = client?.assigned_to ? await resolveAssigneeEmail(client.assigned_to) : null;
+      if (assigneeEmail) {
+        const html = await wrapEmailHtml(
+          `<p>${client.client_name} just updated their Business Intake answers (Target Market, Competitors, Goals, Challenges) on the SWOT Analysis tab.</p>
+           <p>Review it before writing or updating the Staffing/Marketing recommendations.</p>`,
+          req
+        );
+        await sendEmail({ to: assigneeEmail, subject: `${client.client_name} updated their business profile`, html });
+      }
+    } catch { /* best-effort — never block the client's save */ }
+  }
+
   res.json({ ok: true });
 }));
 

@@ -49,6 +49,7 @@ import { PublicInvoicePage } from "./pages/PublicInvoicePage";
 import { PublicContractPage } from "./pages/PublicContractPage";
 import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
+import { MyBusinessPage } from "./pages/MyBusinessPage";
 
 function App() {
   return (
@@ -79,6 +80,9 @@ function App() {
               <Route path="/guide" element={<GuidePage />} />
               <Route element={<ProtectedRoute roles={["employee"]} />}>
                 <Route path="/my-tax-forms" element={<MyTaxFormsPage />} />
+              </Route>
+              <Route element={<ProtectedRoute roles={["client"]} />}>
+                <Route path="/my-business" element={<MyBusinessPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/users" element={<UsersPage />} />

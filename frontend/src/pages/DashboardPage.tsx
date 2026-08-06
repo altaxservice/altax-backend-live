@@ -662,6 +662,7 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           <Link to="/documents" className="action-button">{t("dashboard.documents")}</Link>
           <Link to="/billing" className="ghost-button">{t("dashboard.billing")}</Link>
           <Link to="/communications" className="ghost-button">{t("dashboard.messages")}</Link>
+          <Link to="/my-business" className="ghost-button">{t("nav.myBusiness")}</Link>
         </div>
       </div>
 
