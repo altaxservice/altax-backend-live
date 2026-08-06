@@ -9,18 +9,55 @@ interface ClientSwot {
   overview: string; strengths: string; weaknesses: string; opportunities: string; threats: string;
   taxRecommendations: string; staffingRecommendations: string; marketingRecommendations: string; growthRecommendations: string;
   additionalNotes: string;
-  // Business Intake — qualitative context no transaction in this system can
-  // infer, gathered directly from the client/staff conversation.
-  targetMarket: string; competitors: string; businessGoals: string; knownChallenges: string;
+  // Business Intake — 12 specific questions across 6 categories, gathered
+  // directly from the client/staff conversation. Nothing in this system can
+  // compute these; they inform the Staffing/Marketing/Growth Plan fields below.
+  typicalCustomer: string; serviceArea: string;
+  topCompetitors: string; competitiveEdge: string;
+  customerAcquisition: string; currentMarketing: string;
+  staffingLevel: string; staffingChallenges: string;
+  topGoal: string; expansionPlans: string;
+  dailyChallenge: string; financialConcerns: string;
   updatedBy: string | null; updatedAt: string | null;
 }
 
 const EMPTY_SWOT: ClientSwot = {
   overview: "", strengths: "", weaknesses: "", opportunities: "", threats: "",
   taxRecommendations: "", staffingRecommendations: "", marketingRecommendations: "", growthRecommendations: "",
-  additionalNotes: "", targetMarket: "", competitors: "", businessGoals: "", knownChallenges: "",
+  additionalNotes: "",
+  typicalCustomer: "", serviceArea: "", topCompetitors: "", competitiveEdge: "",
+  customerAcquisition: "", currentMarketing: "", staffingLevel: "", staffingChallenges: "",
+  topGoal: "", expansionPlans: "", dailyChallenge: "", financialConcerns: "",
   updatedBy: null, updatedAt: null,
 };
+
+/** One category of the Business Intake Q&A — grouped rendering, question text shown as the field label instead of a generic name. */
+const INTAKE_CATEGORIES: { title: string; questions: { key: keyof ClientSwot; label: string }[] }[] = [
+  { title: "Target Market & Customers", questions: [
+    { key: "typicalCustomer", label: "Who is your typical customer? (age, income level, what they need)" },
+    { key: "serviceArea", label: "What's your primary service area or neighborhood?" },
+  ] },
+  { title: "Competitive Position", questions: [
+    { key: "topCompetitors", label: "Who are your top 1–2 competitors, and what do they do better or worse than you?" },
+    { key: "competitiveEdge", label: "What makes a customer choose you over them?" },
+  ] },
+  { title: "Marketing & Customer Acquisition", questions: [
+    { key: "customerAcquisition", label: "How do most new customers currently find you? (walk-in, referral, online, signage)" },
+    { key: "currentMarketing", label: "Do you currently do any marketing (social media, flyers, promotions)? What's worked or not?" },
+  ] },
+  { title: "Staffing & Operations", questions: [
+    { key: "staffingLevel", label: "How many employees do you have, and is that enough for current demand?" },
+    { key: "staffingChallenges", label: "Is hiring, turnover, or workload capacity a challenge right now?" },
+  ] },
+  { title: "Business Goals", questions: [
+    { key: "topGoal", label: "What's the #1 goal for this business over the next 12 months?" },
+    { key: "expansionPlans", label: "Are you considering a new location, product/service line, or major purchase?" },
+  ] },
+  { title: "Known Challenges & Risks", questions: [
+    { key: "dailyChallenge", label: "What's the biggest day-to-day headache in running this business right now?" },
+    { key: "financialConcerns", label: "Anything financial or regulatory keeping you up at night? (lease renewal, new law, supplier change)" },
+  ] },
+];
 
 /** The 6 fields the "Auto-Fill" backend route can compute from real data — kept as a
  * const array (not hardcoded per call site) so the merge-only-blank-fields logic below
@@ -501,14 +538,18 @@ export function ClientSwotSection({ clientId }: { clientId: string }) {
 
         <div>
           <div className="form-section-title">Business Intake</div>
-          <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
-            Context nothing in this system can compute — capture this directly from the client, it informs the Marketing/Staffing recommendations below.
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+            Context nothing in this system can compute — ask the client these directly, they inform the Marketing/Staffing/Growth recommendations below.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {field("targetMarket", "Target Market")}
-            {field("competitors", "Competitors")}
-            {field("businessGoals", "Business Goals")}
-            {field("knownChallenges", "Known Challenges")}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {INTAKE_CATEGORIES.map((cat) => (
+              <div key={cat.title}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{cat.title}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {cat.questions.map((q) => field(q.key, q.label, 2))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

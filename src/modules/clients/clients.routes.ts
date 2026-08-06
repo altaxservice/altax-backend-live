@@ -193,17 +193,29 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
 const SWOT_FIELDS = [
   "overview", "strengths", "weaknesses", "opportunities", "threats",
   "taxRecommendations", "staffingRecommendations", "marketingRecommendations", "growthRecommendations", "additionalNotes",
-  // Business Intake — qualitative context no transaction in this system can
-  // infer (target market, competitors, stated goals, known challenges),
-  // gathered directly from the client/staff conversation. See
-  // sql/038_client_swot_intake.sql.
-  "targetMarket", "competitors", "businessGoals", "knownChallenges",
+  // Business Intake — 12 specific questions across 6 categories, replacing
+  // the original 4 broad free-text boxes (sql/038) with something designed
+  // to actually elicit what informs Staffing/Marketing/Growth Plan below —
+  // qualitative context no transaction in this system can infer, gathered
+  // directly from the client/staff conversation. See
+  // sql/044_client_swot_intake_questions.sql.
+  "typicalCustomer", "serviceArea",
+  "topCompetitors", "competitiveEdge",
+  "customerAcquisition", "currentMarketing",
+  "staffingLevel", "staffingChallenges",
+  "topGoal", "expansionPlans",
+  "dailyChallenge", "financialConcerns",
 ] as const;
 const SWOT_COLUMNS: Record<(typeof SWOT_FIELDS)[number], string> = {
   overview: "overview", strengths: "strengths", weaknesses: "weaknesses", opportunities: "opportunities", threats: "threats",
   taxRecommendations: "tax_recommendations", staffingRecommendations: "staffing_recommendations",
   marketingRecommendations: "marketing_recommendations", growthRecommendations: "growth_recommendations", additionalNotes: "additional_notes",
-  targetMarket: "target_market", competitors: "competitors", businessGoals: "business_goals", knownChallenges: "known_challenges",
+  typicalCustomer: "typical_customer", serviceArea: "service_area",
+  topCompetitors: "top_competitors", competitiveEdge: "competitive_edge",
+  customerAcquisition: "customer_acquisition", currentMarketing: "current_marketing",
+  staffingLevel: "staffing_level", staffingChallenges: "staffing_challenges",
+  topGoal: "top_goal", expansionPlans: "expansion_plans",
+  dailyChallenge: "daily_challenge", financialConcerns: "financial_concerns",
 };
 
 /**
