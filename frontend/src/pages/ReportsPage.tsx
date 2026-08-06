@@ -68,7 +68,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 interface SalesTaxReport {
   byCategory: { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }[];
-  sales: { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }[];
+  sales: { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number; nonTaxableSales: number }[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
   mdFiling: {
     periods: (MdFilingResult & { start: string; end: string; dueDate: string })[];
@@ -867,7 +867,7 @@ export function ReportsPage() {
                     </div>
                     <div className="table-scroll">
                       <table>
-                        <thead><tr><th scope="col">Date</th><th scope="col">Gross Sales</th><th scope="col">Adjustments</th><th scope="col">Tax Due</th></tr></thead>
+                        <thead><tr><th scope="col">Date</th><th scope="col">Gross Sales</th><th scope="col">Non-Taxable Sales</th><th scope="col">Adjustments</th><th scope="col">Tax Due</th></tr></thead>
                         <tbody>
                           {salesTaxReport.sales.map((s) => (
                             <tr
@@ -880,12 +880,13 @@ export function ReportsPage() {
                             >
                               <td>{s.saleDate ? String(s.saleDate).slice(0, 10) : "—"}</td>
                               <td>{fmtMoney(s.grossSales)}</td>
+                              <td className="muted">{fmtMoney(s.nonTaxableSales)}</td>
                               <td className="muted">{fmtMoney(s.adjustments)}</td>
                               <td>{fmtMoney(s.totalTaxDue)}</td>
                             </tr>
                           ))}
                           {salesTaxReport.sales.length === 0 && (
-                            <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 16 }}>No sales recorded in this period.</td></tr>
+                            <tr><td colSpan={5} className="muted" style={{ textAlign: "center", padding: 16 }}>No sales recorded in this period.</td></tr>
                           )}
                         </tbody>
                       </table>

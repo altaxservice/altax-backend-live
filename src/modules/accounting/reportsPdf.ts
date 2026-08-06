@@ -483,7 +483,7 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
 }
 
 export interface SalesTaxCategoryRow { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }
-export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number }
+export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number; nonTaxableSales: number }
 
 export interface SalesTaxReportData {
   client: ReportClientInfo;
@@ -565,9 +565,10 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
   if (!data.sales.length) {
     emptyNote(c, y);
   } else {
-    const colDate = 48, colGross = PAGE_W - 48 - 250, colAdj = PAGE_W - 48 - 130, colDue = PAGE_W - 48;
+    const colDate = 48, colGross = PAGE_W - 48 - 370, colNonTax = PAGE_W - 48 - 250, colAdj = PAGE_W - 48 - 130, colDue = PAGE_W - 48;
     c.text(colDate, y, "Date", { size: 8, bold: true, color: MUTED });
     c.text(colGross, y, "Gross Sales", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colNonTax, y, "Non-Taxable Sales", { size: 8, bold: true, color: MUTED, align: "right" });
     c.text(colAdj, y, "Adjustments", { size: 8, bold: true, color: MUTED, align: "right" });
     c.text(colDue, y, "Tax Due", { size: 8, bold: true, color: MUTED, align: "right" });
     y += 6;
@@ -581,6 +582,7 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       }
       c.text(colDate, y, fmtDate(s.saleDate), { size: 9 });
       c.text(colGross, y, money(s.grossSales), { size: 9, align: "right" });
+      c.text(colNonTax, y, money(s.nonTaxableSales), { size: 9, align: "right" });
       c.text(colAdj, y, money(s.adjustments), { size: 9, align: "right" });
       c.text(colDue, y, money(s.totalTaxDue), { size: 9, align: "right" });
       y += 14;

@@ -6,6 +6,7 @@ import { canAccessClient } from "../../common/assignment";
 import { decryptClientPii } from "../../common/encryption";
 import { logAudit } from "../../common/audit";
 import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/templates.routes";
+import { NON_TAXABLE_CATEGORY_ID } from "../../common/taxRates";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
@@ -1042,6 +1043,21 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
       ORDER BY sale_date`,
     [clientId, from, to]
   );
+  // Non-taxable amount per sale (SNAP/EBT, exempt items) — a sale's non-taxable
+  // portion lives as a CAT-NON-TAXABLE line in v3_sales_input_lines, not as a
+  // column on v3_sales_input itself, so it's fetched separately and merged in
+  // below rather than joined into the main query above (which would multiply
+  // rows for sales with several category lines).
+  const nonTaxableRows = await query<{ sale_id: string; amount: string }>(
+    `SELECT l.sale_id, COALESCE(SUM(l.taxable_amount), 0) AS amount
+       FROM altax.v3_sales_input_lines l
+       JOIN altax.v3_sales_input s ON s.sale_id = l.sale_id
+      WHERE s.client_id = $1 AND s.sale_date::date >= $2::date AND s.sale_date::date <= $3::date
+        AND l.category_id = $4
+      GROUP BY l.sale_id`,
+    [clientId, from, to, NON_TAXABLE_CATEGORY_ID]
+  );
+  const nonTaxableBySaleId = new Map(nonTaxableRows.map((r) => [r.sale_id, Number(r.amount) || 0]));
   const byCategory = await query<any>(
     `SELECT c.category_name, c.state, l.tax_rate_used,
             COALESCE(SUM(l.taxable_amount), 0) AS taxable_amount,
@@ -1061,6 +1077,7 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
     sales: sales.map((r: any) => ({
       saleId: r.sale_id, saleDate: r.sale_date, grossSales: Number(r.gross_sales) || 0,
       totalTaxDue: Number(r.total_tax_due) || 0, adjustments: Number(r.adjustments) || 0,
+      nonTaxableSales: nonTaxableBySaleId.get(r.sale_id) || 0,
     })),
     byCategory: byCategory.map((r: any) => ({
       categoryName: r.category_name, state: r.state, rate: Number(r.tax_rate_used) || 0,
