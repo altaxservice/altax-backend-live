@@ -15,6 +15,7 @@ import { wrapEmailHtml } from "../../common/emailTemplate";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail } from "../../common/notifications";
 import { getFirmProfile } from "../../common/firmProfile";
+import { encryptValue, decryptTolerant } from "../../common/encryption";
 import {
   generateEmailOtp, hashEmailOtp, emailOtpMatches, otpExpiryFromNow, isOtpExpired,
   loginCodeEmailBody, OTP_TTL_MINUTES, OTP_MAX_ATTEMPTS,
@@ -319,7 +320,7 @@ authRouter.post("/enroll/2fa/start", asyncHandler(async (req: Request, res: Resp
     if (rows[0].totp_enabled) return res.status(400).json({ error: "Two-factor authentication is already set up." });
 
     const secret = generateTotpSecret();
-    await client.query(`UPDATE altax.v3_users SET totp_secret = $1, totp_enabled = FALSE WHERE user_id = $2`, [secret, userId]);
+    await client.query(`UPDATE altax.v3_users SET totp_secret = $1, totp_enabled = FALSE WHERE user_id = $2`, [encryptValue(secret), userId]);
     const qrCodeDataUrl = await totpQrCodeDataUrl(rows[0].email, secret);
     return res.json({ secret, qrCodeDataUrl });
   } finally {
@@ -343,7 +344,7 @@ authRouter.post("/enroll/2fa/confirm", codeLimiter, asyncHandler(async (req: Req
     const { rows } = await client.query(`SELECT * FROM altax.v3_users WHERE user_id = $1`, [userId]);
     const row = rows[0];
     if (!row?.totp_secret) return res.status(400).json({ error: "Start two-factor setup first." });
-    if (!(await verifyTotpCode(row.totp_secret, code))) {
+    if (!(await verifyTotpCode(decryptTolerant(row.totp_secret), code))) {
       return res.status(401).json({ error: "Incorrect code. Check your authenticator app and try again." });
     }
 
@@ -399,7 +400,7 @@ authRouter.post("/login/verify-totp", codeLimiter, asyncHandler(async (req: Requ
     // recovery path exists so a lost phone is an inconvenience, not a lockout.
     let usedBackupCode = false;
     let remainingBackupCodes: string[] | null = null;
-    if (!(await verifyTotpCode(row.totp_secret, String(code).trim()))) {
+    if (!(await verifyTotpCode(decryptTolerant(row.totp_secret), String(code).trim()))) {
       remainingBackupCodes = consumeBackupCode(row.totp_backup_codes, String(code));
       if (remainingBackupCodes === null) {
         return res.status(401).json({ error: "Incorrect authenticator code. You can also enter one of your recovery codes." });
@@ -449,7 +450,7 @@ authRouter.post("/2fa/setup", requireAuth, asyncHandler(async (req: AuthedReques
     if (!rows[0]) return res.status(404).json({ error: "User not found." });
 
     const secret = generateTotpSecret();
-    await client.query(`UPDATE altax.v3_users SET totp_secret = $1, totp_enabled = FALSE WHERE user_id = $2`, [secret, req.user!.sub]);
+    await client.query(`UPDATE altax.v3_users SET totp_secret = $1, totp_enabled = FALSE WHERE user_id = $2`, [encryptValue(secret), req.user!.sub]);
     const qrCodeDataUrl = await totpQrCodeDataUrl(rows[0].email, secret);
     return res.json({ secret, qrCodeDataUrl });
   } finally {
@@ -464,7 +465,7 @@ authRouter.post("/2fa/confirm", requireAuth, codeLimiter, asyncHandler(async (re
   const client = await pool.connect();
   try {
     const { rows } = await client.query(`SELECT totp_secret FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
-    const secret = rows[0]?.totp_secret;
+    const secret = rows[0]?.totp_secret ? decryptTolerant(rows[0].totp_secret) : null;
     if (!secret) return res.status(400).json({ error: "Start 2FA setup first." });
     if (!(await verifyTotpCode(secret, code))) return res.status(401).json({ error: "Incorrect code. Check your authenticator app and try again." });
 
@@ -503,7 +504,7 @@ authRouter.post("/2fa/backup-codes/regenerate", requireAuth, codeLimiter, asyncH
     const { rows } = await client.query(`SELECT totp_secret, totp_enabled, email FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
     const row = rows[0];
     if (!row?.totp_enabled || !row.totp_secret) return res.status(400).json({ error: "Two-factor authentication is not set up yet." });
-    if (!code || !(await verifyTotpCode(row.totp_secret, code))) {
+    if (!code || !(await verifyTotpCode(decryptTolerant(row.totp_secret), code))) {
       return res.status(401).json({ error: "Enter a current code from your authenticator app to issue new recovery codes." });
     }
 
@@ -544,7 +545,7 @@ authRouter.post("/2fa/disable", requireAuth, codeLimiter, asyncHandler(async (re
     const { rows } = await client.query(`SELECT totp_secret, totp_enabled FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
     const row = rows[0];
     if (!row?.totp_enabled) return res.status(400).json({ error: "Two-factor authentication is not enabled." });
-    if (!code || !(await verifyTotpCode(row.totp_secret, code))) {
+    if (!code || !(await verifyTotpCode(decryptTolerant(row.totp_secret), code))) {
       return res.status(401).json({ error: "Enter a current authenticator code to turn 2FA off." });
     }
 

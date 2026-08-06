@@ -1026,10 +1026,20 @@ export async function createSinglePaycheck(
         [paycheckId, client.client_id, client.client_name, payDate, employeeName, employee.employee_id, gross, ssEe, medEe, federal, state,
           employeeTaxes, netPay, ssEr, medEr, futa, suta, employerTaxes, totalCost,
           String(body.payPeriodStart || "").trim() || null, String(body.payPeriodEnd || "").trim() || null,
-          checkNumber, regularHours, regularRate, payType, employee.ssn ? decryptTolerant(employee.ssn) : null, employee.address || null,
+          // employee.ssn is already ciphertext (v3_employees.ssn is encrypted at rest) —
+          // copying it as-is snapshots the value onto this paycheck without ever
+          // decrypting it here, and decouples it from a later correction to the
+          // employee record (same "snapshot, not a live reference" intent the
+          // plaintext version already had). paymentMethod.routingNumber/accountNumber
+          // came back decrypted from resolvePaymentMethod (needed in plaintext for
+          // check-printing/MICR elsewhere in this function), so those DO need
+          // re-encrypting before they're written to a column.
+          checkNumber, regularHours, regularRate, payType, employee.ssn || null, employee.address || null,
           federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
           paymentMethod?.paymentMethodId || null, paymentMethod?.methodName || null, paymentMethod?.bankName || null,
-          paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null, paymentMethod?.accountType || null,
+          paymentMethod?.routingNumber ? encryptValue(paymentMethod.routingNumber) : null,
+          paymentMethod?.accountNumber ? encryptValue(paymentMethod.accountNumber) : null,
+          paymentMethod?.accountType || null,
           paymentMethod?.bankLast4 || null,
           regularHours || null, regularRate || null, regularPay || null, overtimeHours || null, overtimeRate || null, overtimePay || null,
           bonusPay || null, commissionPay || null, otherTaxablePay || null, nonTaxableReimbursement || null,
@@ -1224,11 +1234,16 @@ accountingRouter.get("/paychecks/:clientId", requireAuth, requireRole("admin", "
   const params: any[] = [clientId];
   if (start) { params.push(start); conditions.push(`pay_date >= $${params.length}`); }
   if (end) { params.push(end); conditions.push(`pay_date <= $${params.length}`); }
-  const rows = await query(
+  const rows = await query<any>(
     `SELECT * FROM altax.v3_paychecks WHERE ${conditions.join(" AND ")} ORDER BY pay_date DESC NULLS LAST LIMIT 1000`,
     params
   );
-  res.json({ paychecks: rows });
+  // The list view never displays SSN or full bank account/routing numbers —
+  // stripped here rather than decrypted-and-sent, since a bulk list response
+  // has no business carrying this at all (least privilege, not just secrecy
+  // from the wire — no reason to ship ciphertext to the browser either).
+  const paychecks = rows.map(({ employee_ssn, payment_routing_number, payment_account_number, ...rest }) => rest);
+  res.json({ paychecks });
 }));
 
 /**
@@ -1415,6 +1430,9 @@ accountingRouter.get("/paychecks/:paycheckId/print", requireAuth, requireRole("a
   const { paycheckId } = req.params;
   const paycheck = await queryOne<any>(`SELECT * FROM altax.v3_paychecks WHERE paycheck_id = $1`, [paycheckId]);
   if (!paycheck) return res.status(404).json({ error: "Paycheck not found." });
+  if (paycheck.employee_ssn) paycheck.employee_ssn = decryptTolerant(paycheck.employee_ssn);
+  if (paycheck.payment_routing_number) paycheck.payment_routing_number = decryptTolerant(paycheck.payment_routing_number);
+  if (paycheck.payment_account_number) paycheck.payment_account_number = decryptTolerant(paycheck.payment_account_number);
   if (!(await canAccessClient(req.user!, paycheck.client_id))) {
     return res.status(403).json({ error: "You do not have access to this paycheck." });
   }
@@ -1604,7 +1622,9 @@ accountingRouter.post("/contractor-payments", requireAuth, requireRole("admin", 
         String(body.checkNumber || "").trim() || null, String(body.confirmationNumber || "").trim() || null,
         expenseCategory, String(body.memo || "").trim() || null,
         body.eligible1099 === undefined ? true : Boolean(body.eligible1099), String(body.status || "Active").trim(),
-        paymentMethod?.bankName || null, paymentMethod?.routingNumber || null, paymentMethod?.accountNumber || null,
+        paymentMethod?.bankName || null,
+        paymentMethod?.routingNumber ? encryptValue(paymentMethod.routingNumber) : null,
+        paymentMethod?.accountNumber ? encryptValue(paymentMethod.accountNumber) : null,
         paymentMethod?.accountType || null, paymentMethod?.bankLast4 || null]
     );
 
@@ -1630,8 +1650,9 @@ accountingRouter.get("/contractor-payments/:clientId", requireAuth, requireRole(
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const rows = await query(`SELECT * FROM altax.v3_contractor_payments WHERE client_id = $1 ORDER BY payment_date DESC NULLS LAST`, [clientId]);
-  res.json({ contractorPayments: rows });
+  const rows = await query<any>(`SELECT * FROM altax.v3_contractor_payments WHERE client_id = $1 ORDER BY payment_date DESC NULLS LAST`, [clientId]);
+  const contractorPayments = rows.map(({ payment_routing_number, payment_account_number, ...rest }) => rest);
+  res.json({ contractorPayments });
 }));
 
 /** Edit a contractor payment — reposts its 2 GL lines the same way the sales-input edit does. */
@@ -1658,8 +1679,12 @@ accountingRouter.patch("/contractor-payments/:contractorPaymentId", requireAuth,
   const paymentMethod = body.paymentMethodId !== undefined ? await resolvePaymentMethod(existing.client_id, "payroll", body.paymentMethodId) : null;
   const paymentMethodId = body.paymentMethodId !== undefined ? (paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null) : existing.payment_method_id;
   const bankName = paymentMethod?.bankName ?? existing.payment_bank_name;
-  const routingNumber = paymentMethod?.routingNumber ?? existing.payment_routing_number;
-  const accountNumber = paymentMethod?.accountNumber ?? existing.payment_account_number;
+  // paymentMethod's routingNumber/accountNumber come back decrypted (see resolvePaymentMethod)
+  // and need encrypting before they're written; existing.payment_routing_number/account_number,
+  // when kept as the fallback, is already ciphertext from the last save and must pass through
+  // unchanged — encrypting it a second time would just wrap already-encrypted bytes.
+  const routingNumber = paymentMethod?.routingNumber ? encryptValue(paymentMethod.routingNumber) : existing.payment_routing_number;
+  const accountNumber = paymentMethod?.accountNumber ? encryptValue(paymentMethod.accountNumber) : existing.payment_account_number;
   const accountType = paymentMethod?.accountType ?? existing.payment_account_type;
   const bankLast4 = paymentMethod?.bankLast4 ?? existing.payment_bank_last4;
 

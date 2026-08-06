@@ -7,6 +7,7 @@ import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { resolvePaymentMethod, postInvoiceTotalGl, postInvoicePaymentGl } from "../../common/accountingHelpers";
 import { composeAddress } from "../../common/address";
 import { lookupSalesTaxRate } from "../../common/taxRates";
+import { encryptValue } from "../../common/encryption";
 
 /**
  * Billing module — Phase 5. Covers invoices, payments, and recurring billing. Ported
@@ -390,8 +391,11 @@ billingRouter.get("/invoices/:invoiceId/payments", requireAuth, asyncHandler(asy
   const allowed = role === "client" ? invoice.client_id === req.user!.clientId : await canMutateInvoice(req.user!, invoice);
   if (!allowed) return res.status(403).json({ error: "You do not have access to this invoice." });
 
-  const rows = await query(`SELECT * FROM altax.v3_payments WHERE invoice_id = $1 ORDER BY payment_date DESC NULLS LAST`, [req.params.invoiceId]);
-  res.json({ payments: rows });
+  const rows = await query<any>(`SELECT * FROM altax.v3_payments WHERE invoice_id = $1 ORDER BY payment_date DESC NULLS LAST`, [req.params.invoiceId]);
+  // Reachable by the client role for their own invoice — never send full bank
+  // routing/account numbers (or ciphertext of them) down to any portal.
+  const payments = rows.map(({ payment_routing_number, payment_account_number, ...rest }) => rest);
+  res.json({ payments });
 }));
 
 /**
@@ -854,6 +858,7 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   const total = money(invoice.total_amount);
   const paymentId = nextPaymentId();
   const paymentMethod = await resolvePaymentMethod(invoice.client_id, "invoices", body.paymentMethodId);
+  const routingNumber = String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || "";
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
@@ -888,8 +893,9 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
         paymentDate, money(body.expectedAmount ?? invoice.balance_due ?? total), amount,
         String(body.method || "Manual").trim(), paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
         String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
-        String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
-        accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
+        routingNumber ? encryptValue(routingNumber) : null,
+        accountNumber ? encryptValue(accountNumber) : null,
+        String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
         String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
       ]
     );
@@ -934,6 +940,7 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
   const description = String(body.description || "Sales receipt").trim();
   const paymentId = nextPaymentId();
   const paymentMethod = await resolvePaymentMethod(clientId, "invoices", body.paymentMethodId);
+  const routingNumber = String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || "";
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
@@ -956,8 +963,9 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
         paymentId, invoiceId, clientId, invoiceDate, amount, String(body.method || "Manual").trim(),
         paymentMethod?.paymentMethodId || String(body.paymentMethodId || "").trim() || null,
         String(body.paymentBankName || "").trim() || paymentMethod?.bankName || null,
-        String(body.paymentRoutingNumber || "").trim() || paymentMethod?.routingNumber || null,
-        accountNumber || null, String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
+        routingNumber ? encryptValue(routingNumber) : null,
+        accountNumber ? encryptValue(accountNumber) : null,
+        String(body.paymentAccountType || "").trim() || paymentMethod?.accountType || null, bankLast4 || null,
         String(body.confirmationNumber || "").trim() || null, String(body.notes || "").trim() || null,
       ]
     );
@@ -1471,14 +1479,15 @@ billingRouter.get("/payments", requireAuth, asyncHandler(async (req: AuthedReque
     clientScope = ` AND p.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($${params.length}::text[]))`;
   }
 
-  const rows = await query(
+  const rows = await query<any>(
     `SELECT p.*, c.client_name FROM altax.v3_payments p
        LEFT JOIN altax.v3_clients c ON c.client_id = p.client_id
       WHERE ${conditions.join(" AND ")}${clientScope}
       ORDER BY p.payment_date DESC NULLS LAST`,
     params
   );
-  res.json({ payments: rows });
+  const payments = rows.map(({ payment_routing_number, payment_account_number, ...rest }) => rest);
+  res.json({ payments });
 }));
 
 /**
