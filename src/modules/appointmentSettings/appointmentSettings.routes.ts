@@ -83,6 +83,7 @@ appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHan
   await updateAppointmentSettings({
     bookableWeekdays: body.bookableWeekdays && typeof body.bookableWeekdays === "object" ? body.bookableWeekdays : undefined,
     slotMinutes: num(body.slotMinutes, undefined),
+    gapMinutes: num(body.gapMinutes, undefined),
     businessStartHour: num(body.businessStartHour, undefined),
     businessEndHour: num(body.businessEndHour, undefined),
     dayHours: parseDayHours(body.dayHours) as any,

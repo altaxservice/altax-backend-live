@@ -44,8 +44,8 @@ export async function createAppointmentType(input: { name: string; durationMinut
   const name = input.name.trim();
   if (!name) throw new Error("Name is required.");
   const durationMinutes = Math.trunc(input.durationMinutes);
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 480) {
-    throw new Error("Duration must be between 1 and 480 minutes.");
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 90) {
+    throw new Error("Duration must be between 1 and 90 minutes.");
   }
   const appointmentTypeId = `APPTTYPE-${idSuffix()}`;
   await query(
@@ -66,8 +66,8 @@ export async function updateAppointmentType(
   const name = patch.name !== undefined ? patch.name.trim() : existing.name;
   if (!name) throw new Error("Name is required.");
   const durationMinutes = patch.durationMinutes !== undefined ? Math.trunc(patch.durationMinutes) : existing.duration_minutes;
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 480) {
-    throw new Error("Duration must be between 1 and 480 minutes.");
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0 || durationMinutes > 90) {
+    throw new Error("Duration must be between 1 and 90 minutes.");
   }
   const active = patch.active !== undefined ? patch.active : existing.active;
   const sortOrder = patch.sortOrder !== undefined ? Math.trunc(patch.sortOrder) : existing.sort_order;

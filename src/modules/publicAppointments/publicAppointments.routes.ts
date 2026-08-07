@@ -77,6 +77,7 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
 
   const slots: string[] = [];
   const nowMs = Date.now();
+  const gapMs = settings.gapMinutes * 60 * 1000;
   const { startHour, endHour } = hoursForDay(settings, jsDay);
   const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
   for (let hour = startHour; hour < endHour; hour++) {
@@ -86,7 +87,10 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
       const endMs = startMs + durationMinutes * 60 * 1000;
       if (startMs <= nowMs) continue;
       if (endMs > dayCloseMs) continue;
-      const overlaps = bookedRanges.some((r) => startMs < r.end && endMs > r.start);
+      // Padded by gapMs on both sides so a candidate slot that would land
+      // less than the configured gap away from an existing appointment
+      // (before OR after it) is excluded too, not just a true overlap.
+      const overlaps = bookedRanges.some((r) => startMs < r.end + gapMs && endMs > r.start - gapMs);
       if (!overlaps) slots.push(startIso);
     }
   }
@@ -282,9 +286,16 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     // other now serialize here instead of both passing the check and both
     // landing in the same slot.
     appointmentId = await withDayBookingLock(startTime, async () => {
+      // Padded by the configured gap on both sides — same rule as
+      // computeAvailableSlots, re-checked here against the live table right
+      // before writing, since the slot the visitor picked from /availability
+      // could be milliseconds stale.
+      const gapMs = settings.gapMinutes * 60 * 1000;
+      const paddedStart = new Date(startMs - gapMs).toISOString();
+      const paddedEnd = new Date(startMs + durationMinutes * 60 * 1000 + gapMs).toISOString();
       const clash = await query<any>(
         `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 LIMIT 1`,
-        [startTime, endTime]
+        [paddedStart, paddedEnd]
       );
       if (clash.length) throw new Error("That time slot was just booked by someone else — please pick another.");
       const created = await createAppointment({
@@ -442,9 +453,12 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
   // between the clash-check and the actual write.
   try {
     await withDayBookingLock(startTime, async () => {
+      const gapMs = settings.gapMinutes * 60 * 1000;
+      const paddedStart = new Date(startMs - gapMs).toISOString();
+      const paddedEnd = new Date(startMs + existingDurationMinutes * 60 * 1000 + gapMs).toISOString();
       const clash = await query<any>(
         `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,
-        [appt.appointment_id, startTime, endTime]
+        [appt.appointment_id, paddedStart, paddedEnd]
       );
       if (clash.length) throw new Error("__clash__");
       await query(

@@ -33,6 +33,11 @@ export const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
 export const DEFAULT_APPOINTMENT_SETTINGS = {
   bookableWeekdays: { mon: true, tue: true, wed: true, thu: true, fri: true, sat: false, sun: false },
   slotMinutes: 60,
+  // Buffer enforced on both sides of every existing appointment when checking
+  // a new booking for conflicts — keeps back-to-back appointments from
+  // touching with zero turnaround time. Separate from slotMinutes (the
+  // picker's time-grid step) and from an Appointment Type's duration.
+  gapMinutes: 15,
   businessStartHour: 9,
   businessEndHour: 17,
   dayHours: { mon: NO_OVERRIDE, tue: NO_OVERRIDE, wed: NO_OVERRIDE, thu: NO_OVERRIDE, fri: NO_OVERRIDE, sat: NO_OVERRIDE, sun: NO_OVERRIDE },
@@ -68,6 +73,7 @@ export interface DayHours {
 export interface AppointmentSettings {
   bookableWeekdays: { mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean; sun: boolean };
   slotMinutes: number;
+  gapMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
   /** Optional per-weekday hour overrides. A day with startHour/endHour === null falls back to businessStartHour/businessEndHour. */
@@ -92,6 +98,7 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
       ? { mon: row.bookable_mon, tue: row.bookable_tue, wed: row.bookable_wed, thu: row.bookable_thu, fri: row.bookable_fri, sat: row.bookable_sat, sun: row.bookable_sun }
       : { ...d.bookableWeekdays },
     slotMinutes: row?.slot_minutes ?? d.slotMinutes,
+    gapMinutes: row?.gap_minutes ?? d.gapMinutes,
     businessStartHour: row?.business_start_hour ?? d.businessStartHour,
     businessEndHour: row?.business_end_hour ?? d.businessEndHour,
     dayHours: row
@@ -125,6 +132,7 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
   const merged = {
     bookable_mon: w.mon, bookable_tue: w.tue, bookable_wed: w.wed, bookable_thu: w.thu, bookable_fri: w.fri, bookable_sat: w.sat, bookable_sun: w.sun,
     slot_minutes: fields.slotMinutes ?? existing.slotMinutes,
+    gap_minutes: fields.gapMinutes ?? existing.gapMinutes,
     business_start_hour: fields.businessStartHour ?? existing.businessStartHour,
     business_end_hour: fields.businessEndHour ?? existing.businessEndHour,
     max_days_ahead: fields.maxDaysAhead ?? existing.maxDaysAhead,
@@ -139,23 +147,23 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
   await query(
     `INSERT INTO altax.v3_appointment_settings
        (id, bookable_mon, bookable_tue, bookable_wed, bookable_thu, bookable_fri, bookable_sat, bookable_sun,
-        slot_minutes, business_start_hour, business_end_hour, max_days_ahead,
+        slot_minutes, gap_minutes, business_start_hour, business_end_hour, max_days_ahead,
         location_name, location_address, location_map_url, policy_message_en, policy_message_ar,
         mon_start_hour, mon_end_hour, tue_start_hour, tue_end_hour, wed_start_hour, wed_end_hour,
         thu_start_hour, thu_end_hour, fri_start_hour, fri_end_hour, sat_start_hour, sat_end_hour,
         sun_start_hour, sun_end_hour, reminder_lead_minutes, staff_reminder_channel, updated_at, updated_by)
-     VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32, now(), $33)
+     VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+             $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33, now(), $34)
      ON CONFLICT (id) DO UPDATE SET
        bookable_mon=$1, bookable_tue=$2, bookable_wed=$3, bookable_thu=$4, bookable_fri=$5, bookable_sat=$6, bookable_sun=$7,
-       slot_minutes=$8, business_start_hour=$9, business_end_hour=$10, max_days_ahead=$11,
-       location_name=$12, location_address=$13, location_map_url=$14, policy_message_en=$15, policy_message_ar=$16,
-       mon_start_hour=$17, mon_end_hour=$18, tue_start_hour=$19, tue_end_hour=$20, wed_start_hour=$21, wed_end_hour=$22,
-       thu_start_hour=$23, thu_end_hour=$24, fri_start_hour=$25, fri_end_hour=$26, sat_start_hour=$27, sat_end_hour=$28,
-       sun_start_hour=$29, sun_end_hour=$30, reminder_lead_minutes=$31, staff_reminder_channel=$32,
-       updated_at = now(), updated_by=$33`,
+       slot_minutes=$8, gap_minutes=$9, business_start_hour=$10, business_end_hour=$11, max_days_ahead=$12,
+       location_name=$13, location_address=$14, location_map_url=$15, policy_message_en=$16, policy_message_ar=$17,
+       mon_start_hour=$18, mon_end_hour=$19, tue_start_hour=$20, tue_end_hour=$21, wed_start_hour=$22, wed_end_hour=$23,
+       thu_start_hour=$24, thu_end_hour=$25, fri_start_hour=$26, fri_end_hour=$27, sat_start_hour=$28, sat_end_hour=$29,
+       sun_start_hour=$30, sun_end_hour=$31, reminder_lead_minutes=$32, staff_reminder_channel=$33,
+       updated_at = now(), updated_by=$34`,
     [merged.bookable_mon, merged.bookable_tue, merged.bookable_wed, merged.bookable_thu, merged.bookable_fri, merged.bookable_sat, merged.bookable_sun,
-      merged.slot_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
+      merged.slot_minutes, merged.gap_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
       merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar,
       dh.mon.startHour, dh.mon.endHour, dh.tue.startHour, dh.tue.endHour, dh.wed.startHour, dh.wed.endHour,
       dh.thu.startHour, dh.thu.endHour, dh.fri.startHour, dh.fri.endHour, dh.sat.startHour, dh.sat.endHour,

@@ -20,6 +20,7 @@ interface DayHours {
 interface AppointmentSettings {
   bookableWeekdays: { mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean; sun: boolean };
   slotMinutes: number;
+  gapMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
@@ -40,6 +41,7 @@ const WEEKDAYS: { key: keyof AppointmentSettings["bookableWeekdays"]; label: str
   { key: "fri", label: "Fri" }, { key: "sat", label: "Sat" }, { key: "sun", label: "Sun" },
 ];
 const SLOT_OPTIONS = [15, 20, 30, 45, 60, 90, 120];
+const GAP_OPTIONS = [0, 5, 10, 15, 20, 30, 45, 60];
 // Mirrors REMINDER_LEAD_PRESETS in src/common/appointmentSettings.ts — the backend
 // is the source of truth (its DB CHECK constraint enforces this exact list); this
 // copy only drives which checkboxes render.
@@ -256,11 +258,17 @@ export function CalendarSettingsPanel() {
 
       <AppointmentTypesManager />
 
-      <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
         <div className="field">
           <label htmlFor="cal-slot-minutes">Time Grid <span className="muted" style={{ fontWeight: 400 }}>(spacing between start times)</span></label>
           <select id="cal-slot-minutes" value={settings.slotMinutes} onChange={(e) => setSettings((s) => s && { ...s, slotMinutes: Number(e.target.value) })}>
             {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="cal-gap-minutes">Gap Between Appointments</label>
+          <select id="cal-gap-minutes" value={settings.gapMinutes} onChange={(e) => setSettings((s) => s && { ...s, gapMinutes: Number(e.target.value) })}>
+            {GAP_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No gap" : `${m} min`}</option>)}
           </select>
         </div>
         <div className="field">
