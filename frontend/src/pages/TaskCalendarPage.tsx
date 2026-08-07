@@ -211,11 +211,21 @@ export function TaskCalendarPage() {
                           {dayTasks.length} due{overdueCount > 0 ? ` · ${overdueCount} overdue` : ""}
                         </span>
                       )}
-                      {dayAppts.length > 0 && (
-                        <span className="status-pill" style={{ fontSize: 10, background: "var(--purple-soft)", color: "var(--purple)" }}>
-                          {dayAppts.length} appt{dayAppts.length === 1 ? "" : "s"}
-                        </span>
-                      )}
+                      {dayAppts.length > 0 && (() => {
+                        // Purple means "still needs attention" (at least one Scheduled
+                        // appointment that day); once every appointment that day has
+                        // wrapped up (auto-completed or cancelled), the chip turns green
+                        // to match the same "done" signal Completed badges use elsewhere.
+                        const allDone = dayAppts.every((a) => a.status !== "Scheduled");
+                        return (
+                          <span
+                            className="status-pill"
+                            style={{ fontSize: 10, background: allDone ? "var(--green-soft)" : "var(--purple-soft)", color: allDone ? "var(--green)" : "var(--purple)" }}
+                          >
+                            {dayAppts.length} appt{dayAppts.length === 1 ? "" : "s"}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
