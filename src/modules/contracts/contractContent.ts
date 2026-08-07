@@ -38,6 +38,7 @@ export const FIRM_SERVICES: FirmService[] = [
   { key: "payroll", label: "Payroll Services" },
   { key: "sales_tax", label: "Sales Tax & Business Compliance" },
   { key: "formation", label: "Business Formation & Registered Agent" },
+  { key: "business_transfer", label: "Business Transfer Documents (Bill of Sale, Amendments, etc.)" },
   { key: "permits_licenses", label: "Business Licenses & Permits (Health, Use & Occupancy, Trader's, Tobacco)" },
   { key: "snap_retailer_application", label: "SNAP Retailer Application" },
   { key: "immigration", label: "Immigration Document Preparation" },
@@ -276,6 +277,21 @@ FILING SERVICE ONLY — NOT LEGAL OR TAX ADVICE ON ENTITY CHOICE. Firm's service
 STATE FEES SEPARATE. State filing fees, registered-agent fees for future years, and any franchise or annual-report fees are separate from Firm's service fee, are billed to Client directly or passed through, and are non-refundable once paid to the state.
 
 REGISTERED AGENT — CLIENT RESPONSIBILITY TO RESPOND. If Firm serves as Client's registered agent, Client is responsible for promptly reviewing and responding to any document Firm forwards, including time-sensitive legal notices. Firm's role is limited to accepting and forwarding documents; Firm does not evaluate their legal significance.`,
+  },
+  {
+    serviceKey: "business_transfer",
+    title: "Business Transfer Documents Agreement",
+    body: `BUSINESS TRANSFER DOCUMENTS AGREEMENT
+
+This agreement confirms the terms of the engagement between {{clientName}} ("Client") and {{firmName}} ("Firm") for business transfer document preparation services, effective {{effectiveDate}}.
+
+SCOPE OF SERVICES. Firm will prepare business-transfer and ownership-change documents Client requests — which may include a Bill of Sale, an amendment to Articles of Organization/Incorporation or an Operating Agreement, an assignment of interest, or similar documents reflecting a sale, purchase, or change of ownership of Client's business — based on the terms, price, and parties Client provides, and will file any resulting amendment with the applicable state agency where requested.
+
+DOCUMENT PREPARATION ONLY — NOT LEGAL ADVICE ON TRANSACTION TERMS. Firm's services are limited to preparing, and where applicable filing, documents that reflect terms Client has already decided on. Firm does not negotiate the transaction and does not advise on purchase price, allocation of assets or liabilities, tax structuring of the sale, or other legal or business terms of the transfer, and does not represent either party's interests in the transaction. Client is encouraged to consult an attorney before finalizing any business sale, purchase, or ownership change, particularly where liabilities, licenses, leases, or employees are involved.
+
+CLIENT RESPONSIBILITY FOR ACCURACY. Client is solely responsible for the accuracy of all parties, terms, and figures provided for inclusion in the document, and for obtaining all necessary signatures, licenses, and third-party consents (such as landlord or lender approval) before relying on it.
+
+STATE FEES SEPARATE. Any state filing fees for an amendment or related registration are separate from Firm's service fee and are Client's responsibility.`,
   },
   {
     serviceKey: "permits_licenses",
