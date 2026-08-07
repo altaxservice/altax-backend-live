@@ -46,6 +46,7 @@ import { haccpRouter } from "./modules/haccp/haccp.routes";
 import { checklistsRouter } from "./modules/checklists/checklists.routes";
 import { budgetsRouter } from "./modules/budgets/budgets.routes";
 import { labelsRouter } from "./modules/labels/labels.routes";
+import { formDraftsRouter } from "./modules/formDrafts/formDrafts.routes";
 import { bankRecRouter } from "./modules/bankRec/bankRec.routes";
 import cron from "node-cron";
 import { alertAdmins } from "./common/adminAlerts";
@@ -266,6 +267,7 @@ app.use("/haccp", haccpRouter);
 app.use("/checklists", checklistsRouter);
 app.use("/budgets", budgetsRouter);
 app.use("/labels", labelsRouter);
+app.use("/form-drafts", formDraftsRouter);
 app.use("/bank-rec", bankRecRouter);
 
 // Static JS/CSS/asset files for the build above — these have real file extensions and

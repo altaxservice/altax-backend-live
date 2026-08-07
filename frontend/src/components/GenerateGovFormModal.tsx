@@ -4,6 +4,8 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import type { GovFormsMeta, ClientGovFormType } from "../api/govForms";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
 
 interface ClientIdentity {
   client_id: string; client_name: string; entity_type: string | null;
@@ -144,6 +146,44 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     contactNameTitle: "", contactPhone: "", signerTitle: "",
     lateReliefExplanation: "", lateReliefSignerTitle: "",
   });
+
+  // Autosave — this modal has 140+ possible fields across the 6 form types,
+  // the single biggest place in the app where an accidental tab close/reload
+  // used to mean retyping everything. Keyed so editing an existing Draft has
+  // its own slot (independent of form type, which is locked while editing),
+  // and creating fresh has one slot per client+form-type (switching the Form
+  // dropdown doesn't clobber whatever was typed under a different type).
+  const draftFormKey = isEditing ? `gov-form-edit:${editingFiling!.filing_id}` : `gov-form:${clientId}:${formType}`;
+  const { pendingDraft, draftChecked, saveDraft, clearDraft, dismissPendingDraft } = useFormDraft<{
+    formType: ClientGovFormType; craGeneratePoa: boolean;
+    ss4: typeof ss4; f2553: typeof f2553; shareholders: Shareholder[]; w9: typeof w9;
+    cra: typeof cra; f8822b: typeof f8822b; f8832: typeof f8832;
+  }>(draftFormKey);
+
+  function restoreDraft() {
+    if (!pendingDraft) return;
+    const d = pendingDraft.data;
+    setFormType(d.formType);
+    setCraGeneratePoa(d.craGeneratePoa);
+    setSs4(d.ss4);
+    setF2553(d.f2553);
+    setShareholders(d.shareholders);
+    setW9(d.w9);
+    setCra(d.cra);
+    setF8822b(d.f8822b);
+    setF8832(d.f8832);
+    dismissPendingDraft();
+  }
+
+  // Only autosaves once the draft-check round trip has resolved AND there's
+  // no pending draft still awaiting a Restore/Discard choice — otherwise the
+  // freshly-prefilled (non-draft) state would silently overwrite the very
+  // draft this effect exists to protect, before the user ever saw it.
+  useEffect(() => {
+    if (!draftChecked || pendingDraft) return;
+    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832]);
 
   useEffect(() => {
     Promise.all([
@@ -299,6 +339,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
       } else {
         await api.post(`/gov-forms/client/${clientId}`, { formType, formData });
       }
+      clearDraft();
       // Best-effort, separate request — a failure here shouldn't undo the CRA
       // filing that already succeeded; the checkbox is a convenience, not a
       // transaction. Staff can always create the POA by hand from the POA
@@ -345,6 +386,9 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           <p className="muted">Loading…</p>
         ) : (
           <div>
+            {pendingDraft && (
+              <DraftRestoreBanner updatedAt={pendingDraft.updatedAt} onRestore={restoreDraft} onDiscard={() => { clearDraft(); dismissPendingDraft(); }} />
+            )}
             {saveError && <ErrorBanner error={saveError} />}
 
             <div className="field">

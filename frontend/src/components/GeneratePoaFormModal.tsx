@@ -4,6 +4,8 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import type { PoaRepresentative, PoaRepresentativeOption, PoaTaxMatter } from "../api/poaForms";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
 
 interface Meta {
   formTypes: { value: string; label: string }[];
@@ -57,6 +59,31 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
   }, []);
 
+  // Autosave — see GenerateGovFormModal's matching comment for the full
+  // reasoning (same pattern: one draft slot per client+form-type when
+  // creating, one slot per filing when editing).
+  const draftFormKey = isEditing ? `poa-form-edit:${editingFiling!.filing_id}` : `poa-form:${clientId}:${formType}`;
+  const { pendingDraft, draftChecked, saveDraft, clearDraft, dismissPendingDraft } = useFormDraft<{
+    formType: string; reps: PoaRepresentative[]; matters: PoaTaxMatter[]; retainPrior: boolean; notes: string;
+  }>(draftFormKey);
+
+  function restoreDraft() {
+    if (!pendingDraft) return;
+    const d = pendingDraft.data;
+    setFormType(d.formType);
+    setReps(d.reps);
+    setMatters(d.matters);
+    setRetainPrior(d.retainPrior);
+    setNotes(d.notes);
+    dismissPendingDraft();
+  }
+
+  useEffect(() => {
+    if (!draftChecked || pendingDraft) return;
+    saveDraft({ formType, reps, matters, retainPrior, notes });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftChecked, pendingDraft, formType, reps, matters, retainPrior, notes]);
+
   const maxReps = formType === "548" || formType === "8821" ? 2 : 4;
   const maxMatters = 3;
   const designationOptions = meta?.designations[formType] || [];
@@ -105,6 +132,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
           formType, representatives: reps, taxMatters: cleanMatters, retainPrior, notes: notes.trim() || undefined,
         });
       }
+      clearDraft();
       onDone();
       onClose();
     } catch (err) {
@@ -127,6 +155,9 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
           <p className="muted">Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
+            {pendingDraft && (
+              <DraftRestoreBanner updatedAt={pendingDraft.updatedAt} onRestore={restoreDraft} onDiscard={() => { clearDraft(); dismissPendingDraft(); }} />
+            )}
             {saveError && <ErrorBanner error={saveError} />}
 
             <div className="field">

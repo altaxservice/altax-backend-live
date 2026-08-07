@@ -16,6 +16,8 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
+import { useFormDraft } from "../hooks/useFormDraft";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
@@ -131,6 +133,34 @@ export function ClientsListPage() {
   const [customServices, setCustomServices] = useState<string[]>([]);
   const [newCustomService, setNewCustomService] = useState("");
 
+  // Autosave — this is the form the "start typing and lose it all" complaint
+  // was raised about. One shared slot ("add-client") is enough here: unlike
+  // the gov-form/POA modals, there's only ever one Add Client flow open at a
+  // time (it's an inline page section, not a stack of modals per record).
+  const { pendingDraft: pendingClientDraft, draftChecked: clientDraftChecked, saveDraft: saveClientDraft, clearDraft: clearClientDraft, dismissPendingDraft: dismissClientDraft } = useFormDraft<{
+    form: typeof EMPTY_CLIENT_FORM; createPortalNow: boolean; quickGovForms: string[]; quickAuthForms: string[];
+    serviceTypeOther: string; customServices: string[]; newCustomService: string;
+  }>(showForm ? "add-client" : null);
+
+  function restoreClientDraft() {
+    if (!pendingClientDraft) return;
+    const d = pendingClientDraft.data;
+    setForm(d.form);
+    setCreatePortalNow(d.createPortalNow);
+    setQuickGovForms(d.quickGovForms);
+    setQuickAuthForms(d.quickAuthForms);
+    setServiceTypeOther(d.serviceTypeOther);
+    setCustomServices(d.customServices);
+    setNewCustomService(d.newCustomService);
+    dismissClientDraft();
+  }
+
+  useEffect(() => {
+    if (!clientDraftChecked || pendingClientDraft) return;
+    saveClientDraft({ form, createPortalNow, quickGovForms, quickAuthForms, serviceTypeOther, customServices, newCustomService });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientDraftChecked, pendingClientDraft, form, createPortalNow, quickGovForms, quickAuthForms, serviceTypeOther, customServices, newCustomService]);
+
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const { allLabels, byEntity: clientLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabels("client");
   const isAdmin = user?.role === "admin";
@@ -207,6 +237,7 @@ export function ClientsListPage() {
       setServiceTypeOther("");
       setQuickGovForms([]);
       setQuickAuthForms([]);
+      clearClientDraft();
       setSearchParams({});
       await load();
       if (invite) setInviteInfo(invite);
@@ -405,6 +436,9 @@ export function ClientsListPage() {
 
       {showForm && (
         <form onSubmit={handleCreate} className="card" style={{ maxWidth: 960, marginBottom: 24 }}>
+          {pendingClientDraft && (
+            <DraftRestoreBanner updatedAt={pendingClientDraft.updatedAt} onRestore={restoreClientDraft} onDiscard={() => { clearClientDraft(); dismissClientDraft(); }} />
+          )}
           {saveError && <ErrorBanner error={saveError} />}
 
           <div className="form-section-title">Client Identity</div>

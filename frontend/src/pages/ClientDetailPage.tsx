@@ -4,6 +4,8 @@ import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, bu
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { BackLink } from "../components/BackLink";
+import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
+import { useFormDraft } from "../hooks/useFormDraft";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { ChangePortalEmailModal } from "../components/ChangePortalEmailModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -188,6 +190,17 @@ export function ClientDetailPage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Autosave for the Edit Client form — only active while actually editing
+  // (formKey null otherwise), so viewing a client's profile never checks or
+  // writes a draft that isn't in use.
+  const editClientDraftKey = editing && clientId ? `edit-client:${clientId}` : null;
+  const { pendingDraft: pendingEditDraft, draftChecked: editDraftChecked, saveDraft: saveEditDraft, clearDraft: clearEditDraft, dismissPendingDraft: dismissEditDraft } = useFormDraft<Record<string, any>>(editClientDraftKey);
+  useEffect(() => {
+    if (!editDraftChecked || pendingEditDraft || !editClientDraftKey) return;
+    saveEditDraft(form);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDraftChecked, pendingEditDraft, editClientDraftKey, form]);
   const [inviteInfo, setInviteInfo] = useState<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string } | null>(null);
   const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
@@ -371,6 +384,7 @@ export function ClientDetailPage() {
     setSaveError(null);
     try {
       await api.patch(`/clients/${clientId}`, form);
+      clearEditDraft();
       setEditing(false);
       setSearchParams({});
       toast("Client updated.");
@@ -451,6 +465,13 @@ export function ClientDetailPage() {
 
       {editing ? (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 960 }}>
+          {pendingEditDraft && (
+            <DraftRestoreBanner
+              updatedAt={pendingEditDraft.updatedAt}
+              onRestore={() => { setForm(pendingEditDraft.data); dismissEditDraft(); }}
+              onDiscard={() => { clearEditDraft(); dismissEditDraft(); }}
+            />
+          )}
           {saveError && <ErrorBanner error={saveError} />}
           {EDIT_SECTIONS.map((section) => {
             const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
