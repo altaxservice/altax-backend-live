@@ -176,6 +176,39 @@ poaFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"),
   res.send(Buffer.from(bytes));
 }));
 
+/**
+ * Edits a Draft filing's representatives/tax matters/notes in place — same
+ * Draft-only rule as delete below (once signed it's a real record of what
+ * was actually authorized, not a mistake to silently rewrite). Taxpayer info
+ * (taxpayer_snapshot) and form type are not editable here — form type
+ * changes what fields even apply, so that's a new filing, not an edit; the
+ * taxpayer snapshot is a point-in-time record of who's being represented,
+ * not something a later edit should quietly drift out from under.
+ */
+poaFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await loadFiling(req, req.params.filingId);
+  if (filing === null) return res.status(404).json({ error: "Filing not found." });
+  if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  if (filing.status !== "Draft") return res.status(400).json({ error: `This filing is already ${filing.status} — only a Draft can be edited.` });
+
+  const body = req.body || {};
+  const representatives: PoaRepresentative[] = Array.isArray(body.representatives) ? body.representatives : [];
+  if (!representatives.length) return res.status(400).json({ error: "Add at least one representative." });
+  const maxReps = filing.form_type === "548" || filing.form_type === "8821" ? 2 : 4;
+  if (representatives.length > maxReps) return res.status(400).json({ error: `${FORM_LABELS[filing.form_type]} supports at most ${maxReps} representatives.` });
+
+  const taxMatters: PoaTaxMatter[] = (Array.isArray(body.taxMatters) ? body.taxMatters : []).filter((m: any) => m?.description);
+  if (!taxMatters.length) return res.status(400).json({ error: "Add at least one tax matter (type of tax)." });
+
+  await query(
+    `UPDATE altax.v3_poa_filings SET representatives=$2, tax_matters=$3, retain_prior=$4, notes=$5, updated_at=now() WHERE filing_id=$1`,
+    [filing.filing_id, JSON.stringify(representatives), JSON.stringify(taxMatters), Boolean(body.retainPrior), String(body.notes || "").trim() || null]
+  );
+  await logAudit("Tools", "UPDATE_POA_FILING", filing.filing_id, "", "", filing.form_type,
+    `${FORM_LABELS[filing.form_type]} draft edited by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 /** Records a physical/wet-ink signature — same shape as contracts' sign-in-person (signer name/title, staff who witnessed it, no IP/device trail since there isn't one for paper). */
 poaFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);

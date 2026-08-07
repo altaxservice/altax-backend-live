@@ -1459,6 +1459,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
   const [filings, setFilings] = useState<PoaFiling[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [editingFiling, setEditingFiling] = useState<PoaFiling | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Deep-linked from the Clients list "Add Client" card's "Authorization
   // Form" quick-launch select — see the ?openGovForm/?openAuthForm doc
@@ -1593,6 +1594,9 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
                       {f.status === "Draft" && (
+                        <button type="button" className="btn btn-sm" onClick={() => setEditingFiling(f)}>Edit</button>
+                      )}
+                      {f.status === "Draft" && (
                         <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now (In Person)</button>
                       )}
                       {f.status === "Signed" && (
@@ -1669,6 +1673,18 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
 
       {generating && (
         <GeneratePoaFormModal clientId={clientId} defaultFormType={autoOpenFormType || undefined} onClose={() => setGenerating(false)} onDone={load} />
+      )}
+      {editingFiling && (
+        <GeneratePoaFormModal
+          clientId={clientId}
+          editingFiling={{
+            filing_id: editingFiling.filing_id, form_type: editingFiling.form_type,
+            representatives: editingFiling.representatives, tax_matters: editingFiling.tax_matters,
+            retain_prior: editingFiling.retain_prior, notes: editingFiling.notes,
+          }}
+          onClose={() => setEditingFiling(null)}
+          onDone={() => { setEditingFiling(null); load(); }}
+        />
       )}
     </div>
   );

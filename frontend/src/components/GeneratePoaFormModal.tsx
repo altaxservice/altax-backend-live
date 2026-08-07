@@ -23,23 +23,28 @@ const EMPTY_MATTER: PoaTaxMatter = { description: "", taxForm: "", years: "" };
  * federal form and "Maryland Registered Individual Tax Preparer" on 548),
  * so those stay editable per row.
  */
-export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDone }: {
+export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling, onClose, onDone }: {
   clientId: string;
   defaultFormType?: string;
+  /** Pass an existing Draft filing to edit it in place (PATCH) instead of creating a new one — form type is then locked to whatever the filing already is, same reasoning as GenerateGovFormModal's editingFiling. */
+  editingFiling?: { filing_id: string; form_type: string; representatives: PoaRepresentative[]; tax_matters: PoaTaxMatter[]; retain_prior: boolean; notes: string | null };
   onClose: () => void;
   onDone: () => void;
 }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
+  const isEditing = !!editingFiling;
   const [meta, setMeta] = useState<Meta | null>(null);
   const [repOptions, setRepOptions] = useState<PoaRepresentativeOption[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [formType, setFormType] = useState(defaultFormType || "2848");
-  const [reps, setReps] = useState<PoaRepresentative[]>([]);
-  const [matters, setMatters] = useState<PoaTaxMatter[]>([{ ...EMPTY_MATTER }]);
-  const [retainPrior, setRetainPrior] = useState(false);
-  const [notes, setNotes] = useState("");
+  const [formType, setFormType] = useState(editingFiling?.form_type || defaultFormType || "2848");
+  const [reps, setReps] = useState<PoaRepresentative[]>(editingFiling?.representatives || []);
+  const [matters, setMatters] = useState<PoaTaxMatter[]>(
+    editingFiling?.tax_matters?.length ? editingFiling.tax_matters : [{ ...EMPTY_MATTER }]
+  );
+  const [retainPrior, setRetainPrior] = useState(editingFiling?.retain_prior || false);
+  const [notes, setNotes] = useState(editingFiling?.notes || "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -91,13 +96,19 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
     setSaving(true);
     setSaveError(null);
     try {
-      await api.post(`/poa-forms/client/${clientId}`, {
-        formType, representatives: reps, taxMatters: cleanMatters, retainPrior, notes: notes.trim() || undefined,
-      });
+      if (isEditing) {
+        await api.patch(`/poa-forms/${editingFiling!.filing_id}`, {
+          representatives: reps, taxMatters: cleanMatters, retainPrior, notes: notes.trim() || undefined,
+        });
+      } else {
+        await api.post(`/poa-forms/client/${clientId}`, {
+          formType, representatives: reps, taxMatters: cleanMatters, retainPrior, notes: notes.trim() || undefined,
+        });
+      }
       onDone();
       onClose();
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not create this filing.");
+      setSaveError(err instanceof ApiError ? err.message : `Could not ${isEditing ? "save" : "create"} this filing.`);
     } finally {
       setSaving(false);
     }
@@ -107,7 +118,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
     <div className="modal-overlay" onClick={onClose}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 id="generate-poa-form-title">Generate Authorization Form</h2>
+          <h2 id="generate-poa-form-title">{isEditing ? "Edit Draft Authorization Form" : "Generate Authorization Form"}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
         </div>
 
@@ -120,9 +131,10 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
 
             <div className="field">
               <label htmlFor="pf-type">Form</label>
-              <select id="pf-type" value={formType} onChange={(e) => { setFormType(e.target.value); setReps([]); }}>
+              <select id="pf-type" value={formType} disabled={isEditing} onChange={(e) => { setFormType(e.target.value); setReps([]); }}>
                 {meta.formTypes.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
+              {isEditing && <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>Form type can't be changed on an existing draft — delete it and generate a new one instead.</p>}
               <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
                 {formType === "8821" && "Info only — lets a representative view/receive tax information, no authority to act or represent."}
                 {formType === "2848" && "Full representation before the IRS — the representative can act and speak on the client's behalf."}
@@ -223,7 +235,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, onClose, onDon
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="btn" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Generating…" : "Generate"}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? (isEditing ? "Saving…" : "Generating…") : (isEditing ? "Save Changes" : "Generate")}</button>
             </div>
           </form>
         )}

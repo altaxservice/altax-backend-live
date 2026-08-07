@@ -26,6 +26,7 @@
  */
 import { PDFDocument } from "pdf-lib";
 import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { getFirmProfile } from "../../common/firmProfile";
 
 export interface PoaRepresentative {
   name: string;
@@ -273,6 +274,10 @@ export async function generateForm8821(data: PoaFilingData): Promise<Uint8Array>
 export async function generateFormMD548(data: PoaFilingData): Promise<Uint8Array> {
   const doc = await loadTemplate("md548.pdf");
   const ids = taxpayerIdLine(data);
+  // Every representative on a filing is one of this firm's own admin/staff
+  // (see /poa-forms/representatives), so the form's "Firm" box is always the
+  // firm's own name — never a per-rep field the UI never actually collects.
+  const firmProfile = await getFirmProfile();
 
   fillCopy(doc, {
     name: "Text Field 2", spouseName: "Text Field 1",
@@ -301,7 +306,7 @@ export async function generateFormMD548(data: PoaFilingData): Promise<Uint8Array
       name: "Text Field 12", firm: "Text Field 13", addr1: "Text Field 14", ptin: "Text Field 15",
       addr2: "Text Field 16", phone: "Text Field 17", fax: "Text Field 18", email: "Text Field 19",
     }, {
-      name: rep1.name, firm: rep1.firmName || "", addr1: rep1.address, ptin: rep1.ptin || "",
+      name: rep1.name, firm: firmProfile.firmName, addr1: rep1.address, ptin: rep1.ptin || "",
       addr2: "", phone: rep1.phone || "", fax: rep1.fax || "", email: rep1.email || "",
     });
   }
