@@ -120,8 +120,8 @@ export function ClientsListPage() {
   // Quick-launch selects (Assignment & Forms section) — not part of the
   // client record itself, just which generator modal to jump straight into
   // right after this client is created. See handleCreate's navigate() call.
-  const [quickGovForm, setQuickGovForm] = useState("");
-  const [quickAuthForm, setQuickAuthForm] = useState("");
+  const [quickGovForms, setQuickGovForms] = useState<string[]>([]);
+  const [quickAuthForms, setQuickAuthForms] = useState<string[]>([]);
   const [govFormTypes, setGovFormTypes] = useState<{ value: string; label: string }[]>([]);
   const [authFormTypes, setAuthFormTypes] = useState<{ value: string; label: string }[]>([]);
   // Free-text escapes for the two fixed lists on this form — the firm keeps hitting
@@ -196,17 +196,17 @@ export function ClientsListPage() {
       }
       // Captured before the resets below clear them.
       const genParams = new URLSearchParams();
-      if (quickGovForm) genParams.set("openGovForm", quickGovForm);
-      if (quickAuthForm) genParams.set("openAuthForm", quickAuthForm);
-      if (quickGovForm || quickAuthForm) genParams.set("tab", "Gov Forms");
+      quickGovForms.forEach((t) => genParams.append("openGovForm", t));
+      quickAuthForms.forEach((t) => genParams.append("openAuthForm", t));
+      if (quickGovForms.length || quickAuthForms.length) genParams.set("tab", "Gov Forms");
 
       setForm(EMPTY_CLIENT_FORM);
       setCreatePortalNow(false);
       setCustomServices([]);
       setNewCustomService("");
       setServiceTypeOther("");
-      setQuickGovForm("");
-      setQuickAuthForm("");
+      setQuickGovForms([]);
+      setQuickAuthForms([]);
       setSearchParams({});
       await load();
       if (invite) setInviteInfo(invite);
@@ -663,23 +663,39 @@ export function ClientsListPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="nc-gov-form">Government Form <span className="muted">(optional)</span></label>
-              <select id="nc-gov-form" value={quickGovForm} onChange={(e) => setQuickGovForm(e.target.value)}>
-                <option value="">None — skip for now</option>
-                {govFormTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-              {quickGovForm && (
-                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Government Form dialog for this type right after the client is created.</div>
+              <label>Government Form <span className="muted">(optional — pick any that apply)</span></label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                {govFormTypes.map((t) => (
+                  <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={quickGovForms.includes(t.value)}
+                      onChange={(e) => setQuickGovForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+              {quickGovForms.length > 0 && (
+                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Government Form dialog for each selected type, one after another, right after the client is created.</div>
               )}
             </div>
             <div className="field">
-              <label htmlFor="nc-auth-form">Generate Authorization Form <span className="muted">(optional)</span></label>
-              <select id="nc-auth-form" value={quickAuthForm} onChange={(e) => setQuickAuthForm(e.target.value)}>
-                <option value="">None — skip for now</option>
-                {authFormTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-              {quickAuthForm && (
-                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Authorization Form dialog for this type right after the client is created.</div>
+              <label>Generate Authorization Form <span className="muted">(optional — pick any that apply)</span></label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                {authFormTypes.map((t) => (
+                  <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={quickAuthForms.includes(t.value)}
+                      onChange={(e) => setQuickAuthForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
+                    />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+              {quickAuthForms.length > 0 && (
+                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Authorization Form dialog for each selected type, one after another, right after the client is created.</div>
               )}
             </div>
           </div>
@@ -698,10 +714,26 @@ export function ClientsListPage() {
           {(form.email.trim() || form.phone.trim()) && (
             <div className="form-grid-3" style={{ marginTop: 4 }}>
               <div className="field">
-                <label htmlFor="nc-pref">Preferred Contact</label>
-                <select id="nc-pref" value={form.preferredContact} onChange={(e) => setForm((f) => ({ ...f, preferredContact: e.target.value }))}>
-                  {CONTACT_PREFS.map((o) => <option key={o}>{o}</option>)}
-                </select>
+                <label>Preferred Contact</label>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+                  {CONTACT_PREFS.map((o) => {
+                    const selected = form.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
+                    return (
+                      <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(o)}
+                          onChange={(e) => setForm((f) => {
+                            const prevSelected = f.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
+                            const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
+                            return { ...f, preferredContact: next.join(", ") };
+                          })}
+                        />
+                        {o}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 16, marginTop: 22 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>

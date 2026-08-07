@@ -30,7 +30,7 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 
-type FieldKind = "text" | "select" | "checkbox" | "textarea" | "date";
+type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
 interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean; suggestions?: string[] }
 
@@ -127,7 +127,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     fields: [
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
-      { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "select", options: CONTACT_PREFS, hidden: (f) => !hasContact(f) },
+      { key: "preferred_contact", apiKey: "preferredContact", label: "Preferred Contact", kind: "multiselect", options: CONTACT_PREFS, hidden: (f) => !hasContact(f) },
       { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
       { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
@@ -326,8 +326,8 @@ export function ClientDetailPage() {
   // generator modal already open and pre-set to the chosen form type, so
   // staff aren't forced into a second manual "+ Generate…" click right
   // after creating the client.
-  const openGovFormParam = searchParams.get("openGovForm");
-  const openAuthFormParam = searchParams.get("openAuthForm");
+  const openGovFormParams = searchParams.getAll("openGovForm");
+  const openAuthFormParams = searchParams.getAll("openAuthForm");
   // GovFormsSection/PoaFilingsSection each guard their own auto-open with a
   // useRef so the modal opens exactly once per MOUNT — but nothing previously
   // cleared these two params from the URL, so navigating away and back (e.g.
@@ -345,13 +345,14 @@ export function ClientDetailPage() {
     // tab switch commits) would race the tab switch and could clear the
     // params before the child ever saw them, silently dropping the auto-open.
     if (strippedAutoOpenParams.current || tab !== "Gov Forms") return;
-    if (!openGovFormParam && !openAuthFormParam) return;
+    if (!openGovFormParams.length && !openAuthFormParams.length) return;
     strippedAutoOpenParams.current = true;
     const next = new URLSearchParams(searchParams);
     next.delete("openGovForm");
     next.delete("openAuthForm");
     setSearchParams(next, { replace: true });
-  }, [openGovFormParam, openAuthFormParam, tab, searchParams, setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, searchParams, setSearchParams]);
   const appliedTabParam = useRef<string | null>(null);
   useEffect(() => {
     if (!tabParam || !client || appliedTabParam.current === tabParam) return;
@@ -507,6 +508,33 @@ export function ClientDetailPage() {
                         )}
                         {(f.apiKey === "assignedTo" ? staffOptions : f.options || []).map((o) => <option key={o}>{o}</option>)}
                       </select>
+                    </div>
+                  ) : f.kind === "multiselect" ? (
+                    // Stored as a single comma-joined string (e.g. "Email, SMS") in the
+                    // same plain-text column a single-select used — no schema change,
+                    // and nothing downstream parses this field strictly (real send-channel
+                    // gating already uses the separate smsAllowed/emailAllowed checkboxes).
+                    <div className="field" key={f.apiKey}>
+                      <label>{f.label}</label>
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+                        {(f.options || []).map((o) => {
+                          const selected = String(form[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
+                          return (
+                            <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                              <input
+                                type="checkbox"
+                                checked={selected.includes(o)}
+                                onChange={(e) => setForm((prev) => {
+                                  const prevSelected = String(prev[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
+                                  const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
+                                  return { ...prev, [f.apiKey]: next.join(", ") };
+                                })}
+                              />
+                              {o}
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : f.kind === "textarea" ? (
                     <div className="field" style={{ gridColumn: "1 / -1" }} key={f.apiKey}>
@@ -796,9 +824,9 @@ export function ClientDetailPage() {
 
           {tab === "Gov Forms" && canSeeStaffTabs && (
             <Fragment>
-              <PoaFilingsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormType={openAuthFormParam} />
+              <PoaFilingsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openAuthFormParams} />
               <div style={{ marginTop: 16 }}>
-                <GovFormsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormType={openGovFormParam} />
+                <GovFormsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openGovFormParams} />
               </div>
             </Fragment>
           )}
@@ -1449,7 +1477,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
  * (mail/fax/hand-delivered/IRS online portal) since this app has no live
  * filing integration with the IRS or Comptroller.
  */
-function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientId: string; clientName: string; autoOpenFormType?: string | null }) {
+function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { clientId: string; clientName: string; autoOpenFormTypes?: string[] }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1462,16 +1490,30 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
   const [editingFiling, setEditingFiling] = useState<PoaFiling | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Deep-linked from the Clients list "Add Client" card's "Authorization
-  // Form" quick-launch select — see the ?openGovForm/?openAuthForm doc
-  // comment on ClientDetailPage's useSearchParams block. Ref-guarded so a
-  // later re-render (e.g. after the staff member closes the modal) doesn't
-  // reopen it.
+  // Form" quick-launch checkboxes — see the ?openAuthForm doc comment on
+  // ClientDetailPage's useSearchParams block. Multiple types can be picked at
+  // once, so this opens the generator modal once per selected type, one after
+  // another (advanced in the modal's onClose below) — not just the first.
+  // Ref-guarded so a later re-render doesn't restart the queue.
   const appliedAutoOpen = useRef(false);
+  const [autoOpenQueue, setAutoOpenQueue] = useState<string[]>([]);
+  const [autoOpenCurrent, setAutoOpenCurrent] = useState<string | null>(null);
   useEffect(() => {
-    if (!autoOpenFormType || appliedAutoOpen.current) return;
+    if (!autoOpenFormTypes || !autoOpenFormTypes.length || appliedAutoOpen.current) return;
     appliedAutoOpen.current = true;
+    setAutoOpenCurrent(autoOpenFormTypes[0]);
+    setAutoOpenQueue(autoOpenFormTypes.slice(1));
     setGenerating(true);
-  }, [autoOpenFormType]);
+  }, [autoOpenFormTypes]);
+  function advanceAutoOpenQueue() {
+    if (autoOpenQueue.length) {
+      setAutoOpenCurrent(autoOpenQueue[0]);
+      setAutoOpenQueue((q) => q.slice(1));
+    } else {
+      setAutoOpenCurrent(null);
+      setGenerating(false);
+    }
+  }
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
   const [submitFor, setSubmitFor] = useState<string | null>(null);
@@ -1672,7 +1714,13 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
       )}
 
       {generating && (
-        <GeneratePoaFormModal clientId={clientId} defaultFormType={autoOpenFormType || undefined} onClose={() => setGenerating(false)} onDone={load} />
+        <GeneratePoaFormModal
+          key={autoOpenCurrent || "manual"}
+          clientId={clientId}
+          defaultFormType={autoOpenCurrent || undefined}
+          onClose={() => (autoOpenCurrent ? advanceAutoOpenQueue() : setGenerating(false))}
+          onDone={load}
+        />
       )}
       {editingFiling && (
         <GeneratePoaFormModal
@@ -1698,7 +1746,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientI
  * shape with each other or with the POA forms, so they get their own section
  * and their own filing table rather than being folded into PoaFilingsSection.
  */
-function GovFormsSection({ clientId, clientName, autoOpenFormType }: { clientId: string; clientName: string; autoOpenFormType?: string | null }) {
+function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId: string; clientName: string; autoOpenFormTypes?: string[] }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1709,13 +1757,28 @@ function GovFormsSection({ clientId, clientName, autoOpenFormType }: { clientId:
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [editingFiling, setEditingFiling] = useState<GovFormFiling | null>(null);
-  // See PoaFilingsSection's matching comment — same quick-launch deep link.
+  // See PoaFilingsSection's matching comment — same quick-launch deep link,
+  // sequential queue so multiple selected form types each get their own
+  // generator modal, one after another.
   const appliedAutoOpen = useRef(false);
+  const [autoOpenQueue, setAutoOpenQueue] = useState<string[]>([]);
+  const [autoOpenCurrent, setAutoOpenCurrent] = useState<string | null>(null);
   useEffect(() => {
-    if (!autoOpenFormType || appliedAutoOpen.current) return;
+    if (!autoOpenFormTypes || !autoOpenFormTypes.length || appliedAutoOpen.current) return;
     appliedAutoOpen.current = true;
+    setAutoOpenCurrent(autoOpenFormTypes[0]);
+    setAutoOpenQueue(autoOpenFormTypes.slice(1));
     setGenerating(true);
-  }, [autoOpenFormType]);
+  }, [autoOpenFormTypes]);
+  function advanceAutoOpenQueue() {
+    if (autoOpenQueue.length) {
+      setAutoOpenCurrent(autoOpenQueue[0]);
+      setAutoOpenQueue((q) => q.slice(1));
+    } else {
+      setAutoOpenCurrent(null);
+      setGenerating(false);
+    }
+  }
   const [busy, setBusy] = useState<string | null>(null);
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
@@ -1917,9 +1980,10 @@ function GovFormsSection({ clientId, clientName, autoOpenFormType }: { clientId:
 
       {generating && (
         <GenerateGovFormModal
+          key={autoOpenCurrent || "manual"}
           clientId={clientId}
-          defaultFormType={(autoOpenFormType as ClientGovFormType) || undefined}
-          onClose={() => setGenerating(false)}
+          defaultFormType={(autoOpenCurrent as ClientGovFormType) || undefined}
+          onClose={() => (autoOpenCurrent ? advanceAutoOpenQueue() : setGenerating(false))}
           onDone={load}
         />
       )}
