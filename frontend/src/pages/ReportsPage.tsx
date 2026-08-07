@@ -35,7 +35,7 @@ const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
-const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
+const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Trial Balance": "trial-balance", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
 
 /**
  * Bilingual report names for the "Email Report"/"Text Report" quick-send buttons —
@@ -388,13 +388,13 @@ export function ReportsPage() {
     }
   }
 
-  async function handleExportCsv() {
+  async function handleExportCsv(format: "csv" | "xlsx" = "csv") {
     const segment = REPORT_CSV_SEGMENT[tab];
     if (!segment || !clientId) return;
-    setReportBusy("csv");
+    setReportBusy(format);
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
-      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`, buildFilename([client?.client_name, tab, `${from} to ${to}`], "csv"));
+      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}&format=${format}`, buildFilename([client?.client_name, tab, `${from} to ${to}`], format));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -418,12 +418,12 @@ export function ReportsPage() {
     }
   }
 
-  async function handleFirmOverviewCsv() {
+  async function handleFirmOverviewCsv(format: "csv" | "xlsx" = "csv") {
     if (!clientId) return;
-    setReportBusy("firm-csv");
+    setReportBusy(`firm-${format}`);
     try {
       const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
-      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}${clientQuery}`, buildFilename([isFirmWide ? "Firm" : client?.client_name, "Firm Overview", `${from} to ${to}`], "csv"));
+      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}${clientQuery}&format=${format}`, buildFilename([isFirmWide ? "Firm" : client?.client_name, "Firm Overview", `${from} to ${to}`], format));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -572,8 +572,11 @@ export function ReportsPage() {
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("download")}>
                         {reportBusy === "firm-download" ? "Generating…" : "Download PDF"}
                       </button>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleFirmOverviewCsv}>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewCsv("csv")}>
                         {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
+                      </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewCsv("xlsx")}>
+                        {reportBusy === "firm-xlsx" ? "Exporting…" : "Export Excel"}
                       </button>
                       {/* No single client to email a firm-wide roll-up to — Preview/Download/
                           CSV still work firm-wide since they don't need a recipient. */}
@@ -583,14 +586,18 @@ export function ReportsPage() {
                         </button>
                       )}
                     </div>
-                  ) : REPORT_PDF_SEGMENT[tab] && (
+                  ) : (REPORT_PDF_SEGMENT[tab] || REPORT_CSV_SEGMENT[tab]) && (
                     <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("view")}>
-                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Preview / Print (English)"}
-                      </button>
-                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("download")}>
-                        {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF (English)"}
-                      </button>
+                      {REPORT_PDF_SEGMENT[tab] && (
+                        <>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("view")}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-view` ? "Opening…" : "Preview / Print (English)"}
+                          </button>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("download")}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF (English)"}
+                          </button>
+                        </>
+                      )}
                       {/* Browser-native print, not the server PDF — pdf-lib can't shape Arabic
                           text correctly, but the browser already renders the on-screen bilingual
                           table correctly, so printing that view (or "Save as PDF" from the print
@@ -601,14 +608,20 @@ export function ReportsPage() {
                         </button>
                       )}
                       {REPORT_CSV_SEGMENT[tab] && (
-                        <button type="button" className="btn" disabled={reportBusy !== null} onClick={handleExportCsv}>
-                          {reportBusy === "csv" ? "Exporting…" : "Export CSV"}
-                        </button>
+                        <>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleExportCsv("csv")}>
+                            {reportBusy === "csv" ? "Exporting…" : "Export CSV"}
+                          </button>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleExportCsv("xlsx")}>
+                            {reportBusy === "xlsx" ? "Exporting…" : "Export Excel"}
+                          </button>
+                        </>
                       )}
                       {/* Client Message already has its own real bilingual send (Save / Open
                           Communications to Send below) — these generic quick-send buttons would
-                          just be a second, more generic way to do the same thing on that one tab. */}
-                      {tab !== "Client Message" && (
+                          just be a second, more generic way to do the same thing on that one tab.
+                          Trial Balance has no PDF (see REPORT_PDF_SEGMENT) so there's nothing to email. */}
+                      {tab !== "Client Message" && REPORT_PDF_SEGMENT[tab] && (
                         <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
                           {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
                         </button>
@@ -1177,12 +1190,12 @@ function ArAgingTab() {
     }
   }
 
-  async function handleCsv() {
-    setBusy("csv");
+  async function handleCsv(format: "csv" | "xlsx" = "csv") {
+    setBusy(format);
     try {
-      await downloadFile("/reports/csv/ar-aging", buildFilename(["AR Aging", data?.asOf], "csv"));
+      await downloadFile(`/reports/csv/ar-aging?format=${format}`, buildFilename(["AR Aging", data?.asOf], format));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not export the CSV.");
+      setError(err instanceof ApiError ? err.message : "Could not export the data.");
     } finally {
       setBusy(null);
     }
@@ -1206,8 +1219,11 @@ function ArAgingTab() {
             <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("download")}>
               {busy === "download" ? "Generating…" : "Download PDF"}
             </button>
-            <button type="button" className="btn" disabled={busy !== null} onClick={handleCsv}>
+            <button type="button" className="btn" disabled={busy !== null} onClick={() => handleCsv("csv")}>
               {busy === "csv" ? "Exporting…" : "Export CSV"}
+            </button>
+            <button type="button" className="btn" disabled={busy !== null} onClick={() => handleCsv("xlsx")}>
+              {busy === "xlsx" ? "Exporting…" : "Export Excel"}
             </button>
           </div>
         </div>

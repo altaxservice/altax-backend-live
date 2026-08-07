@@ -11,6 +11,7 @@ import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } fro
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
+import { buildXlsxBuffer } from "../../common/xlsxWriter";
 
 /**
  * Firm-wide analytics — distinct from the existing per-client P&L/Balance
@@ -241,15 +242,11 @@ reportsRouter.get("/csv/firm-overview", requireAuth, requireRole("admin"), async
   const rangeTo = String(req.query.to || "").slice(0, 10) || to;
   const clientId = req.query.clientId ? String(req.query.clientId) : undefined;
   const summary = await computeFirmSummary(rangeFrom, rangeTo, clientId);
-  const csv = toCsv(
-    ["Month", "Revenue", "Expenses", "Profit"],
-    summary.months.map((m) => [m.month, m.revenue.toFixed(2), m.expenses.toFixed(2), m.profit.toFixed(2)])
-  );
+  const headers = ["Month", "Revenue", "Expenses", "Profit"];
+  const rows = summary.months.map((m) => [m.month, m.revenue.toFixed(2), m.expenses.toFixed(2), m.profit.toFixed(2)]);
 
-  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", clientId || "Firm", "Period", "", `${rangeFrom} to ${rangeTo}`, `${clientId ? "Client" : "Firm"} Overview CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="${clientId ? `Overview_${clientId}` : "FirmOverview"}_${rangeFrom}_${rangeTo}.csv"`);
-  res.send(csv);
+  await logAudit("Reports", "EXPORT_FIRM_OVERVIEW_CSV", clientId || "Firm", "Period", "", `${rangeFrom} to ${rangeTo}`, `${clientId ? "Client" : "Firm"} Overview ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Overview", headers, rows, `${clientId ? `Overview_${clientId}` : "FirmOverview"}_${rangeFrom}_${rangeTo}`);
 }));
 
 /**
@@ -529,14 +526,10 @@ reportsRouter.get("/pdf/ar-aging", requireAuth, requireRole("admin"), asyncHandl
 
 reportsRouter.get("/csv/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const data = await computeArAging();
-  const csv = toCsv(
-    ["Client", "Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days", "Total"],
-    data.rows.map((r) => [r.clientName, r.current.toFixed(2), r.d1_30.toFixed(2), r.d31_60.toFixed(2), r.d61_90.toFixed(2), r.d90Plus.toFixed(2), r.total.toFixed(2)])
-  );
-  await logAudit("Reports", "EXPORT_AR_AGING_CSV", "Firm", "", "", data.asOf, `AR Aging CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="AR_Aging_${data.asOf}.csv"`);
-  res.send(csv);
+  const headers = ["Client", "Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days", "Total"];
+  const rows = data.rows.map((r) => [r.clientName, r.current.toFixed(2), r.d1_30.toFixed(2), r.d31_60.toFixed(2), r.d61_90.toFixed(2), r.d90Plus.toFixed(2), r.total.toFixed(2)]);
+  await logAudit("Reports", "EXPORT_AR_AGING_CSV", "Firm", "", "", data.asOf, `AR Aging ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "AR Aging", headers, rows, `AR_Aging_${data.asOf}`);
 }));
 
 /**
@@ -882,6 +875,25 @@ function toCsv(headers: string[], rows: (string | number)[][]): string {
   return [headers.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\n");
 }
 
+/**
+ * Every /csv/... report route below can also produce a real .xlsx workbook
+ * from the exact same headers/rows — controlled by ?format=xlsx on the same
+ * URL, so the frontend doesn't need a second route per report. Defaults to
+ * CSV (the long-standing behavior) when the param is absent or unrecognized.
+ */
+function sendTabular(req: AuthedRequest, res: Response, sheetName: string, headers: string[], rows: (string | number)[][], filenameBase: string) {
+  if (String(req.query.format || "").toLowerCase() === "xlsx") {
+    const buffer = buildXlsxBuffer(sheetName, headers, rows);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filenameBase}.xlsx"`);
+    res.send(buffer);
+  } else {
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filenameBase}.csv"`);
+    res.send(toCsv(headers, rows));
+  }
+}
+
 reportsRouter.get("/pdf/pl/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
@@ -1180,6 +1192,37 @@ reportsRouter.get("/trial-balance/:clientId", requireAuth, requireRole("admin", 
   });
 }));
 
+reportsRouter.get("/csv/trial-balance/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  const from = String(req.query.from || "").trim() || null;
+  const to = String(req.query.to || "").trim() || null;
+
+  const rows = await query<any>(
+    `SELECT account, COALESCE(SUM(debit), 0) AS debits, COALESCE(SUM(credit), 0) AS credits
+       FROM altax.v3_gl_entries
+      WHERE client_id = $1
+        AND ($2::date IS NULL OR entry_date >= $2::date)
+        AND ($3::date IS NULL OR entry_date <= $3::date)
+      GROUP BY account
+      ORDER BY account`,
+    [client.clientId, from, to]
+  );
+  const headers = ["Account", "Debits", "Credits", "Balance"];
+  const dataRows = rows.map((r) => {
+    const debits = Number(r.debits || 0);
+    const credits = Number(r.credits || 0);
+    return [r.account, debits.toFixed(2), credits.toFixed(2), (debits - credits).toFixed(2)];
+  });
+  const totalDebits = rows.reduce((s, r) => s + Number(r.debits || 0), 0);
+  const totalCredits = rows.reduce((s, r) => s + Number(r.credits || 0), 0);
+  dataRows.push(["", "", "", ""]);
+  dataRows.push(["Total", totalDebits.toFixed(2), totalCredits.toFixed(2), (totalDebits - totalCredits).toFixed(2)]);
+
+  await logAudit("Reports", "EXPORT_TRIAL_BALANCE_CSV", client.clientId, "Period", "", `${from || "all"} - ${to || "all"}`, `Trial Balance ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Trial Balance", headers, dataRows, `TrialBalance_${client.clientId}${from ? `_${from}` : ""}${to ? `_${to}` : ""}`);
+}));
+
 /** JSON for the on-screen Sales & Tax tab (and its Preview). */
 reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
@@ -1268,12 +1311,10 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
       rows.push(["Note", "", "", "", "Filing frequency not set on client profile — shown as one combined period; verify against actual Comptroller filing schedule."]);
     }
   }
-  const csv = toCsv(["Category", "State", "Rate", "Taxable Amount", "Tax Amount"], rows);
+  const headers = ["Category", "State", "Rate", "Taxable Amount", "Tax Amount"];
 
-  await logAudit("Reports", "EXPORT_SALES_TAX_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `Sales & Tax CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="SalesTax_${client.clientId}_${period.from}_${period.to}.csv"`);
-  res.send(csv);
+  await logAudit("Reports", "EXPORT_SALES_TAX_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `Sales & Tax ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Sales Tax", headers, rows, `SalesTax_${client.clientId}_${period.from}_${period.to}`);
 }));
 
 reportsRouter.get("/csv/gl/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -1283,15 +1324,11 @@ reportsRouter.get("/csv/gl/:clientId", requireAuth, requireRole("admin", "staff"
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
 
   const gl = await loadBucketedGl(client.clientId, period.from, period.to);
-  const csv = toCsv(
-    ["Account", "Section", "Debit", "Credit", "Net"],
-    gl.all.map((l) => [l.account, bucketFor(l.account), l.debit.toFixed(2), l.credit.toFixed(2), (l.credit - l.debit).toFixed(2)])
-  );
+  const headers = ["Account", "Section", "Debit", "Credit", "Net"];
+  const rows = gl.all.map((l) => [l.account, bucketFor(l.account), l.debit.toFixed(2), l.credit.toFixed(2), (l.credit - l.debit).toFixed(2)]);
 
-  await logAudit("Reports", "EXPORT_GL_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `GL CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="GL_${client.clientId}_${period.from}_${period.to}.csv"`);
-  res.send(csv);
+  await logAudit("Reports", "EXPORT_GL_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `GL ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "GL", headers, rows, `GL_${client.clientId}_${period.from}_${period.to}`);
 }));
 
 reportsRouter.get("/csv/payroll/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -1301,15 +1338,11 @@ reportsRouter.get("/csv/payroll/:clientId", requireAuth, requireRole("admin", "s
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
 
   const payroll = await loadPayrollForPeriod(client.clientId, period.from, period.to);
-  const csv = toCsv(
-    ["Pay Date", "Employee", "Gross", "Net"],
-    payroll.checks.map((c) => [c.payDate ? String(c.payDate).slice(0, 10) : "", c.employee, c.gross.toFixed(2), c.net.toFixed(2)])
-  );
+  const headers = ["Pay Date", "Employee", "Gross", "Net"];
+  const rows = payroll.checks.map((c) => [c.payDate ? String(c.payDate).slice(0, 10) : "", c.employee, c.gross.toFixed(2), c.net.toFixed(2)]);
 
-  await logAudit("Reports", "EXPORT_PAYROLL_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `Payroll CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="Payroll_${client.clientId}_${period.from}_${period.to}.csv"`);
-  res.send(csv);
+  await logAudit("Reports", "EXPORT_PAYROLL_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}`, `Payroll ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Payroll", headers, rows, `Payroll_${client.clientId}_${period.from}_${period.to}`);
 }));
 
 reportsRouter.get("/csv/employee/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -1319,20 +1352,13 @@ reportsRouter.get("/csv/employee/:clientId", requireAuth, requireRole("admin", "
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const employeeFilter = String(req.query.employee || "").trim() || null;
 
-  const csv = employeeFilter
-    ? toCsv(
-        ["Pay Date", "Employee", "Gross", "Net"],
-        (await loadPayrollForPeriod(client.clientId, period.from, period.to, employeeFilter)).checks
-          .map((c) => [c.payDate ? String(c.payDate).slice(0, 10) : "", c.employee, c.gross.toFixed(2), c.net.toFixed(2)])
-      )
-    : toCsv(
-        ["Employee", "Checks", "Gross Wages", "Employee Taxes", "Employer Taxes", "Net Pay", "Total Cost"],
-        (await loadEmployeeSummaryForPeriod(client.clientId, period.from, period.to))
-          .map((r) => [r.employee, r.checkCount, r.grossWages.toFixed(2), r.employeeTaxes.toFixed(2), r.employerTaxes.toFixed(2), r.netPay.toFixed(2), r.totalCost.toFixed(2)])
-      );
+  const headers = employeeFilter ? ["Pay Date", "Employee", "Gross", "Net"] : ["Employee", "Checks", "Gross Wages", "Employee Taxes", "Employer Taxes", "Net Pay", "Total Cost"];
+  const rows = employeeFilter
+    ? (await loadPayrollForPeriod(client.clientId, period.from, period.to, employeeFilter)).checks
+        .map((c) => [c.payDate ? String(c.payDate).slice(0, 10) : "", c.employee, c.gross.toFixed(2), c.net.toFixed(2)])
+    : (await loadEmployeeSummaryForPeriod(client.clientId, period.from, period.to))
+        .map((r) => [r.employee, r.checkCount, r.grossWages.toFixed(2), r.employeeTaxes.toFixed(2), r.employerTaxes.toFixed(2), r.netPay.toFixed(2), r.totalCost.toFixed(2)]);
 
-  await logAudit("Reports", "EXPORT_EMPLOYEE_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}${employeeFilter ? ` (${employeeFilter})` : ""}`, `Employee Report CSV exported by ${req.user!.email}.`, req.user!.email);
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename="Employee_${client.clientId}_${period.from}_${period.to}.csv"`);
-  res.send(csv);
+  await logAudit("Reports", "EXPORT_EMPLOYEE_CSV", client.clientId, "Period", "", `${period.from} - ${period.to}${employeeFilter ? ` (${employeeFilter})` : ""}`, `Employee Report ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Employee", headers, rows, `Employee_${client.clientId}_${period.from}_${period.to}`);
 }));
