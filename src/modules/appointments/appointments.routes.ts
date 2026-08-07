@@ -603,6 +603,34 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
 }
 
 /**
+ * Flips any Scheduled appointment whose end time has passed to Completed.
+ * Without this, a past appointment sat as "Scheduled" forever — visually
+ * identical to an upcoming one on the Calendar page (both rendered the same
+ * gray pill), with nothing to say "this already happened." "Completed" was
+ * already an allowed status in the schema (sql/022_appointments.sql's CHECK
+ * constraint) but nothing ever set it; StatusBadge's colorClassFor already
+ * maps "completed" to green, so this needed no new frontend styling — just
+ * the write. Called hourly from server.ts's cron, same shape as the other
+ * sweeps here. Purely a bookkeeping flip: no client notification, since a
+ * client doesn't need to be told their own past appointment happened, and no
+ * "was this actually attended" judgment — a no-show still flips to Completed
+ * exactly like an attended one; staff can still manually Cancel/Delete
+ * afterward if that distinction matters for a specific appointment.
+ */
+export async function runAppointmentAutoComplete(actorEmail: string): Promise<{ completed: number }> {
+  const rows = await query<any>(
+    `UPDATE altax.v3_appointments SET status = 'Completed', updated_at = now()
+      WHERE status = 'Scheduled' AND end_time < now()
+      RETURNING appointment_id, title`
+  );
+  for (const r of rows) {
+    await logAudit("Calendar", "AUTO_COMPLETE_APPOINTMENT", r.appointment_id, "Status", "Scheduled", "Completed",
+      `Appointment "${r.title}" auto-marked Completed after its scheduled time passed.`, actorEmail);
+  }
+  return { completed: rows.length };
+}
+
+/**
  * A logged-in client's own upcoming (and recent past) appointments — the
  * client portal's only view into appointments before this route existed was
  * whatever confirmation/reminder email or text they'd received and kept;

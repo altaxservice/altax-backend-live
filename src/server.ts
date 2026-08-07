@@ -35,7 +35,7 @@ import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
-import { appointmentsRouter, runAppointmentReminders } from "./modules/appointments/appointments.routes";
+import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete } from "./modules/appointments/appointments.routes";
 import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
@@ -326,6 +326,17 @@ cron.schedule("0 * * * *", () => {
 });
 // eslint-disable-next-line no-console
 console.log("Appointment reminders scheduled hourly.");
+
+// Auto-completes past Scheduled appointments (see runAppointmentAutoComplete's
+// doc comment) — offset 5 minutes past the hour from the reminder sweep above
+// so the two don't hit the DB in the same instant.
+cron.schedule("5 * * * *", () => {
+  runAppointmentAutoComplete("System (Appointment Auto-Complete Job)").catch((err) => {
+    alertAdmins("Appointment auto-complete job failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+});
+// eslint-disable-next-line no-console
+console.log("Appointment auto-complete scheduled hourly.");
 
 // Daily recurring-billing sweep — previously this only ran when a staff member
 // remembered to click "Run Recurring Billing," so a forgotten click meant a late
