@@ -1074,11 +1074,18 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
   const totalTax = sales.reduce((s: number, r: any) => s + (Number(r.total_tax_due) || 0), 0);
   const totalAdjustments = sales.reduce((s: number, r: any) => s + (Number(r.adjustments) || 0), 0);
   return {
-    sales: sales.map((r: any) => ({
-      saleId: r.sale_id, saleDate: r.sale_date, grossSales: Number(r.gross_sales) || 0,
-      totalTaxDue: Number(r.total_tax_due) || 0, adjustments: Number(r.adjustments) || 0,
-      nonTaxableSales: nonTaxableBySaleId.get(r.sale_id) || 0,
-    })),
+    sales: sales.map((r: any) => {
+      const grossSales = Number(r.gross_sales) || 0;
+      const nonTaxableSales = nonTaxableBySaleId.get(r.sale_id) || 0;
+      // Taxable Sales = Gross - Non-Taxable — the same split the Tax by
+      // Category table above already totals to (its categories always sum
+      // back to gross sales), just surfaced per-sale instead of per-category.
+      return {
+        saleId: r.sale_id, saleDate: r.sale_date, grossSales,
+        totalTaxDue: Number(r.total_tax_due) || 0, adjustments: Number(r.adjustments) || 0,
+        nonTaxableSales, taxableSales: grossSales - nonTaxableSales,
+      };
+    }),
     byCategory: byCategory.map((r: any) => ({
       categoryName: r.category_name, state: r.state, rate: Number(r.tax_rate_used) || 0,
       taxableAmount: Number(r.taxable_amount) || 0, taxAmount: Number(r.tax_amount) || 0,

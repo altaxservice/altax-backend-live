@@ -483,7 +483,7 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
 }
 
 export interface SalesTaxCategoryRow { categoryName: string; state: string | null; rate: number; taxableAmount: number; taxAmount: number }
-export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number; nonTaxableSales: number }
+export interface SalesTaxSaleRow { saleId: string; saleDate: string | null; grossSales: number; totalTaxDue: number; adjustments: number; nonTaxableSales: number; taxableSales: number }
 
 export interface SalesTaxReportData {
   client: ReportClientInfo;
@@ -565,12 +565,18 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
   if (!data.sales.length) {
     emptyNote(c, y);
   } else {
-    const colDate = 48, colGross = PAGE_W - 48 - 370, colNonTax = PAGE_W - 48 - 250, colAdj = PAGE_W - 48 - 130, colDue = PAGE_W - 48;
-    c.text(colDate, y, "Date", { size: 8, bold: true, color: MUTED });
-    c.text(colGross, y, "Gross Sales", { size: 8, bold: true, color: MUTED, align: "right" });
-    c.text(colNonTax, y, "Non-Taxable Sales", { size: 8, bold: true, color: MUTED, align: "right" });
-    c.text(colAdj, y, "Adjustments", { size: 8, bold: true, color: MUTED, align: "right" });
-    c.text(colDue, y, "Tax Due", { size: 8, bold: true, color: MUTED, align: "right" });
+    // 6 columns need to fit in the same 516pt body width as every other
+    // table here — headers run at size 7 (down from 8) specifically in this
+    // row so "Non-Taxable Sales" and "Taxable Sales" don't collide at their
+    // shared boundary; the money values themselves stay size 9 since digits
+    // are narrow and never get close to the column edge.
+    const colDate = 48, colGross = PAGE_W - 48 - 357, colTaxable = PAGE_W - 48 - 268, colNonTax = PAGE_W - 48 - 179, colAdj = PAGE_W - 48 - 90, colDue = PAGE_W - 48;
+    c.text(colDate, y, "Date", { size: 7, bold: true, color: MUTED });
+    c.text(colGross, y, "Gross Sales", { size: 7, bold: true, color: MUTED, align: "right" });
+    c.text(colTaxable, y, "Taxable Sales", { size: 7, bold: true, color: MUTED, align: "right" });
+    c.text(colNonTax, y, "Non-Taxable Sales", { size: 7, bold: true, color: MUTED, align: "right" });
+    c.text(colAdj, y, "Adjustments", { size: 7, bold: true, color: MUTED, align: "right" });
+    c.text(colDue, y, "Tax Due", { size: 7, bold: true, color: MUTED, align: "right" });
     y += 6;
     c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
     y += 14;
@@ -582,6 +588,7 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       }
       c.text(colDate, y, fmtDate(s.saleDate), { size: 9 });
       c.text(colGross, y, money(s.grossSales), { size: 9, align: "right" });
+      c.text(colTaxable, y, money(s.taxableSales), { size: 9, align: "right" });
       c.text(colNonTax, y, money(s.nonTaxableSales), { size: 9, align: "right" });
       c.text(colAdj, y, money(s.adjustments), { size: 9, align: "right" });
       c.text(colDue, y, money(s.totalTaxDue), { size: 9, align: "right" });
@@ -603,7 +610,13 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       y += 16;
     }
     for (const p of data.mdFiling.periods) {
-      if (y > PAGE_H - 110) {
+      // A late period draws up to 6 lines (~94pt: header + 4 rows + the
+      // period-header's own leading gap) after this check passes, so the
+      // threshold has to leave that much room above the footer — the old
+      // fixed "PAGE_H - 110" left only ~16pt, which is why a period landing
+      // near the bottom of a page ran straight into the footer text instead
+      // of rolling to a new page.
+      if (y > PAGE_H - 140) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
@@ -623,6 +636,18 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       }
     }
     if (data.mdFiling.periods.length > 1) {
+      // This trailing summary (4 rows, ~84pt with its leading line/gap) had
+      // no overflow check at all — it always drew right after the last
+      // period regardless of how close to the bottom that left the cursor,
+      // which is exactly what produced the overlap with drawFooter's
+      // fixed-position text: a report whose last period ended just above
+      // the old threshold still had this block run straight past the
+      // footer with nothing to catch it.
+      if (y > PAGE_H - 130) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
       y += 6;
       c.line(48, y, PAGE_W - 48, y, INK, 1);
       y += 14;
