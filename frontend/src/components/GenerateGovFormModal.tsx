@@ -298,26 +298,29 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
         await api.patch(`/gov-forms/${editingFiling!.filing_id}`, { formData });
       } else {
         await api.post(`/gov-forms/client/${clientId}`, { formType, formData });
-        // Best-effort, separate request — a failure here shouldn't undo the
-        // CRA filing that already succeeded; the checkbox is a convenience,
-        // not a transaction. Staff can always create the POA by hand from
-        // the POA Filings section if this second call fails.
-        if (formType === "CRA" && craGeneratePoa && firmProfile) {
-          try {
-            await api.post(`/poa-forms/client/${clientId}`, {
-              formType: "548",
-              representatives: [{
-                name: firmProfile.firmName,
-                address: [firmProfile.street, [firmProfile.city, firmProfile.state, firmProfile.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(", "),
-                phone: firmProfile.phone || undefined,
-                email: firmProfile.email || undefined,
-              }],
-              taxMatters: [{ description: `Maryland business tax registration (${cra.taxTypes.join(", ") || "Combined Registration Application"})`, taxForm: "CRA" }],
-              notes: "Auto-generated alongside the Maryland CRA filing for this registration.",
-            });
-          } catch {
-            // Swallowed intentionally — see comment above.
-          }
+      }
+      // Best-effort, separate request — a failure here shouldn't undo the CRA
+      // filing that already succeeded; the checkbox is a convenience, not a
+      // transaction. Staff can always create the POA by hand from the POA
+      // Filings section if this second call fails. Available on edit too —
+      // there's no stored link between a CRA filing and any POA it
+      // generated, so this is the only way to generate a replacement after
+      // the original was deleted (or wasn't requested the first time).
+      if (formType === "CRA" && craGeneratePoa && firmProfile) {
+        try {
+          await api.post(`/poa-forms/client/${clientId}`, {
+            formType: "548",
+            representatives: [{
+              name: firmProfile.firmName,
+              address: [firmProfile.street, [firmProfile.city, firmProfile.state, firmProfile.zipCode].filter(Boolean).join(", ")].filter(Boolean).join(", "),
+              phone: firmProfile.phone || undefined,
+              email: firmProfile.email || undefined,
+            }],
+            taxMatters: [{ description: `Maryland business tax registration (${cra.taxTypes.join(", ") || "Combined Registration Application"})`, taxForm: "CRA" }],
+            notes: "Auto-generated alongside the Maryland CRA filing for this registration.",
+          });
+        } catch {
+          // Swallowed intentionally — see comment above.
         }
       }
       onDone();
@@ -649,20 +652,19 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   tobacco, motor fuel, successor-employer history) are left for the preparer to complete by hand from the
                   form's own printed instructions, since they depend on facts this app doesn't track.
                 </p>
-                {!isEditing && (
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={craGeneratePoa}
-                      onChange={(e) => {
-                        setCraGeneratePoa(e.target.checked);
-                        if (e.target.checked) setCra((f) => ({ ...f, poaAttached: true }));
-                      }}
-                    />
-                    Also generate a Maryland Form 548 (Power of Attorney), authorizing {firmProfile.firmName} to handle this
-                    registration with the Comptroller — creates a second Draft filing alongside this one, in the POA Filings section.
-                  </label>
-                )}
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={craGeneratePoa}
+                    onChange={(e) => {
+                      setCraGeneratePoa(e.target.checked);
+                      if (e.target.checked) setCra((f) => ({ ...f, poaAttached: true }));
+                    }}
+                  />
+                  {isEditing
+                    ? `Also generate a new Maryland Form 548 (Power of Attorney), authorizing ${firmProfile.firmName} to handle this registration — creates a fresh Draft filing in the POA Filings section. Use this if the original POA was deleted or wasn't generated the first time; checking this again does not affect any POA already on file.`
+                    : `Also generate a Maryland Form 548 (Power of Attorney), authorizing ${firmProfile.firmName} to handle this registration with the Comptroller — creates a second Draft filing alongside this one, in the POA Filings section.`}
+                </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
                   <input type="checkbox" checked={cra.poaAttached} onChange={(e) => setCra({ ...cra, poaAttached: e.target.checked })} />
                   Check here if a power of attorney form is attached <span className="muted">(checks the CRA's own box — use this if a signed Form 548 is being filed alongside, whether generated above or already on hand)</span>
