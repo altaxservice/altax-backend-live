@@ -33,7 +33,7 @@ function fmtMoney(v: unknown): string {
 
 export function AccountingPage() {
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // ?tab=<name> lets other pages deep-link a specific tab — the Sales & Tax
   // report rows point here, and without this they would all land on Sales.
   const [tab, setTab] = useState<Tab>(() => {
@@ -56,6 +56,17 @@ export function AccountingPage() {
   function handleClientChange(id: string) {
     setClientId(id);
     setSelectedClient(id || null, clients.find((c) => c.client_id === id)?.client_name);
+    // Kept in sync with the URL (replacing, not pushing, so switching clients
+    // doesn't spam browser history) so that navigating away to work on
+    // something for this client and then hitting Back returns to this same
+    // client's books — not whichever client was last clicked on some other
+    // page and left sitting in the shared "selected client" context.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set("client", id);
+      else next.delete("client");
+      return next;
+    }, { replace: true });
   }
 
   return (
