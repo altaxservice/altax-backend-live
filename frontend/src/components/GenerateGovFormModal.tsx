@@ -6,6 +6,7 @@ import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
+import { useToast } from "../components/Toast";
 
 interface ClientIdentity {
   client_id: string; client_name: string; entity_type: string | null;
@@ -52,7 +53,20 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   onClose: () => void;
   onDone: () => void;
 }) {
-  useEscapeToClose(onClose);
+  const toast = useToast();
+  // Closing this modal (Cancel, the overlay, or Escape — none of which ask
+  // "are you sure") used to mean losing everything typed, with zero
+  // feedback that anything had happened. Now that the form autosaves,
+  // closing is no longer destructive — but it still LOOKS the same to
+  // someone watching it vanish, so this toast closes that gap: confirms a
+  // draft actually exists to come back to, without adding a blocking
+  // confirm dialog in front of the 95% of closes that are intentional.
+  const hasSavedDraftRef = useRef(false);
+  function handleClose() {
+    if (hasSavedDraftRef.current) toast("Draft saved — reopen this form to restore it.");
+    onClose();
+  }
+  useEscapeToClose(handleClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
   const isEditing = !!editingFiling;
@@ -182,6 +196,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   useEffect(() => {
     if (!draftChecked || pendingDraft) return;
     saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832 });
+    hasSavedDraftRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832]);
 
@@ -234,13 +249,10 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
         setCra((f) => ({
           ...f,
           fein: res.client.ein || "", ssn: res.client.individual_ssn || "",
-          // SDAT Entity ID is deliberately never autofilled, even though the
-          // client record has one on file (secretary_of_state_id) — the
-          // number that belongs on this exact filing isn't always the same
-          // as whatever's stored on the client profile (e.g. a fresh
-          // registration, or a correction), so it's typed in by hand every
-          // time rather than risk silently carrying over a stale/wrong ID.
-          datEntityId: "",
+          // Prefilled from the client's own Secretary of State ID (SDAT) on
+          // file — still editable, since the number on this specific filing
+          // can occasionally differ (a fresh registration, a correction).
+          datEntityId: res.client.secretary_of_state_id || "",
           // Box 2a on the real form is "Legal FIRST name" — but for an
           // entity filing (the overwhelming majority of CRA use here) the
           // full legal business name goes entirely in 2a, with 2b left
@@ -374,11 +386,11 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-gov-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-gov-form-title">{isEditing ? "Edit Draft Filing" : "Generate Government Form"}</h2>
-          <button className="btn btn-sm" onClick={onClose}>Close</button>
+          <button className="btn btn-sm" onClick={handleClose}>Close</button>
         </div>
 
         {loadError && <ErrorBanner error={loadError} />}
@@ -733,7 +745,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     <input id="gf-cra-ssn" value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
-                    <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID <span className="muted">(enter manually)</span></label>
+                    <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID</label>
                     <input id="gf-cra-dat-entity-id" value={cra.datEntityId} onChange={(e) => setCra({ ...cra, datEntityId: e.target.value })} />
                   </div>
                 </div>
@@ -1081,7 +1093,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="btn" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn" onClick={handleClose}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={saving} onClick={handleSubmit}>{saving ? "Generating…" : "Generate"}</button>
             </div>
           </div>

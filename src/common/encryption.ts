@@ -106,7 +106,7 @@ export function decryptTolerant(value: string): string {
  * when no row was found.
  */
 export function decryptClientPii<
-  T extends { individual_ssn?: string | null; company_contact_ssn?: string | null; ein?: string | null; state_tax_id?: string | null } | null | undefined
+  T extends { individual_ssn?: string | null; company_contact_ssn?: string | null; ein?: string | null; state_tax_id?: string | null; cra_registration_number?: string | null } | null | undefined
 >(row: T): T {
   if (!row) return row;
   return {
@@ -115,5 +115,6 @@ export function decryptClientPii<
     company_contact_ssn: row.company_contact_ssn != null ? decryptTolerant(row.company_contact_ssn) : row.company_contact_ssn,
     ein: row.ein != null ? decryptTolerant(row.ein) : row.ein,
     state_tax_id: row.state_tax_id != null ? decryptTolerant(row.state_tax_id) : row.state_tax_id,
+    cra_registration_number: row.cra_registration_number != null ? decryptTolerant(row.cra_registration_number) : row.cra_registration_number,
   };
 }

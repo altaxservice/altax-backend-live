@@ -6,6 +6,7 @@ import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
+import { useToast } from "../components/Toast";
 
 interface Meta {
   formTypes: { value: string; label: string }[];
@@ -33,7 +34,17 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
   onClose: () => void;
   onDone: () => void;
 }) {
-  useEscapeToClose(onClose);
+  const toast = useToast();
+  // See GenerateGovFormModal's matching comment — closing (Cancel/overlay/
+  // Escape) is no longer destructive now that this form autosaves, but it
+  // still looks the same to whoever's watching it close, so this confirms
+  // a draft exists without adding a blocking dialog in front of it.
+  const hasSavedDraftRef = useRef(false);
+  function handleClose() {
+    if (hasSavedDraftRef.current) toast("Draft saved — reopen this form to restore it.");
+    onClose();
+  }
+  useEscapeToClose(handleClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
   const isEditing = !!editingFiling;
@@ -81,6 +92,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
   useEffect(() => {
     if (!draftChecked || pendingDraft) return;
     saveDraft({ formType, reps, matters, retainPrior, notes });
+    hasSavedDraftRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftChecked, pendingDraft, formType, reps, matters, retainPrior, notes]);
 
@@ -143,11 +155,11 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-poa-form-title">{isEditing ? "Edit Draft Authorization Form" : "Generate Authorization Form"}</h2>
-          <button className="btn btn-sm" onClick={onClose}>Close</button>
+          <button className="btn btn-sm" onClick={handleClose}>Close</button>
         </div>
 
         {loadError && <ErrorBanner error={loadError} />}
@@ -265,7 +277,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="btn" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn" onClick={handleClose}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? (isEditing ? "Saving…" : "Generating…") : (isEditing ? "Save Changes" : "Generate")}</button>
             </div>
           </form>

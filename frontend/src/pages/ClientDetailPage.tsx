@@ -142,7 +142,8 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "state_tax_id", apiKey: "stateTaxId", label: "State Tax ID", kind: "text" },
       { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f) },
       { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID (SDAT)", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "cra_registration_number", apiKey: "craRegistrationNumber", label: "CRA / Central Registration No.", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_name", apiKey: "companyContactName", label: "Owner Name", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_title", apiKey: "companyContactTitle", label: "Owner Title", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Owner SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
@@ -722,7 +723,8 @@ export function ClientDetailPage() {
                 <DetailRow label="Individual SSN" value={client.individual_ssn as string | null} />
               )}
               {isBusinessClient && <DetailRow label="State Tax ID" value={client.state_tax_id as string | null} />}
-              {isBusinessClient && <DetailRow label="Secretary of State ID" value={client.secretary_of_state_id as string | null} />}
+              {isBusinessClient && <DetailRow label="Secretary of State ID (SDAT)" value={client.secretary_of_state_id as string | null} />}
+              {isBusinessClient && <DetailRow label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
               <DetailRow label="Sales Tax Frequency" value={client.sales_tax_frequency as string | null} />
               <DetailRow label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
               {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Frequency" value={client.payroll_frequency as string | null} />}

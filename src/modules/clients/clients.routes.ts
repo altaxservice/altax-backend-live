@@ -120,6 +120,7 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
     c.individual_ssn = maskTail(c.individual_ssn);
     c.ein = maskTail(c.ein);
     c.state_tax_id = maskTail(c.state_tax_id);
+    c.cra_registration_number = maskTail(c.cra_registration_number);
     c.company_contact_ssn = maskTail(c.company_contact_ssn);
   }
 
@@ -938,6 +939,10 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   individualSsn: { column: "individual_ssn", encrypted: true },
   stateTaxId: { column: "state_tax_id", encrypted: true },
   secretaryOfStateId: { column: "secretary_of_state_id" },
+  // Maryland's Central Registration Number, issued after a filed CRA is
+  // approved — distinct from secretaryOfStateId (assigned at formation) and
+  // from stateTaxId. See sql/047_client_cra_registration_number.sql.
+  craRegistrationNumber: { column: "cra_registration_number", encrypted: true },
   companyContactName: { column: "company_contact_name" },
   companyContactTitle: { column: "company_contact_title" },
   companyContactSsn: { column: "company_contact_ssn", encrypted: true },
