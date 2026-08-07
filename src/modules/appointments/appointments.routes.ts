@@ -150,6 +150,14 @@ function fmtDate(d: Date): string {
 function fmtTime(d: Date): string {
   return d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
+/** Language-neutral month/day/weekday for the email's ticket-style date card — digits and a 3-letter month/weekday read fine unreversed inside either an LTR or RTL layout, so this doesn't need a bdi wrapper the way prose does. */
+function fmtCardParts(d: Date): { month: string; day: string; weekday: string } {
+  return {
+    month: d.toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short" }).toUpperCase(),
+    day: d.toLocaleDateString("en-US", { timeZone: "America/New_York", day: "numeric" }),
+    weekday: d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" }).toUpperCase(),
+  };
+}
 
 export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled";
 
@@ -202,55 +210,125 @@ function buildAppointmentPlainText(
  * Latin-script run inside the Arabic section is wrapped in <bdi dir="ltr">,
  * which isolates it from the surrounding RTL context. Shown once (not
  * duplicated per language) since an address/map link doesn't translate.
+ *
+ * Leads with a "ticket"-style date card (month/day/weekday + time, in the
+ * brand's navy/gold) so the one thing a client actually needs at a glance —
+ * when — doesn't have to be found inside a paragraph. Cancelled notices reuse
+ * the same card in a muted gray with the time struck through, so it visually
+ * reads as "this used to be your appointment" rather than looking identical
+ * to a confirmation.
  */
 export function buildAppointmentEmailHtml(
   resolved: { message_english: string; message_arabic: string },
   includeDetails: boolean, manageUrl: string,
   settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null,
-  durationMinutes: number
+  durationMinutes: number,
+  hero: { title: string; startDate: Date; noticeType: AppointmentNoticeType; bookUrl: string }
 ): string {
   const englishHtml = escapeHtml(resolved.message_english).replace(/\n/g, "<br>");
   const arabicHtml = escapeHtml(resolved.message_arabic).replace(/\n/g, "<br>");
+  const isCancelled = hero.noticeType === "Appointment Cancelled";
+  const { month, day, weekday } = fmtCardParts(hero.startDate);
+
+  const cardBg = isCancelled ? "#5b6570" : "#0f2d3e";
+  const cardDateBg = isCancelled ? "#4a5560" : "#0a2029";
+  const cancelledBadge = isCancelled
+    ? `<span style="display:inline-block; margin-left:8px; padding:2px 9px; border:1px solid rgba(255,255,255,0.45); border-radius:999px; color:#ffffff; font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; vertical-align:middle;">Cancelled</span>`
+    : "";
+  const dateCard = `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%; margin:2px 0 22px; border-collapse:separate;">
+      <tr>
+        <td style="background:${cardBg}; border-radius:10px; overflow:hidden;">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
+            <tr>
+              <td style="width:82px; background:${cardDateBg}; padding:16px 6px; text-align:center; vertical-align:middle;">
+                <div style="color:#c9a86a; font-size:11px; font-weight:700; letter-spacing:0.08em;">${month}</div>
+                <div style="color:#ffffff; font-size:28px; font-weight:800; line-height:1.15;">${day}</div>
+                <div style="color:#9fb4bf; font-size:10px; letter-spacing:0.06em;">${weekday}</div>
+              </td>
+              <td style="padding:14px 18px; vertical-align:middle;">
+                <div style="color:#ffffff; font-size:15px; font-weight:700; line-height:1.4;">${escapeHtml(hero.title)}${cancelledBadge}</div>
+                <div style="color:#e4cd9a; font-size:13px; margin-top:4px; ${isCancelled ? "text-decoration:line-through; opacity:0.8;" : ""}">
+                  🕐&nbsp; ${escapeHtml(fmtTime(hero.startDate))}${durationMinutes ? ` &middot; ${durationMinutes} min` : ""}
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>`;
 
   let detailsHtml = "";
   if (includeDetails && settings) {
     const mapLink = settings.locationMapUrl
-      ? `<br><a href="${escapeHtml(settings.locationMapUrl)}" dir="ltr" style="color:#0f2d3e;">${escapeHtml(settings.locationMapUrl)}</a>`
+      ? `<br><a href="${escapeHtml(settings.locationMapUrl)}" dir="ltr" style="color:#a9834a; text-decoration:none;">${escapeHtml(settings.locationMapUrl)}</a>`
       : "";
     detailsHtml = `
-      <div style="margin:18px 0; padding:16px 0; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; text-align:center;">
-        <div style="font-weight:700;">${durationMinutes} min appointment</div>
-        <div style="color:#6b7280; font-size:12.5px; margin-top:3px;">
-          <bdi dir="ltr">${escapeHtml(bookableWeekdayLabel(settings, "en"))}</bdi>
+      <div style="margin:0 0 18px; padding:16px 18px; background:#faf7f0; border:1px solid #ece3d1; border-radius:10px; text-align:center;">
+        <div style="color:#8a6a35; font-size:12px; font-weight:600;">
+          🔁&nbsp; <bdi dir="ltr">${escapeHtml(bookableWeekdayLabel(settings, "en"))}</bdi>
           &nbsp;/&nbsp;
           <bdi dir="rtl">${escapeHtml(bookableWeekdayLabel(settings, "ar"))}</bdi>
         </div>
-        <div style="margin-top:10px; font-size:13.5px;">
-          <bdi dir="ltr">${escapeHtml(settings.locationName)}</bdi><br>
-          <bdi dir="ltr">${escapeHtml(settings.locationAddress)}</bdi>
+        <div style="margin-top:9px; font-size:13.5px; color:#1a1a1a;">
+          📍&nbsp; <bdi dir="ltr">${escapeHtml(settings.locationName)}</bdi>, <bdi dir="ltr">${escapeHtml(settings.locationAddress)}</bdi>
           ${mapLink}
         </div>
       </div>
-      <div dir="ltr" style="text-align:left; margin-bottom:14px;">${escapeHtml(settings.policyMessageEn).replace(/\n/g, "<br>")}</div>
-      <div dir="rtl" style="text-align:right; margin-bottom:14px;">${escapeHtml(settings.policyMessageAr).replace(/\n/g, "<br>")}</div>
+      <div dir="ltr" style="text-align:left; margin-bottom:14px; color:#4b5563; font-size:13px;">${escapeHtml(settings.policyMessageEn).replace(/\n/g, "<br>")}</div>
+      <div dir="rtl" style="text-align:right; margin-bottom:14px; color:#4b5563; font-size:13px;">${escapeHtml(settings.policyMessageAr).replace(/\n/g, "<br>")}</div>
     `;
   }
 
-  const manageHtml = manageUrl
+  const ctaHref = isCancelled ? hero.bookUrl : manageUrl;
+  const ctaLabel = isCancelled
+    ? `Book a New Time &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدًا جديدًا</bdi>`
+    : `Manage Appointment &nbsp;·&nbsp; <bdi dir="rtl">إدارة الموعد</bdi>`;
+  const ctaHtml = ctaHref
     ? `<div style="text-align:center; margin-top:16px;">
-         <a href="${escapeHtml(manageUrl)}" style="display:inline-block; background:#0f2d3e; color:#ffffff; padding:10px 18px; border-radius:6px; text-decoration:none; font-size:13.5px;">
-           Cancel / Reschedule &nbsp;·&nbsp; <bdi dir="rtl">إلغاء أو إعادة جدولة</bdi>
+         <a href="${escapeHtml(ctaHref)}" style="display:inline-block; background:#c9a86a; color:#0f2d3e; padding:12px 26px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:700;">
+           ${ctaLabel}
          </a>
        </div>`
     : "";
 
   return `
+    ${dateCard}
     <div dir="ltr" style="text-align:left;">${englishHtml}</div>
     <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
     <div dir="rtl" style="text-align:right;">${arabicHtml}</div>
     ${detailsHtml}
-    ${manageHtml}
+    ${ctaHtml}
   `;
+}
+
+/**
+ * Short, purpose-built SMS text — reusing the full multi-paragraph email copy
+ * verbatim (the old behavior) read like a wall of text on a phone and burned
+ * extra SMS segments for no benefit. A text just needs the what/when at a
+ * glance, a warm one-line close, and a link to act on it.
+ *
+ * Deliberately plain-ASCII (no emoji, no em dash) — either one forces the
+ * whole message into UCS-2 encoding, which cuts a carrier's ~153-char GSM-7
+ * segment down to ~67 chars and roughly doubles the segment count (and cost)
+ * for the same text. The email keeps the emoji, since there it's pure visual
+ * polish with no per-character billing behind it.
+ */
+export function buildAppointmentSmsText(
+  noticeType: AppointmentNoticeType, title: string, dateLabel: string, timeLabel: string,
+  durationMinutes: number, locationName: string | undefined, manageUrl: string, bookUrl: string
+): string {
+  if (noticeType === "Appointment Cancelled") {
+    return bookUrl
+      ? `Your "${title}" on ${dateLabel} at ${timeLabel} was cancelled. Whenever you're ready, book a new time: ${bookUrl}`
+      : `Your "${title}" on ${dateLabel} at ${timeLabel} was cancelled. Whenever you're ready, we'd love to have you back.`;
+  }
+  const lead = noticeType === "Appointment Reminder" ? "Reminder:" : "You're booked!";
+  const closer = noticeType === "Appointment Reminder" ? "See you soon!" : "We can't wait to see you!";
+  const durationSuffix = durationMinutes ? ` (${durationMinutes} min)` : "";
+  const locationSuffix = locationName ? ` at ${locationName}` : "";
+  const manage = manageUrl ? ` Manage: ${manageUrl}` : "";
+  return `${lead} ${title} - ${dateLabel} at ${timeLabel}${durationSuffix}${locationSuffix}. ${closer}${manage}`;
 }
 
 /**
@@ -281,6 +359,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   const includeDetails = templateName !== "Appointment Cancelled";
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
+  const bookUrl = base ? `${base}/book` : "";
   const settings = includeDetails ? await getAppointmentSettings() : null;
   const durationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
   const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
@@ -298,17 +377,18 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     let sendError: string | undefined;
     try {
       if (channel === "Email") {
-        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
+        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes,
+          { title: appt.title || "Appointment", startDate: start, noticeType: templateName, bookUrl });
         // "Invite Others" guests are CC'd on the same confirmation/reminder/
         // cancellation email the primary contact gets — no separate send
         // path, no portal account, matching the existing Cc/Bcc convention.
         await sendEmail({ to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
       } else {
-        // SMS stays short — the full policy/location text only goes in the email (see
-        // SMS_INLINE_MAX_CHARS convention in communications.routes.ts) — but the manage
-        // link still goes out here too, since that's how an SMS/WhatsApp recipient
-        // actually cancels or reschedules without calling the office.
-        const smsBody = manageUrl ? `${resolvedTemplate.message_english} Manage: ${manageUrl}` : resolvedTemplate.message_english;
+        // SMS stays short — a purpose-built one-liner, not the multi-paragraph
+        // email copy — but the manage/book link still goes out here too, since
+        // that's how an SMS/WhatsApp recipient actually acts without calling.
+        const smsBody = buildAppointmentSmsText(templateName, appt.title || "Appointment", extra.appointmentDate, extra.appointmentTime,
+          durationMinutes, settings?.locationName, manageUrl, bookUrl);
         await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
       }
       sent = true;
