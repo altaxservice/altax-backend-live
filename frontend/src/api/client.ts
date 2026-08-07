@@ -111,6 +111,24 @@ export async function fetchAuthedBlobPost(path: string, body: unknown): Promise<
   return res.blob();
 }
 
+/**
+ * Turns a human label (client name, document type, etc.) into a safe piece
+ * of a download filename — strips characters invalid on Windows/macOS
+ * filesystems (a client name with a "/" would otherwise silently become a
+ * path separator once handed to `a.download`) and collapses whitespace.
+ * Spaces are kept rather than turned into underscores — "BIG BOYS MARKET 1
+ * LLC - Sales Tax Report.pdf" reads as a real filename someone chose to
+ * save, not a machine-generated one.
+ */
+export function safeFilePart(s: string): string {
+  return s.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** Joins sanitized filename parts with " - " and appends the extension — the one shared shape every downloadFile() call site below builds its suggested filename from. */
+export function buildFilename(parts: (string | null | undefined)[], ext: string): string {
+  return `${parts.filter((p) => p && p.trim()).map((p) => safeFilePart(p!)).join(" - ")}.${ext}`;
+}
+
 /** Downloads a file (PDF, etc.) that requires auth — plain <a href> can't carry the JWT, so this fetches as a blob and triggers a save via a temporary object URL. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const blob = await fetchAuthedBlob(path);

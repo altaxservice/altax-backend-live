@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
-import { api, ApiError, viewFile, downloadFile } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
 import { useNotify, useConfirm } from "./ConfirmProvider";
@@ -399,7 +399,7 @@ function FindingsPanel({ clientId }: { clientId: string }) {
  * auto-save), so a half-written analysis can't accidentally overwrite a
  * finished one — same shape ContractsSection uses elsewhere on this page.
  */
-export function ClientSwotSection({ clientId }: { clientId: string }) {
+export function ClientSwotSection({ clientId, clientName }: { clientId: string; clientName?: string }) {
   const toast = useToast();
   const notify = useNotify();
   const [swot, setSwot] = useState<ClientSwot | null>(null);
@@ -473,7 +473,7 @@ export function ClientSwotSection({ clientId }: { clientId: string }) {
     setPrintBusy(mode);
     try {
       if (mode === "view") await viewFile(`/reports/pdf/client-swot/${clientId}`);
-      else await downloadFile(`/reports/pdf/client-swot/${clientId}`, `BusinessAdvisory_${clientId}.pdf`);
+      else await downloadFile(`/reports/pdf/client-swot/${clientId}`, buildFilename([clientName, "Business Advisory Report"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate the report.");
     } finally {

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, buildFilename } from "../api/client";
 import type { Employee, DocumentUpload } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { AddressFields } from "../components/AddressFields";
@@ -546,8 +546,8 @@ export function EmployeeDetailPage() {
           <TaxDocumentsSection employeeId={employee.employee_id} employeeName={employee.employee_name} isContractor={isContractor} />
           <div style={{ marginTop: 16 }}>
             {isContractor
-              ? <EmployeeGovFormSection employeeId={employee.employee_id} formType="W9" title="Form W-9" />
-              : <EmployeeGovFormSection employeeId={employee.employee_id} formType="W4" title="Form W-4" />}
+              ? <EmployeeGovFormSection employeeId={employee.employee_id} employeeName={employee.employee_name} formType="W9" title="Form W-9" />
+              : <EmployeeGovFormSection employeeId={employee.employee_id} employeeName={employee.employee_name} formType="W4" title="Form W-4" />}
           </div>
         </>
       )}
@@ -594,7 +594,7 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
   async function handleDownload(year: number) {
     setBusyYear(`download-${year}`);
     try {
-      const filename = `${isContractor ? "1099NEC" : "W2"}_${year}_${employeeName.replace(/\s+/g, "_")}.pdf`;
+      const filename = buildFilename([employeeName, isContractor ? "Form 1099-NEC" : "Form W-2", String(year)], "pdf");
       await downloadFile(formPath(year), filename);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this tax form.");
@@ -652,7 +652,7 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
  * electronically sign themselves ("Send to employee to sign" — new; see
  * govForms.routes.ts's /employee/:employeeId/send and /my/:filingId/sign).
  */
-function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: string; formType: "W4" | "W9"; title: string }) {
+function EmployeeGovFormSection({ employeeId, employeeName, formType, title }: { employeeId: string; employeeName: string; formType: "W4" | "W9"; title: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -687,7 +687,7 @@ function EmployeeGovFormSection({ employeeId, formType, title }: { employeeId: s
     try {
       const path = f.attached_upload_id ? `/documents/uploads/${f.attached_upload_id}/download` : `/gov-forms/${f.filing_id}/pdf`;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, `Form_${formType}_${f.filing_id}.pdf`);
+      else await downloadFile(path, buildFilename([employeeName, formType === "W4" ? "Form W-4" : "Form W-9"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useNotify } from "../components/ConfirmProvider";
@@ -34,7 +34,7 @@ export function MyTaxFormsPage() {
     setBusy(`pdf-${f.filing_id}`);
     try {
       const path = f.attached_upload_id ? `/documents/uploads/${f.attached_upload_id}/download` : `/gov-forms/${f.filing_id}/pdf`;
-      const filename = `Form_${f.form_type}_${f.filing_id}.pdf`;
+      const filename = buildFilename([GOV_FORM_LABELS[f.form_type] || f.form_type], "pdf");
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, filename);
     } catch (err) {

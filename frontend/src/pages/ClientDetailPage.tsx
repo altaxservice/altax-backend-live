@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { BackLink } from "../components/BackLink";
@@ -599,7 +599,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "SWOT Analysis" && canSeeStaffTabs && (
-            <ClientSwotSection clientId={client.client_id} />
+            <ClientSwotSection clientId={client.client_id} clientName={client.client_name} />
           )}
 
           {tab === "Profile" && (
@@ -783,7 +783,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Billing" && canSeeStaffTabs && (
-            <ClientBillingSection clientId={client.client_id} />
+            <ClientBillingSection clientId={client.client_id} clientName={client.client_name} />
           )}
 
           {tab === "Tax Payments" && canSeeStaffTabs && (
@@ -791,14 +791,14 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Contracts" && canSeeStaffTabs && (
-            <ContractsSection clientId={client.client_id} clientServices={client.services || []} />
+            <ContractsSection clientId={client.client_id} clientName={client.client_name} clientServices={client.services || []} />
           )}
 
           {tab === "Gov Forms" && canSeeStaffTabs && (
             <Fragment>
-              <PoaFilingsSection clientId={client.client_id} autoOpenFormType={openAuthFormParam} />
+              <PoaFilingsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormType={openAuthFormParam} />
               <div style={{ marginTop: 16 }}>
-                <GovFormsSection clientId={client.client_id} autoOpenFormType={openGovFormParam} />
+                <GovFormsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormType={openGovFormParam} />
               </div>
             </Fragment>
           )}
@@ -811,7 +811,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Tax Forms" && canSeeStaffTabs && (
-            <EmployerTaxFormsSection clientId={client.client_id} />
+            <EmployerTaxFormsSection clientId={client.client_id} clientName={client.client_name} />
           )}
         </>
       )}
@@ -1097,7 +1097,7 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
   );
 }
 
-function ContractsSection({ clientId, clientServices }: { clientId: string; clientServices: string[] }) {
+function ContractsSection({ clientId, clientName, clientServices }: { clientId: string; clientName: string; clientServices: string[] }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1227,7 +1227,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
     setBusy(`pdf-${contractId}`);
     try {
       if (mode === "view") await viewFile(`/contracts/${contractId}/pdf`);
-      else await downloadFile(`/contracts/${contractId}/pdf`, `${title.replace(/[^\w-]+/g, "_")}_${contractId}.pdf`);
+      else await downloadFile(`/contracts/${contractId}/pdf`, buildFilename([clientName, title], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
     } finally {
@@ -1246,7 +1246,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
     setBusy("packet");
     try {
       if (mode === "view") await viewFile(`/contracts/client/${clientId}/packet`);
-      else await downloadFile(`/contracts/client/${clientId}/packet`, `Signing_Packet_${clientId}.pdf`);
+      else await downloadFile(`/contracts/client/${clientId}/packet`, buildFilename([clientName, "Signing Packet"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not combine these documents.");
     } finally {
@@ -1449,7 +1449,7 @@ function ContractsSection({ clientId, clientServices }: { clientId: string; clie
  * (mail/fax/hand-delivered/IRS online portal) since this app has no live
  * filing integration with the IRS or Comptroller.
  */
-function PoaFilingsSection({ clientId, autoOpenFormType }: { clientId: string; autoOpenFormType?: string | null }) {
+function PoaFilingsSection({ clientId, clientName, autoOpenFormType }: { clientId: string; clientName: string; autoOpenFormType?: string | null }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1487,7 +1487,7 @@ function PoaFilingsSection({ clientId, autoOpenFormType }: { clientId: string; a
     setBusy(`pdf-${filingId}`);
     try {
       if (mode === "view") await viewFile(`/poa-forms/${filingId}/pdf`);
-      else await downloadFile(`/poa-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
+      else await downloadFile(`/poa-forms/${filingId}/pdf`, buildFilename([clientName, FORM_LABELS[formType] || formType], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
@@ -1682,7 +1682,7 @@ function PoaFilingsSection({ clientId, autoOpenFormType }: { clientId: string; a
  * shape with each other or with the POA forms, so they get their own section
  * and their own filing table rather than being folded into PoaFilingsSection.
  */
-function GovFormsSection({ clientId, autoOpenFormType }: { clientId: string; autoOpenFormType?: string | null }) {
+function GovFormsSection({ clientId, clientName, autoOpenFormType }: { clientId: string; clientName: string; autoOpenFormType?: string | null }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -1717,7 +1717,7 @@ function GovFormsSection({ clientId, autoOpenFormType }: { clientId: string; aut
     setBusy(`pdf-${filingId}`);
     try {
       if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
-      else await downloadFile(`/gov-forms/${filingId}/pdf`, `Form_${formType}_${filingId}.pdf`);
+      else await downloadFile(`/gov-forms/${filingId}/pdf`, buildFilename([clientName, GOV_FORM_LABELS[formType as ClientGovFormType] || formType], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
     } finally {
@@ -1926,7 +1926,7 @@ function GovFormsSection({ clientId, autoOpenFormType }: { clientId: string; aut
  * 941), summing totals across everyone that client paid, so they live here
  * on the client itself rather than on any one employee's page.
  */
-function EmployerTaxFormsSection({ clientId }: { clientId: string }) {
+function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
   const notify = useNotify();
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const currentQuarter = (Math.floor(new Date().getMonth() / 3) + 1) as 1 | 2 | 3 | 4;
@@ -1939,7 +1939,7 @@ function EmployerTaxFormsSection({ clientId }: { clientId: string }) {
     try {
       const q = form === "941" ? `&quarter=${quarter}` : "";
       const path = `/accounting/tax-forms/${form}/${clientId}?year=${encodeURIComponent(year)}${q}`;
-      const filename = form === "941" ? `941_${year}Q${quarter}_${clientId}.pdf` : `${form.toUpperCase()}_${year}_${clientId}.pdf`;
+      const filename = form === "941" ? buildFilename([clientName, "Form 941", `${year} Q${quarter}`], "pdf") : buildFilename([clientName, `Form ${form.toUpperCase()}`, year], "pdf");
       if (mode === "view") await viewFile(path);
       else await downloadFile(path, filename);
     } catch (err) {
@@ -2390,7 +2390,7 @@ function fmtMoney(v: unknown): string {
  * on file for this client," same read-only-list-then-drill-in pattern as the
  * trimmed global Documents/Communications pages.
  */
-function ClientBillingSection({ clientId }: { clientId: string }) {
+function ClientBillingSection({ clientId, clientName }: { clientId: string; clientName: string }) {
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
   const notify = useNotify();
@@ -2430,7 +2430,7 @@ function ClientBillingSection({ clientId }: { clientId: string }) {
     setStatementBusy(mode);
     try {
       if (mode === "view") await viewFile(`/billing/clients/${clientId}/statement`);
-      else await downloadFile(`/billing/clients/${clientId}/statement`, `Statement_${clientId}.pdf`);
+      else await downloadFile(`/billing/clients/${clientId}/statement`, buildFilename([clientName, "Statement"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {

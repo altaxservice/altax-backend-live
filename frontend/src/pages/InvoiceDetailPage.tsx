@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import type { Invoice, Payment } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -70,7 +70,7 @@ export function InvoiceDetailPage() {
     if (!invoiceId) return;
     setPrinting(true);
     try {
-      await downloadFile(`/billing/invoices/${invoiceId}/print`, `Invoice_${invoiceId}.pdf`);
+      await downloadFile(`/billing/invoices/${invoiceId}/print`, buildFilename([clients.find((c) => c.client_id === invoice?.client_id)?.client_name, "Invoice", invoiceId], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF.");
     } finally {
@@ -94,7 +94,7 @@ export function InvoiceDetailPage() {
     if (!invoice) return;
     setStatementing(true);
     try {
-      await downloadFile(`/billing/clients/${invoice.client_id}/statement`, `Statement_${invoice.client_id}.pdf`);
+      await downloadFile(`/billing/clients/${invoice.client_id}/statement`, buildFilename([clients.find((c) => c.client_id === invoice.client_id)?.client_name, "Statement"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {

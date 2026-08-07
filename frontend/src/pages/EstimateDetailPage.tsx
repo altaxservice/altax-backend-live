@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, fetchAuthedBlob } from "../api/client";
+import { api, ApiError, downloadFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import { BackLink } from "../components/BackLink";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
@@ -232,7 +232,7 @@ export function EstimateDetailPage() {
     setPrinting(true);
     try {
       await ensureSaved();
-      await downloadFile(`/estimates/${estimateId}/print`, `Estimate_${estimate?.estimate_number || estimateId}.pdf`);
+      await downloadFile(`/estimates/${estimateId}/print`, buildFilename([estimate?.business_name, "Estimate", estimate?.estimate_number], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate the PDF.");
     } finally {

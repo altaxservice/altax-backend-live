@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
@@ -380,7 +380,7 @@ export function ReportsPage() {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
       const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`);
+      else await downloadFile(path, buildFilename([client?.client_name, tab, `${from} to ${to}`], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
@@ -394,7 +394,7 @@ export function ReportsPage() {
     setReportBusy("csv");
     try {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
-      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`, `${segment}_${clientId}_${from}_${to}.csv`);
+      await downloadFile(`/reports/csv/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`, buildFilename([client?.client_name, tab, `${from} to ${to}`], "csv"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -409,9 +409,8 @@ export function ReportsPage() {
     try {
       const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
       const path = `/reports/pdf/firm-overview?from=${from}&to=${to}${clientQuery}`;
-      const filenameId = isFirmWide ? "Firm" : clientId;
       if (mode === "view") await viewFile(path);
-      else await downloadFile(path, `Overview_${filenameId}_${from}_${to}.pdf`);
+      else await downloadFile(path, buildFilename([isFirmWide ? "Firm" : client?.client_name, "Firm Overview", `${from} to ${to}`], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
@@ -424,8 +423,7 @@ export function ReportsPage() {
     setReportBusy("firm-csv");
     try {
       const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
-      const filenameId = isFirmWide ? "Firm" : clientId;
-      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}${clientQuery}`, `Overview_${filenameId}_${from}_${to}.csv`);
+      await downloadFile(`/reports/csv/firm-overview?from=${from}&to=${to}${clientQuery}`, buildFilename([isFirmWide ? "Firm" : client?.client_name, "Firm Overview", `${from} to ${to}`], "csv"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not export this data.");
     } finally {
@@ -1171,7 +1169,7 @@ function ArAgingTab() {
     setBusy(mode);
     try {
       if (mode === "view") await viewFile("/reports/pdf/ar-aging");
-      else await downloadFile("/reports/pdf/ar-aging", `AR_Aging_${data?.asOf || "report"}.pdf`);
+      else await downloadFile("/reports/pdf/ar-aging", buildFilename(["AR Aging", data?.asOf], "pdf"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not generate the PDF.");
     } finally {
@@ -1182,7 +1180,7 @@ function ArAgingTab() {
   async function handleCsv() {
     setBusy("csv");
     try {
-      await downloadFile("/reports/csv/ar-aging", `AR_Aging_${data?.asOf || "report"}.csv`);
+      await downloadFile("/reports/csv/ar-aging", buildFilename(["AR Aging", data?.asOf], "csv"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not export the CSV.");
     } finally {

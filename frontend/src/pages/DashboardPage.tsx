@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, openAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { DocumentRequest, Invoice } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -273,7 +273,7 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
       return;
     }
     if (action === "print-invoice") {
-      try { await downloadFile(`/billing/invoices/${i.invoice_id}/print`, `Invoice_${i.invoice_id}.pdf`); }
+      try { await downloadFile(`/billing/invoices/${i.invoice_id}/print`, buildFilename([clientNames.get(i.client_id), "Invoice", i.invoice_id], "pdf")); }
       catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF."); }
       return;
     }
@@ -283,7 +283,7 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
       return;
     }
     if (action === "download-statement") {
-      try { await downloadFile(`/billing/clients/${i.client_id}/statement`, `Statement_${i.client_id}.pdf`); }
+      try { await downloadFile(`/billing/clients/${i.client_id}/statement`, buildFilename([clientNames.get(i.client_id), "Statement"], "pdf")); }
       catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this statement."); }
     }
   }
@@ -773,7 +773,7 @@ function EmployeeCommand() {
   async function handleDownload(p: MyPaycheck) {
     setBusy(`download:${p.paycheck_id}`);
     try {
-      await downloadFile(`/accounting/paychecks/${p.paycheck_id}/print`, `Paystub_${p.check_number || p.paycheck_id}.pdf`);
+      await downloadFile(`/accounting/paychecks/${p.paycheck_id}/print`, buildFilename([p.client_name, "Paystub", p.pay_date ? fmtDate(p.pay_date) : null], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not download this paystub.");
     } finally {

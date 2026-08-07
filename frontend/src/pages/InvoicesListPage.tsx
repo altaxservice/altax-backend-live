@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -133,7 +133,7 @@ export function InvoicesListPage() {
     if (!statementClientId) return;
     setPrintingStatement(true);
     try {
-      await downloadFile(statementPath(), `Statement_${statementClientId}.pdf`);
+      await downloadFile(statementPath(), buildFilename([clientName(statementClientId), "Statement"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
@@ -414,7 +414,7 @@ export function InvoicesListPage() {
                         onSelect={(action) => {
                           if (action === "view") navigate(`/billing/${inv.invoice_id}`);
                           if (action === "view-pdf") viewFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this invoice."));
-                          if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, `Invoice_${inv.invoice_id}.pdf`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice."));
+                          if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, buildFilename([clientName(inv.client_id), "Invoice", inv.invoice_id], "pdf")).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice."));
                           if (action === "void") handleVoid(inv.invoice_id);
                           if (action === "delete") handleDelete(inv.invoice_id);
                         }}
