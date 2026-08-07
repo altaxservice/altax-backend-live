@@ -79,6 +79,7 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   const nowMs = Date.now();
   const gapMs = settings.gapMinutes * 60 * 1000;
   const { startHour, endHour } = hoursForDay(settings, jsDay);
+  const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
   const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
   for (let hour = startHour; hour < endHour; hour++) {
     for (let minute = 0; minute < 60; minute += settings.slotMinutes) {
@@ -94,6 +95,22 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
       if (!overlaps) slots.push(startIso);
     }
   }
+  // Beyond the fixed hourly grid above, also offer the exact moment each
+  // existing appointment's gap clears as its own candidate. Without this, a
+  // 60-min appointment ending at noon with a 15-min gap silently swallows
+  // the entire 12–1 grid slot instead of surfacing 12:15 — the true
+  // earliest next-available time — as bookable.
+  for (const r of bookedRanges) {
+    const startMs = r.end + gapMs;
+    if (startMs <= nowMs || startMs < dayOpenMs) continue;
+    const endMs = startMs + durationMinutes * 60 * 1000;
+    if (endMs > dayCloseMs) continue;
+    const overlaps = bookedRanges.some((other) => startMs < other.end + gapMs && endMs > other.start - gapMs);
+    if (overlaps) continue;
+    const startIso = new Date(startMs).toISOString();
+    if (!slots.includes(startIso)) slots.push(startIso);
+  }
+  slots.sort();
   return slots;
 }
 
@@ -142,23 +159,22 @@ async function withDayBookingLock<T>(startTime: string, fn: () => Promise<T>): P
   }
 }
 
-function isSlotWithinSettings(startTime: string, settings: AppointmentSettings, durationMinutes: number): boolean {
-  const { y, mo, d, hour, minute } = etDateParts(startTime);
-  const today = new Date();
-  const daysAhead = Math.floor((Date.UTC(y, mo - 1, d) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
-  if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return false;
-  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
-  if (!isBookableWeekday(settings, jsDay)) return false;
-  const { startHour, endHour } = hoursForDay(settings, jsDay);
-  if (hour < startHour || hour >= endHour) return false;
-  // Must land on a real slot boundary (e.g. :00/:30 for a 30-minute grid) —
-  // otherwise a forged startTime like 09:07 straddles two real slots
-  // (09:00-09:30 and 09:30-10:00 both show as unavailable afterward) without
-  // ever showing up as a bookable option in /availability.
-  if (minute % settings.slotMinutes !== 0) return false;
-  // The appointment's full length must still fit before closing time — a
-  // long appointment type starting late in the day can't run past endHour.
-  return hour * 60 + minute + durationMinutes <= endHour * 60;
+/**
+ * Re-validates a requested startTime server-side by recomputing the exact
+ * same candidate list /availability would return for that day (hourly grid
+ * plus the gap-boundary slots computeAvailableSlots injects) and checking
+ * membership — rather than a standalone alignment rule like "minute must be
+ * a multiple of slotMinutes". A standalone rule can't express "also legal at
+ * 12:15 because that's the moment an existing appointment's gap clears", so
+ * reusing computeAvailableSlots as the single source of truth is what lets a
+ * client actually book that boundary slot instead of having it rejected by
+ * this check right after /availability just offered it.
+ */
+async function isRealAvailableSlot(startTime: string, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string): Promise<boolean> {
+  const { y, mo, d } = etDateParts(startTime);
+  const startMs = new Date(startTime).getTime();
+  const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes, excludeAppointmentId);
+  return slots.some((s) => new Date(s).getTime() === startMs);
 }
 
 /**
@@ -274,7 +290,7 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   const { durationMinutes, appointmentTypeId, appointmentTypeName } = await resolveAppointmentDuration(String(body.appointmentTypeId || ""), settings.slotMinutes);
   const endTime = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
 
-  if (!isSlotWithinSettings(startTime, settings, durationMinutes)) {
+  if (!(await isRealAvailableSlot(startTime, settings, durationMinutes))) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
@@ -445,7 +461,7 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
   const existingDurationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
   const endTime = new Date(startMs + existingDurationMinutes * 60 * 1000).toISOString();
 
-  if (!isSlotWithinSettings(startTime, settings, existingDurationMinutes)) {
+  if (!(await isRealAvailableSlot(startTime, settings, existingDurationMinutes, appt.appointment_id))) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
