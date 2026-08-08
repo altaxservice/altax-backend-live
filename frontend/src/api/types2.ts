@@ -13,6 +13,7 @@ export interface WebOptions {
   documentStatuses: string[];
   paymentMethods: string[];
   communicationChannels: string[];
+  clientFlagCategories: string[];
   coaAccounts: string[];
 }
 

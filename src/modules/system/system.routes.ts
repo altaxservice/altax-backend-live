@@ -611,6 +611,10 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
   documentStatuses: { label: "Document Request Statuses", values: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"] },
   paymentMethods: { label: "Payment Methods", values: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"] },
   communicationChannels: { label: "Communication Channels", values: ["Email", "Portal Note", "SMS", "WhatsApp", "Phone"] },
+  clientFlagCategories: { label: "Client Flag Categories", values: [
+    "Not in Good Standing", "Compliance Issue", "Missing Documentation", "Legal / Dispute",
+    "Ownership Change Pending", "Collections", "Other",
+  ] },
 };
 
 async function managedList(category: string): Promise<string[]> {

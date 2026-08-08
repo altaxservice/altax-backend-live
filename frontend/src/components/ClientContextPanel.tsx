@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
-import type { Client } from "../api/types";
+import type { Client, Task } from "../api/types";
+import type { WebOptions } from "../api/types2";
 import { StatusBadge } from "./StatusBadge";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
+
+const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 
 interface Summary {
   openTasks: number;
@@ -28,6 +31,9 @@ interface ClientFlag {
   resolvable: boolean;
   linkTaskId?: string;
   linkUrl?: string;
+  category?: string | null;
+  details?: string | null;
+  dueDate?: string | null;
 }
 
 function fmtMoney(v: unknown): string {
@@ -35,11 +41,18 @@ function fmtMoney(v: unknown): string {
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
 }
 
+function fmtDateOnly(v: string | null | undefined): string {
+  if (!v) return "";
+  const d = new Date(`${v}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function flagLabel(f: ClientFlag): string {
   if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
   if (f.flagType === "AgencyPastDue") return `${f.note} Past Due${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
   if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
-  return `${f.note}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}`;
+  const label = f.category || f.note;
+  return `${label}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}${f.dueDate ? ` — ${fmtDateOnly(f.dueDate)}` : ""}`;
 }
 
 export function ClientContextPanel() {
@@ -54,8 +67,19 @@ export function ClientContextPanel() {
   const [flagType, setFlagType] = useState<"Credit" | "Custom">("Custom");
   const [flagAmount, setFlagAmount] = useState("");
   const [flagNote, setFlagNote] = useState("");
+  const [flagCategory, setFlagCategory] = useState("");
+  const [flagCategoryOther, setFlagCategoryOther] = useState("");
+  const [flagDetails, setFlagDetails] = useState("");
+  const [flagDueDate, setFlagDueDate] = useState("");
+  const [flagLinkTaskId, setFlagLinkTaskId] = useState("");
   const [savingFlag, setSavingFlag] = useState(false);
   const [flagError, setFlagError] = useState<string | null>(null);
+  const [options, setOptions] = useState<WebOptions | null>(null);
+  const [clientTasks, setClientTasks] = useState<Task[]>([]);
+
+  useEffect(() => {
+    api.get<WebOptions>("/system/options").then(setOptions).catch(() => {});
+  }, []);
 
   function loadFlags(id: string) {
     api.get<{ flags: ClientFlag[] }>(`/clients/${id}/flags`).then((res) => setFlags(res.flags)).catch(() => setFlags([]));
@@ -66,33 +90,54 @@ export function ClientContextPanel() {
       setClient(null);
       setSummary(null);
       setFlags(null);
+      setClientTasks([]);
       return;
     }
     let cancelled = false;
     api.get<{ client: Client }>(`/clients/${clientId}`).then((res) => { if (!cancelled) setClient(res.client); }).catch(() => { if (!cancelled) setClient(null); });
     api.get<Summary>(`/clients/${clientId}/summary`).then((res) => { if (!cancelled) setSummary(res); }).catch(() => { if (!cancelled) setSummary(null); });
+    // For the "link an existing task" picker on the flag form — this client's own
+    // open tasks, so staff can point a flag at wherever it's actually being tracked
+    // instead of typing a description with no connection to real work.
+    api.get<{ tasks: Task[] }>("/tasks").then((res) => {
+      if (cancelled) return;
+      setClientTasks(res.tasks.filter((t) => t.client_id === clientId && !OPEN_TASK_STATUSES_EXCLUDE.includes(String(t.status || "").toLowerCase())));
+    }).catch(() => { if (!cancelled) setClientTasks([]); });
     loadFlags(clientId);
     return () => { cancelled = true; };
   }, [clientId]);
+
+  function resetFlagForm() {
+    setFlagAmount(""); setFlagNote(""); setFlagCategory(""); setFlagCategoryOther("");
+    setFlagDetails(""); setFlagDueDate(""); setFlagLinkTaskId("");
+  }
 
   async function handleAddFlag(e: FormEvent) {
     e.preventDefault();
     if (!clientId) return;
     setFlagError(null);
+    let categoryToSend = "";
     if (flagType === "Credit") {
       const n = Number(flagAmount);
       if (!Number.isFinite(n) || n <= 0) { setFlagError("Enter the credit amount."); return; }
-    } else if (!flagNote.trim()) {
-      setFlagError("Describe what this flag is.");
-      return;
+    } else {
+      categoryToSend = flagCategory === "Other" ? flagCategoryOther.trim() : flagCategory;
+      if (!categoryToSend) { setFlagError("Choose what kind of flag this is."); return; }
     }
     setSavingFlag(true);
     try {
-      await api.post(`/clients/${clientId}/flags`, { flagType, amount: flagAmount ? Number(flagAmount) : undefined, note: flagNote.trim() || undefined });
+      await api.post(`/clients/${clientId}/flags`, {
+        flagType,
+        amount: flagAmount ? Number(flagAmount) : undefined,
+        note: flagType === "Credit" ? (flagNote.trim() || undefined) : undefined,
+        category: flagType === "Custom" ? categoryToSend : undefined,
+        details: flagType === "Custom" ? (flagDetails.trim() || undefined) : undefined,
+        dueDate: flagType === "Custom" ? (flagDueDate || undefined) : undefined,
+        linkTaskId: flagType === "Custom" ? (flagLinkTaskId || undefined) : undefined,
+      });
       setShowAddFlag(false);
-      setFlagAmount("");
-      setFlagNote("");
       setFlagType("Custom");
+      resetFlagForm();
       loadFlags(clientId);
       toast("Flag added.");
     } catch (err) {
@@ -162,31 +207,34 @@ export function ClientContextPanel() {
                 <div
                   key={f.flagId || f.linkTaskId || `${f.flagType}-${f.note}`}
                   className={`status-pill status-${f.color}`}
-                  style={{ justifyContent: "space-between", width: "100%", padding: "6px 10px", fontSize: 12 }}
+                  style={{ flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "6px 10px", fontSize: 12 }}
                 >
-                  {f.linkTaskId || f.linkUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => navigate(f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl!)}
-                      title="Open this task"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", textAlign: "left", padding: 0, textDecoration: "underline", overflow: "hidden", textOverflow: "ellipsis" }}
-                    >
-                      {flagLabel(f)}
-                    </button>
-                  ) : (
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{flagLabel(f)}</span>
-                  )}
-                  {f.resolvable && f.flagId && (
-                    <button
-                      type="button"
-                      onClick={() => handleResolveFlag(f.flagId!)}
-                      title="Resolve this flag"
-                      aria-label="Resolve this flag"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 800, padding: 0, marginLeft: 6, flex: "0 0 auto" }}
-                    >
-                      ✕
-                    </button>
-                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    {f.linkTaskId || f.linkUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => navigate(f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl!)}
+                        title="Open where this is tracked"
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", textAlign: "left", padding: 0, textDecoration: "underline", overflow: "hidden", textOverflow: "ellipsis" }}
+                      >
+                        {flagLabel(f)}
+                      </button>
+                    ) : (
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{flagLabel(f)}</span>
+                    )}
+                    {f.resolvable && f.flagId && (
+                      <button
+                        type="button"
+                        onClick={() => handleResolveFlag(f.flagId!)}
+                        title="Resolve this flag"
+                        aria-label="Resolve this flag"
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontWeight: 800, padding: 0, marginLeft: 6, flex: "0 0 auto" }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  {f.details && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 3, fontSize: 11.5 }}>{f.details}</div>}
                 </div>
               ))}
             </div>
@@ -201,22 +249,44 @@ export function ClientContextPanel() {
                 <option value="Custom">Something else…</option>
                 <option value="Credit">Credit on account</option>
               </select>
-              {flagType === "Credit" && (
-                <input type="number" step="0.01" min="0" placeholder="Credit amount" value={flagAmount} onChange={(e) => setFlagAmount(e.target.value)} style={{ fontSize: 12.5 }} />
+
+              {flagType === "Credit" ? (
+                <>
+                  <input type="number" step="0.01" min="0" placeholder="Credit amount" value={flagAmount} onChange={(e) => setFlagAmount(e.target.value)} style={{ fontSize: 12.5 }} />
+                  <input type="text" placeholder="Note (optional)" value={flagNote} onChange={(e) => setFlagNote(e.target.value)} style={{ fontSize: 12.5 }} />
+                </>
+              ) : (
+                <>
+                  <select value={flagCategory} onChange={(e) => setFlagCategory(e.target.value)} style={{ fontSize: 12.5 }}>
+                    <option value="">What kind of flag is this?</option>
+                    {(options?.clientFlagCategories || []).map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {flagCategory === "Other" && (
+                    <input type="text" placeholder="Describe it" value={flagCategoryOther} onChange={(e) => setFlagCategoryOther(e.target.value)} style={{ fontSize: 12.5 }} />
+                  )}
+                  <textarea
+                    placeholder="Details — what year, what happened, anything staff should know"
+                    value={flagDetails}
+                    onChange={(e) => setFlagDetails(e.target.value)}
+                    rows={2}
+                    style={{ fontSize: 12.5, resize: "vertical" }}
+                  />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                    <input type="number" step="0.01" placeholder="Amount (optional)" value={flagAmount} onChange={(e) => setFlagAmount(e.target.value)} style={{ fontSize: 12.5 }} />
+                    <input type="date" title="Relevant date (optional)" value={flagDueDate} onChange={(e) => setFlagDueDate(e.target.value)} style={{ fontSize: 12.5 }} />
+                  </div>
+                  {clientTasks.length > 0 && (
+                    <select value={flagLinkTaskId} onChange={(e) => setFlagLinkTaskId(e.target.value)} style={{ fontSize: 12.5 }} title="Link an open task, so staff know where to go to fix or track this">
+                      <option value="">Link an open task (optional)…</option>
+                      {clientTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
+                    </select>
+                  )}
+                </>
               )}
-              <input
-                type="text"
-                placeholder={flagType === "Credit" ? "Note (optional)" : "What is it?"}
-                value={flagNote}
-                onChange={(e) => setFlagNote(e.target.value)}
-                style={{ fontSize: 12.5 }}
-              />
-              {flagType === "Custom" && (
-                <input type="number" step="0.01" placeholder="Amount (optional)" value={flagAmount} onChange={(e) => setFlagAmount(e.target.value)} style={{ fontSize: 12.5 }} />
-              )}
+
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingFlag}>{savingFlag ? "Saving…" : "Save Flag"}</button>
-                <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(false); setFlagError(null); setFlagAmount(""); setFlagNote(""); }}>Cancel</button>
+                <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(false); setFlagError(null); resetFlagForm(); }}>Cancel</button>
               </div>
             </form>
           )}

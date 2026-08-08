@@ -212,6 +212,12 @@ interface ClientFlag {
   resolvable: boolean;
   linkTaskId?: string;
   linkUrl?: string;
+  /** Custom-flag-only extras — a short classification (e.g. "Not in Good Standing"), a
+   * longer free-text body for specifics, and an optional relevant date. Absent on the
+   * computed flag types (BalancePastDue/AgencyPastDue), which have no row to carry them. */
+  category?: string | null;
+  details?: string | null;
+  dueDate?: string | null;
 }
 
 /**
@@ -295,7 +301,8 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   }
 
   const manual = await query<any>(
-    `SELECT flag_id, flag_type, amount, note, created_at, created_by FROM altax.v3_client_flags
+    `SELECT flag_id, flag_type, amount, note, category, details, due_date, link_task_id, created_at, created_by
+       FROM altax.v3_client_flags
       WHERE client_id = $1 AND status = 'Open' ORDER BY created_at DESC`,
     [clientId]
   );
@@ -304,6 +311,8 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
       flagId: row.flag_id, flagType: row.flag_type, amount: row.amount !== null ? Number(row.amount) : null,
       note: row.note, color: row.flag_type === "Credit" ? "green" : "amber",
       createdAt: row.created_at, createdBy: row.created_by, resolvable: true,
+      category: row.category, details: row.details, dueDate: row.due_date,
+      linkTaskId: row.link_task_id || undefined,
     });
   }
 
@@ -329,24 +338,50 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
 
   let amount: number | null = null;
   let note: string | null = null;
+  let category: string | null = null;
+  let details: string | null = null;
+  let dueDate: string | null = null;
+  let linkTaskId: string | null = null;
+
   if (flagType === "Credit") {
     amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "Enter the credit amount." });
     note = String(body.note || "").trim() || null;
   } else {
-    note = String(body.note || "").trim();
-    if (!note) return res.status(400).json({ error: "Describe what this flag is." });
+    // Custom flags are classified by category (the same admin-editable dropdown-list
+    // pattern as every other preset list in this app — see
+    // MANAGED_DROPDOWN_DEFAULTS.clientFlagCategories) rather than one open-ended text
+    // field, so "what kind of issue is this" is scannable across clients instead of
+    // buried in whatever a staffer happened to type. `note` is still populated from
+    // category for backward-compat display in the places that only render `note`.
+    category = String(body.category || "").trim();
+    if (!category) return res.status(400).json({ error: "Choose what kind of flag this is." });
+    note = category;
+    details = String(body.details || "").trim() || null;
     if (body.amount !== undefined && body.amount !== "" && body.amount !== null) {
       const n = Number(body.amount);
       if (Number.isFinite(n)) amount = n;
+    }
+    if (body.dueDate) {
+      const d = String(body.dueDate).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) dueDate = d;
+    }
+    if (body.linkTaskId) {
+      const taskId = String(body.linkTaskId).trim();
+      // Confirm the task actually belongs to this client — a staffer picking from a
+      // list should never be able to point a flag at someone else's task, whether by
+      // a stale client switch mid-form or a tampered request.
+      const task = await queryOne<any>(`SELECT task_id FROM altax.v3_tasks WHERE task_id = $1 AND client_id = $2`, [taskId, clientId]);
+      if (!task) return res.status(400).json({ error: "That task doesn't belong to this client." });
+      linkTaskId = taskId;
     }
   }
 
   const flagId = nextFlagId();
   await query(
-    `INSERT INTO altax.v3_client_flags (flag_id, client_id, flag_type, amount, note, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [flagId, clientId, flagType, amount, note, req.user!.email]
+    `INSERT INTO altax.v3_client_flags (flag_id, client_id, flag_type, amount, note, category, details, due_date, link_task_id, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [flagId, clientId, flagType, amount, note, category, details, dueDate, linkTaskId, req.user!.email]
   );
   await logAudit("Clients", "FLAG_ADDED", clientId, "flag", "", flagType, `${flagType} flag added for client by ${req.user!.email}${note ? `: ${note}` : ""}.`, req.user!.email);
   res.status(201).json({ ok: true, flagId });

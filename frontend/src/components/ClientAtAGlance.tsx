@@ -17,6 +17,9 @@ interface ClientFlag {
   resolvable: boolean;
   linkTaskId?: string;
   linkUrl?: string;
+  category?: string | null;
+  details?: string | null;
+  dueDate?: string | null;
 }
 
 interface HealthScoreComponent { label: string; points: number; maxPoints: number; detail: string }
@@ -45,11 +48,18 @@ function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
+function fmtDateOnly(v: string | null | undefined): string {
+  if (!v) return "";
+  const d = new Date(`${v}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function flagLabel(f: ClientFlag): string {
   if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
   if (f.flagType === "AgencyPastDue") return `${f.note} Past Due${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
   if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
-  return `${f.note}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}`;
+  const label = f.category || f.note;
+  return `${label}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}${f.dueDate ? ` — ${fmtDateOnly(f.dueDate)}` : ""}`;
 }
 
 function fmtPct(v: number | null): string {
@@ -228,9 +238,19 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
                 const other = flags.filter((f) => f.flagType === "Custom");
                 return other.length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {other.map((f) => (
-                      <span key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ width: "fit-content" }}>{flagLabel(f)}</span>
-                    ))}
+                    {other.map((f) => {
+                      const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : undefined;
+                      return (
+                        <div key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ flexDirection: "column", alignItems: "flex-start", width: "fit-content", maxWidth: "100%" }}>
+                          {target ? (
+                            <button type="button" onClick={() => navigate(target)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", padding: 0, textDecoration: "underline" }}>
+                              {flagLabel(f)}
+                            </button>
+                          ) : flagLabel(f)}
+                          {f.details && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 2, fontSize: 11 }}>{f.details}</div>}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
               })()}
