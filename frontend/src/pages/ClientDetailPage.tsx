@@ -31,6 +31,7 @@ import { GenerateGovFormModal } from "../components/GenerateGovFormModal";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
+import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -862,6 +863,14 @@ export function ClientDetailPage() {
               <PoaFilingsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openAuthFormParams} />
               <div style={{ marginTop: 16 }}>
                 <GovFormsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openGovFormParams} />
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <OwnershipTransferSection
+                  clientId={client.client_id}
+                  clientName={client.client_name}
+                  sellerNameDefault={(client.company_contact_name as string | null) || undefined}
+                  sellerTitleDefault={(client.company_contact_title as string | null) || undefined}
+                />
               </div>
             </Fragment>
           )}

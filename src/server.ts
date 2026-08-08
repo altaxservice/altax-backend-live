@@ -7,6 +7,7 @@ import { rateLimit } from "./common/rateLimit";
 import { pool } from "./config/db";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter, runSwotFindingsSweep } from "./modules/clients/clients.routes";
+import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
 import { usersRouter } from "./modules/users/users.routes";
@@ -231,6 +232,7 @@ app.use(rateLimit({ name: "api-general", windowMs: 5 * 60 * 1000, max: 900 }));
 
 app.use("/auth", authRouter);
 app.use("/clients", clientsRouter);
+app.use("/clients", ownershipTransferRouter);
 app.use("/users", usersRouter);
 app.use("/estimates", estimatesRouter);
 app.use("/poa-forms", poaFormsRouter);
