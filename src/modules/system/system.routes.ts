@@ -598,7 +598,7 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
     "State Notice", "New Employee", "Termination", "General Question", "Other",
   ] },
   requestedItems: { label: "Requested Document Items", values: [
-    "Bank Statement", "Prior Year Tax Return", "W-2", "1099", "Profit & Loss Statement", "Balance Sheet",
+    "Bank Statement", "POS Report", "Prior Year Tax Return", "W-2", "1099", "Profit & Loss Statement", "Balance Sheet",
     "Payroll Records", "Receipts / Invoices", "ID / EIN Documentation", "Lease Agreement", "Signed Engagement Letter", "Other",
   ] },
   priorities: { label: "Task Priorities", values: ["Normal", "Low", "High", "Urgent"] },
