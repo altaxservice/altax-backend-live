@@ -626,6 +626,21 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .create-launch { width: 100%; justify-content: center; }
 
+/* ---- Desktop sidebar collapse (icon-only rail) — independent of the mobile
+   hamburger drawer below, which always shows the full-width sidebar regardless
+   of this preference (see the max-width:860px override). ---- */
+.sidebar-collapse-toggle {
+  display: flex; align-items: center; justify-content: center; margin-left: auto;
+  width: 26px; height: 26px; flex: 0 0 auto; border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18); background: transparent; color: #b8c2d0; cursor: pointer;
+}
+.sidebar-collapse-toggle:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.sidebar.collapsed { width: 68px; padding: 22px 10px; }
+.sidebar.collapsed .brand-lockup { justify-content: center; padding-bottom: 14px; }
+.sidebar.collapsed .sidebar-collapse-toggle { margin-left: 0; }
+.sidebar.collapsed .create-launch { padding: 11px; }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 11px; }
+
 /* ---- Mobile nav (hamburger + drawer backdrop) ---- */
 .hamburger-btn {
   display: none;
@@ -983,6 +998,14 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
     box-shadow: 12px 0 32px rgba(15, 23, 42, 0.25);
   }
   .sidebar-backdrop.open { display: block; }
+  /* The drawer is a momentary overlay, not a persistent rail — a collapsed
+     preference set on desktop shouldn't shrink it here; the hamburger button
+     already covers show/hide on mobile, so the collapse toggle is redundant. */
+  .sidebar.collapsed { width: 240px; padding: 22px 18px; }
+  .sidebar.collapsed .brand-lockup { justify-content: flex-start; }
+  .sidebar.collapsed .create-launch { padding: 11px 12px; }
+  .sidebar.collapsed .nav-item { justify-content: flex-start; padding: 11px 12px; }
+  .sidebar-collapse-toggle { display: none; }
 
   .topbar { padding: 14px 16px; }
   main { padding: 16px !important; }

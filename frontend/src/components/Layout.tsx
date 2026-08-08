@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
+  PanelLeftClose, PanelLeft,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -139,6 +140,29 @@ export function Layout() {
   const { t, dir } = useLanguage();
   const [showCreate, setShowCreate] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Desktop-only icon-rail collapse — the mobile hamburger drawer above always
+  // shows the full sidebar regardless of this (see the max-width:860px CSS
+  // override), since a momentary overlay drawer has no use for staying narrow.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("altax_sidebar_collapsed") === "1");
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      localStorage.setItem("altax_sidebar_collapsed", next ? "1" : "0");
+      return next;
+    });
+  }
+  // Mirrors the 860px breakpoint the mobile drawer CSS switches on — the collapse
+  // preference only ever hides nav labels above it. Below it the drawer's CSS
+  // override restores full width, but that alone can't bring back label <span>s
+  // this component never rendered in the first place, so the JS has to know too.
+  const [isDesktopWidth, setIsDesktopWidth] = useState(() => window.matchMedia("(min-width: 861px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 861px)");
+    const onChange = () => setIsDesktopWidth(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const sidebarRailActive = sidebarCollapsed && isDesktopWidth;
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
   // Client/employee only ever see ~4-5 items — group headers would add more
   // clutter than they remove there. Admin (15) and staff (11) are exactly the
@@ -172,39 +196,57 @@ export function Layout() {
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className={`sidebar-backdrop ${mobileNavOpen ? "open" : ""}`} onClick={() => setMobileNavOpen(false)} />
-      <aside id="primary-sidebar" className={`sidebar ${mobileNavOpen ? "open" : ""}`} dir={sidebarDir}>
+      <aside id="primary-sidebar" className={`sidebar ${mobileNavOpen ? "open" : ""} ${sidebarRailActive ? "collapsed" : ""}`} dir={sidebarDir}>
         <div className="brand-lockup">
           <FirmLogo size={40} />
-          <div>
-            <div className="brand-name">{APP_NAME}</div>
-            <div className="brand-subtitle">{t("brand.by")} {FIRM_LEGAL_NAME}</div>
-          </div>
+          {!sidebarRailActive && (
+            <div>
+              <div className="brand-name">{APP_NAME}</div>
+              <div className="brand-subtitle">{t("brand.by")} {FIRM_LEGAL_NAME}</div>
+            </div>
+          )}
+          <button
+            type="button"
+            className="sidebar-collapse-toggle"
+            onClick={toggleSidebarCollapsed}
+            title={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+          </button>
         </div>
         {canCreate && (
-          <button type="button" className="btn btn-primary create-launch" onClick={() => setShowCreate(true)}>
-            + Create
+          <button type="button" className="btn btn-primary create-launch" onClick={() => setShowCreate(true)} title="Create">
+            {sidebarRailActive ? "+" : "+ Create"}
           </button>
         )}
         <nav className="nav-list" aria-label="Primary">
           {visibleNav.map((item) => {
-            const showLabel = showGroupLabels && item.group && item.group !== lastGroup;
+            const label = item.navKey ? t(item.navKey) : item.label;
+            const showLabel = showGroupLabels && item.group && item.group !== lastGroup && !sidebarRailActive;
             lastGroup = item.group;
             return (
               <Fragment key={item.to}>
                 {showLabel && <div className="nav-group-label">{item.group}</div>}
-                <NavLink to={item.to} end={item.to === "/dashboard"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <NavLink
+                  to={item.to} end={item.to === "/dashboard"}
+                  className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                  title={sidebarRailActive ? label : undefined}
+                >
                   <item.icon size={17} strokeWidth={2} aria-hidden="true" />
-                  <span>{item.navKey ? t(item.navKey) : item.label}</span>
+                  {!sidebarRailActive && <span>{label}</span>}
                 </NavLink>
               </Fragment>
             );
           })}
         </nav>
-        <div className="sidebar-footer">
-          <div className="small-label">Data Layer</div>
-          <div className="data-layer-badge">v5 professional tables</div>
-          <div className="muted" dir="ltr" style={{ fontSize: 10.5, marginTop: 10, lineHeight: 1.4, textAlign: sidebarDir === "rtl" ? "right" : "left" }}>{COPYRIGHT}</div>
-        </div>
+        {!sidebarRailActive && (
+          <div className="sidebar-footer">
+            <div className="small-label">Data Layer</div>
+            <div className="data-layer-badge">v5 professional tables</div>
+            <div className="muted" dir="ltr" style={{ fontSize: 10.5, marginTop: 10, lineHeight: 1.4, textAlign: sidebarDir === "rtl" ? "right" : "left" }}>{COPYRIGHT}</div>
+          </div>
+        )}
       </aside>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <IdleTimeout />
