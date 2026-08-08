@@ -2260,8 +2260,9 @@ function VaultSection({ clientId }: { clientId: string }) {
   const [secrets, setSecrets] = useState<VaultSecret[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ category: "", label: "", agencyName: "", username: "", secret: "" });
+  const [form, setForm] = useState({ category: "", label: "", agencyName: "", username: "", secret: "", confirmSecret: "" });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const revealTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -2291,12 +2292,17 @@ function VaultSection({ clientId }: { clientId: string }) {
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
+    setSaveError(null);
+    if (form.secret && form.secret !== form.confirmSecret) {
+      setSaveError("Secret Value / Password and Confirm Password don't match.");
+      return;
+    }
     setSaving(true);
     try {
       await api.post(`/vault/${clientId}`, editingId ? { ...form, secretId: editingId } : form);
       setShowForm(false);
       setEditingId(null);
-      setForm({ category: "", label: "", agencyName: "", username: "", secret: "" });
+      setForm({ category: "", label: "", agencyName: "", username: "", secret: "", confirmSecret: "" });
       load();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not save this secret.");
@@ -2307,14 +2313,16 @@ function VaultSection({ clientId }: { clientId: string }) {
 
   function handleEditStart(s: VaultSecret) {
     setEditingId(s.secret_id);
-    setForm({ category: s.category, label: s.label, agencyName: s.agency_name || "", username: s.username || "", secret: "" });
+    setSaveError(null);
+    setForm({ category: s.category, label: s.label, agencyName: s.agency_name || "", username: s.username || "", secret: "", confirmSecret: "" });
     setShowForm(true);
   }
 
   function handleFormCancel() {
     setShowForm(false);
     setEditingId(null);
-    setForm({ category: "", label: "", agencyName: "", username: "", secret: "" });
+    setSaveError(null);
+    setForm({ category: "", label: "", agencyName: "", username: "", secret: "", confirmSecret: "" });
   }
 
   async function handleReveal(secretId: string) {
@@ -2390,6 +2398,7 @@ function VaultSection({ clientId }: { clientId: string }) {
       )}
       {showForm && (
         <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
+          {saveError && <ErrorBanner error={saveError} />}
           <div className="field"><label htmlFor="cd-secret-category">Category</label><input id="cd-secret-category" required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
           <div className="field"><label htmlFor="cd-secret-label">Label</label><input id="cd-secret-label" required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
           <div className="field"><label htmlFor="cd-secret-agency-name">Agency Name</label><input id="cd-secret-agency-name" value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
@@ -2403,6 +2412,17 @@ function VaultSection({ clientId }: { clientId: string }) {
               value={form.secret}
               onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
               placeholder={editingId ? "Leave blank to keep the current value" : undefined}
+            />
+          </div>
+          <div className={`field${form.confirmSecret && form.secret !== form.confirmSecret ? " invalid" : ""}`}>
+            <label htmlFor="cd-secret-confirm">Confirm Password</label>
+            <input
+              id="cd-secret-confirm"
+              type="password"
+              required={!!form.secret}
+              value={form.confirmSecret}
+              onChange={(e) => setForm((f) => ({ ...f, confirmSecret: e.target.value }))}
+              placeholder="Re-enter the value above"
             />
           </div>
           <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Save Secret"}</button>
