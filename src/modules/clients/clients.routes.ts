@@ -194,6 +194,130 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   res.json(await computeClientOpsSummary(clientId));
 }));
 
+function nextFlagId(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `FLAG-${ts}-${Math.floor(100 + Math.random() * 900)}`;
+}
+
+interface ClientFlag {
+  flagId: string | null;
+  flagType: "BalancePastDue" | "Credit" | "Custom";
+  amount: number | null;
+  note: string | null;
+  color: "red" | "green" | "amber";
+  createdAt: string | null;
+  createdBy: string | null;
+  resolvable: boolean;
+}
+
+/**
+ * Noticeable, colored account-level issues for the client panel — kept
+ * separate from the freeform Activity Timeline because a note's "read" state
+ * says nothing about whether the underlying problem is actually fixed.
+ * Balance Past Due is computed fresh from real invoice data on every call
+ * (never stored) so it can't go stale and self-clears the moment the invoice
+ * is paid. Credit and Custom are staff-entered since this app has no source
+ * of truth for either — no overpayment/credit-memo concept exists anywhere,
+ * and "something else" is by definition not something the system can compute.
+ */
+async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
+  const flags: ClientFlag[] = [];
+
+  const overdue = await queryOne<any>(
+    `SELECT COALESCE(SUM(balance_due), 0) AS total FROM altax.v3_invoices
+      WHERE client_id = $1 AND status NOT IN ('Paid', 'Void') AND balance_due > 0
+            AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`,
+    [clientId]
+  );
+  const overdueAmount = Number(overdue?.total || 0);
+  if (overdueAmount > 0) {
+    flags.push({ flagId: null, flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false });
+  }
+
+  const manual = await query<any>(
+    `SELECT flag_id, flag_type, amount, note, created_at, created_by FROM altax.v3_client_flags
+      WHERE client_id = $1 AND status = 'Open' ORDER BY created_at DESC`,
+    [clientId]
+  );
+  for (const row of manual) {
+    flags.push({
+      flagId: row.flag_id, flagType: row.flag_type, amount: row.amount !== null ? Number(row.amount) : null,
+      note: row.note, color: row.flag_type === "Credit" ? "green" : "amber",
+      createdAt: row.created_at, createdBy: row.created_by, resolvable: true,
+    });
+  }
+
+  return flags;
+}
+
+clientsRouter.get("/:clientId/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  res.json({ flags: await computeClientFlags(clientId) });
+}));
+
+clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const body = req.body || {};
+  const flagType = String(body.flagType || "").trim();
+  if (!["Credit", "Custom"].includes(flagType)) return res.status(400).json({ error: "flagType must be Credit or Custom." });
+
+  let amount: number | null = null;
+  let note: string | null = null;
+  if (flagType === "Credit") {
+    amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "Enter the credit amount." });
+    note = String(body.note || "").trim() || null;
+  } else {
+    note = String(body.note || "").trim();
+    if (!note) return res.status(400).json({ error: "Describe what this flag is." });
+    if (body.amount !== undefined && body.amount !== "" && body.amount !== null) {
+      const n = Number(body.amount);
+      if (Number.isFinite(n)) amount = n;
+    }
+  }
+
+  const flagId = nextFlagId();
+  await query(
+    `INSERT INTO altax.v3_client_flags (flag_id, client_id, flag_type, amount, note, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [flagId, clientId, flagType, amount, note, req.user!.email]
+  );
+  await logAudit("Clients", "FLAG_ADDED", clientId, "flag", "", flagType, `${flagType} flag added for client by ${req.user!.email}${note ? `: ${note}` : ""}.`, req.user!.email);
+  res.status(201).json({ ok: true, flagId });
+}));
+
+clientsRouter.post("/:clientId/flags/:flagId/resolve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, flagId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_flags WHERE flag_id = $1 AND client_id = $2`, [flagId, clientId]);
+  if (!row) return res.status(404).json({ error: "Flag not found." });
+  await query(`UPDATE altax.v3_client_flags SET status = 'Resolved', resolved_by = $2, resolved_at = now() WHERE flag_id = $1`, [flagId, req.user!.email]);
+  await logAudit("Clients", "FLAG_RESOLVED", clientId, "flag", "Open", "Resolved", `${row.flag_type} flag resolved by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+clientsRouter.post("/:clientId/flags/:flagId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, flagId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_flags WHERE flag_id = $1 AND client_id = $2`, [flagId, clientId]);
+  if (!row) return res.status(404).json({ error: "Flag not found." });
+  await query(`DELETE FROM altax.v3_client_flags WHERE flag_id = $1`, [flagId]);
+  await logAudit("Clients", "FLAG_DELETED", clientId, "flag", row.flag_type, "", `${row.flag_type} flag deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 const SWOT_FIELDS = [
   "overview", "strengths", "weaknesses", "opportunities", "threats",
   "taxRecommendations", "staffingRecommendations", "marketingRecommendations", "growthRecommendations", "additionalNotes",
