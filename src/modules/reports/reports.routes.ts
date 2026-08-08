@@ -1060,21 +1060,26 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
       ORDER BY sale_date`,
     [clientId, from, to]
   );
-  // Non-taxable amount per sale (SNAP/EBT, exempt items) — a sale's non-taxable
-  // portion lives as a CAT-NON-TAXABLE line in v3_sales_input_lines, not as a
-  // column on v3_sales_input itself, so it's fetched separately and merged in
-  // below rather than joined into the main query above (which would multiply
-  // rows for sales with several category lines).
-  const nonTaxableRows = await query<{ sale_id: string; amount: string }>(
+  // Taxed amount per sale — the sum of every category line EXCEPT an explicit
+  // CAT-NON-TAXABLE tag. Non-Taxable Sales is then Gross − this figure, not just
+  // whatever was explicitly tagged CAT-NON-TAXABLE: a client's own spreadsheet
+  // (e.g. the Sales_Input importer) typically only breaks gross sales down into
+  // its TAXED categories (6%/12%/20%/60%) and never carries a separate
+  // "non-taxable" line at all — under the old logic that untracked remainder
+  // silently got counted as "Taxable Sales" on this report even though no tax
+  // was ever computed on it. Deriving it as a residual means every dollar of
+  // gross sales lands in exactly one bucket, taxed or not, whether or not the
+  // source data ever named the non-taxable portion explicitly.
+  const taxedRows = await query<{ sale_id: string; amount: string }>(
     `SELECT l.sale_id, COALESCE(SUM(l.taxable_amount), 0) AS amount
        FROM altax.v3_sales_input_lines l
        JOIN altax.v3_sales_input s ON s.sale_id = l.sale_id
       WHERE s.client_id = $1 AND s.sale_date::date >= $2::date AND s.sale_date::date <= $3::date
-        AND l.category_id = $4
+        AND l.category_id <> $4
       GROUP BY l.sale_id`,
     [clientId, from, to, NON_TAXABLE_CATEGORY_ID]
   );
-  const nonTaxableBySaleId = new Map(nonTaxableRows.map((r) => [r.sale_id, Number(r.amount) || 0]));
+  const taxedBySaleId = new Map(taxedRows.map((r) => [r.sale_id, Number(r.amount) || 0]));
   const byCategory = await query<any>(
     `SELECT c.category_name, c.state, l.tax_rate_used,
             COALESCE(SUM(l.taxable_amount), 0) AS taxable_amount,
@@ -1093,14 +1098,17 @@ async function loadSalesTaxForPeriod(clientId: string, from: string, to: string)
   return {
     sales: sales.map((r: any) => {
       const grossSales = Number(r.gross_sales) || 0;
-      const nonTaxableSales = nonTaxableBySaleId.get(r.sale_id) || 0;
-      // Taxable Sales = Gross - Non-Taxable — the same split the Tax by
-      // Category table above already totals to (its categories always sum
-      // back to gross sales), just surfaced per-sale instead of per-category.
+      const taxableSales = taxedBySaleId.get(r.sale_id) || 0;
+      // Non-Taxable Sales = Gross - Taxable — a residual, so it always accounts
+      // for the full gross figure even when the source data never explicitly
+      // called out a non-taxable amount. Floored at 0 since a taxed total that
+      // exceeds gross means an adjustment or data-entry issue on the sale, not
+      // a negative non-taxable amount.
+      const nonTaxableSales = Math.max(0, grossSales - taxableSales);
       return {
         saleId: r.sale_id, saleDate: r.sale_date, grossSales,
         totalTaxDue: Number(r.total_tax_due) || 0, adjustments: Number(r.adjustments) || 0,
-        nonTaxableSales, taxableSales: grossSales - nonTaxableSales,
+        nonTaxableSales, taxableSales,
       };
     }),
     byCategory: byCategory.map((r: any) => ({
