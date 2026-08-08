@@ -27,6 +27,7 @@ interface ClientFlag {
   createdBy: string | null;
   resolvable: boolean;
   linkTaskId?: string;
+  linkUrl?: string;
 }
 
 function fmtMoney(v: unknown): string {
@@ -159,14 +160,14 @@ export function ClientContextPanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
               {flags.map((f) => (
                 <div
-                  key={f.flagId || f.linkTaskId || f.flagType}
+                  key={f.flagId || f.linkTaskId || `${f.flagType}-${f.note}`}
                   className={`status-pill status-${f.color}`}
                   style={{ justifyContent: "space-between", width: "100%", padding: "6px 10px", fontSize: 12 }}
                 >
-                  {f.linkTaskId ? (
+                  {f.linkTaskId || f.linkUrl ? (
                     <button
                       type="button"
-                      onClick={() => navigate(`/tasks/${f.linkTaskId}`)}
+                      onClick={() => navigate(f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl!)}
                       title="Open this task"
                       style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", textAlign: "left", padding: 0, textDecoration: "underline", overflow: "hidden", textOverflow: "ellipsis" }}
                     >

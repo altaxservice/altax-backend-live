@@ -16,6 +16,7 @@ interface ClientFlag {
   createdBy: string | null;
   resolvable: boolean;
   linkTaskId?: string;
+  linkUrl?: string;
 }
 
 interface HealthScoreComponent { label: string; points: number; maxPoints: number; detail: string }
@@ -203,17 +204,20 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
                 const owedToAgencies = flags.filter((f) => f.flagType === "AgencyPastDue");
                 return owedToAgencies.length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {owedToAgencies.map((f) => (
-                      <button
-                        key={f.linkTaskId || f.flagType}
-                        type="button"
-                        onClick={() => f.linkTaskId && navigate(`/tasks/${f.linkTaskId}`)}
-                        className={`status-pill status-${f.color}`}
-                        style={{ width: "fit-content", border: "none", cursor: f.linkTaskId ? "pointer" : "default", textDecoration: f.linkTaskId ? "underline" : "none" }}
-                      >
-                        {flagLabel(f)}
-                      </button>
-                    ))}
+                    {owedToAgencies.map((f) => {
+                      const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl;
+                      return (
+                        <button
+                          key={f.linkTaskId || `${f.flagType}-${f.note}`}
+                          type="button"
+                          onClick={() => target && navigate(target)}
+                          className={`status-pill status-${f.color}`}
+                          style={{ width: "fit-content", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
+                        >
+                          {flagLabel(f)}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
               })()}

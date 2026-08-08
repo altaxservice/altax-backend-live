@@ -211,6 +211,7 @@ interface ClientFlag {
   createdBy: string | null;
   resolvable: boolean;
   linkTaskId?: string;
+  linkUrl?: string;
 }
 
 /**
@@ -219,16 +220,20 @@ interface ClientFlag {
  * says nothing about whether the underlying problem is actually fixed.
  * Balance Past Due (money owed TO the firm) is computed fresh from real
  * invoice data on every call. Agency Past Due (money the CLIENT owes an
- * agency directly — sales tax, EFTPS, MD withholding, MD UI, etc.) reuses
- * the exact same source as the client's existing Tax Payments tab: any task
- * with payment_required=true already carries a real agency_due_date and
- * payment_amount, entered by staff per obligation — one flag per unpaid task
- * past its due date, labeled with that task's own service_line/task_name so
- * every tax type staff tracks this way (not just MD sales tax) shows up
- * automatically, with zero new data entry and zero new categorization to
- * maintain. Neither is stored here — both self-clear the moment the
- * underlying invoice/task is marked paid. Credit and Custom are staff-
- * entered since this app has no source of truth for either — no
+ * agency directly — sales tax, EFTPS, MD withholding, MD UI, etc.) has two
+ * sources, both read live, never stored: (1) the same source as the client's
+ * existing Tax Payments tab — any task with payment_required=true already
+ * carries a real agency_due_date and payment_amount, entered by staff per
+ * obligation — one flag per unpaid task past its due date, labeled with that
+ * task's own service_line/task_name so every tax type staff tracks this way
+ * shows up automatically; and (2) for MD clients, the same real Form 202
+ * discount/penalty/interest calculation already used by the Accounting >
+ * Sales tab and the SWOT findings engine (computeMdFilingForReport) — a
+ * client can be genuinely late on MD sales tax without staff ever having
+ * created a payment-tracking task for it, since that math is fully
+ * automatic. Both self-clear the moment the underlying record clears (task
+ * marked paid / filing period comes back on-time). Credit and Custom are
+ * staff-entered since this app has no source of truth for either — no
  * overpayment/credit-memo concept exists anywhere, and "something else" is
  * by definition not something the system can compute.
  */
@@ -259,6 +264,31 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
       note: row.service_line || row.task_name, color: "red", createdAt: null, createdBy: null, resolvable: false,
       linkTaskId: row.task_id,
     });
+  }
+
+  const clientRow = await queryOne<any>(
+    `SELECT client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  if (clientRow?.state === "MD") {
+    const to = new Date();
+    const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+    const reportClient: ReportClientInfo = {
+      clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
+      state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
+    };
+    const mdFiling = await computeMdFilingForReport(reportClient, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
+    if (mdFiling) {
+      for (const p of mdFiling.periods) {
+        if (!p.onTime && p.balanceDue > 0) {
+          flags.push({
+            flagId: null, flagType: "AgencyPastDue", amount: p.balanceDue,
+            note: `MD Sales & Use Tax (ending ${p.end})`, color: "red", createdAt: null, createdBy: null, resolvable: false,
+            linkUrl: `/accounting?client=${clientId}&tab=Sales`,
+          });
+        }
+      }
+    }
   }
 
   const manual = await query<any>(
