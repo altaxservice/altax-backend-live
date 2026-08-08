@@ -14,7 +14,7 @@ import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
@@ -28,7 +28,7 @@ const EMPTY_CLIENT_FORM = {
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
   preferredLanguage: "English", smsAllowed: false, emailAllowed: true, preferredContact: "Email",
   ein: "", stateTaxId: "", secretaryOfStateId: "", craRegistrationNumber: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
-  companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "",
+  companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "", referralSource: "",
   companyContactStreetAddress: "", companyContactCity: "", companyContactState: "", companyContactZipCode: "",
 };
 
@@ -586,6 +586,13 @@ export function ClientsListPage() {
                     <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
                       {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
                     </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="nc-referral">Referral Source</label>
+                    <input id="nc-referral" list="nc-referral-list" value={form.referralSource} onChange={(e) => setForm((f) => ({ ...f, referralSource: e.target.value }))} />
+                    <datalist id="nc-referral-list">
+                      {REFERRAL_SOURCES.map((o) => <option key={o} value={o} />)}
+                    </datalist>
                   </div>
                 </div>
                 {(form.email.trim() || form.phone.trim()) && (
