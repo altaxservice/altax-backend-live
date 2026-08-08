@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { PortalUser } from "../api/types2";
@@ -132,6 +133,29 @@ export function ClientsListPage() {
   const [serviceTypeOther, setServiceTypeOther] = useState("");
   const [customServices, setCustomServices] = useState<string[]>([]);
   const [newCustomService, setNewCustomService] = useState("");
+
+  // Add Client jump-nav — sections register themselves in sectionRefs; clicking
+  // a nav item scrolls to it, and an IntersectionObserver keeps the nav's
+  // "active" highlight in sync with whatever section is actually in view, so
+  // the long form (previously one continuous scroll with no orientation) reads
+  // like a set of clearly labeled, jumpable stops instead.
+  const [activeSection, setActiveSection] = useState("identity");
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  function scrollToSection(key: string) {
+    sectionRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  useEffect(() => {
+    if (!showForm) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible[0]) setActiveSection(visible[0].target.id.replace("ac-", ""));
+      },
+      { rootMargin: "-15% 0px -70% 0px", threshold: [0, 0.25, 0.5, 1] }
+    );
+    Object.values(sectionRefs.current).forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [showForm, form.clientType]);
 
   // Autosave — this is the form the "start typing and lose it all" complaint
   // was raised about. One shared slot ("add-client") is enough here: unlike
@@ -435,438 +459,477 @@ export function ClientsListPage() {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="card" style={{ maxWidth: 960, marginBottom: 24 }}>
+        <form onSubmit={handleCreate} className="card" style={{ maxWidth: 1180, marginBottom: 24 }}>
           {pendingClientDraft && (
             <DraftRestoreBanner updatedAt={pendingClientDraft.updatedAt} onRestore={restoreClientDraft} onDiscard={() => { clearClientDraft(); dismissClientDraft(); }} />
           )}
           {saveError && <ErrorBanner error={saveError} />}
 
-          <div className="form-section-title">Client Identity</div>
-          <div className="form-grid-3">
-            <div className={`field ${nameError ? "invalid" : ""}`}>
-              <label htmlFor="nc-name">Client Name</label>
-              <input
-                id="nc-name"
-                aria-invalid={nameError ? "true" : undefined}
-                value={form.clientName}
-                onChange={(e) => { setForm((f) => ({ ...f, clientName: e.target.value })); if (nameError) setNameError(null); }}
-              />
-              {nameError ? (
-                <p className="field-error">{nameError}</p>
-              ) : (
-                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Client ID will be auto-assigned when you save.</div>
-              )}
-            </div>
-            {form.clientType === "Business" && (
-              <div className="field">
-                <label htmlFor="nc-dba">DBA / Trade Name</label>
-                <input id="nc-dba" value={form.dbaName} onChange={(e) => setForm((f) => ({ ...f, dbaName: e.target.value }))} />
-              </div>
-            )}
-            <div className="field">
-              <label htmlFor="nc-ctype">Client Type</label>
-              <select
-                id="nc-ctype" value={form.clientType}
-                onChange={(e) => {
-                  const clientType = e.target.value;
-                  const allowed = new Set(servicesForClientType(clientType).map((s) => s.key));
-                  setForm((f) => ({ ...f, clientType, services: f.services.filter((k) => allowed.has(k)) }));
-                }}
-              >
-                <option>Business</option><option>Individual</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="nc-status">Active?</label>
-              <select id="nc-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option><option>Archived</option>
-              </select>
-            </div>
-            {form.clientType === "Business" && (
-              <div className="field">
-                <label htmlFor="nc-etype">Entity Type</label>
-                <select id="nc-etype" value={form.entityType} onChange={(e) => setForm((f) => ({ ...f, entityType: e.target.value }))}>
-                  <option value="">Select…</option>
-                  {ENTITY_TYPES.map((o) => <option key={o}>{o}</option>)}
-                </select>
-              </div>
-            )}
-            {form.clientType === "Business" && (
-              <div className="field">
-                <label htmlFor="nc-formation-date">Date of Formation</label>
-                <input id="nc-formation-date" type="date" value={form.dateOfFormation} onChange={(e) => setForm((f) => ({ ...f, dateOfFormation: e.target.value }))} />
-              </div>
-            )}
-            <div className="field">
-              <label htmlFor="nc-state">State</label>
-              <select id="nc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
-                <option value="">Select…</option>
-                {US_STATES.map((s) => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="nc-service">Service Type</label>
-              <select id="nc-service" value={SERVICE_TYPES.includes(form.serviceType) || !form.serviceType ? form.serviceType : "__other"} onChange={(e) => {
-                if (e.target.value === "__other") { setForm((f) => ({ ...f, serviceType: serviceTypeOther })); return; }
-                setServiceTypeOther("");
-                setForm((f) => ({ ...f, serviceType: e.target.value }));
-              }}>
-                <option value="">Select…</option>
-                {SERVICE_TYPES.map((o) => <option key={o}>{o}</option>)}
-                <option value="__other">Other…</option>
-              </select>
-              {!!form.serviceType && !SERVICE_TYPES.includes(form.serviceType) && (
-                <input
-                  style={{ marginTop: 6 }}
-                  placeholder="Describe this service type"
-                  value={form.serviceType}
-                  onChange={(e) => { setServiceTypeOther(e.target.value); setForm((f) => ({ ...f, serviceType: e.target.value })); }}
-                />
-              )}
-            </div>
-          </div>
+          <div className="ac-wizard">
+            <nav className="ac-wizard-nav" aria-label="Add Client sections">
+              {[
+                { key: "identity", label: "Client Identity", icon: Building2 },
+                { key: "contact", label: "Contact & Address", icon: MapPin },
+                { key: "taxids", label: "Business Tax IDs", icon: FileText },
+                ...(form.clientType === "Business" ? [{ key: "owner", label: "Owner / Responsible Party", icon: UserRound }] : []),
+                { key: "services", label: "Services Provided", icon: Briefcase },
+                { key: "assignment", label: "Assignment & Forms", icon: ClipboardList },
+                { key: "notes", label: "Notes & Create", icon: StickyNote },
+              ].map((item) => (
+                <button
+                  key={item.key} type="button"
+                  className={activeSection === item.key ? "active" : ""}
+                  onClick={() => scrollToSection(item.key)}
+                >
+                  <item.icon size={15} /> {item.label}
+                </button>
+              ))}
+            </nav>
 
-          <div className="form-section-title">Services Provided</div>
-          <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
-            Select every service this client is engaged for — the client's profile will suggest the matching contract for each one.
-            {form.clientType === "Individual" && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
-            {servicesForClientType(form.clientType).map((s) => (
-              <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={form.services.includes(s.key)}
-                  onChange={(e) => setForm((f) => {
-                    const services = e.target.checked ? [...f.services, s.key] : f.services.filter((k) => k !== s.key);
-                    // "Payroll Services" checked here is the same fact as the
-                    // payrollEnabled flag below — keep them in sync so checking
-                    // the service is sufficient, without a second manual step.
-                    return { ...f, services, payrollEnabled: services.includes("payroll") };
-                  })}
-                />
-                {s.label}
-              </label>
-            ))}
-            {/* Custom services added on this form — stored in the same services[]
-                array as the built-in keys. They won't have an auto-generated
-                contract template (there's no pre-written text for a service the
-                firm just invented), which is expected, not a gap. */}
-            {customServices.map((label) => (
-              <label key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={form.services.includes(label)}
-                  onChange={(e) => setForm((f) => ({
+            <div className="ac-wizard-body">
+              <section id="ac-identity" ref={(el) => { sectionRefs.current.identity = el; }} className="ac-card">
+                <div className="ac-card-header"><Building2 size={16} /><h3>Client Identity</h3></div>
+                <div className="form-grid-3">
+                  <div className={`field ${nameError ? "invalid" : ""}`}>
+                    <label htmlFor="nc-name">Client Name</label>
+                    <input
+                      id="nc-name"
+                      aria-invalid={nameError ? "true" : undefined}
+                      value={form.clientName}
+                      onChange={(e) => { setForm((f) => ({ ...f, clientName: e.target.value })); if (nameError) setNameError(null); }}
+                    />
+                    {nameError ? (
+                      <p className="field-error">{nameError}</p>
+                    ) : (
+                      <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>
+                        Client ID will be auto-assigned when you save. Include the legal suffix (LLC, Inc., etc.) here — it's what appears on every generated document.
+                      </div>
+                    )}
+                  </div>
+                  {form.clientType === "Business" && (
+                    <div className="field">
+                      <label htmlFor="nc-dba">DBA / Trade Name</label>
+                      <input id="nc-dba" value={form.dbaName} onChange={(e) => setForm((f) => ({ ...f, dbaName: e.target.value }))} />
+                    </div>
+                  )}
+                  <div className="field">
+                    <label htmlFor="nc-ctype">Client Type</label>
+                    <select
+                      id="nc-ctype" value={form.clientType}
+                      onChange={(e) => {
+                        const clientType = e.target.value;
+                        const allowed = new Set(servicesForClientType(clientType).map((s) => s.key));
+                        setForm((f) => ({ ...f, clientType, services: f.services.filter((k) => allowed.has(k)) }));
+                      }}
+                    >
+                      <option>Business</option><option>Individual</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="nc-status">Active?</label>
+                    <select id="nc-status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                      <option>Active</option><option>Inactive</option><option>Archived</option>
+                    </select>
+                  </div>
+                  {form.clientType === "Business" && (
+                    <div className="field">
+                      <label htmlFor="nc-etype">Entity Type</label>
+                      <select id="nc-etype" value={form.entityType} onChange={(e) => setForm((f) => ({ ...f, entityType: e.target.value }))}>
+                        <option value="">Select…</option>
+                        {ENTITY_TYPES.map((o) => <option key={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {form.clientType === "Business" && (
+                    <div className="field">
+                      <label htmlFor="nc-formation-date">Date of Formation</label>
+                      <input id="nc-formation-date" type="date" value={form.dateOfFormation} onChange={(e) => setForm((f) => ({ ...f, dateOfFormation: e.target.value }))} />
+                    </div>
+                  )}
+                  <div className="field">
+                    <label htmlFor="nc-state">State</label>
+                    <select id="nc-state" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {US_STATES.map((s) => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="nc-service">Service Type</label>
+                    <select id="nc-service" value={SERVICE_TYPES.includes(form.serviceType) || !form.serviceType ? form.serviceType : "__other"} onChange={(e) => {
+                      if (e.target.value === "__other") { setForm((f) => ({ ...f, serviceType: serviceTypeOther })); return; }
+                      setServiceTypeOther("");
+                      setForm((f) => ({ ...f, serviceType: e.target.value }));
+                    }}>
+                      <option value="">Select…</option>
+                      {SERVICE_TYPES.map((o) => <option key={o}>{o}</option>)}
+                      <option value="__other">Other…</option>
+                    </select>
+                    {!!form.serviceType && !SERVICE_TYPES.includes(form.serviceType) && (
+                      <input
+                        style={{ marginTop: 6 }}
+                        placeholder="Describe this service type"
+                        value={form.serviceType}
+                        onChange={(e) => { setServiceTypeOther(e.target.value); setForm((f) => ({ ...f, serviceType: e.target.value })); }}
+                      />
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section id="ac-contact" ref={(el) => { sectionRefs.current.contact = el; }} className="ac-card">
+                <div className="ac-card-header"><MapPin size={16} /><h3>Contact & Address</h3></div>
+                <div className="form-grid-3">
+                  <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
+                  <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
+                  <div className="field">
+                    <label htmlFor="nc-lang">Preferred Language</label>
+                    <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
+                      {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {(form.email.trim() || form.phone.trim()) && (
+                  <div className="form-grid-3" style={{ marginTop: 4 }}>
+                    <div className="field">
+                      <label>Preferred Contact</label>
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+                        {CONTACT_PREFS.map((o) => {
+                          const selected = form.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
+                          return (
+                            <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                              <input
+                                type="checkbox"
+                                checked={selected.includes(o)}
+                                onChange={(e) => setForm((f) => {
+                                  const prevSelected = f.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
+                                  const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
+                                  return { ...f, preferredContact: next.join(", ") };
+                                })}
+                              />
+                              {o}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 16, marginTop: 22 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <input type="checkbox" checked={form.smsAllowed} onChange={(e) => setForm((f) => ({ ...f, smsAllowed: e.target.checked }))} />
+                        SMS enabled
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <input type="checkbox" checked={form.emailAllowed} onChange={(e) => setForm((f) => ({ ...f, emailAllowed: e.target.checked }))} />
+                        Email enabled
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <div className="ac-subcard-title" style={{ marginTop: 14 }}>{form.clientType === "Business" ? "Business Address" : "Address"}</div>
+                <AddressFields
+                  idPrefix="nc"
+                  showStateField={false}
+                  value={{ street: form.streetAddress, city: form.city, state: form.state, zip: form.zipCode }}
+                  onChange={(patch) => setForm((f) => ({
                     ...f,
-                    services: e.target.checked ? [...f.services, label] : f.services.filter((k) => k !== label),
+                    streetAddress: patch.street ?? f.streetAddress,
+                    city: patch.city ?? f.city,
+                    zipCode: patch.zip ?? f.zipCode,
+                    state: patch.state ?? f.state,
                   }))}
                 />
-                {label}
-              </label>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
-            <input
-              placeholder="Add another service…"
-              value={newCustomService}
-              onChange={(e) => setNewCustomService(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                const label = newCustomService.trim();
-                if (!label || customServices.includes(label)) return;
-                setCustomServices((prev) => [...prev, label]);
-                setForm((f) => ({ ...f, services: [...f.services, label] }));
-                setNewCustomService("");
-              }}
-              style={{ maxWidth: 280 }}
-            />
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => {
-                const label = newCustomService.trim();
-                if (!label || customServices.includes(label)) return;
-                setCustomServices((prev) => [...prev, label]);
-                setForm((f) => ({ ...f, services: [...f.services, label] }));
-                setNewCustomService("");
-              }}
-            >
-              + Add Item
-            </button>
-          </div>
+              </section>
 
-          {form.services.includes("payroll") && (
-            <>
-              <div className="form-section-title">Payroll Details</div>
-              <div className="form-grid-3">
-                <div className="field">
-                  <label htmlFor="nc-pf">Payroll Frequency</label>
-                  <select id="nc-pf" value={form.payrollFrequency} onChange={(e) => setForm((f) => ({ ...f, payrollFrequency: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
-                  </select>
+              <section id="ac-taxids" ref={(el) => { sectionRefs.current.taxids = el; }} className="ac-card">
+                <div className="ac-card-header"><FileText size={16} /><h3>Business Tax IDs</h3></div>
+                <div className="form-grid-3">
+                  <div className="field"><label htmlFor="nc-sti">State Tax ID</label><input id="nc-sti" value={form.stateTaxId} onChange={(e) => setForm((f) => ({ ...f, stateTaxId: e.target.value }))} /></div>
+                  {form.clientType === "Individual" ? (
+                    <div className="field"><label htmlFor="nc-ssn">Individual SS No.</label><input id="nc-ssn" value={form.individualSsn} onChange={(e) => setForm((f) => ({ ...f, individualSsn: e.target.value }))} /></div>
+                  ) : (
+                    <>
+                      <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
+                      <div className="field"><label htmlFor="nc-sos">Secretary of State ID <span className="muted">(SDAT)</span></label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
+                      <div className="field">
+                        <label htmlFor="nc-cra-number">CRA / Central Registration No. <span className="muted">(optional)</span></label>
+                        <input id="nc-cra-number" value={form.craRegistrationNumber} onChange={(e) => setForm((f) => ({ ...f, craRegistrationNumber: e.target.value }))} placeholder="Issued by Maryland after CRA is approved" />
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div className="field">
-                  <label htmlFor="nc-psys">Payroll Provider</label>
-                  <select id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="nc-mdw">MD Withholding Frequency</label>
-                  <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
-                  <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
-                  EFTPS enabled
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
-                  <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
-                  MD UI enabled
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
-                  <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
-                  W-2 / 1099 enabled
-                </label>
-                {form.mduiEnabled && (
-                  <>
+              </section>
+
+              {/* This is the business owner / IRS "responsible party" — the actual
+                  person, not a generic office contact — so every field here says
+                  "Owner" up front. Its own section (name/title/SSN, then the
+                  owner's own home address) rather than buried inside Tax IDs,
+                  where "Contact SS No." previously read like some unrelated
+                  office contact's SSN. */}
+              {form.clientType === "Business" && (
+                <section id="ac-owner" ref={(el) => { sectionRefs.current.owner = el; }} className="ac-card">
+                  <div className="ac-card-header"><UserRound size={16} /><h3>Owner / Responsible Party</h3></div>
+                  <div className="form-grid-3">
+                    <div className="field"><label htmlFor="nc-cc">Owner Name</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
+                    <div className="field"><label htmlFor="nc-cct">Owner Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
+                    <div className="field"><label htmlFor="nc-ccs">Owner SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
                     <div className="field">
-                      <label htmlFor="nc-mdui-id">MD UI Employer ID</label>
-                      <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
+                      <label htmlFor="nc-cce">Owner Email <span className="muted">(if different from company email)</span></label>
+                      <input id="nc-cce" type="email" value={form.companyContactEmail} onChange={(e) => setForm((f) => ({ ...f, companyContactEmail: e.target.value }))} />
                     </div>
                     <div className="field">
-                      <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%)</span></label>
-                      <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
+                      <label htmlFor="nc-ccp">Owner Phone <span className="muted">(if different from company phone)</span></label>
+                      <input id="nc-ccp" value={form.companyContactPhone} onChange={(e) => setForm((f) => ({ ...f, companyContactPhone: e.target.value }))} />
                     </div>
-                  </>
-                )}
-              </div>
-            </>
-          )}
-
-          {form.services.includes("sales_tax") && (
-            <>
-              <div className="form-section-title">Sales Tax Details</div>
-              <div className="form-grid-3">
-                <div className="field">
-                  <label htmlFor="nc-stf">Sales Tax Frequency</label>
-                  <select id="nc-stf" value={form.salesTaxFrequency} onChange={(e) => setForm((f) => ({ ...f, salesTaxFrequency: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-              </div>
-            </>
-          )}
-
-          {form.services.includes("tax_prep") && (
-            <>
-              <div className="form-section-title">Tax Preparation Details</div>
-              <div className="form-grid-3">
-                <div className="field">
-                  <label htmlFor="nc-brt">Business Return Type</label>
-                  <select id="nc-brt" value={form.businessReturnType} onChange={(e) => setForm((f) => ({ ...f, businessReturnType: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {RETURN_TYPES.map((o) => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-              </div>
-            </>
-          )}
-
-          {form.clientType === "Business" && (
-            <>
-              <div className="form-section-title">Business Compliance</div>
-              <div className="form-grid-3">
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
-                  <input type="checkbox" checked={form.mdAnnualReportEnabled} onChange={(e) => setForm((f) => ({ ...f, mdAnnualReportEnabled: e.target.checked }))} />
-                  MD Annual Report enabled
-                </label>
-              </div>
-            </>
-          )}
-
-          {/* Assigned To lives here, not under Contact — it's who at the firm
-              owns this client, not a way to reach the client, so grouping it
-              with Email/Phone read as the same kind of fact when it isn't.
-              The two generator selects are quick-launch shortcuts, not saved
-              client fields: picking one just reopens the Add Client flow's
-              result on the client's Gov Forms tab with that form's dialog
-              already open, via handleCreate's ?openGovForm/?openAuthForm. */}
-          <div className="form-section-title">Assignment &amp; Forms</div>
-          <div className="form-grid-3">
-            <div className="field">
-              <label htmlFor="nc-assigned">Assigned To</label>
-              <select id="nc-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
-                <option value="">Unassigned</option>
-                {staffOptions.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Government Form <span className="muted">(optional — pick any that apply)</span></label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
-                {govFormTypes.map((t) => (
-                  <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      checked={quickGovForms.includes(t.value)}
-                      onChange={(e) => setQuickGovForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
-                    />
-                    {t.label}
-                  </label>
-                ))}
-              </div>
-              {quickGovForms.length > 0 && (
-                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Government Form dialog for each selected type, one after another, right after the client is created.</div>
+                  </div>
+                  <div className="ac-subcard-title" style={{ marginTop: 14 }}>Owner Home Address</div>
+                  <AddressFields
+                    idPrefix="nc-rp"
+                    value={{ street: form.companyContactStreetAddress, city: form.companyContactCity, state: form.companyContactState, zip: form.companyContactZipCode }}
+                    onChange={(patch) => setForm((f) => ({
+                      ...f,
+                      companyContactStreetAddress: patch.street ?? f.companyContactStreetAddress,
+                      companyContactCity: patch.city ?? f.companyContactCity,
+                      companyContactZipCode: patch.zip ?? f.companyContactZipCode,
+                      companyContactState: patch.state ?? f.companyContactState,
+                    }))}
+                  />
+                </section>
               )}
-            </div>
-            <div className="field">
-              <label>Generate Authorization Form <span className="muted">(optional — pick any that apply)</span></label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
-                {authFormTypes.map((t) => (
-                  <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      checked={quickAuthForms.includes(t.value)}
-                      onChange={(e) => setQuickAuthForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
-                    />
-                    {t.label}
-                  </label>
-                ))}
-              </div>
-              {quickAuthForms.length > 0 && (
-                <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Authorization Form dialog for each selected type, one after another, right after the client is created.</div>
-              )}
-            </div>
-          </div>
 
-          <div className="form-section-title">Contact</div>
-          <div className="form-grid-3">
-            <div className="field"><label htmlFor="nc-email">Email</label><input id="nc-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="nc-phone">Phone</label><input id="nc-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
-            <div className="field">
-              <label htmlFor="nc-lang">Preferred Language</label>
-              <select id="nc-lang" value={form.preferredLanguage} onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}>
-                {LANGUAGES.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-          </div>
-          {(form.email.trim() || form.phone.trim()) && (
-            <div className="form-grid-3" style={{ marginTop: 4 }}>
-              <div className="field">
-                <label>Preferred Contact</label>
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
-                  {CONTACT_PREFS.map((o) => {
-                    const selected = form.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
-                    return (
-                      <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(o)}
-                          onChange={(e) => setForm((f) => {
-                            const prevSelected = f.preferredContact.split(",").map((s) => s.trim()).filter(Boolean);
-                            const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
-                            return { ...f, preferredContact: next.join(", ") };
-                          })}
-                        />
-                        {o}
+              <section id="ac-services" ref={(el) => { sectionRefs.current.services = el; }} className="ac-card">
+                <div className="ac-card-header"><Briefcase size={16} /><h3>Services Provided</h3></div>
+                <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+                  Select every service this client is engaged for — the client's profile will suggest the matching contract for each one.
+                  {form.clientType === "Individual" && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
+                  {servicesForClientType(form.clientType).map((s) => (
+                    <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={form.services.includes(s.key)}
+                        onChange={(e) => setForm((f) => {
+                          const services = e.target.checked ? [...f.services, s.key] : f.services.filter((k) => k !== s.key);
+                          // "Payroll Services" checked here is the same fact as the
+                          // payrollEnabled flag below — keep them in sync so checking
+                          // the service is sufficient, without a second manual step.
+                          return { ...f, services, payrollEnabled: services.includes("payroll") };
+                        })}
+                      />
+                      {s.label}
+                    </label>
+                  ))}
+                  {/* Custom services added on this form — stored in the same services[]
+                      array as the built-in keys. They won't have an auto-generated
+                      contract template (there's no pre-written text for a service the
+                      firm just invented), which is expected, not a gap. */}
+                  {customServices.map((label) => (
+                    <label key={label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={form.services.includes(label)}
+                        onChange={(e) => setForm((f) => ({
+                          ...f,
+                          services: e.target.checked ? [...f.services, label] : f.services.filter((k) => k !== label),
+                        }))}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    placeholder="Add another service…"
+                    value={newCustomService}
+                    onChange={(e) => setNewCustomService(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const label = newCustomService.trim();
+                      if (!label || customServices.includes(label)) return;
+                      setCustomServices((prev) => [...prev, label]);
+                      setForm((f) => ({ ...f, services: [...f.services, label] }));
+                      setNewCustomService("");
+                    }}
+                    style={{ maxWidth: 280 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      const label = newCustomService.trim();
+                      if (!label || customServices.includes(label)) return;
+                      setCustomServices((prev) => [...prev, label]);
+                      setForm((f) => ({ ...f, services: [...f.services, label] }));
+                      setNewCustomService("");
+                    }}
+                  >
+                    + Add Item
+                  </button>
+                </div>
+
+                {form.services.includes("payroll") && (
+                  <div className="ac-subcard">
+                    <div className="ac-subcard-title">Payroll Details</div>
+                    <div className="form-grid-3">
+                      <div className="field">
+                        <label htmlFor="nc-pf">Payroll Frequency</label>
+                        <select id="nc-pf" value={form.payrollFrequency} onChange={(e) => setForm((f) => ({ ...f, payrollFrequency: e.target.value }))}>
+                          <option value="">Select…</option>
+                          {PAYROLL_FREQS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="nc-psys">Payroll Provider</label>
+                        <select id="nc-psys" value={form.payrollSystem} onChange={(e) => setForm((f) => ({ ...f, payrollSystem: e.target.value }))}>
+                          <option value="">Select…</option>
+                          {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="nc-mdw">MD Withholding Frequency</label>
+                        <select id="nc-mdw" value={form.mdWithholdingFrequency} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingFrequency: e.target.value }))}>
+                          <option value="">Select…</option>
+                          {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                        <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
+                        EFTPS enabled
                       </label>
-                    );
-                  })}
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                        <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
+                        MD UI enabled
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                        <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
+                        W-2 / 1099 enabled
+                      </label>
+                      {form.mduiEnabled && (
+                        <>
+                          <div className="field">
+                            <label htmlFor="nc-mdui-id">MD UI Employer ID</label>
+                            <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%)</span></label>
+                            <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {form.services.includes("sales_tax") && (
+                  <div className="ac-subcard">
+                    <div className="ac-subcard-title">Sales Tax Details</div>
+                    <div className="form-grid-3">
+                      <div className="field">
+                        <label htmlFor="nc-stf">Sales Tax Frequency</label>
+                        <select id="nc-stf" value={form.salesTaxFrequency} onChange={(e) => setForm((f) => ({ ...f, salesTaxFrequency: e.target.value }))}>
+                          <option value="">Select…</option>
+                          {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {form.services.includes("tax_prep") && (
+                  <div className="ac-subcard">
+                    <div className="ac-subcard-title">Tax Preparation Details</div>
+                    <div className="form-grid-3">
+                      <div className="field">
+                        <label htmlFor="nc-brt">Business Return Type</label>
+                        <select id="nc-brt" value={form.businessReturnType} onChange={(e) => setForm((f) => ({ ...f, businessReturnType: e.target.value }))}>
+                          <option value="">Select…</option>
+                          {RETURN_TYPES.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {form.clientType === "Business" && (
+                  <div className="ac-subcard">
+                    <div className="ac-subcard-title">Business Compliance</div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 6 }}>
+                      <input type="checkbox" checked={form.mdAnnualReportEnabled} onChange={(e) => setForm((f) => ({ ...f, mdAnnualReportEnabled: e.target.checked }))} />
+                      MD Annual Report enabled
+                    </label>
+                  </div>
+                )}
+              </section>
+
+              {/* Assigned To lives here, not under Contact — it's who at the firm
+                  owns this client, not a way to reach the client, so grouping it
+                  with Email/Phone read as the same kind of fact when it isn't.
+                  The two generator selects are quick-launch shortcuts, not saved
+                  client fields: picking one just reopens the Add Client flow's
+                  result on the client's Gov Forms tab with that form's dialog
+                  already open, via handleCreate's ?openGovForm/?openAuthForm. */}
+              <section id="ac-assignment" ref={(el) => { sectionRefs.current.assignment = el; }} className="ac-card">
+                <div className="ac-card-header"><ClipboardList size={16} /><h3>Assignment &amp; Forms</h3></div>
+                <div className="form-grid-3">
+                  <div className="field">
+                    <label htmlFor="nc-assigned">Assigned To</label>
+                    <select id="nc-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
+                      <option value="">Unassigned</option>
+                      {staffOptions.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Government Form <span className="muted">(optional — pick any that apply)</span></label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                      {govFormTypes.map((t) => (
+                        <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={quickGovForms.includes(t.value)}
+                            onChange={(e) => setQuickGovForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
+                          />
+                          {t.label}
+                        </label>
+                      ))}
+                    </div>
+                    {quickGovForms.length > 0 && (
+                      <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Government Form dialog for each selected type, one after another, right after the client is created.</div>
+                    )}
+                  </div>
+                  <div className="field">
+                    <label>Generate Authorization Form <span className="muted">(optional — pick any that apply)</span></label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                      {authFormTypes.map((t) => (
+                        <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={quickAuthForms.includes(t.value)}
+                            onChange={(e) => setQuickAuthForms((prev) => (e.target.checked ? [...prev, t.value] : prev.filter((v) => v !== t.value)))}
+                          />
+                          {t.label}
+                        </label>
+                      ))}
+                    </div>
+                    {quickAuthForms.length > 0 && (
+                      <div className="field-hint muted" style={{ fontSize: 11, marginTop: 4 }}>Opens the Generate Authorization Form dialog for each selected type, one after another, right after the client is created.</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 16, marginTop: 22 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <input type="checkbox" checked={form.smsAllowed} onChange={(e) => setForm((f) => ({ ...f, smsAllowed: e.target.checked }))} />
-                  SMS enabled
+              </section>
+
+              <section id="ac-notes" ref={(el) => { sectionRefs.current.notes = el; }} className="ac-card">
+                <div className="ac-card-header"><StickyNote size={16} /><h3>Notes &amp; Create</h3></div>
+                <div className="field"><label htmlFor="nc-notes">Notes</label><textarea id="nc-notes" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}>
+                  <input type="checkbox" checked={createPortalNow} onChange={(e) => setCreatePortalNow(e.target.checked)} disabled={!form.email} />
+                  Create portal user now {!form.email && <span className="muted">(requires an email address)</span>}
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <input type="checkbox" checked={form.emailAllowed} onChange={(e) => setForm((f) => ({ ...f, emailAllowed: e.target.checked }))} />
-                  Email enabled
-                </label>
-              </div>
+
+                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Client"}</button>
+              </section>
             </div>
-          )}
-          <AddressFields
-            idPrefix="nc"
-            showStateField={false}
-            value={{ street: form.streetAddress, city: form.city, state: form.state, zip: form.zipCode }}
-            onChange={(patch) => setForm((f) => ({
-              ...f,
-              streetAddress: patch.street ?? f.streetAddress,
-              city: patch.city ?? f.city,
-              zipCode: patch.zip ?? f.zipCode,
-              state: patch.state ?? f.state,
-            }))}
-          />
-
-          <div className="form-section-title">Business Tax IDs</div>
-          <div className="form-grid-3">
-            <div className="field"><label htmlFor="nc-sti">State Tax ID</label><input id="nc-sti" value={form.stateTaxId} onChange={(e) => setForm((f) => ({ ...f, stateTaxId: e.target.value }))} /></div>
-            {form.clientType === "Individual" ? (
-              <div className="field"><label htmlFor="nc-ssn">Individual SS No.</label><input id="nc-ssn" value={form.individualSsn} onChange={(e) => setForm((f) => ({ ...f, individualSsn: e.target.value }))} /></div>
-            ) : (
-              <>
-                <div className="field"><label htmlFor="nc-ein">EIN</label><input id="nc-ein" value={form.ein} onChange={(e) => setForm((f) => ({ ...f, ein: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-sos">Secretary of State ID <span className="muted">(SDAT)</span></label><input id="nc-sos" value={form.secretaryOfStateId} onChange={(e) => setForm((f) => ({ ...f, secretaryOfStateId: e.target.value }))} /></div>
-                <div className="field">
-                  <label htmlFor="nc-cra-number">CRA / Central Registration No. <span className="muted">(optional)</span></label>
-                  <input id="nc-cra-number" value={form.craRegistrationNumber} onChange={(e) => setForm((f) => ({ ...f, craRegistrationNumber: e.target.value }))} placeholder="Issued by Maryland after CRA is approved" />
-                </div>
-              </>
-            )}
           </div>
-
-          {/* This is the business owner / IRS "responsible party" — the actual
-              person, not a generic office contact — so every field here says
-              "Owner" up front. Grouped as its own section (name/title/SSN,
-              then the owner's own home address right below it) instead of
-              being buried inside Tax IDs, where "Contact SS No." previously
-              read like some unrelated office contact's SSN. */}
-          {form.clientType === "Business" && (
-            <>
-              <div className="form-section-title">Owner / Responsible Party</div>
-              <div className="form-grid-3">
-                <div className="field"><label htmlFor="nc-cc">Owner Name</label><input id="nc-cc" value={form.companyContactName} onChange={(e) => setForm((f) => ({ ...f, companyContactName: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-cct">Owner Title</label><input id="nc-cct" value={form.companyContactTitle} onChange={(e) => setForm((f) => ({ ...f, companyContactTitle: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="nc-ccs">Owner SS No.</label><input id="nc-ccs" value={form.companyContactSsn} onChange={(e) => setForm((f) => ({ ...f, companyContactSsn: e.target.value }))} /></div>
-                <div className="field">
-                  <label htmlFor="nc-cce">Owner Email <span className="muted">(if different from company email)</span></label>
-                  <input id="nc-cce" type="email" value={form.companyContactEmail} onChange={(e) => setForm((f) => ({ ...f, companyContactEmail: e.target.value }))} />
-                </div>
-                <div className="field">
-                  <label htmlFor="nc-ccp">Owner Phone <span className="muted">(if different from company phone)</span></label>
-                  <input id="nc-ccp" value={form.companyContactPhone} onChange={(e) => setForm((f) => ({ ...f, companyContactPhone: e.target.value }))} />
-                </div>
-              </div>
-              <div className="muted" style={{ fontSize: 12, margin: "10px 0 8px" }}>Owner Home Address</div>
-              <AddressFields
-                idPrefix="nc-rp"
-                value={{ street: form.companyContactStreetAddress, city: form.companyContactCity, state: form.companyContactState, zip: form.companyContactZipCode }}
-                onChange={(patch) => setForm((f) => ({
-                  ...f,
-                  companyContactStreetAddress: patch.street ?? f.companyContactStreetAddress,
-                  companyContactCity: patch.city ?? f.companyContactCity,
-                  companyContactZipCode: patch.zip ?? f.companyContactZipCode,
-                  companyContactState: patch.state ?? f.companyContactState,
-                }))}
-              />
-            </>
-          )}
-          <div className="field"><label htmlFor="nc-notes">Notes</label><textarea id="nc-notes" rows={3} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14 }}>
-            <input type="checkbox" checked={createPortalNow} onChange={(e) => setCreatePortalNow(e.target.checked)} disabled={!form.email} />
-            Create portal user now {!form.email && <span className="muted">(requires an email address)</span>}
-          </label>
-
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Client"}</button>
         </form>
       )}
 

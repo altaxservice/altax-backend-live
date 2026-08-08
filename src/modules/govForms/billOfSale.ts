@@ -158,7 +158,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   paragraph(data.liabilitiesIncluded?.trim() || "No liabilities were itemized as assumed by Buyer as part of this transfer; the parties should confirm the treatment of any outstanding business debts, leases, or obligations separately.");
 
   if (data.additionalTerms?.trim()) {
-    heading("5. ADDITIONAL TERMS");
+    heading("5. ADDITIONAL CLAUSE(S) / TERMS");
     paragraph(data.additionalTerms.trim());
   }
 

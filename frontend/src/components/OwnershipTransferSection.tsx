@@ -140,7 +140,14 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
           </div>
           <div className="field"><label htmlFor="xfer-assets">Assets Included</label><textarea id="xfer-assets" rows={2} value={form.assetsIncluded} onChange={(e) => setForm((f) => ({ ...f, assetsIncluded: e.target.value }))} placeholder="e.g. Equipment, inventory, goodwill, business name" /></div>
           <div className="field"><label htmlFor="xfer-liabilities">Liabilities Included</label><textarea id="xfer-liabilities" rows={2} value={form.liabilitiesIncluded} onChange={(e) => setForm((f) => ({ ...f, liabilitiesIncluded: e.target.value }))} placeholder="e.g. None; or specific debts/leases Buyer is assuming" /></div>
-          <div className="field"><label htmlFor="xfer-terms">Additional Terms</label><textarea id="xfer-terms" rows={2} value={form.additionalTerms} onChange={(e) => setForm((f) => ({ ...f, additionalTerms: e.target.value }))} /></div>
+          <div className="field">
+            <label htmlFor="xfer-terms">Additional Clause(s) / Information <span className="muted">(optional)</span></label>
+            <textarea
+              id="xfer-terms" rows={4} value={form.additionalTerms}
+              onChange={(e) => setForm((f) => ({ ...f, additionalTerms: e.target.value }))}
+              placeholder="Anything else the Bill of Sale should say — a non-compete clause, a payment schedule, an indemnification clause, contingencies, etc. Appears as its own numbered section in the PDF."
+            />
+          </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
             <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Transfer Package"}</button>
