@@ -2367,7 +2367,7 @@ function VaultSection({ clientId }: { clientId: string }) {
         <h2 style={{ fontSize: 15, margin: 0 }}>Secure Vault</h2>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="btn btn-sm" onClick={toggleLog}>{showLog ? "Hide Access Log" : "Access Log"}</button>
-          <button className="btn btn-sm" onClick={() => (showForm ? handleFormCancel() : setShowForm(true))}>{showForm ? "Cancel" : "Add Secret"}</button>
+          <button className="btn btn-sm" onClick={() => { if (showForm) { handleFormCancel(); } else { setEditingId(null); setSaveError(null); setForm({ category: "", label: "", agencyName: "", username: "", secret: "", confirmSecret: "" }); setShowForm(true); } }}>{showForm ? "Cancel" : "Add Secret"}</button>
         </div>
       </div>
       <p className="muted" style={{ marginBottom: 12 }}>
@@ -2397,18 +2397,19 @@ function VaultSection({ clientId }: { clientId: string }) {
         </div>
       )}
       {showForm && (
-        <form onSubmit={handleSave} style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
+        <form onSubmit={handleSave} autoComplete="off" style={{ marginBottom: 16, borderBottom: "1px solid var(--line)", paddingBottom: 16 }}>
           {saveError && <ErrorBanner error={saveError} />}
-          <div className="field"><label htmlFor="cd-secret-category">Category</label><input id="cd-secret-category" required value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
-          <div className="field"><label htmlFor="cd-secret-label">Label</label><input id="cd-secret-label" required value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
-          <div className="field"><label htmlFor="cd-secret-agency-name">Agency Name</label><input id="cd-secret-agency-name" value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
-          <div className="field"><label htmlFor="cd-secret-username">User ID / Username</label><input id="cd-secret-username" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. the login username, not the password" /></div>
+          <div className="field"><label htmlFor="cd-secret-category">Category</label><input id="cd-secret-category" required autoComplete="off" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. State Portal" /></div>
+          <div className="field"><label htmlFor="cd-secret-label">Label</label><input id="cd-secret-label" required autoComplete="off" value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="e.g. MD Tax Connect Login" /></div>
+          <div className="field"><label htmlFor="cd-secret-agency-name">Agency Name</label><input id="cd-secret-agency-name" autoComplete="off" value={form.agencyName} onChange={(e) => setForm((f) => ({ ...f, agencyName: e.target.value }))} /></div>
+          <div className="field"><label htmlFor="cd-secret-username">User ID / Username</label><input id="cd-secret-username" autoComplete="off" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. the login username, not the password" /></div>
           <div className="field">
             <label htmlFor="cd-secret-value">Secret Value / Password</label>
             <input
               id="cd-secret-value"
               type="password"
               required={!editingId}
+              autoComplete="new-password"
               value={form.secret}
               onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
               placeholder={editingId ? "Leave blank to keep the current value" : undefined}
@@ -2420,6 +2421,7 @@ function VaultSection({ clientId }: { clientId: string }) {
               id="cd-secret-confirm"
               type="password"
               required={!!form.secret}
+              autoComplete="new-password"
               value={form.confirmSecret}
               onChange={(e) => setForm((f) => ({ ...f, confirmSecret: e.target.value }))}
               placeholder="Re-enter the value above"
