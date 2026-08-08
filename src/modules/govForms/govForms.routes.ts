@@ -172,7 +172,7 @@ govFormsRouter.get("/client/:clientId/identity", requireAuth, requireRole("admin
   const client = decryptClientPii(await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, individual_ssn, street_address, city, state, zip_code,
             company_contact_name, company_contact_title, company_contact_ssn, company_contact_email, company_contact_phone,
-            secretary_of_state_id, phone, email
+            secretary_of_state_id, phone, email, date_of_formation, dba_name, industry_category, payroll_enabled
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   ));

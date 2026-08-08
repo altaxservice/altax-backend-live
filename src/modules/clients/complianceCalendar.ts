@@ -4,11 +4,15 @@
  * no new data entry. Confirmed via research: no generic compliance-
  * calendar concept existed anywhere in this codebase before this; the only
  * real deadline sources are MD sales tax filing (mdFiling.ts), each
- * client's next scheduled payroll date (v3_payroll_schedules), and the
+ * client's next scheduled payroll date (v3_payroll_schedules), the
  * federal payroll tax forms' fixed IRS due dates (941 quarterly, 940
- * annual) for any client with payroll enabled. Deliberately does NOT
- * invent deadlines this system has no real data for (POA renewals, W4/W9
- * signing deadlines) — see the Phase 5 research note in the approved plan.
+ * annual) for any client with payroll enabled, the Maryland Annual Report
+ * (fixed April 15, any client with md_annual_report_enabled), and — added
+ * for the Gov Forms hard-evaluation round — the Form 2553 S-Corp election
+ * deadline (see scorpElection.ts) for an LLC/C-Corp with a formation date
+ * on file and no 2553 filed yet. Deliberately does NOT invent deadlines
+ * this system has no real data for (POA renewals, W4/W9 signing
+ * deadlines) — see the Phase 5 research note in the approved plan.
  *
  * A pure function — the caller (reports.routes.ts's client-dashboard
  * route, and clients.routes.ts's SWOT findings engine input) supplies
@@ -16,10 +20,12 @@
  * file has no DB access of its own and can't create an import cycle.
  */
 
+import { computeScorpElectionStatus } from "../../common/scorpElection";
+
 export interface ComplianceDeadline {
   label: string;
   date: string; // YYYY-MM-DD
-  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax";
+  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election";
 }
 
 /** Next occurrence of a fixed month/day from `asOf` — rolls to next year if this year's date has already passed. */
@@ -75,6 +81,10 @@ export function computeUpcomingDeadlines(params: {
   mdCurrentPeriodDueDate: string | null;
   payrollNextDate: string | null;
   payrollEnabled: boolean;
+  mdAnnualReportEnabled?: boolean;
+  entityType?: string | null;
+  dateOfFormation?: string | null;
+  has2553Filing?: boolean;
   withinDays?: number;
   asOf?: Date;
 }): ComplianceDeadline[] {
@@ -89,6 +99,23 @@ export function computeUpcomingDeadlines(params: {
     deadlines.push({ label: "Next Payroll", date: params.payrollNextDate, source: "Payroll" });
   }
   deadlines.push(...computeFederalPayrollDeadlines(params.payrollEnabled, withinDays, asOf));
+
+  if (params.mdAnnualReportEnabled) {
+    deadlines.push({ label: "MD Annual Report", date: nextFixedAnnualDate(4, 15, asOf), source: "MD Annual Report" });
+  }
+
+  const scorp = computeScorpElectionStatus(params.entityType ?? null, params.dateOfFormation ?? null, params.has2553Filing ?? false, asOf);
+  // Only surfaced while there's still something to actually do about it —
+  // the plain deadline hasn't passed yet, or it has but late-election
+  // relief (Rev. Proc. 2013-30) is still open. Once relief also closes,
+  // this stops appearing rather than sitting as permanent unfixable noise.
+  if (scorp && (!scorp.pastDeadline || scorp.lateReliefAvailable)) {
+    deadlines.push({
+      label: scorp.pastDeadline ? "Form 2553 (S-Corp Election) — late-relief window" : "Form 2553 (S-Corp Election) Deadline",
+      date: scorp.pastDeadline ? scorp.lateReliefDeadline : scorp.deadline,
+      source: "S-Corp Election",
+    });
+  }
 
   const cutoff = new Date(asOf.getTime() + withinDays * 86400000);
   return deadlines

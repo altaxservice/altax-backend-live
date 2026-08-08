@@ -22,6 +22,8 @@
  * from producing two near-duplicate rows).
  */
 
+import { computeScorpElectionStatus } from "../../common/scorpElection";
+
 export interface CandidateFinding {
   category: "Strength" | "Weakness" | "Opportunity" | "Threat" | "Recommendation";
   subcategory?: "Tax" | "Staffing" | "Marketing" | "Growth" | "CostReduction" | "RevenueGrowth" | "CashFlow" | "Compliance";
@@ -38,6 +40,11 @@ export interface SwotEngineInput {
   clientId: string;
   industryCategory: string | null;
   yearsInBusiness: number | null;
+  // Added for the S-Corp election deadline rule below — see
+  // src/common/scorpElection.ts for the actual IRS-rule math.
+  entityType: string | null;
+  dateOfFormation: string | null;
+  has2553Filing: boolean;
   currentServiceLabels: string[];
   serviceGaps: { key: string; label: string }[];
   clientTypeIsIndividual: boolean;
@@ -241,6 +248,39 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
         priority: daysUntilDue <= input.alertThresholds.filingDeadlineDaysThreshold ? "Urgent" : "High",
         recommendedAction: "File and pay before the due date to avoid penalty and interest.",
         dataType: "Fact", autoTriggerKey: `filing_deadline_soon:${input.mdCurrentPeriodDueDate}`,
+      });
+    }
+  }
+
+  // --- Form 2553 (S-Corp election) deadline ---
+  // computeScorpElectionStatus already returns null for anything not
+  // actionable (wrong entity type, no formation date, or a 2553 already on
+  // file) — this block only has to decide priority and whether it's still
+  // worth a finding at all. autoTriggerKey is keyed to the deadline date
+  // itself, not just the client, so a formation-date correction produces a
+  // fresh finding instead of silently keeping a stale one open.
+  {
+    const scorp = computeScorpElectionStatus(input.entityType, input.dateOfFormation, input.has2553Filing);
+    if (scorp && !scorp.pastDeadline) {
+      const urgent = scorp.daysUntilDeadline <= 14;
+      findings.push({
+        category: "Threat", subcategory: "Tax",
+        findingText: `S-Corp election (Form 2553) deadline is ${scorp.deadline} — ${scorp.daysUntilDeadline} day${scorp.daysUntilDeadline === 1 ? "" : "s"} away.`,
+        supportingData: `Entity type: ${input.entityType}. Formed ${input.dateOfFormation}. Deadline = 2 months 15 days after formation, per Form 2553 instructions. No 2553 on file for this client.`,
+        businessImpact: "Missing this deadline means the entity is taxed under its default classification for the entire tax year — often a real self-employment-tax cost, not just a paperwork delay.",
+        priority: urgent ? "Urgent" : "High",
+        recommendedAction: "Confirm with the client whether S-Corp election is wanted, and file Form 2553 before the deadline if so.",
+        dataType: "Fact", autoTriggerKey: `scorp_election_deadline:${scorp.deadline}`,
+      });
+    } else if (scorp && scorp.pastDeadline && scorp.lateReliefAvailable) {
+      findings.push({
+        category: "Threat", subcategory: "Tax",
+        findingText: `S-Corp election (Form 2553) deadline of ${scorp.deadline} has passed, but late-election relief is still available until ${scorp.lateReliefDeadline}.`,
+        supportingData: `Entity type: ${input.entityType}. Formed ${input.dateOfFormation}. Rev. Proc. 2013-30 allows late relief within 3 years and 75 days of the intended effective date, subject to reasonable-cause and other conditions.`,
+        businessImpact: "The standard election window is closed, but the entity can likely still elect S-Corp treatment retroactively if relief is requested before the window above closes.",
+        priority: "High",
+        recommendedAction: "Discuss late-election relief with the client and file Form 2553 with the required reasonable-cause statement if they want to proceed.",
+        dataType: "Fact", autoTriggerKey: `scorp_election_late_relief:${scorp.lateReliefDeadline}`,
       });
     }
   }

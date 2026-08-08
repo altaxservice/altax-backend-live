@@ -695,7 +695,8 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
   const clientRow = await queryOne<any>(
-    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled FROM altax.v3_clients WHERE client_id = $1`,
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation
+       FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
   if (!clientRow) return res.status(404).json({ error: "Client not found." });
@@ -768,14 +769,18 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
   // limitation — no persisted per-period filing history exists), the
   // client's nearest scheduled payroll date, and (if payroll is enabled)
   // the next federal Form 941/940 due dates.
-  const nextPayrollRow = await queryOne<any>(
-    `SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`,
-    [clientId]
-  );
+  const [nextPayrollRow, has2553Row] = await Promise.all([
+    queryOne<any>(`SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`, [clientId]),
+    queryOne<any>(`SELECT 1 FROM altax.v3_gov_form_filings WHERE client_id = $1 AND form_type = '2553' AND status != 'Void' LIMIT 1`, [clientId]),
+  ]);
   const deadlines = computeUpcomingDeadlines({
     mdCurrentPeriodDueDate: mdFiling && mdFiling.periods.length > 0 ? mdFiling.periods[mdFiling.periods.length - 1].dueDate : null,
     payrollNextDate: nextPayrollRow?.next_pay_date ? new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) : null,
     payrollEnabled: Boolean(clientRow.payroll_enabled),
+    mdAnnualReportEnabled: Boolean(clientRow.md_annual_report_enabled),
+    entityType: clientRow.entity_type || null,
+    dateOfFormation: clientRow.date_of_formation ? new Date(clientRow.date_of_formation).toISOString().slice(0, 10) : null,
+    has2553Filing: Boolean(has2553Row),
   });
 
   res.json({

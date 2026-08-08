@@ -397,12 +397,14 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   const fromStr = from.toISOString().slice(0, 10);
   const toStr = to.toISOString().slice(0, 10);
 
-  const [financials, ops, cashBalance, alertSettings] = await Promise.all([
+  const [financials, ops, cashBalance, alertSettings, has2553Row] = await Promise.all([
     computeFirmSummary(fromStr, toStr, clientId),
     computeClientOpsSummary(clientId),
     computeClientCashBalance(clientId),
     getDashboardAlertSettings(),
+    queryOne<any>(`SELECT 1 FROM altax.v3_gov_form_filings WHERE client_id = $1 AND form_type = '2553' AND status != 'Void' LIMIT 1`, [clientId]),
   ]);
+  const has2553Filing = Boolean(has2553Row);
   const { trendPct, startedFromZero } = computeRevenueTrend(financials.months);
 
   const overdueInvoiceRows = await query<any>(
@@ -480,6 +482,13 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
 
   return {
     clientId, industryCategory: clientRow.industry_category || null, yearsInBusiness,
+    entityType: clientRow.entity_type || null,
+    // date_of_formation comes back from pg as a JS Date, not a string —
+    // String(date) gives "Mon Jun 03 2026 ..." (not parseable as an ISO
+    // date), the same class of bug this file's yearsInBusiness calc just
+    // above already avoids by going through new Date(...).getTime() instead.
+    dateOfFormation: clientRow.date_of_formation ? new Date(clientRow.date_of_formation).toISOString().slice(0, 10) : null,
+    has2553Filing,
     currentServiceLabels: currentServices.map((k) => SERVICE_LABEL[k] || k), serviceGaps,
     clientTypeIsIndividual: clientRow.client_type === "Individual",
     revenue: financials.totals.revenue, profit: financials.totals.profit, trendPct, startedFromZero,
@@ -526,7 +535,7 @@ clientsRouter.post("/:clientId/swot/autodraft", requireAuth, requireRole("admin"
     return res.status(403).json({ error: "You do not have access to this client." });
   }
   const clientRow = await queryOne<any>(
-    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, entity_type, services, client_type
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -769,7 +778,7 @@ clientsRouter.post("/:clientId/swot-findings/generate", requireAuth, requireRole
     return res.status(403).json({ error: "You do not have access to this client." });
   }
   const clientRow = await queryOne<any>(
-    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, services, client_type
+    `SELECT client_name, ein, address, state, sales_tax_frequency, industry_category, date_of_formation, entity_type, services, client_type
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );

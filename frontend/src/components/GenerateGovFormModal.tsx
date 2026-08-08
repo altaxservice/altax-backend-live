@@ -15,6 +15,7 @@ interface ClientIdentity {
   company_contact_name: string | null; company_contact_title: string | null; company_contact_ssn: string | null;
   company_contact_email: string | null; company_contact_phone: string | null;
   secretary_of_state_id: string | null; phone: string | null; email: string | null;
+  date_of_formation: string | null; dba_name: string | null; industry_category: string | null; payroll_enabled: boolean;
 }
 
 /** "ABDULSAMAD ALMABARI" -> ["ABDULSAMAD", "ALMABARI"] — first word is the first name, everything else is the last name. Same heuristic used elsewhere in this app for splitting a single stored contact-name field into a form's separate first/last boxes; staff can always correct it before generating. */
@@ -24,6 +25,20 @@ function splitName(full: string | null | undefined): { first: string; last: stri
   if (parts.length === 1) return { first: "", last: parts[0] };
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
+
+// Maps this app's own client.entity_type vocabulary (clientOptions.ts's
+// ENTITY_TYPES) onto SS4_ENTITY_TYPES' distinct IRS-form wording — a direct
+// assignment would silently show blank (no matching <option>), the same
+// class of casing/vocabulary mismatch bug already fixed elsewhere in this
+// app (see PAYROLL_FREQS/FREQ_OPTIONS comments in clientOptions.ts).
+// Individual/Partnership deliberately unmapped: an SS-4 is filed on the
+// client's own timeline for those, and "Individual" has no real SS4
+// equivalent (a sole proprietor's SSN, not an EIN application, in most
+// cases) — safer to leave the form's existing default than guess wrong.
+const SS4_ENTITY_TYPE_MAP: Record<string, string> = {
+  "LLC": "LLC", "C-Corp": "Corporation", "S-Corp": "S Corporation",
+  "Sole Proprietorship": "Sole Proprietor", "Nonprofit": "Other Nonprofit", "Partnership": "Partnership",
+};
 
 function combinedAddress(identity: ClientIdentity | null): string {
   if (!identity) return "";
@@ -230,20 +245,29 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
         }
 
         const addr = combinedAddress(res.client);
+        const formationDate = res.client.date_of_formation ? String(res.client.date_of_formation).slice(0, 10) : "";
         setF2553((f) => ({
           ...f, corporationName: res.client.client_name, corporationAddress: addr, ein: res.client.ein || "",
           stateIncorporated: res.client.state || "", officerName: res.client.company_contact_name || "",
           officerTitle: res.client.company_contact_title || "",
+          // Prefilled from the client's own formation date on file — the
+          // exact value this field needs, previously always left blank for
+          // manual re-entry even though it already existed on the profile.
+          dateIncorporated: formationDate,
         }));
         setW9((f) => ({
           ...f, name: res.client.client_name, address: res.client.street_address || "",
           city: res.client.city || "", state: res.client.state || "MD", zip: res.client.zip_code || "",
           ein: res.client.ein || "", ssn: res.client.individual_ssn || "",
         }));
+        const mappedSs4EntityType = res.client.entity_type ? SS4_ENTITY_TYPE_MAP[res.client.entity_type] : undefined;
         setSs4((f) => ({
           ...f, legalName: res.client.client_name, mailingAddress: addr, county: "", state: res.client.state || "MD",
           responsiblePartyName: res.client.company_contact_name || "", responsiblePartyId: res.client.company_contact_ssn || "",
           applicantName: res.client.company_contact_name || "", applicantTitle: res.client.company_contact_title || "",
+          dateBusinessStarted: formationDate,
+          tradeName: res.client.dba_name || "",
+          ...(mappedSs4EntityType ? { entityType: mappedSs4EntityType, isLlc: mappedSs4EntityType === "LLC" } : {}),
         }));
         const officer = splitName(res.client.company_contact_name);
         setCra((f) => ({
@@ -265,6 +289,14 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           officerTitle: res.client.company_contact_title || "",
           officerStreet: res.client.street_address || "", officerCity: res.client.city || "", officerState: res.client.state || "MD", officerZip: res.client.zip_code || "",
           officerPhone: res.client.company_contact_phone || res.client.phone || "",
+          // Business activity prefilled from the client's own on-file
+          // industry description — still just a starting point, staff can
+          // refine the wording for this specific filing.
+          businessActivity: res.client.industry_category || "",
+          // A client already running payroll almost certainly needs the
+          // Employer Withholding tax account registered — pre-checked, but
+          // every other tax type stays unchecked for staff to add.
+          taxTypes: res.client.payroll_enabled ? ["Employer withholding tax"] : [],
         }));
         setF8822b((f) => ({
           ...f,
