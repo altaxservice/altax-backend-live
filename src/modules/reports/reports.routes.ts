@@ -595,6 +595,17 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
 // Exported for the same reason as computeFirmSummary above — the SWOT auto-draft
 // (clients.routes.ts) reuses this for its "current period" MD filing status signal
 // instead of re-deriving it, so it can never disagree with the reports/At a Glance figures.
+/** Recorded actual filing dates (v3_md_filing_payments) within a period-end range, keyed by period_end ISO string. */
+async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, string>> {
+  const rows = await query<{ period_end: string; paid_date: string }>(
+    `SELECT period_end::date::text AS period_end, paid_date::date::text AS paid_date
+       FROM altax.v3_md_filing_payments
+      WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
+    [clientId, expandedFrom, expandedTo]
+  );
+  return new Map(rows.map((r) => [r.period_end, r.paid_date]));
+}
+
 export async function computeMdFilingForReport(
   client: ReportClientInfo,
   from: string,
@@ -607,9 +618,12 @@ export async function computeMdFilingForReport(
   if (periods.length === 0) return null;
   const expandedFrom = periods[0].start;
   const expandedTo = periods[periods.length - 1].end;
-  const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo);
+  const [sales, recordedPaidDates] = await Promise.all([
+    loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo),
+    loadRecordedMdFilingPayments(client.clientId, expandedFrom, expandedTo),
+  ]);
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : new Date().toISOString().slice(0, 10);
-  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, paidDate);
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, paidDate, recordedPaidDates);
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, paidDate };
 }
@@ -773,8 +787,12 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     queryOne<any>(`SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`, [clientId]),
     queryOne<any>(`SELECT 1 FROM altax.v3_gov_form_filings WHERE client_id = $1 AND form_type = '2553' AND status != 'Void' LIMIT 1`, [clientId]),
   ]);
+  // A period staff has already marked filed has nothing left pending, even if it
+  // was filed late — showing its due date as an "upcoming deadline" would be
+  // stale. Pick the last period that's still actually unresolved.
+  const unresolvedMdPeriods = mdFiling ? mdFiling.periods.filter((p: any) => !p.markedPaidDate) : [];
   const deadlines = computeUpcomingDeadlines({
-    mdCurrentPeriodDueDate: mdFiling && mdFiling.periods.length > 0 ? mdFiling.periods[mdFiling.periods.length - 1].dueDate : null,
+    mdCurrentPeriodDueDate: unresolvedMdPeriods.length > 0 ? unresolvedMdPeriods[unresolvedMdPeriods.length - 1].dueDate : null,
     payrollNextDate: nextPayrollRow?.next_pay_date ? new Date(nextPayrollRow.next_pay_date).toISOString().slice(0, 10) : null,
     payrollEnabled: Boolean(clientRow.payroll_enabled),
     mdAnnualReportEnabled: Boolean(clientRow.md_annual_report_enabled),
@@ -1265,6 +1283,61 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
   const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
   res.json({ mdFiling });
+}));
+
+/**
+ * Records that a specific MD filing period was actually filed/paid on a real
+ * date — the only way the dashboard's "MD Sales & Use Tax (ending ...)" Past
+ * Due flags and "MD Sales Tax Filing" upcoming deadline can ever clear (see
+ * computeClientFlags in clients.routes.ts and computeMdFilingForReport
+ * above), since both are otherwise computed against today's date forever.
+ * Snapshots taxDue/balanceDue/onTime at the recorded date so history stays
+ * accurate even if this period's sales data is edited later.
+ */
+reportsRouter.post("/md-filing/:clientId/mark-paid", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "MD") return res.status(400).json({ error: "This client is not MD-based." });
+
+  const body = req.body || {};
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const paidDate = String(body.paidDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return res.status(400).json({ error: "periodStart, periodEnd, and paidDate must all be YYYY-MM-DD." });
+  }
+
+  const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
+  const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, periodStart, periodEnd);
+  const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
+  const dueDate = mdDueDateForPeriod(periodEnd);
+  const result = await computeMdFiling(taxDue, dueDate, paidDate);
+
+  await query(
+    `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, paid_date, tax_due, balance_due, on_time, filed_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (client_id, period_end) DO UPDATE SET
+       period_start = EXCLUDED.period_start, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
+       balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now()`,
+    [client.clientId, periodStart, periodEnd, paidDate, taxDue, result.balanceDue, result.onTime, req.user!.email]
+  );
+  await logAudit("Accounting", "MD_FILING_MARK_PAID", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${paidDate}`,
+    `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${paidDate} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
+}));
+
+/** Reverses a mark-paid entry (staff correcting a mistaken date) — the period goes back to being computed live against today, same as before it was ever marked. */
+reportsRouter.post("/md-filing/:clientId/unmark-paid", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  await query(`DELETE FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "MD_FILING_UNMARK_PAID", client.clientId, "Period", "", periodEnd,
+    `MD sales tax filing (period ending ${periodEnd}) un-marked by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
 }));
 
 reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

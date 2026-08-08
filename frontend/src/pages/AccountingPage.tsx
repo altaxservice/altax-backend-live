@@ -244,6 +244,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   } | null>(null);
   const [mdFilingLoading, setMdFilingLoading] = useState(false);
   const [mdFilingError, setMdFilingError] = useState<string | null>(null);
+  const [mdFilingReloadKey, setMdFilingReloadKey] = useState(0);
+  const [markingPeriodEnd, setMarkingPeriodEnd] = useState<string | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -409,7 +411,39 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         });
     }, 300);
     return () => clearTimeout(t);
-  }, [clientId, clientState, period.start, period.end, mdPaidDate]);
+  }, [clientId, clientState, period.start, period.end, mdPaidDate, mdFilingReloadKey]);
+
+  /**
+   * Records a period as actually filed on `mdPaidDate` (the same "Filing / payment
+   * date" field already used for the discount/penalty preview above) — the only
+   * action that lets this period's Past Due flag on the client dashboard ever
+   * clear, since otherwise it's computed against today's date forever. Reuses the
+   * existing debounced fetch above (via mdFilingReloadKey) to pull the confirmed
+   * state back rather than trusting the optimistic response.
+   */
+  async function handleMarkPeriodFiled(p: { start: string; end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, paidDate: mdPaidDate });
+      setMdFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark this period filed.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleUnmarkPeriodFiled(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/unmark-paid`, { periodEnd: p.end });
+      setMdFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not undo this.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
 
   function handleClearForm() {
     setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
@@ -626,10 +660,12 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                     </div>
                     <div style={{
                       display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 11.5, fontWeight: 700, marginBottom: 10,
-                      background: mdFiling.periods[0].onTime ? "var(--green-soft)" : "var(--red-soft)",
-                      color: mdFiling.periods[0].onTime ? "var(--green)" : "var(--red)",
+                      background: mdFiling.periods[0].markedPaidDate ? "var(--teal-soft)" : mdFiling.periods[0].onTime ? "var(--green-soft)" : "var(--red-soft)",
+                      color: mdFiling.periods[0].markedPaidDate ? "var(--teal)" : mdFiling.periods[0].onTime ? "var(--green)" : "var(--red)",
                     }}>
-                      {mdFiling.periods[0].onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.periods[0].monthsLate} month${mdFiling.periods[0].monthsLate === 1 ? "" : "s"} past due`}
+                      {mdFiling.periods[0].markedPaidDate
+                        ? `✓ Filed ${fmtDate(mdFiling.periods[0].markedPaidDate)}`
+                        : mdFiling.periods[0].onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.periods[0].monthsLate} month${mdFiling.periods[0].monthsLate === 1 ? "" : "s"} past due`}
                     </div>
                     <div className="metric-grid metric-grid-3">
                       {mdFiling.periods[0].onTime ? (
@@ -645,6 +681,17 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                         </>
                       )}
                     </div>
+                    <div style={{ marginTop: 10 }}>
+                      {mdFiling.periods[0].markedPaidDate ? (
+                        <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleUnmarkPeriodFiled(mdFiling.periods[0])}>
+                          {markingPeriodEnd === mdFiling.periods[0].end ? "Undoing…" : "Undo — this wasn't actually filed"}
+                        </button>
+                      ) : (
+                        <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleMarkPeriodFiled(mdFiling.periods[0])}>
+                          {markingPeriodEnd === mdFiling.periods[0].end ? "Marking…" : `Mark Filed on ${fmtDate(mdPaidDate)}`}
+                        </button>
+                      )}
+                    </div>
                   </>
                 )}
 
@@ -655,7 +702,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                         <thead>
                           <tr>
                             <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Tax Due</th>
-                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
+                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -665,11 +712,22 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                               <td>{fmtDate(p.dueDate)}</td>
                               <td>{fmtMoney(p.taxDue)}</td>
                               <td className={p.onTime ? "muted" : ""} style={p.onTime ? undefined : { color: "var(--red)", fontWeight: 600 }}>
-                                {p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+                                {p.markedPaidDate ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
                               </td>
                               <td>{p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
                               <td>{p.onTime ? "—" : fmtMoney(p.interest)}</td>
                               <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
+                              <td>
+                                {p.markedPaidDate ? (
+                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
+                                    {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
+                                  </button>
+                                ) : (
+                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleMarkPeriodFiled(p)}>
+                                    {markingPeriodEnd === p.end ? "Marking…" : "Mark Filed"}
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>

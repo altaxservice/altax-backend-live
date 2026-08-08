@@ -250,9 +250,16 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
                 <div className="alert-strip">
                   {dash.health.band === "Red" && <span>Health score is <strong>{dash.health.score}</strong> (Red) — see the breakdown below.</span>}
                   {dash.health.band !== "Red" && dash.arAging.d90Plus > 0 && <span><strong>{fmtMoney(dash.arAging.d90Plus)}</strong> is over 90 days past due.</span>}
-                  {dash.health.band !== "Red" && dash.arAging.d90Plus <= 0 && urgentDeadlines.length > 0 && (
-                    <span><strong>{urgentDeadlines[0].label}</strong> is due {daysUntil(urgentDeadlines[0].date) <= 0 ? "today" : `in ${daysUntil(urgentDeadlines[0].date)} day${daysUntil(urgentDeadlines[0].date) === 1 ? "" : "s"}`}.</span>
-                  )}
+                  {dash.health.band !== "Red" && dash.arAging.d90Plus <= 0 && urgentDeadlines.length > 0 && (() => {
+                    const days = daysUntil(urgentDeadlines[0].date);
+                    // days < 0 means the due date has already passed — a genuinely
+                    // overdue filing was previously mislabeled "is due today" here,
+                    // which reads as far less urgent than it actually is.
+                    const wording = days < 0 ? `is ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`
+                      : days === 0 ? "is due today"
+                      : `is due in ${days} day${days === 1 ? "" : "s"}`;
+                    return <span><strong>{urgentDeadlines[0].label}</strong> {wording}.</span>;
+                  })()}
                 </div>
               )}
 

@@ -280,7 +280,10 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
     const mdFiling = await computeMdFilingForReport(reportClient, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
     if (mdFiling) {
       for (const p of mdFiling.periods) {
-        if (!p.onTime && p.balanceDue > 0) {
+        // A period staff has already marked filed is settled — even if it was
+        // filed late, the money's been paid, so it shouldn't keep showing as an
+        // active past-due flag (see computeMdFilingForReport / v3_md_filing_payments).
+        if (!p.markedPaidDate && !p.onTime && p.balanceDue > 0) {
           flags.push({
             flagId: null, flagType: "AgencyPastDue", amount: p.balanceDue,
             note: `MD Sales & Use Tax (ending ${p.end})`, color: "red", createdAt: null, createdBy: null, resolvable: false,

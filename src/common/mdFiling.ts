@@ -247,6 +247,8 @@ export interface MdFilingPeriodResult extends MdFilingResult {
   start: string;
   end: string;
   dueDate: string;
+  /** Set when staff has explicitly marked this period filed (v3_md_filing_payments) — the date that was used, overriding paidDateStr. Null means this result used the caller's (usually "today") date, not a real recorded filing. */
+  markedPaidDate: string | null;
 }
 
 export interface MdFilingBreakdown {
@@ -282,7 +284,8 @@ export async function computeMdFilingBreakdown(
   from: string,
   to: string,
   frequency: string | null | undefined,
-  paidDateStr: string
+  paidDateStr: string,
+  recordedPaidDates?: Map<string, string>
 ): Promise<MdFilingBreakdown> {
   const { periods, frequencyUsed } = splitIntoMdFilingPeriods(from, to, frequency);
   const results: MdFilingPeriodResult[] = [];
@@ -296,8 +299,13 @@ export async function computeMdFilingBreakdown(
         .reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0)
     );
     if (taxDue <= 0) continue;
-    const result = await computeMdFiling(taxDue, period.dueDate, paidDateStr);
-    results.push({ ...result, start: period.start, end: period.end, dueDate: period.dueDate });
+    // A period staff has explicitly marked filed uses that REAL paid date instead
+    // of paidDateStr (normally "today") — so its on-time/late status and
+    // penalty/interest freeze at the actual filing event rather than recomputing
+    // against whatever day this happens to be rendered.
+    const markedPaidDate = recordedPaidDates?.get(period.end) ?? null;
+    const result = await computeMdFiling(taxDue, period.dueDate, markedPaidDate || paidDateStr);
+    results.push({ ...result, start: period.start, end: period.end, dueDate: period.dueDate, markedPaidDate });
   }
   const totals = results.reduce(
     (acc, r) => ({
