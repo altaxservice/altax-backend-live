@@ -2,8 +2,8 @@
  * Parser for a client's own "Sales_Input" tab inside their reusable multi-sheet workbook
  * (see xlsxReader.readWorkbookSheetByName — the caller picks out just this one tab before
  * handing rows here). Column layout, left to right:
- *   Date | Gross Sales | Taxable @ 6% | Special @ 12% | Vape @ 20% | 60% Rate Sales |
- *   Adjustments | Payment Date | Notes | Year
+ *   Date (aka "Period Date") | Gross Sales | Taxable @ 6% | Special @ 12% | Vape @ 20% |
+ *   60% Rate Sales | Adjustments | Payment Date | Notes | Year
  * Standalone on purpose — this has nothing to do with payroll import
  * (src/modules/payrollImport/), which reads a completely different Drake/QBO layout.
  */
@@ -89,7 +89,7 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
   }
   const header = rawRows[headerRowIndex];
 
-  const dateIdx = findColumn(header, (h) => h === "date");
+  const dateIdx = findColumn(header, (h) => h.includes("date") && !h.includes("payment"));
   const grossIdx = findColumn(header, (h) => h === "grosssales");
   const taxable6Idx = findColumn(header, (h) => h.includes("taxable") && h.includes("6"));
   const special12Idx = findColumn(header, (h) => h.includes("special") && h.includes("12"));
@@ -117,8 +117,10 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
     const rate60 = rate60Idx !== -1 ? parseMoney(r[rate60Idx]) : 0;
     const adjustments = adjustmentsIdx !== -1 ? parseMoney(r[adjustmentsIdx]) : 0;
 
-    // A blank placeholder row for a future month — no date and no amounts anywhere.
-    if (!rawDate && grossSales === 0 && taxable6 === 0 && special12 === 0 && vape20 === 0 && rate60 === 0 && adjustments === 0) continue;
+    // A blank placeholder row for a future month — no amounts anywhere. The client's
+    // reusable template pre-fills a period-end date for every month of the year, so a
+    // future month can have a date typed in well before any sales are recorded against it.
+    if (grossSales === 0 && taxable6 === 0 && special12 === 0 && vape20 === 0 && rate60 === 0 && adjustments === 0) continue;
 
     const saleDate = parseFlexibleDate(rawDate);
     if (!saleDate) {
