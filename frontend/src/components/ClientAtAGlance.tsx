@@ -6,6 +6,18 @@ import { ErrorBanner } from "./ErrorBanner";
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
+interface ClientFlag {
+  flagId: string | null;
+  flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
+  amount: number | null;
+  note: string | null;
+  color: "red" | "green" | "amber";
+  createdAt: string | null;
+  createdBy: string | null;
+  resolvable: boolean;
+  linkTaskId?: string;
+}
+
 interface HealthScoreComponent { label: string; points: number; maxPoints: number; detail: string }
 interface ClientHealthScore { score: number; band: "Green" | "Yellow" | "Red"; components: HealthScoreComponent[] }
 interface ClientRatios {
@@ -32,6 +44,13 @@ function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
+function flagLabel(f: ClientFlag): string {
+  if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
+  if (f.flagType === "AgencyPastDue") return `${f.note} Past Due${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
+  if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
+  return `${f.note}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}`;
+}
+
 function fmtPct(v: number | null): string {
   return v === null ? "—" : `${v}%`;
 }
@@ -121,6 +140,13 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
   const [snapshots, setSnapshots] = useState<MonthlySnapshot[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [flags, setFlags] = useState<ClientFlag[] | null>(null);
+
+  useEffect(() => {
+    api.get<{ flags: ClientFlag[] }>(`/clients/${clientId}/flags`)
+      .then((r) => setFlags(r.flags))
+      .catch(() => setFlags(null));
+  }, [clientId]);
 
   useEffect(() => {
     if (!isAdmin) { setDash(null); setSnapshots(null); return; }
@@ -153,6 +179,61 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
           <MetricTile label="Employees" value={summary ? summary.employeesCount : "—"} onClick={() => onNavigateTab("Account")} />
         </div>
       </div>
+
+      {flags && flags.length > 0 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account Flags</h2>
+          <div className="metric-grid metric-grid-3">
+            <div>
+              <div className="metric-label" style={{ marginBottom: 6 }}>Owed to Us</div>
+              {(() => {
+                const owedToUs = flags.filter((f) => f.flagType === "BalancePastDue" || f.flagType === "Credit");
+                return owedToUs.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {owedToUs.map((f) => (
+                      <span key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ width: "fit-content" }}>{flagLabel(f)}</span>
+                    ))}
+                  </div>
+                ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
+              })()}
+            </div>
+            <div>
+              <div className="metric-label" style={{ marginBottom: 6 }}>Owed to Agencies</div>
+              {(() => {
+                const owedToAgencies = flags.filter((f) => f.flagType === "AgencyPastDue");
+                return owedToAgencies.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {owedToAgencies.map((f) => (
+                      <button
+                        key={f.linkTaskId || f.flagType}
+                        type="button"
+                        onClick={() => f.linkTaskId && navigate(`/tasks/${f.linkTaskId}`)}
+                        className={`status-pill status-${f.color}`}
+                        style={{ width: "fit-content", border: "none", cursor: f.linkTaskId ? "pointer" : "default", textDecoration: f.linkTaskId ? "underline" : "none" }}
+                      >
+                        {flagLabel(f)}
+                      </button>
+                    ))}
+                  </div>
+                ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
+              })()}
+            </div>
+            <div>
+              <div className="metric-label" style={{ marginBottom: 6 }}>Other Notes</div>
+              {(() => {
+                const other = flags.filter((f) => f.flagType === "Custom");
+                return other.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {other.map((f) => (
+                      <span key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ width: "fit-content" }}>{flagLabel(f)}</span>
+                    ))}
+                  </div>
+                ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isAdmin && (
         <div>
