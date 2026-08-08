@@ -11,6 +11,14 @@
  * signature (unlike contracts.routes.ts's click-to-sign flow), since this
  * changes legal ownership and belongs on a wet-ink or notarized original,
  * same conservative rule this app already applies to every IRS/state form.
+ *
+ * When the transfer carries itemized asset allocations, Section 3 renders a
+ * real IRC Section 1060 / Form 8594-style allocation schedule (category,
+ * description, amount, and that category's Form 8594 asset class) instead
+ * of one freeform paragraph — see ASSET_ALLOCATION_CLASS below and
+ * ASSET_ALLOCATION_CATEGORIES in frontend/src/utils/clientOptions.ts, which
+ * this must stay in sync with. Multi-page aware (see ensureSpace/newPage)
+ * since an itemized schedule can run well past one page.
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
@@ -24,6 +32,41 @@ const MUTED = rgb(0.42, 0.42, 0.42);
 const LINE = rgb(0.82, 0.82, 0.82);
 const TEAL = rgb(0.043, 0.42, 0.42);
 const TEAL_TINT = rgb(0.93, 0.97, 0.97);
+const L = 48, R = PAGE_W - 48;
+const BOTTOM_MARGIN = 64;
+
+export interface AssetAllocationLine {
+  category: string;
+  description?: string | null;
+  amount: number;
+}
+
+/**
+ * IRC Section 1060 / Form 8594 asset classes — Class I (cash) and Class II
+ * (actively traded securities) are included for completeness even though a
+ * small-business sale rarely uses them; everything else here is the
+ * realistic set for a firm like this one's client base (delis, smoke shops,
+ * convenience stores). "Other" and any custom-typed category intentionally
+ * fall through to "—" rather than guessing a class.
+ */
+export const ASSET_ALLOCATION_CLASS: Record<string, string> = {
+  "Cash": "Class I",
+  "Marketable Securities / CDs": "Class II",
+  "Accounts Receivable": "Class III",
+  "Inventory / Stock in Trade": "Class IV",
+  "Equipment & Machinery": "Class V",
+  "Furniture & Fixtures": "Class V",
+  "Vehicles": "Class V",
+  "Real Property / Leasehold Improvements": "Class V",
+  "Covenant Not to Compete": "Class VI",
+  "Customer List / Customer Relationships": "Class VI",
+  "Trade Name / Business Name": "Class VI",
+  "Licenses & Permits": "Class VI",
+  "Goodwill": "Class VII",
+};
+export function classForCategory(category: string): string {
+  return ASSET_ALLOCATION_CLASS[category] || "—";
+}
 
 export interface BillOfSaleData {
   clientId: string;
@@ -38,6 +81,7 @@ export interface BillOfSaleData {
   effectiveDate?: string | null;
   salePrice?: number | null;
   assetsIncluded?: string | null;
+  assetAllocations?: AssetAllocationLine[] | null;
   liabilitiesIncluded?: string | null;
   additionalTerms?: string | null;
 }
@@ -95,13 +139,28 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   const profile: FirmProfile = await getFirmProfile();
   const logo = await embedFirmLogo(doc, profile);
 
-  const page = doc.addPage([PAGE_W, PAGE_H]);
-  const c = new Cursor(page, font, bold, PAGE_H);
-  c.rect(0, 0, PAGE_W, 6, TEAL);
-
-  const L = 48, R = PAGE_W - 48;
-  const maxWidth = R - L;
+  let page = doc.addPage([PAGE_W, PAGE_H]);
+  let c = new Cursor(page, font, bold, PAGE_H);
   let y = 48;
+  const maxWidth = R - L;
+
+  const footer = () => c.text(L, PAGE_H - 28, `${profile.firmName} — Prepared for ${data.businessName} (${data.clientId})`, { size: 7.5, color: MUTED });
+
+  /** Starts a fresh page (continuation header, no logo/price box repeat) and resets y — called whenever the next block wouldn't fit above BOTTOM_MARGIN. */
+  const newPage = () => {
+    footer();
+    page = doc.addPage([PAGE_W, PAGE_H]);
+    c = new Cursor(page, font, bold, PAGE_H);
+    c.rect(0, 0, PAGE_W, 6, TEAL);
+    y = 40;
+    c.text(L, y, `${data.businessName} — Bill of Sale (continued)`, { size: 9, color: MUTED });
+    y += 22;
+  };
+  const ensureSpace = (needed: number) => {
+    if (y + needed > PAGE_H - BOTTOM_MARGIN) newPage();
+  };
+
+  c.rect(0, 0, PAGE_W, 6, TEAL);
   let textL = L;
   if (logo) {
     const logoH = 30;
@@ -123,15 +182,19 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   y += 62;
 
   const paragraph = (text: string, size = 9.5) => {
-    for (const rawLine of text.split("\n")) {
-      for (const wrapped of wrapText(rawLine, font, size, maxWidth)) {
-        c.text(L, y, wrapped, { size });
+    const rawLines = text.split("\n");
+    for (const rawLine of rawLines) {
+      const wrapped = wrapText(rawLine, font, size, maxWidth);
+      ensureSpace(wrapped.length * 13 + 8);
+      for (const w of wrapped) {
+        c.text(L, y, w, { size });
         y += 13;
       }
     }
     y += 8;
   };
   const heading = (text: string) => {
+    ensureSpace(20);
     c.text(L, y, text, { size: 10.5, bold: true, color: TEAL });
     y += 16;
   };
@@ -151,29 +214,72 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     `Seller's right, title, and interest in and to the Business, effective as of the date above.`
   );
 
-  heading("3. ASSETS INCLUDED");
-  paragraph(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described in Section 2.");
+  const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
+
+  heading("3. ASSETS INCLUDED" + (allocations.length > 0 ? " — ALLOCATION OF PURCHASE PRICE" : ""));
+  if (allocations.length > 0) {
+    paragraph(
+      "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 " +
+      "and each party's Form 8594 (Asset Acquisition Statement):",
+      9
+    );
+    const colCat = L, colDesc = L + 150, colClass = R - 100, colAmt = R;
+    ensureSpace(22);
+    c.text(colCat, y, "Category", { size: 8, bold: true, color: MUTED });
+    c.text(colDesc, y, "Description", { size: 8, bold: true, color: MUTED });
+    c.text(colClass, y, "Form 8594 Class", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(colAmt, y, "Amount", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6;
+    c.line(L, y, R, y, INK, 0.75);
+    y += 14;
+    let total = 0;
+    for (const a of allocations) {
+      const descWrapped = wrapText(a.description || "", font, 9, colClass - colDesc - 10);
+      const rowLines = Math.max(1, descWrapped.length);
+      ensureSpace(rowLines * 12 + 4);
+      c.text(colCat, y, a.category.slice(0, 26), { size: 9 });
+      c.text(colClass, y, classForCategory(a.category), { size: 9, align: "right" });
+      c.text(colAmt, y, fmtMoney(a.amount), { size: 9, align: "right" });
+      if (descWrapped.length && descWrapped[0]) c.text(colDesc, y, descWrapped[0], { size: 9, color: MUTED });
+      for (let i = 1; i < descWrapped.length; i++) {
+        y += 12;
+        c.text(colDesc, y, descWrapped[i], { size: 9, color: MUTED });
+      }
+      total += a.amount;
+      y += 14;
+    }
+    y += 2;
+    ensureSpace(20);
+    c.line(L, y, R, y, INK, 1);
+    y += 14;
+    c.text(colCat, y, "Total Allocated Purchase Price", { size: 9.5, bold: true });
+    c.text(colAmt, y, fmtMoney(total), { size: 9.5, bold: true, color: TEAL, align: "right" });
+    y += 22;
+  } else {
+    paragraph(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described in Section 2.");
+  }
 
   heading("4. LIABILITIES");
   paragraph(data.liabilitiesIncluded?.trim() || "No liabilities were itemized as assumed by Buyer as part of this transfer; the parties should confirm the treatment of any outstanding business debts, leases, or obligations separately.");
 
+  let n = 5;
   if (data.additionalTerms?.trim()) {
-    heading("5. ADDITIONAL CLAUSE(S) / TERMS");
+    heading(`${n++}. ADDITIONAL CLAUSE(S) / TERMS`);
     paragraph(data.additionalTerms.trim());
   }
 
-  heading(`${data.additionalTerms?.trim() ? "6" : "5"}. AS-IS; NO WARRANTIES`);
+  heading(`${n++}. AS-IS; NO WARRANTIES`);
   paragraph(
     "Except as expressly stated in this Bill of Sale, Seller makes no warranties, express or implied, regarding the Business " +
     "being transferred, and Buyer accepts the ownership interest in its current condition. Nothing in this document constitutes " +
     "legal, tax, or accounting advice to either party."
   );
 
-  heading(`${data.additionalTerms?.trim() ? "7" : "6"}. GOVERNING LAW`);
+  heading(`${n++}. GOVERNING LAW`);
   paragraph("This Bill of Sale shall be governed by and construed in accordance with the laws of the State of Maryland.");
 
-  // Signature block
-  if (y > PAGE_H - 150) y = PAGE_H - 150;
+  // Signature block — keep both parties together, push to a new page rather than split.
+  ensureSpace(190);
   y += 12;
   c.line(L, y, R, y, INK, 1);
   y += 22;
@@ -191,7 +297,7 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   y += 22;
   c.text(L, y, `Print Name: ${data.buyerName}`, { size: 10 });
 
-  c.text(L, PAGE_H - 28, `${profile.firmName} — Prepared for ${data.businessName} (${data.clientId})`, { size: 7.5, color: MUTED });
+  footer();
 
   return doc.save();
 }

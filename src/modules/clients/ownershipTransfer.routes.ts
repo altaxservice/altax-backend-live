@@ -75,13 +75,48 @@ async function encryptFormDataForStorage(formData: any): Promise<string> {
   return JSON.stringify({ __enc: encryptValue(JSON.stringify(formData ?? {})) });
 }
 
+/**
+ * IRC Section 1060 / Form 8594-style itemized allocation — replaces (when
+ * present) the old single "assets included" paragraph with real line items,
+ * each with its own price, so the Bill of Sale can show a genuine allocation
+ * schedule instead of prose. See ASSET_ALLOCATION_CATEGORIES in
+ * frontend/src/utils/clientOptions.ts and the class map in billOfSale.ts —
+ * category is free text here (not a hard enum) since "Other" always needs
+ * to cover something a fixed list didn't anticipate.
+ */
+interface AssetAllocationLine {
+  category: string;
+  description: string | null;
+  amount: number;
+}
+
+/** Rejects a malformed line (empty category, non-positive/non-finite amount) outright rather than silently dropping or zeroing it — a staff typo here becomes a wrong legal document otherwise. */
+function parseAssetAllocations(raw: unknown): AssetAllocationLine[] {
+  if (!Array.isArray(raw)) return [];
+  const lines: AssetAllocationLine[] = [];
+  for (const item of raw) {
+    const category = String(item?.category || "").trim();
+    const amount = Number(item?.amount);
+    if (!category) continue;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(`Each asset allocation line needs a category and a positive amount (problem with "${category}").`);
+    }
+    lines.push({ category, description: String(item?.description || "").trim() || null, amount: Math.round(amount * 100) / 100 });
+  }
+  return lines;
+}
+
+function sumAllocations(lines: AssetAllocationLine[]): number {
+  return Math.round(lines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100;
+}
+
 ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const rows = await query<any>(
     `SELECT transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
             buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
-            assets_included, liabilities_included, additional_terms,
+            assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations,
             gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id, created_by, created_at
        FROM altax.v3_ownership_transfers WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
@@ -112,14 +147,31 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
 
   const transferId = `XFER-${idSuffix()}`;
   const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
-  const salePrice = body.salePrice !== "" && body.salePrice !== null && body.salePrice !== undefined ? Number(body.salePrice) : null;
+
+  let assetAllocations: AssetAllocationLine[];
+  try {
+    assetAllocations = parseAssetAllocations(body.assetAllocations);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+  // The allocation lines ARE the sale price when present — a single source of
+  // truth so the Bill of Sale total and the itemized schedule can never drift
+  // apart. With no allocation lines this stays the old plain manual figure.
+  const salePrice = assetAllocations.length > 0
+    ? sumAllocations(assetAllocations)
+    : (body.salePrice !== "" && body.salePrice !== null && body.salePrice !== undefined ? Number(body.salePrice) : null);
+
+  const includeBillOfSale = body.includeBillOfSale !== false;
+  const include8822b = body.include8822b !== false;
+  const includeCra = body.includeCra !== false;
+  const includeMdAmendmentTask = body.includeMdAmendmentTask !== false;
 
   await query(
     `INSERT INTO altax.v3_ownership_transfers
        (transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
         buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
-        assets_included, liabilities_included, additional_terms, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+        assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
     [
       transferId, clientId, sellerName, String(body.sellerTitle || "").trim() || null,
       buyerName, String(body.buyerTitle || "").trim() || null,
@@ -129,108 +181,119 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       String(body.buyerState || "").trim() || null, String(body.buyerZipCode || "").trim() || null,
       body.effectiveDate || null, salePrice,
       String(body.assetsIncluded || "").trim() || null, String(body.liabilitiesIncluded || "").trim() || null,
-      String(body.additionalTerms || "").trim() || null, req.user!.email,
+      String(body.additionalTerms || "").trim() || null, includeBillOfSale,
+      assetAllocations.length > 0 ? JSON.stringify(assetAllocations) : null, req.user!.email,
     ]
   );
 
   const created: { billOfSale: boolean; form8822b: boolean; craUpdate: boolean; mdAmendmentTask: boolean } = {
-    billOfSale: true, // always generatable on demand — no external data dependency beyond what's already required above
-    form8822b: false, craUpdate: false, mdAmendmentTask: false,
+    billOfSale: includeBillOfSale, form8822b: false, craUpdate: false, mdAmendmentTask: false,
   };
   const skippedReasons: string[] = [];
 
   // 8822-B — new responsible party is the buyer. affectsEmploymentReturns is
   // always checked: any client with payroll or that files any business
   // return has that box apply the moment its responsible party changes.
-  try {
-    const form8822bData: Form8822bData = {
-      affectsEmploymentReturns: true,
-      businessName: client.client_name,
-      ein: client.ein || undefined,
-      newResponsiblePartyName: buyerName,
-      newResponsiblePartyId: buyerSsnPlaintext || undefined,
-      daytimePhone: String(body.buyerPhone || "").trim() || undefined,
-      title: String(body.buyerTitle || "").trim() || undefined,
-    };
-    await generateGovForm("8822B", form8822bData); // fail fast on a broken field map, same as govForms.routes.ts
-    const filingId8822b = `GOV-${idSuffix()}`;
-    await query(
-      `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
-       VALUES ($1,$2,'8822B',$3,'Draft',$4)`,
-      [filingId8822b, clientId, await encryptFormDataForStorage(form8822bData), req.user!.email]
-    );
-    await query(`UPDATE altax.v3_ownership_transfers SET gov_form_8822b_filing_id = $1 WHERE transfer_id = $2`, [filingId8822b, transferId]);
-    created.form8822b = true;
-  } catch (err: any) {
-    skippedReasons.push(`Form 8822-B was not generated: ${err?.message || "missing data."}`);
+  if (!include8822b) {
+    skippedReasons.push("Form 8822-B was not requested.");
+  } else {
+    try {
+      const form8822bData: Form8822bData = {
+        affectsEmploymentReturns: true,
+        businessName: client.client_name,
+        ein: client.ein || undefined,
+        newResponsiblePartyName: buyerName,
+        newResponsiblePartyId: buyerSsnPlaintext || undefined,
+        daytimePhone: String(body.buyerPhone || "").trim() || undefined,
+        title: String(body.buyerTitle || "").trim() || undefined,
+      };
+      await generateGovForm("8822B", form8822bData); // fail fast on a broken field map, same as govForms.routes.ts
+      const filingId8822b = `GOV-${idSuffix()}`;
+      await query(
+        `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
+         VALUES ($1,$2,'8822B',$3,'Draft',$4)`,
+        [filingId8822b, clientId, await encryptFormDataForStorage(form8822bData), req.user!.email]
+      );
+      await query(`UPDATE altax.v3_ownership_transfers SET gov_form_8822b_filing_id = $1 WHERE transfer_id = $2`, [filingId8822b, transferId]);
+      created.form8822b = true;
+    } catch (err: any) {
+      skippedReasons.push(`Form 8822-B was not generated: ${err?.message || "missing data."}`);
+    }
   }
 
   // CRA "Change of entity" — same officer-slot convention this app already
   // uses (one responsible party per client), filled with the buyer.
-  try {
-    if (!client.street_address || !client.city || !client.zip_code) {
-      throw new Error("client is missing a physical business address on file");
+  if (!includeCra) {
+    skippedReasons.push("Maryland CRA update was not requested.");
+  } else {
+    try {
+      if (!client.street_address || !client.city || !client.zip_code) {
+        throw new Error("client is missing a physical business address on file");
+      }
+      const taxTypes: CraData["taxTypes"] = [];
+      if (client.payroll_enabled) taxTypes.push("Employer withholding tax");
+      if (client.sales_tax_frequency && String(client.sales_tax_frequency).trim().toLowerCase() !== "n/a") taxTypes.push("Sales and use tax");
+      if (taxTypes.length === 0) taxTypes.push("Employer withholding tax"); // safe default so the form can generate; staff should verify the client's real accounts on file
+      const officer = splitName(buyerName);
+      const ownershipType = (client.entity_type && ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type]) || "Limited liability company";
+      const craData: CraData = {
+        fein: client.ein || undefined,
+        legalFirstName: client.client_name,
+        tradeName: client.dba_name || undefined,
+        street1: client.street_address,
+        city: client.city,
+        state: client.state || "MD",
+        zip: client.zip_code,
+        reason: "Change of entity",
+        taxTypes,
+        ownershipType: ownershipType as CraData["ownershipType"],
+        officerFirstName: officer.first,
+        officerLastName: officer.last,
+        officerSsn: buyerSsnPlaintext || undefined,
+        officerTitle: String(body.buyerTitle || "").trim() || undefined,
+        officerStreet: String(body.buyerStreetAddress || "").trim() || undefined,
+        officerCity: String(body.buyerCity || "").trim() || undefined,
+        officerState: String(body.buyerState || "").trim() || undefined,
+        officerZip: String(body.buyerZipCode || "").trim() || undefined,
+        officerPhone: String(body.buyerPhone || "").trim() || undefined,
+      };
+      await generateGovForm("CRA", craData);
+      const filingIdCra = `GOV-${idSuffix()}`;
+      await query(
+        `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
+         VALUES ($1,$2,'CRA',$3,'Draft',$4)`,
+        [filingIdCra, clientId, await encryptFormDataForStorage(craData), req.user!.email]
+      );
+      await query(`UPDATE altax.v3_ownership_transfers SET gov_form_cra_filing_id = $1 WHERE transfer_id = $2`, [filingIdCra, transferId]);
+      created.craUpdate = true;
+    } catch (err: any) {
+      skippedReasons.push(`Maryland CRA update was not generated: ${err?.message || "missing data."}`);
     }
-    const taxTypes: CraData["taxTypes"] = [];
-    if (client.payroll_enabled) taxTypes.push("Employer withholding tax");
-    if (client.sales_tax_frequency && String(client.sales_tax_frequency).trim().toLowerCase() !== "n/a") taxTypes.push("Sales and use tax");
-    if (taxTypes.length === 0) taxTypes.push("Employer withholding tax"); // safe default so the form can generate; staff should verify the client's real accounts on file
-    const officer = splitName(buyerName);
-    const ownershipType = (client.entity_type && ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type]) || "Limited liability company";
-    const craData: CraData = {
-      fein: client.ein || undefined,
-      legalFirstName: client.client_name,
-      tradeName: client.dba_name || undefined,
-      street1: client.street_address,
-      city: client.city,
-      state: client.state || "MD",
-      zip: client.zip_code,
-      reason: "Change of entity",
-      taxTypes,
-      ownershipType: ownershipType as CraData["ownershipType"],
-      officerFirstName: officer.first,
-      officerLastName: officer.last,
-      officerSsn: buyerSsnPlaintext || undefined,
-      officerTitle: String(body.buyerTitle || "").trim() || undefined,
-      officerStreet: String(body.buyerStreetAddress || "").trim() || undefined,
-      officerCity: String(body.buyerCity || "").trim() || undefined,
-      officerState: String(body.buyerState || "").trim() || undefined,
-      officerZip: String(body.buyerZipCode || "").trim() || undefined,
-      officerPhone: String(body.buyerPhone || "").trim() || undefined,
-    };
-    await generateGovForm("CRA", craData);
-    const filingIdCra = `GOV-${idSuffix()}`;
-    await query(
-      `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
-       VALUES ($1,$2,'CRA',$3,'Draft',$4)`,
-      [filingIdCra, clientId, await encryptFormDataForStorage(craData), req.user!.email]
-    );
-    await query(`UPDATE altax.v3_ownership_transfers SET gov_form_cra_filing_id = $1 WHERE transfer_id = $2`, [filingIdCra, transferId]);
-    created.craUpdate = true;
-  } catch (err: any) {
-    skippedReasons.push(`Maryland CRA update was not generated: ${err?.message || "missing data."}`);
   }
 
   // MD Amendment — tracked as a Task since the real SDAT form isn't built yet.
-  try {
-    const taskId = `TASK-${idSuffix()}`;
-    const dueDate = body.effectiveDate || null;
-    await query(
-      `INSERT INTO altax.v3_tasks
-         (task_id, client_id, client_name, service_line, task_name, period, status, assigned_to, notes, source_system, source_record_id)
-       VALUES ($1,$2,$3,'Compliance','File MD Amendment (Articles of Amendment) with SDAT','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer',$6)`,
-      [
-        taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
-        `Business ownership transferred from ${sellerName} to ${buyerName}` +
-          (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
-          `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — this app doesn't yet generate that form (see transfer ${transferId}).`,
-        transferId,
-      ]
-    );
-    await query(`UPDATE altax.v3_ownership_transfers SET md_amendment_task_id = $1 WHERE transfer_id = $2`, [taskId, transferId]);
-    created.mdAmendmentTask = true;
-  } catch (err: any) {
-    skippedReasons.push(`MD Amendment task was not created: ${err?.message || "unknown error."}`);
+  if (!includeMdAmendmentTask) {
+    skippedReasons.push("MD Amendment task was not requested.");
+  } else {
+    try {
+      const taskId = `TASK-${idSuffix()}`;
+      await query(
+        `INSERT INTO altax.v3_tasks
+           (task_id, client_id, client_name, service_line, task_name, period, status, assigned_to, notes, source_system, source_record_id)
+         VALUES ($1,$2,$3,'Compliance','File MD Amendment (Articles of Amendment) with SDAT','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer',$6)`,
+        [
+          taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
+          `Business ownership transferred from ${sellerName} to ${buyerName}` +
+            (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
+            `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — this app doesn't yet generate that form (see transfer ${transferId}).`,
+          transferId,
+        ]
+      );
+      await query(`UPDATE altax.v3_ownership_transfers SET md_amendment_task_id = $1 WHERE transfer_id = $2`, [taskId, transferId]);
+      created.mdAmendmentTask = true;
+    } catch (err: any) {
+      skippedReasons.push(`MD Amendment task was not created: ${err?.message || "unknown error."}`);
+    }
   }
 
   await logAudit("Clients", "OWNERSHIP_TRANSFER_CREATED", transferId, "buyer_name", "", buyerName,
@@ -264,13 +327,24 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
   if (!buyerName) return res.status(400).json({ error: "Buyer name is required." });
 
   const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
-  const salePrice = body.salePrice !== "" && body.salePrice !== null && body.salePrice !== undefined ? Number(body.salePrice) : null;
+
+  let assetAllocations: AssetAllocationLine[];
+  try {
+    assetAllocations = parseAssetAllocations(body.assetAllocations);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+  const salePrice = assetAllocations.length > 0
+    ? sumAllocations(assetAllocations)
+    : (body.salePrice !== "" && body.salePrice !== null && body.salePrice !== undefined ? Number(body.salePrice) : null);
+  const includeBillOfSale = body.includeBillOfSale !== false;
 
   await query(
     `UPDATE altax.v3_ownership_transfers SET
        seller_name=$3, seller_title=$4, buyer_name=$5, buyer_title=$6, buyer_ssn=$7, buyer_email=$8, buyer_phone=$9,
        buyer_street_address=$10, buyer_city=$11, buyer_state=$12, buyer_zip_code=$13, effective_date=$14, sale_price=$15,
-       assets_included=$16, liabilities_included=$17, additional_terms=$18
+       assets_included=$16, liabilities_included=$17, additional_terms=$18, include_bill_of_sale=$19, asset_allocations=$20,
+       updated_at=now()
      WHERE transfer_id = $1 AND client_id = $2`,
     [
       transferId, clientId, sellerName, String(body.sellerTitle || "").trim() || null,
@@ -281,7 +355,8 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
       String(body.buyerState || "").trim() || null, String(body.buyerZipCode || "").trim() || null,
       body.effectiveDate || null, salePrice,
       String(body.assetsIncluded || "").trim() || null, String(body.liabilitiesIncluded || "").trim() || null,
-      String(body.additionalTerms || "").trim() || null,
+      String(body.additionalTerms || "").trim() || null, includeBillOfSale,
+      assetAllocations.length > 0 ? JSON.stringify(assetAllocations) : null,
     ]
   );
 
@@ -360,6 +435,7 @@ async function loadBillOfSaleInputs(clientId: string, transferId: string) {
       effectiveDate: transfer.effective_date,
       salePrice: transfer.sale_price !== null ? Number(transfer.sale_price) : null,
       assetsIncluded: transfer.assets_included,
+      assetAllocations: (transfer.asset_allocations as AssetAllocationLine[] | null) || [],
       liabilitiesIncluded: transfer.liabilities_included,
       additionalTerms: transfer.additional_terms,
       entityType: client.entity_type || null,

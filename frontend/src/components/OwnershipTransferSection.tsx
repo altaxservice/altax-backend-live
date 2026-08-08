@@ -4,7 +4,13 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "./Toast";
 import { useConfirm, useNotify } from "./ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
-import { US_STATES } from "../utils/clientOptions";
+import { US_STATES, ASSET_ALLOCATION_CATEGORIES } from "../utils/clientOptions";
+
+interface AssetAllocationLine {
+  category: string;
+  description: string | null;
+  amount: number;
+}
 
 interface OwnershipTransfer {
   transfer_id: string;
@@ -22,12 +28,21 @@ interface OwnershipTransfer {
   effective_date: string | null;
   sale_price: number | null;
   assets_included: string | null;
+  asset_allocations: AssetAllocationLine[] | null;
   liabilities_included: string | null;
   additional_terms: string | null;
+  include_bill_of_sale: boolean;
   gov_form_8822b_filing_id: string | null;
   gov_form_cra_filing_id: string | null;
   md_amendment_task_id: string | null;
   created_at: string;
+}
+
+/** Row shape while being edited in the form — amount stays a string so the input can be empty mid-typing, parsed to a number only on submit. */
+interface AllocationRow {
+  category: string;
+  description: string;
+  amount: string;
 }
 
 const EMPTY_FORM = {
@@ -36,7 +51,16 @@ const EMPTY_FORM = {
   buyerStreetAddress: "", buyerCity: "", buyerState: "", buyerZipCode: "",
   effectiveDate: "", salePrice: "",
   assetsIncluded: "", liabilitiesIncluded: "", additionalTerms: "",
+  includeBillOfSale: true, include8822b: true, includeCra: true, includeMdAmendmentTask: true,
+  assetAllocations: [] as AllocationRow[],
 };
+
+function allocationTotal(rows: AllocationRow[]): number {
+  return Math.round(rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) * 100) / 100;
+}
+function fmtMoney(v: number): string {
+  return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 /**
  * "Ownership Transfer" package — a single intake (old owner -> new owner,
@@ -90,10 +114,30 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       buyerState: t.buyer_state || "", buyerZipCode: t.buyer_zip_code || "",
       effectiveDate: t.effective_date ? t.effective_date.slice(0, 10) : "", salePrice: t.sale_price !== null ? String(t.sale_price) : "",
       assetsIncluded: t.assets_included || "", liabilitiesIncluded: t.liabilities_included || "", additionalTerms: t.additional_terms || "",
+      includeBillOfSale: t.include_bill_of_sale, include8822b: true, includeCra: true, includeMdAmendmentTask: true,
+      assetAllocations: (t.asset_allocations || []).map((a) => ({ category: a.category, description: a.description || "", amount: String(a.amount) })),
     });
     setSaveError(null);
     setLastResult(null);
     setShowForm(true);
+  }
+
+  function addAllocationRow() {
+    setForm((f) => ({ ...f, assetAllocations: [...f.assetAllocations, { category: ASSET_ALLOCATION_CATEGORIES[0], description: "", amount: "" }] }));
+  }
+  function updateAllocationRow(index: number, patch: Partial<AllocationRow>) {
+    setForm((f) => ({ ...f, assetAllocations: f.assetAllocations.map((r, i) => (i === index ? { ...r, ...patch } : r)) }));
+  }
+  function removeAllocationRow(index: number) {
+    setForm((f) => ({ ...f, assetAllocations: f.assetAllocations.filter((_, i) => i !== index) }));
+  }
+
+  const allocRows = form.assetAllocations.filter((r) => r.category.trim());
+  const allocTotal = allocationTotal(allocRows);
+  const allDocsSelected = form.includeBillOfSale && form.include8822b && form.includeCra && form.includeMdAmendmentTask;
+  function toggleAllDocs() {
+    const next = !allDocsSelected;
+    setForm((f) => ({ ...f, includeBillOfSale: next, include8822b: next, includeCra: next, includeMdAmendmentTask: next }));
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -102,16 +146,26 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       setSaveError("Seller name and buyer name are required.");
       return;
     }
+    for (const r of allocRows) {
+      if (!(Number(r.amount) > 0)) {
+        setSaveError(`Enter a positive amount for the "${r.category}" allocation line, or remove it.`);
+        return;
+      }
+    }
     setSaving(true);
     setSaveError(null);
+    const payload = {
+      ...form,
+      assetAllocations: allocRows.map((r) => ({ category: r.category, description: r.description || null, amount: Number(r.amount) })),
+    };
     try {
       if (editingTransfer) {
-        await api.patch(`/clients/${clientId}/ownership-transfers/${editingTransfer.transfer_id}`, form);
+        await api.patch(`/clients/${clientId}/ownership-transfers/${editingTransfer.transfer_id}`, payload);
         toast("Ownership transfer updated.");
         setShowForm(false);
       } else {
         const res = await api.post<{ transferId: string; created: Record<string, boolean>; skippedReasons: string[] }>(
-          `/clients/${clientId}/ownership-transfers`, form
+          `/clients/${clientId}/ownership-transfers`, payload
         );
         setLastResult({ created: res.created, skippedReasons: res.skippedReasons });
         toast("Ownership transfer package created.");
@@ -164,14 +218,52 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
         {!showForm && <button className="btn-primary" onClick={openForm}>Start Ownership Transfer</button>}
       </div>
       <p className="muted" style={{ marginTop: 0, marginBottom: 12, fontSize: 12.5 }}>
-        Capture the buyer/seller and sale terms once — this generates a Bill of Sale below, drafts a Form 8822-B and
-        Maryland CRA update naming the buyer as the new responsible party (both appear in Government Forms), and
-        creates a task to file the MD Amendment with SDAT by hand.
+        Capture the buyer/seller and sale terms once — choose below which of the Bill of Sale, Form 8822-B, Maryland
+        CRA update, and MD Amendment reminder task to generate. The 8822-B/CRA drafts appear in Government Forms.
       </p>
 
       {showForm && (
         <form onSubmit={handleSubmit} style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
           {saveError && <div className="error-banner" role="alert" style={{ marginBottom: 10 }}>{saveError}</div>}
+
+          <div className="form-section-title">Documents to Generate</div>
+          {!editingTransfer ? (
+            <div style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", marginBottom: 14 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, marginBottom: 6 }}>
+                <input type="checkbox" checked={allDocsSelected} onChange={toggleAllDocs} />
+                All documents
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 4 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                  <input type="checkbox" checked={form.includeBillOfSale} onChange={(e) => setForm((f) => ({ ...f, includeBillOfSale: e.target.checked }))} />
+                  Bill of Sale (PDF + Word)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                  <input type="checkbox" checked={form.include8822b} onChange={(e) => setForm((f) => ({ ...f, include8822b: e.target.checked }))} />
+                  IRS Form 8822-B — Change of Responsible Party
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                  <input type="checkbox" checked={form.includeCra} onChange={(e) => setForm((f) => ({ ...f, includeCra: e.target.checked }))} />
+                  Maryland CRA Update — Change of Entity
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                  <input type="checkbox" checked={form.includeMdAmendmentTask} onChange={(e) => setForm((f) => ({ ...f, includeMdAmendmentTask: e.target.checked }))} />
+                  MD Amendment reminder task (SDAT)
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+                <input type="checkbox" checked={form.includeBillOfSale} onChange={(e) => setForm((f) => ({ ...f, includeBillOfSale: e.target.checked }))} />
+                Bill of Sale (show its download buttons below)
+              </label>
+              <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 0" }}>
+                8822-B / CRA / MD Amendment task were already decided when this package was created — edit those directly in Government Forms/Tasks if needed.
+              </p>
+            </div>
+          )}
+
           <div className="form-section-title">Seller (current owner)</div>
           <div className="form-grid-3">
             <div className="field"><label htmlFor="xfer-seller-name">Seller Name</label><input id="xfer-seller-name" required value={form.sellerName} onChange={(e) => setForm((f) => ({ ...f, sellerName: e.target.value }))} /></div>
@@ -202,9 +294,62 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
           <div className="form-section-title">Sale Terms</div>
           <div className="form-grid-3">
             <div className="field"><label htmlFor="xfer-effective">Effective Date</label><input id="xfer-effective" type="date" value={form.effectiveDate} onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="xfer-price">Sale Price</label><input id="xfer-price" type="number" step="0.01" min="0" value={form.salePrice} onChange={(e) => setForm((f) => ({ ...f, salePrice: e.target.value }))} /></div>
+            <div className="field">
+              <label htmlFor="xfer-price">Sale Price</label>
+              {allocRows.length > 0 ? (
+                <input id="xfer-price" value={fmtMoney(allocTotal)} disabled title="Computed from the asset allocation below" />
+              ) : (
+                <input id="xfer-price" type="number" step="0.01" min="0" value={form.salePrice} onChange={(e) => setForm((f) => ({ ...f, salePrice: e.target.value }))} />
+              )}
+            </div>
           </div>
-          <div className="field"><label htmlFor="xfer-assets">Assets Included</label><textarea id="xfer-assets" rows={2} value={form.assetsIncluded} onChange={(e) => setForm((f) => ({ ...f, assetsIncluded: e.target.value }))} placeholder="e.g. Equipment, inventory, goodwill, business name" /></div>
+
+          <div className="form-section-title">Allocation of Purchase Price <span className="muted" style={{ fontWeight: 400 }}>(optional — itemize instead of one Sale Price above)</span></div>
+          <p className="muted" style={{ fontSize: 11.5, marginTop: 0, marginBottom: 8 }}>
+            Each line gets its own category and price; the Sale Price above is then computed as their total, mirroring a real IRC §1060 / Form 8594 allocation schedule. Leave empty to use the plain "Assets Included" description below instead.
+          </p>
+          {form.assetAllocations.length > 0 && (
+            <div className="table-wrap" style={{ marginBottom: 8 }}>
+              <table>
+                <thead><tr><th>Category</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+                <tbody>
+                  {form.assetAllocations.map((row, i) => (
+                    <tr key={i}>
+                      <td>
+                        <select value={row.category} onChange={(e) => updateAllocationRow(i, { category: e.target.value })} aria-label="Allocation category">
+                          {ASSET_ALLOCATION_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          value={row.description} onChange={(e) => updateAllocationRow(i, { description: e.target.value })}
+                          placeholder="Optional detail" aria-label="Allocation description"
+                        />
+                      </td>
+                      <td style={{ width: 130 }}>
+                        <input
+                          type="number" step="0.01" min="0" value={row.amount}
+                          onChange={(e) => updateAllocationRow(i, { amount: e.target.value })}
+                          aria-label="Allocation amount"
+                        />
+                      </td>
+                      <td>
+                        <button type="button" className="btn-secondary" onClick={() => removeAllocationRow(i)} aria-label="Remove this allocation line">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <button type="button" className="btn-secondary" onClick={addAllocationRow}>+ Add Allocation Line</button>
+            {allocRows.length > 0 && <strong style={{ fontSize: 13 }}>Total Allocated: {fmtMoney(allocTotal)}</strong>}
+          </div>
+
+          {allocRows.length === 0 && (
+            <div className="field"><label htmlFor="xfer-assets">Assets Included</label><textarea id="xfer-assets" rows={2} value={form.assetsIncluded} onChange={(e) => setForm((f) => ({ ...f, assetsIncluded: e.target.value }))} placeholder="e.g. Equipment, inventory, goodwill, business name" /></div>
+          )}
           <div className="field"><label htmlFor="xfer-liabilities">Liabilities Included</label><textarea id="xfer-liabilities" rows={2} value={form.liabilitiesIncluded} onChange={(e) => setForm((f) => ({ ...f, liabilitiesIncluded: e.target.value }))} placeholder="e.g. None; or specific debts/leases Buyer is assuming" /></div>
           <div className="field">
             <label htmlFor="xfer-terms">Additional Clause(s) / Information <span className="muted">(optional)</span></label>
@@ -260,8 +405,12 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                   <td>{t.sale_price != null ? `$${Number(t.sale_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
                   <td>{fmtDateOnly(t.created_at)}</td>
                   <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>PDF</button>
-                    <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t)}>Word (.docx)</button>
+                    {t.include_bill_of_sale && (
+                      <>
+                        <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>PDF</button>
+                        <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t)}>Word (.docx)</button>
+                      </>
+                    )}
                     <button className="btn-secondary" onClick={() => openEditForm(t)} disabled={busyId === t.transfer_id}>Edit</button>
                     {isAdmin && (
                       <button className="btn-secondary" onClick={() => handleDelete(t)} disabled={busyId === t.transfer_id}>{busyId === t.transfer_id ? "Deleting…" : "Delete"}</button>

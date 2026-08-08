@@ -10,11 +10,11 @@
  * and not a fillable-field form.
  */
 import {
-  AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, TabStopPosition,
-  TabStopType, TextRun,
+  AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, ShadingType, Table, TableCell,
+  TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
 import { getFirmProfile } from "../../common/firmProfile";
-import type { BillOfSaleData } from "./billOfSale";
+import { classForCategory, type BillOfSaleData } from "./billOfSale";
 
 export type EntityKind = "LLC" | "Corp" | "Generic";
 
@@ -82,6 +82,54 @@ function dateBlankLine(label = "Date"): Paragraph {
   });
 }
 
+const ALLOC_COL_WIDTHS = [2520, 3528, 1512, 2520]; // Category / Description / Form 8594 Class / Amount, DXA, sums to the 10080 DXA content width below
+
+function allocHeaderCell(text: string, width: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.LEFT): TableCell {
+  return new TableCell({
+    width: { size: width, type: WidthType.DXA },
+    shading: { type: ShadingType.CLEAR, fill: "0B6B6B" },
+    children: [new Paragraph({ alignment: align, children: [new TextRun({ text, font: FONT, size: 18, bold: true, color: "FFFFFF" })] })],
+  });
+}
+function allocCell(text: string, width: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.LEFT, opts: { bold?: boolean; columnSpan?: number } = {}): TableCell {
+  return new TableCell({
+    width: { size: width, type: WidthType.DXA },
+    columnSpan: opts.columnSpan,
+    children: [new Paragraph({ alignment: align, children: [new TextRun({ text, font: FONT, size: 20, bold: opts.bold })] })],
+  });
+}
+
+/** Real IRC Section 1060 / Form 8594 itemized allocation schedule — replaces the freeform Section 3 paragraph when the transfer carries line-item allocations. */
+function allocationTable(lines: { category: string; description?: string | null; amount: number }[]): Table {
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  const rows: TableRow[] = [
+    new TableRow({
+      tableHeader: true,
+      children: [
+        allocHeaderCell("Category", ALLOC_COL_WIDTHS[0]),
+        allocHeaderCell("Description", ALLOC_COL_WIDTHS[1]),
+        allocHeaderCell("Form 8594 Class", ALLOC_COL_WIDTHS[2], AlignmentType.RIGHT),
+        allocHeaderCell("Amount", ALLOC_COL_WIDTHS[3], AlignmentType.RIGHT),
+      ],
+    }),
+    ...lines.map((l) => new TableRow({
+      children: [
+        allocCell(l.category, ALLOC_COL_WIDTHS[0]),
+        allocCell(l.description || "", ALLOC_COL_WIDTHS[1]),
+        allocCell(classForCategory(l.category), ALLOC_COL_WIDTHS[2], AlignmentType.RIGHT),
+        allocCell(fmtMoney(l.amount), ALLOC_COL_WIDTHS[3], AlignmentType.RIGHT),
+      ],
+    })),
+    new TableRow({
+      children: [
+        allocCell("Total Allocated Purchase Price", ALLOC_COL_WIDTHS[0] + ALLOC_COL_WIDTHS[1] + ALLOC_COL_WIDTHS[2], AlignmentType.RIGHT, { bold: true, columnSpan: 3 }),
+        allocCell(fmtMoney(total), ALLOC_COL_WIDTHS[3], AlignmentType.RIGHT, { bold: true }),
+      ],
+    }),
+  ];
+  return new Table({ width: { size: ALLOC_COL_WIDTHS.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: ALLOC_COL_WIDTHS, rows });
+}
+
 function notaryBlock(personLabel: string, personName: string, state: string): Paragraph[] {
   return [
     new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: `Acknowledgment — ${personLabel}`, bold: true, font: FONT, size: 21 })] }),
@@ -110,7 +158,8 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData & { entityType
     ? `${data.businessName}, a ${state} corporation`
     : data.businessName;
 
-  const children: Paragraph[] = [];
+  const children: (Paragraph | Table)[] = [];
+  const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
 
   children.push(centered(profile.firmName.toUpperCase(), { bold: true, size: 18 }));
   children.push(new Paragraph({ heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 40, before: 60 }, children: [new TextRun({ text: "BILL OF SALE", bold: true, font: FONT, size: 32 })] }));
@@ -156,11 +205,21 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData & { entityType
     ));
   }
 
-  children.push(heading(`${n++}. ASSETS INCLUDED`));
-  children.push(body(
-    data.assetsIncluded?.trim() ||
-    "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists."
-  ));
+  if (allocations.length > 0) {
+    children.push(heading(`${n++}. ASSETS INCLUDED — ALLOCATION OF PURCHASE PRICE`));
+    children.push(body(
+      "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 " +
+      "and each party's Form 8594 (Asset Acquisition Statement):"
+    ));
+    children.push(allocationTable(allocations));
+    children.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: " ", font: FONT, size: 20 })] }));
+  } else {
+    children.push(heading(`${n++}. ASSETS INCLUDED`));
+    children.push(body(
+      data.assetsIncluded?.trim() ||
+      "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists."
+    ));
+  }
 
   children.push(heading(`${n++}. PURCHASE PRICE AND PAYMENT`));
   children.push(body(

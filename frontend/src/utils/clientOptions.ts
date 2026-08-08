@@ -34,6 +34,29 @@ export const MD_COUNTIES = [
   "Wicomico County", "Worcester County", "Unknown Maryland County", "Out of State",
 ];
 export const PAYROLL_PROVIDERS = ["QBO", "Drake", "Gusto", "ADP", "Paychex", "Other"];
+// Ownership Transfer's asset allocation schedule — real IRC Section 1060 / Form
+// 8594 asset classes (Class I cash through Class VII goodwill), covering the
+// realistic set for this firm's client base (delis, smoke shops, convenience
+// stores) plus Class I/II for completeness. Must stay in sync with
+// ASSET_ALLOCATION_CLASS in src/modules/govForms/billOfSale.ts on the backend
+// (the label strings are the lookup key there) — "Other" intentionally has no
+// class, since a fixed list can't anticipate everything.
+export const ASSET_ALLOCATION_CATEGORIES = [
+  "Cash",
+  "Marketable Securities / CDs",
+  "Accounts Receivable",
+  "Inventory / Stock in Trade",
+  "Equipment & Machinery",
+  "Furniture & Fixtures",
+  "Vehicles",
+  "Real Property / Leasehold Improvements",
+  "Covenant Not to Compete",
+  "Customer List / Customer Relationships",
+  "Trade Name / Business Name",
+  "Licenses & Permits",
+  "Goodwill",
+  "Other",
+];
 export const RETURN_TYPES = ["1120", "1120S", "1065", "Schedule C", "990", "N/A"];
 // Matches normalizeLanguagePreference() in src/modules/communications/communications.routes.ts
 // exactly — that's the only thing that actually reads this value (which language(s) a
