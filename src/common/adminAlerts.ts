@@ -1,4 +1,4 @@
-import { query } from "../config/db";
+import { query, isProdRuntime } from "../config/db";
 import { sendEmail } from "./notifications";
 import { getFirmProfile } from "./firmProfile";
 import { escapeHtml } from "./html";
@@ -28,10 +28,16 @@ async function activeAdminEmails(): Promise<string[]> {
  * wrong, and must not itself become an unhandled rejection. console.error always
  * fires first regardless of whether the email step succeeds, so Railway's own logs
  * remain the fallback of last resort.
+ *
+ * Only emails in the production runtime — a local `npm run dev` crash (e.g. a stray
+ * EADDRINUSE from two dev servers racing for the same port) still logs to the console
+ * so it's not silently lost, but doesn't page an admin's real inbox as if it were a
+ * live outage.
  */
 export async function alertAdmins(subject: string, detail: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.error(`[alert] ${subject}: ${detail}`);
+  if (!isProdRuntime) return;
   try {
     const recipients = await activeAdminEmails();
     if (recipients.length === 0) return;

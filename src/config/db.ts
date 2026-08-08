@@ -12,7 +12,7 @@ dotenv.config();
 // use it instead, with zero change to how Railway/production connects (which only ever
 // reads DATABASE_URL and never sees this var). Production is unaffected either way —
 // this is purely additive.
-const isProdRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
+export const isProdRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL);
 const connectionString = (!isProdRuntime && process.env.DATABASE_URL_DEV) || process.env.DATABASE_URL;
 if (!isProdRuntime && !process.env.DATABASE_URL_DEV) {
   // eslint-disable-next-line no-console
