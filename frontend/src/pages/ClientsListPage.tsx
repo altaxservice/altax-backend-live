@@ -23,7 +23,7 @@ import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 const EMPTY_CLIENT_FORM = {
   clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
-  mdWithholdingFrequency: "", mduiEnabled: false, mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
+  mdWithholdingFrequency: "", mduiEnabled: false, mdUiEmployerId: "", mdUiTaxRate: "", mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
   preferredLanguage: "English", smsAllowed: false, emailAllowed: true, preferredContact: "Email",
   ein: "", stateTaxId: "", secretaryOfStateId: "", craRegistrationNumber: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
@@ -634,6 +634,18 @@ export function ClientsListPage() {
                   <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
                   W-2 / 1099 enabled
                 </label>
+                {form.mduiEnabled && (
+                  <>
+                    <div className="field">
+                      <label htmlFor="nc-mdui-id">MD UI Employer ID</label>
+                      <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%)</span></label>
+                      <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}

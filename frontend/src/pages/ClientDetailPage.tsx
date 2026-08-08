@@ -92,6 +92,14 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
       { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
       { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
+      // Employer-specific MD Unemployment Insurance account number + this
+      // client's own experience-rated UI tax rate (varies per employer).
+      // Saving mdUiTaxRate also syncs a client-scoped SUTA override into
+      // v3_tax_rates server-side — see clients.routes.ts's
+      // syncMdUiTaxRateOverride — so payroll calc picks up the real rate
+      // automatically instead of the firm-wide default.
+      { key: "md_ui_employer_id", apiKey: "mdUiEmployerId", label: "MD UI Employer ID", kind: "text", hidden: (f) => !showMdui(f) },
+      { key: "md_ui_tax_rate", apiKey: "mdUiTaxRate", label: "MD UI Tax Rate (%)", kind: "text", hidden: (f) => !showMdui(f) },
       { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showW21099(f) },
     ],
   },
@@ -732,6 +740,10 @@ export function ClientDetailPage() {
               <DetailRow label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
               <DetailRow label="MD Withholding Frequency" value={client.md_withholding_frequency as string | null} />
               <DetailRow label="MD UI Enabled" value={client.mdui_enabled ? "Yes" : "No"} />
+              {Boolean(client.mdui_enabled) && <DetailRow label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
+              {Boolean(client.mdui_enabled) && (
+                <DetailRow label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
+              )}
               <DetailRow label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />
               <DetailRow label="Business Return Type" value={client.business_return_type as string | null} />
               <DetailRow label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />

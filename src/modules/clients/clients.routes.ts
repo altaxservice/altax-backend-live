@@ -911,7 +911,7 @@ async function nextClientId(): Promise<string> {
 }
 
 /** camelCase API field -> [db column, isBoolean]. Allow-list ported 1:1 from alTaxV3UpdateClientProfile. */
-const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean; encrypted?: boolean }> = {
+const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date?: boolean; numeric?: boolean; encrypted?: boolean }> = {
   clientName: { column: "client_name" },
   dbaName: { column: "dba_name" },
   entityType: { column: "entity_type" },
@@ -952,6 +952,13 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // approved — distinct from secretaryOfStateId (assigned at formation) and
   // from stateTaxId. See sql/047_client_cra_registration_number.sql.
   craRegistrationNumber: { column: "cra_registration_number", encrypted: true },
+  // Maryland UI account number + this client's own experience-rated UI tax
+  // rate (varies per employer, unlike the firm-wide default SUTA rate) —
+  // see sql/048_client_md_ui.sql. Saving mdUiTaxRate also syncs a
+  // client-scoped SUTA override into v3_tax_rates (below) so payroll
+  // actually uses this client's real rate instead of the firm default.
+  mdUiEmployerId: { column: "md_ui_employer_id" },
+  mdUiTaxRate: { column: "md_ui_tax_rate", numeric: true },
   companyContactName: { column: "company_contact_name" },
   companyContactTitle: { column: "company_contact_title" },
   companyContactSsn: { column: "company_contact_ssn", encrypted: true },
@@ -987,6 +994,45 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
 const ENCRYPTED_CLIENT_COLUMNS = new Set(
   Object.values(UPDATABLE_FIELDS).filter((f) => f.encrypted).map((f) => f.column)
 );
+
+/**
+ * Keeps v3_tax_rates in sync with this client's own md_ui_tax_rate whenever a
+ * create/update touches it, so payroll's SUTA lookup (lookupRate("SUTA", ...,
+ * clientId, ...) — see accountingHelpers.ts) automatically uses this specific
+ * employer's real MD UI rate instead of the firm-wide default the moment it's
+ * entered on the client profile, rather than requiring a separate trip to the
+ * Tax Rates admin screen to create the same client-scoped override by hand.
+ * md_ui_tax_rate is stored as a PERCENT (e.g. 2.6 = 2.6%); v3_tax_rates.rate
+ * is a decimal fraction, hence the /100 here. Clearing the rate deactivates
+ * (not deletes) the override row, matching this app's soft-delete convention.
+ */
+async function syncMdUiTaxRateOverride(clientId: string, clientName: string): Promise<void> {
+  const row = await queryOne<any>(`SELECT md_ui_tax_rate FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const percent = row?.md_ui_tax_rate;
+  const existing = await queryOne<any>(
+    `SELECT tax_rate_row_id FROM altax.v3_tax_rates WHERE rate_id = 'SUTA' AND scope = 'Client' AND client_id = $1`,
+    [clientId]
+  );
+  if (percent === null || percent === undefined) {
+    if (existing) {
+      await query(`UPDATE altax.v3_tax_rates SET active = false, updated_at = now() WHERE tax_rate_row_id = $1`, [existing.tax_rate_row_id]);
+    }
+    return;
+  }
+  const rate = Number(percent) / 100;
+  if (existing) {
+    await query(
+      `UPDATE altax.v3_tax_rates SET rate = $2, client_name = $3, state = 'MD', active = true, updated_at = now() WHERE tax_rate_row_id = $1`,
+      [existing.tax_rate_row_id, rate, clientName]
+    );
+  } else {
+    await query(
+      `INSERT INTO altax.v3_tax_rates (rate_id, scope, client_id, client_name, rate_type, rate, state, active)
+       VALUES ('SUTA', 'Client', $1, $2, 'State Unemployment (SUTA) — MD UI rate', $3, 'MD', true)`,
+      [clientId, clientName, rate]
+    );
+  }
+}
 
 /**
  * Create client — ported from alTaxPortalAddClient / clientProfileFormHtml's Add path.
@@ -1040,12 +1086,13 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   const columns = ["client_id"];
   const placeholders = ["$1"];
   const values: any[] = [clientId];
-  for (const [key, { column, boolean, date, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date, numeric, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       columns.push(column);
       values.push(
         boolean ? Boolean(body[key])
           : date ? (body[key] || null)
+          : numeric ? (body[key] === "" || body[key] === null || body[key] === undefined ? null : Number(body[key]))
           : encrypted ? (String(body[key] || "").trim() ? encryptValue(String(body[key]).trim()) : null)
           : body[key]
       );
@@ -1080,6 +1127,10 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
 
   await logAudit("Clients", "CLIENT_CREATED", clientId, "ClientName", "", body.clientName,
     "Client created via web app.", req.user!.email);
+
+  if (Object.prototype.hasOwnProperty.call(body, "mdUiTaxRate")) {
+    await syncMdUiTaxRateOverride(clientId, body.clientName);
+  }
 
   if (Array.isArray(body.services) && body.services.length > 0) {
     await autoGenerateContracts(clientId, body.services, req.user!.email);
@@ -1116,14 +1167,17 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   // the generic per-field diff loop below compares every other column.
   let sensitiveChanged = false;
   const fields: Record<string, any> = {};
-  for (const [key, { column, boolean, date, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
+  for (const [key, { column, boolean, date, numeric, encrypted }] of Object.entries(UPDATABLE_FIELDS)) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       if (encrypted) {
         const plaintext = String(body[key] || "").trim();
         if (plaintext !== decryptTolerant(old[column] || "")) sensitiveChanged = true;
         fields[column] = plaintext ? encryptValue(plaintext) : null;
       } else {
-        fields[column] = boolean ? Boolean(body[key]) : date ? (body[key] || null) : body[key];
+        fields[column] = boolean ? Boolean(body[key])
+          : date ? (body[key] || null)
+          : numeric ? (body[key] === "" || body[key] === null || body[key] === undefined ? null : Number(body[key]))
+          : body[key];
       }
     }
   }
@@ -1185,6 +1239,10 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
     if (addedServices.length > 0) {
       await autoGenerateContracts(clientId, addedServices, req.user!.email);
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "mdUiTaxRate")) {
+    await syncMdUiTaxRateOverride(clientId, fields.client_name ?? old.client_name);
   }
 
   res.json({ ok: true });
