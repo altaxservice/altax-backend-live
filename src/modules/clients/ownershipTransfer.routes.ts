@@ -239,6 +239,102 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   res.status(201).json({ ok: true, transferId, created, skippedReasons });
 }));
 
+/**
+ * Corrects a data-entry mistake on the transfer intake (seller/buyer info,
+ * sale terms) — same role gate as create, since staff who can create this
+ * should be able to fix their own typo. Only touches v3_ownership_transfers
+ * itself: the Bill of Sale is generated fresh from this row on every
+ * download, so an edit here fixes it immediately. The 8822-B/CRA drafts
+ * already created from the OLD data are separate v3_gov_form_filings rows
+ * with their own snapshot — this route deliberately does not reach into
+ * them, since they already have their own edit route
+ * (PATCH /gov-forms/:filingId) for staff to correct independently if needed.
+ */
+ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const existing = await queryOne<any>(`SELECT transfer_id FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
+  if (!existing) return res.status(404).json({ error: "Transfer not found." });
+
+  const body = req.body || {};
+  const sellerName = String(body.sellerName || "").trim();
+  const buyerName = String(body.buyerName || "").trim();
+  if (!sellerName) return res.status(400).json({ error: "Seller name is required." });
+  if (!buyerName) return res.status(400).json({ error: "Buyer name is required." });
+
+  const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
+  const salePrice = body.salePrice !== "" && body.salePrice !== null && body.salePrice !== undefined ? Number(body.salePrice) : null;
+
+  await query(
+    `UPDATE altax.v3_ownership_transfers SET
+       seller_name=$3, seller_title=$4, buyer_name=$5, buyer_title=$6, buyer_ssn=$7, buyer_email=$8, buyer_phone=$9,
+       buyer_street_address=$10, buyer_city=$11, buyer_state=$12, buyer_zip_code=$13, effective_date=$14, sale_price=$15,
+       assets_included=$16, liabilities_included=$17, additional_terms=$18
+     WHERE transfer_id = $1 AND client_id = $2`,
+    [
+      transferId, clientId, sellerName, String(body.sellerTitle || "").trim() || null,
+      buyerName, String(body.buyerTitle || "").trim() || null,
+      buyerSsnPlaintext ? encryptValue(buyerSsnPlaintext) : null,
+      String(body.buyerEmail || "").trim() || null, String(body.buyerPhone || "").trim() || null,
+      String(body.buyerStreetAddress || "").trim() || null, String(body.buyerCity || "").trim() || null,
+      String(body.buyerState || "").trim() || null, String(body.buyerZipCode || "").trim() || null,
+      body.effectiveDate || null, salePrice,
+      String(body.assetsIncluded || "").trim() || null, String(body.liabilitiesIncluded || "").trim() || null,
+      String(body.additionalTerms || "").trim() || null,
+    ]
+  );
+
+  await logAudit("Clients", "OWNERSHIP_TRANSFER_EDITED", transferId, "buyer_name", "", buyerName,
+    `Ownership transfer edited by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
+/**
+ * Hard delete — admin only, same rule as contracts/gov-forms/tasks. Also
+ * removes the linked 8822-B/CRA drafts and MD Amendment task IF they're
+ * still untouched (Draft / Not Started) — those only exist because of this
+ * transfer, so leaving them behind as orphans once the transfer itself is
+ * gone would just be confusing debris. Anything already acted on (signed,
+ * submitted, or a task staff started working) is left alone and reported
+ * back, same disclosure discipline as the create route.
+ */
+ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const transfer = await queryOne<any>(
+    `SELECT * FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`,
+    [transferId, clientId]
+  );
+  if (!transfer) return res.status(404).json({ error: "Transfer not found." });
+
+  const left: string[] = [];
+
+  if (transfer.gov_form_8822b_filing_id) {
+    const f = await queryOne<any>(`SELECT status FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_8822b_filing_id]);
+    if (f && f.status === "Draft") await query(`DELETE FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_8822b_filing_id]);
+    else if (f) left.push(`Form 8822-B is already ${f.status} — left in place.`);
+  }
+  if (transfer.gov_form_cra_filing_id) {
+    const f = await queryOne<any>(`SELECT status FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_cra_filing_id]);
+    if (f && f.status === "Draft") await query(`DELETE FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_cra_filing_id]);
+    else if (f) left.push(`Maryland CRA update is already ${f.status} — left in place.`);
+  }
+  if (transfer.md_amendment_task_id) {
+    const t = await queryOne<any>(`SELECT status FROM altax.v3_tasks WHERE task_id = $1`, [transfer.md_amendment_task_id]);
+    if (t && t.status === "Not Started") await query(`DELETE FROM altax.v3_tasks WHERE task_id = $1`, [transfer.md_amendment_task_id]);
+    else if (t) left.push(`The MD Amendment task is already ${t.status} — left in place.`);
+  }
+
+  await query(`DELETE FROM altax.v3_ownership_transfers WHERE transfer_id = $1`, [transferId]);
+  await logAudit("Clients", "OWNERSHIP_TRANSFER_DELETED", transferId, "", `${transfer.seller_name} -> ${transfer.buyer_name}`, "",
+    `Ownership transfer deleted by ${req.user!.email}.${left.length ? " " + left.join(" ") : ""}`, req.user!.email);
+
+  res.json({ ok: true, left });
+}));
+
 async function loadBillOfSaleInputs(clientId: string, transferId: string) {
   const [client, transfer] = await Promise.all([
     queryOne<any>(`SELECT client_id, client_name, entity_type, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [clientId]),

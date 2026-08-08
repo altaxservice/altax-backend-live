@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, downloadFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, buildFilename } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { useToast } from "./Toast";
+import { useConfirm, useNotify } from "./ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
 import { US_STATES } from "../utils/clientOptions";
 
@@ -11,8 +13,17 @@ interface OwnershipTransfer {
   buyer_name: string;
   buyer_title: string | null;
   buyer_ssn: string | null;
+  buyer_email: string | null;
+  buyer_phone: string | null;
+  buyer_street_address: string | null;
+  buyer_city: string | null;
+  buyer_state: string | null;
+  buyer_zip_code: string | null;
   effective_date: string | null;
   sale_price: number | null;
+  assets_included: string | null;
+  liabilities_included: string | null;
+  additional_terms: string | null;
   gov_form_8822b_filing_id: string | null;
   gov_form_cra_filing_id: string | null;
   md_amendment_task_id: string | null;
@@ -40,13 +51,19 @@ const EMPTY_FORM = {
 export function OwnershipTransferSection({ clientId, clientName, sellerNameDefault, sellerTitleDefault }: {
   clientId: string; clientName: string; sellerNameDefault?: string; sellerTitleDefault?: string;
 }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const toast = useToast();
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [transfers, setTransfers] = useState<OwnershipTransfer[] | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingTransfer, setEditingTransfer] = useState<OwnershipTransfer | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{ created: Record<string, boolean>; skippedReasons: string[] } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   function load() {
     api.get<{ transfers: OwnershipTransfer[] }>(`/clients/${clientId}/ownership-transfers`)
@@ -56,7 +73,24 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
   useEffect(load, [clientId]);
 
   function openForm() {
+    setEditingTransfer(null);
     setForm({ ...EMPTY_FORM, sellerName: sellerNameDefault || "", sellerTitle: sellerTitleDefault || "" });
+    setSaveError(null);
+    setLastResult(null);
+    setShowForm(true);
+  }
+
+  function openEditForm(t: OwnershipTransfer) {
+    setEditingTransfer(t);
+    setForm({
+      sellerName: t.seller_name || "", sellerTitle: t.seller_title || "",
+      buyerName: t.buyer_name || "", buyerTitle: t.buyer_title || "", buyerSsn: t.buyer_ssn || "",
+      buyerEmail: t.buyer_email || "", buyerPhone: t.buyer_phone || "",
+      buyerStreetAddress: t.buyer_street_address || "", buyerCity: t.buyer_city || "",
+      buyerState: t.buyer_state || "", buyerZipCode: t.buyer_zip_code || "",
+      effectiveDate: t.effective_date ? t.effective_date.slice(0, 10) : "", salePrice: t.sale_price !== null ? String(t.sale_price) : "",
+      assetsIncluded: t.assets_included || "", liabilitiesIncluded: t.liabilities_included || "", additionalTerms: t.additional_terms || "",
+    });
     setSaveError(null);
     setLastResult(null);
     setShowForm(true);
@@ -71,16 +105,41 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await api.post<{ transferId: string; created: Record<string, boolean>; skippedReasons: string[] }>(
-        `/clients/${clientId}/ownership-transfers`, form
-      );
-      setLastResult({ created: res.created, skippedReasons: res.skippedReasons });
-      toast("Ownership transfer package created.");
+      if (editingTransfer) {
+        await api.patch(`/clients/${clientId}/ownership-transfers/${editingTransfer.transfer_id}`, form);
+        toast("Ownership transfer updated.");
+        setShowForm(false);
+      } else {
+        const res = await api.post<{ transferId: string; created: Record<string, boolean>; skippedReasons: string[] }>(
+          `/clients/${clientId}/ownership-transfers`, form
+        );
+        setLastResult({ created: res.created, skippedReasons: res.skippedReasons });
+        toast("Ownership transfer package created.");
+      }
       load();
     } catch (err: any) {
-      setSaveError(err?.message || "Could not create the transfer package.");
+      setSaveError(err?.message || "Could not save the transfer.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(t: OwnershipTransfer) {
+    const ok = await confirmDialog({
+      title: "Delete ownership transfer",
+      message: `Delete the ${t.seller_name} → ${t.buyer_name} transfer? Any linked 8822-B/CRA drafts still in Draft and the MD Amendment task (if not yet started) will be removed too. This can't be undone.`,
+      confirmLabel: "Delete", danger: true,
+    });
+    if (!ok) return;
+    setBusyId(t.transfer_id);
+    try {
+      const res = await api.post<{ ok: boolean; left: string[] }>(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/delete`, {});
+      toast(res.left && res.left.length > 0 ? `Transfer deleted. ${res.left.join(" ")}` : "Transfer deleted.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this transfer.");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -157,9 +216,16 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
           </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-            <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Transfer Package"}</button>
-            <button type="button" className="btn-secondary" onClick={() => setShowForm(false)} disabled={saving}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? "Saving…" : editingTransfer ? "Save Changes" : "Create Transfer Package"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => { setShowForm(false); setEditingTransfer(null); }} disabled={saving}>Cancel</button>
           </div>
+          {editingTransfer && (
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 0 }}>
+              Saving updates the Bill of Sale on future downloads. Already-created 8822-B/CRA drafts have their own edit option under Government Forms.
+            </p>
+          )}
         </form>
       )}
 
@@ -196,6 +262,10 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                   <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>PDF</button>
                     <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t)}>Word (.docx)</button>
+                    <button className="btn-secondary" onClick={() => openEditForm(t)} disabled={busyId === t.transfer_id}>Edit</button>
+                    {isAdmin && (
+                      <button className="btn-secondary" onClick={() => handleDelete(t)} disabled={busyId === t.transfer_id}>{busyId === t.transfer_id ? "Deleting…" : "Delete"}</button>
+                    )}
                   </td>
                 </tr>
               ))}
