@@ -22,6 +22,7 @@ import { communicationsRouter } from "./modules/communications/communications.ro
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled } from "./modules/accounting/payrollAgent.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
+import { salesInputImportRouter } from "./modules/salesInputImport/salesInputImport.routes";
 import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
 import { firmPortalsRouter } from "./modules/vault/firmPortals.routes";
@@ -245,6 +246,7 @@ app.use("/communications", communicationsRouter);
 app.use("/accounting", accountingRouter);
 app.use("/accounting/payroll-agent", payrollAgentRouter);
 app.use("/import", payrollImportRouter);
+app.use("/sales-input-import", salesInputImportRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
 app.use("/firm-portals", firmPortalsRouter);

@@ -246,6 +246,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [mdFilingError, setMdFilingError] = useState<string | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const [refreshing, setRefreshing] = useState(false);
   function load(): Promise<void> {
@@ -495,6 +496,13 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {showImport && (
+        <SalesInputImportPanel
+          clientId={clientId}
+          onClose={() => setShowImport(false)}
+          onImported={load}
+        />
+      )}
       {showCreate && (
       <Panel
         title="Sales Input"
@@ -548,7 +556,8 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
             <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
             <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
-            {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={() => setShowCreate(true)}>+ Add Sale</button>}
+            {!showImport && <button type="button" className="btn btn-sm" onClick={() => { setShowImport(true); setShowCreate(false); }}>Import from Excel</button>}
+            {!showCreate && <button type="button" className="btn btn-sm btn-primary" onClick={() => { setShowCreate(true); setShowImport(false); }}>+ Add Sale</button>}
           </div>
         }
       >
@@ -782,6 +791,193 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         )}
       </Panel>
     </div>
+  );
+}
+
+interface SalesInputPreviewRow {
+  rowNumber: number; saleDate: string; rawDate: string; grossSales: number;
+  taxable6: number; special12: number; vape20: number; rate60: number;
+  adjustments: number; paymentDate: string | null; notes: string;
+  categoryLines: { categoryId: string; taxableAmount: number }[];
+  unmappedCategories: string[]; totalTaxDue: number; action: "create" | "duplicate";
+}
+interface SalesInputPreviewResponse {
+  ok: boolean; rows: SalesInputPreviewRow[]; skipped: { rowNumber: number; reason: string }[]; sheetName: string;
+}
+interface SalesInputCommitResult { index: number; saleDate: string; ok: boolean; saleId?: string; totalTaxDue?: number; error?: string }
+
+/**
+ * Reads a client's own reusable multi-sheet workbook and imports only its Sales_Input
+ * tab — a standalone preview/commit flow, deliberately not sharing UI or backend code
+ * with ImportTab above (which reads Drake/QBO payroll exports on a completely different
+ * layout). Hits /sales-input-import/*, not /import/*.
+ */
+function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: string; onClose: () => void; onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<SalesInputPreviewResponse | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [results, setResults] = useState<SalesInputCommitResult[] | null>(null);
+
+  function reset() {
+    setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set());
+  }
+
+  async function handlePreview() {
+    if (!file) return;
+    setBusy(true); setError(null);
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const res = await api.post<SalesInputPreviewResponse>("/sales-input-import/preview", { clientId, fileBase64 });
+      setPreview(res);
+      setSelected(new Set(res.rows.map((_, i) => i).filter((i) => res.rows[i].action !== "duplicate")));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not read this file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleRow(i: number) {
+    setSelected((prev) => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next; });
+  }
+  function toggleAll() {
+    if (!preview) return;
+    setSelected((prev) => (prev.size === preview.rows.length ? new Set() : new Set(preview.rows.map((_, i) => i))));
+  }
+
+  async function handleCommit() {
+    if (!preview) return;
+    setBusy(true); setError(null);
+    try {
+      const rows = preview.rows.filter((_, i) => selected.has(i));
+      const res = await api.post<{ results: SalesInputCommitResult[] }>("/sales-input-import/commit", { clientId, rows });
+      setResults(res.results);
+      onImported();
+    } catch (err) {
+      const rowResults = err instanceof ApiError && err.body && typeof err.body === "object" ? (err.body as any).results : undefined;
+      if (Array.isArray(rowResults)) {
+        setResults(rowResults);
+        onImported();
+      } else {
+        setError(err instanceof ApiError ? err.message : "Could not run this import.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const succeededCount = results ? results.filter((r) => r.ok).length : 0;
+
+  return (
+    <Panel
+      title="Import Sales Input from Excel"
+      note="Reads the Sales_Input tab out of a client's own multi-sheet workbook."
+      action={<button type="button" className="btn btn-sm" onClick={onClose}>Close</button>}
+    >
+      <div style={{ padding: 16 }}>
+        {error && <ErrorBanner error={error} />}
+
+        {!preview && (
+          <>
+            <FileDropInput file={file} onChange={setFile} accept=".xls,.xlsx" hint="a workbook containing a Sales_Input tab (.xls/.xlsx)" />
+            <p className="muted" style={{ fontSize: 12, margin: "10px 0 16px" }}>
+              Only the <strong>Sales_Input</strong> tab is read — every other tab in the workbook (Home, Setup, Employee_Master, etc.) is ignored.
+              Expected columns: Date, Gross Sales, Taxable @ 6%, Special @ 12%, Vape @ 20%, 60% Rate Sales, Adjustments, Payment Date, Notes.
+            </p>
+            <button type="button" className="btn btn-primary" disabled={!file || busy} onClick={handlePreview}>
+              {busy ? "Reading…" : "Preview Import"}
+            </button>
+          </>
+        )}
+
+        {preview && !results && (
+          <>
+            <p style={{ marginBottom: 12 }}>
+              Found <strong>{preview.rows.length}</strong> row{preview.rows.length === 1 ? "" : "s"} on the {preview.sheetName} tab.
+              {preview.skipped.length > 0 && ` ${preview.skipped.length} row(s) couldn't be read and were skipped.`}
+            </p>
+            {preview.skipped.length > 0 && (
+              <ul className="muted" style={{ fontSize: 11.5, margin: "0 0 12px", paddingLeft: 18 }}>
+                {preview.skipped.map((s) => <li key={s.rowNumber}>Row {s.rowNumber}: {s.reason}</li>)}
+              </ul>
+            )}
+            <div className="table-scroll" style={{ marginBottom: 14 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      <input
+                        type="checkbox"
+                        aria-label={selected.size === preview.rows.length ? "Deselect all rows" : "Select all rows"}
+                        checked={preview.rows.length > 0 && selected.size === preview.rows.length}
+                        ref={(el) => { if (el) el.indeterminate = selected.size > 0 && selected.size < preview.rows.length; }}
+                        onChange={toggleAll}
+                      />
+                    </th>
+                    <th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th>
+                    <th scope="col" style={{ textAlign: "right" }}>Est. Tax</th><th scope="col">Categories</th><th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.rows.map((row, i) => (
+                    <tr key={i} style={{ opacity: row.action === "duplicate" ? 0.6 : 1 }}>
+                      <td><input type="checkbox" checked={selected.has(i)} onChange={() => toggleRow(i)} /></td>
+                      <td>{fmtDate(row.saleDate)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(row.grossSales)}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(row.totalTaxDue)}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>
+                        {row.categoryLines.length > 0 ? `${row.categoryLines.length} categor${row.categoryLines.length === 1 ? "y" : "ies"}` : "—"}
+                        {row.unmappedCategories.length > 0 && (
+                          <div style={{ color: "var(--red)" }}>No rate configured for: {row.unmappedCategories.join(", ")}</div>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 12, fontWeight: 600, color: row.action === "duplicate" ? "var(--muted)" : "var(--teal)" }}>
+                        {row.action === "duplicate" ? "Already exists" : "New"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+              {selected.size} of {preview.rows.length} row(s) selected. Rows already on file for this client are unchecked by default — check one to re-import it anyway.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn" onClick={reset}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={selected.size === 0 || busy} onClick={handleCommit}>
+                {busy ? "Importing…" : `Import ${selected.size} Row${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {results && (
+          <>
+            <p style={{ fontWeight: 700, marginBottom: 10 }}>{succeededCount} of {results.length} row(s) imported.</p>
+            <div className="table-scroll" style={{ marginBottom: 14 }}>
+              <table>
+                <thead><tr><th scope="col">Date</th><th scope="col">Result</th></tr></thead>
+                <tbody>
+                  {results.map((r, i) => (
+                    <tr key={i}>
+                      <td>{fmtDate(r.saleDate)}</td>
+                      <td>
+                        {r.ok
+                          ? <span style={{ color: "var(--teal)" }}>Created{r.totalTaxDue != null ? ` — tax ${fmtMoney(r.totalTaxDue)}` : ""}</span>
+                          : <span style={{ color: "var(--red)" }}>{r.error || "Failed"}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button type="button" className="btn btn-primary" onClick={reset}>Import Another File</button>
+          </>
+        )}
+      </div>
+    </Panel>
   );
 }
 

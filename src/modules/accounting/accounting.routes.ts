@@ -480,7 +480,7 @@ accountingRouter.post("/sales-categories/:categoryId/delete", requireAuth, requi
   res.json({ ok: true });
 }));
 
-interface SalesCategoryLineInput { categoryId: string; taxableAmount: number | string }
+export interface SalesCategoryLineInput { categoryId: string; taxableAmount: number | string }
 
 /**
  * Resolves each category-line's rate via the category's own default_rate_id, reusing
@@ -490,7 +490,7 @@ interface SalesCategoryLineInput { categoryId: string; taxableAmount: number | s
  * by POST /sales, POST /sales/preview, and PATCH /sales/:saleId so the three can never
  * compute different numbers for the same inputs.
  */
-async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[], clientId: string, clientState?: string | null) {
+export async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[], clientId: string, clientState?: string | null) {
   const categoryIds = rawLines.map((l) => String(l.categoryId || "").trim()).filter(Boolean);
   const categories = categoryIds.length
     ? await query<any>(`SELECT * FROM altax.v3_sales_tax_categories WHERE category_id = ANY($1::text[])`, [categoryIds])
@@ -515,36 +515,41 @@ async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[], clien
   return { lines, totalTax: money(totalTax) };
 }
 
-accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const clientId = String(body.clientId || "").trim();
-  if (!clientId) return res.status(400).json({ error: "Client is required." });
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!client) return res.status(404).json({ error: "Client not found." });
+export interface CreateSalesInputParams {
+  saleDate?: string; grossSales: number | string; adjustments: number | string;
+  paymentDate?: string; notes?: string; categoryLines: SalesCategoryLineInput[];
+}
 
-  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
-  const adjustments = money(body.adjustments);
-  let computed: Awaited<ReturnType<typeof computeCategoryLinesTax>>;
-  try {
-    computed = await computeCategoryLinesTax(rawLines, clientId, client.state);
-  } catch (err) {
-    return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
-  }
+/**
+ * Inserts one Sales Input record (header + category lines + 3 GL postings) and audit-logs
+ * it. Extracted from POST /sales so both manual entry and the Sales_Input Excel importer
+ * call the exact same transactional path — imported and hand-typed sales records can never
+ * compute different tax/GL results. `sourceSystem` tags which path created a given row
+ * ('Node Web App' for manual entry, 'Sales Input Import' for the importer) so the two stay
+ * distinguishable in the data without needing separate tables or routes.
+ */
+export async function createSalesInputRecord(
+  client: { client_id: string; client_name: string; state?: string | null },
+  params: CreateSalesInputParams,
+  createdByEmail: string,
+  sourceSystem: string = "Node Web App"
+) {
+  const rawLines = Array.isArray(params.categoryLines) ? params.categoryLines : [];
+  const adjustments = money(params.adjustments);
+  const computed = await computeCategoryLinesTax(rawLines, client.client_id, client.state);
   const totalTax = money(computed.totalTax + adjustments);
 
   const saleId = `SALE-${idSuffix()}`;
-  const grossSales = money(body.grossSales);
+  const grossSales = money(params.grossSales);
   await withTransaction(async (db) => {
     await db.query(
       `INSERT INTO altax.v3_sales_input
          (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
           source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Node Web App',$1)`,
-      [saleId, client.client_id, client.client_name, String(body.saleDate || "").trim() || null, grossSales,
-        adjustments, String(body.paymentDate || "").trim() || null, totalTax, String(body.notes || "").trim() || null]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$1)`,
+      [saleId, client.client_id, client.client_name, String(params.saleDate || "").trim() || null, grossSales,
+        adjustments, String(params.paymentDate || "").trim() || null, totalTax, String(params.notes || "").trim() || null,
+        sourceSystem]
     );
     for (const line of computed.lines) {
       await db.query(
@@ -555,23 +560,47 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
     }
 
     await appendGl(client.client_id, client.client_name, {
-      entryDate: body.saleDate, ref: saleId, description: "Sales receipt / tax collected",
+      entryDate: params.saleDate, ref: saleId, description: "Sales receipt / tax collected",
       account: "Cash", debit: money(grossSales + totalTax), credit: 0, source: "Sales Input",
     }, db);
     await appendGl(client.client_id, client.client_name, {
-      entryDate: body.saleDate, ref: saleId, description: "Sales revenue",
+      entryDate: params.saleDate, ref: saleId, description: "Sales revenue",
       account: "Sales Revenue", debit: 0, credit: grossSales, source: "Sales Input",
     }, db);
     await appendGl(client.client_id, client.client_name, {
-      entryDate: body.saleDate, ref: saleId, description: "Sales tax payable",
+      entryDate: params.saleDate, ref: saleId, description: "Sales tax payable",
       account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
     }, db);
   });
 
   await logAudit("Accounting", "CREATE_SALES_INPUT", saleId, "", "", String(totalTax),
-    `Sales input created by ${req.user!.email}.`, req.user!.email);
+    `Sales input created by ${createdByEmail}.`, createdByEmail);
 
-  res.status(201).json({ ok: true, saleId, totalTaxDue: totalTax, lines: computed.lines });
+  return { saleId, totalTaxDue: totalTax, lines: computed.lines };
+}
+
+accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  let result: Awaited<ReturnType<typeof createSalesInputRecord>>;
+  try {
+    result = await createSalesInputRecord(client, {
+      saleDate: body.saleDate, grossSales: body.grossSales, adjustments: body.adjustments,
+      paymentDate: body.paymentDate, notes: body.notes,
+      categoryLines: Array.isArray(body.categoryLines) ? body.categoryLines : [],
+    }, req.user!.email);
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
+  }
+
+  res.status(201).json({ ok: true, ...result });
 }));
 
 /**
