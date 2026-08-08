@@ -653,6 +653,14 @@ export function ClientsListPage() {
                         <label htmlFor="nc-cra-number">CRA / Central Registration No. <span className="muted">(optional)</span></label>
                         <input id="nc-cra-number" value={form.craRegistrationNumber} onChange={(e) => setForm((f) => ({ ...f, craRegistrationNumber: e.target.value }))} placeholder="Issued by Maryland after CRA is approved" />
                       </div>
+                      <div className="field">
+                        <label htmlFor="nc-mdui-id">MD UI Employer ID <span className="muted">(optional)</span></label>
+                        <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%, optional)</span></label>
+                        <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
+                      </div>
                     </>
                   )}
                 </div>
@@ -804,18 +812,6 @@ export function ClientsListPage() {
                         <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
                         W-2 / 1099 enabled
                       </label>
-                      {form.mduiEnabled && (
-                        <>
-                          <div className="field">
-                            <label htmlFor="nc-mdui-id">MD UI Employer ID</label>
-                            <input id="nc-mdui-id" value={form.mdUiEmployerId} onChange={(e) => setForm((f) => ({ ...f, mdUiEmployerId: e.target.value }))} placeholder="Assigned by MD Dept of Labor" />
-                          </div>
-                          <div className="field">
-                            <label htmlFor="nc-mdui-rate">MD UI Tax Rate <span className="muted">(%)</span></label>
-                            <input id="nc-mdui-rate" type="number" step="0.01" min="0" max="20" value={form.mdUiTaxRate} onChange={(e) => setForm((f) => ({ ...f, mdUiTaxRate: e.target.value }))} placeholder="e.g. 2.60" />
-                          </div>
-                        </>
-                      )}
                     </div>
                   </div>
                 )}
