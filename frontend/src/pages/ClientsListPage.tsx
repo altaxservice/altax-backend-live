@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote } from "lucide-react";
+import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
 import type { PortalUser } from "../api/types2";
@@ -143,6 +143,17 @@ export function ClientsListPage() {
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   function scrollToSection(key: string) {
     sectionRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // Collapse state persists across sessions (shared key with ClientDetailPage's
+  // Edit form, same nav pattern) — staff who prefer the extra body width don't
+  // have to re-collapse it every time they open the form.
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem("altax_ac_wizard_nav_collapsed") === "1");
+  function toggleNavCollapsed() {
+    setNavCollapsed((v) => {
+      const next = !v;
+      localStorage.setItem("altax_ac_wizard_nav_collapsed", next ? "1" : "0");
+      return next;
+    });
   }
   useEffect(() => {
     if (!showForm) return;
@@ -465,25 +476,34 @@ export function ClientsListPage() {
           )}
           {saveError && <ErrorBanner error={saveError} />}
 
-          <div className="ac-wizard">
+          <div className={`ac-wizard${navCollapsed ? " nav-collapsed" : ""}`}>
             <nav className="ac-wizard-nav" aria-label="Add Client sections">
-              {[
-                { key: "identity", label: "Client Identity", icon: Building2 },
-                { key: "contact", label: "Contact & Address", icon: MapPin },
-                { key: "taxids", label: "Business Tax IDs", icon: FileText },
-                ...(form.clientType === "Business" ? [{ key: "owner", label: "Owner / Responsible Party", icon: UserRound }] : []),
-                { key: "services", label: "Services Provided", icon: Briefcase },
-                { key: "assignment", label: "Assignment & Forms", icon: ClipboardList },
-                { key: "notes", label: "Notes & Create", icon: StickyNote },
-              ].map((item) => (
-                <button
-                  key={item.key} type="button"
-                  className={activeSection === item.key ? "active" : ""}
-                  onClick={() => scrollToSection(item.key)}
-                >
-                  <item.icon size={15} /> {item.label}
-                </button>
-              ))}
+              <button
+                type="button" className="ac-wizard-nav-toggle" onClick={toggleNavCollapsed}
+                title={navCollapsed ? "Show section list" : "Hide section list"}
+                aria-label={navCollapsed ? "Show section list" : "Hide section list"}
+              >
+                {navCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+              </button>
+              <div className="ac-wizard-nav-links">
+                {[
+                  { key: "identity", label: "Client Identity", icon: Building2 },
+                  { key: "contact", label: "Contact & Address", icon: MapPin },
+                  { key: "taxids", label: "Business Tax IDs", icon: FileText },
+                  ...(form.clientType === "Business" ? [{ key: "owner", label: "Owner / Responsible Party", icon: UserRound }] : []),
+                  { key: "services", label: "Services Provided", icon: Briefcase },
+                  { key: "assignment", label: "Assignment & Forms", icon: ClipboardList },
+                  { key: "notes", label: "Notes & Create", icon: StickyNote },
+                ].map((item) => (
+                  <button
+                    key={item.key} type="button"
+                    className={activeSection === item.key ? "active" : ""}
+                    onClick={() => scrollToSection(item.key)}
+                  >
+                    <item.icon size={15} /> {item.label}
+                  </button>
+                ))}
+              </div>
             </nav>
 
             <div className="ac-wizard-body">

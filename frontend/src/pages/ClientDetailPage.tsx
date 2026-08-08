@@ -32,7 +32,7 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
-import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote } from "lucide-react";
+import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -230,6 +230,16 @@ export function ClientDetailPage() {
   const editSectionRefs = useRef<Record<string, HTMLElement | null>>({});
   function scrollToEditSection(title: string) {
     editSectionRefs.current[title]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // Same collapse toggle + storage key as the Add Client wizard — one shared
+  // preference for "I want the extra body width" across both forms.
+  const [navCollapsed, setNavCollapsed] = useState(() => localStorage.getItem("altax_ac_wizard_nav_collapsed") === "1");
+  function toggleNavCollapsed() {
+    setNavCollapsed((v) => {
+      const next = !v;
+      localStorage.setItem("altax_ac_wizard_nav_collapsed", next ? "1" : "0");
+      return next;
+    });
   }
   useEffect(() => {
     if (!editing) return;
@@ -610,16 +620,25 @@ export function ClientDetailPage() {
             };
 
             return (
-              <div className="ac-wizard">
+              <div className={`ac-wizard${navCollapsed ? " nav-collapsed" : ""}`}>
                 <nav className="ac-wizard-nav" aria-label="Client profile sections">
-                  {topLevelSections.filter(sectionVisible).map((section) => {
-                    const Icon = EDIT_SECTION_ICONS[section.title] || FileText;
-                    return (
-                      <button key={section.title} type="button" className={activeEditSection === section.title ? "active" : ""} onClick={() => scrollToEditSection(section.title)}>
-                        <Icon size={15} /> {section.title}
-                      </button>
-                    );
-                  })}
+                  <button
+                    type="button" className="ac-wizard-nav-toggle" onClick={toggleNavCollapsed}
+                    title={navCollapsed ? "Show section list" : "Hide section list"}
+                    aria-label={navCollapsed ? "Show section list" : "Hide section list"}
+                  >
+                    {navCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
+                  </button>
+                  <div className="ac-wizard-nav-links">
+                    {topLevelSections.filter(sectionVisible).map((section) => {
+                      const Icon = EDIT_SECTION_ICONS[section.title] || FileText;
+                      return (
+                        <button key={section.title} type="button" className={activeEditSection === section.title ? "active" : ""} onClick={() => scrollToEditSection(section.title)}>
+                          <Icon size={15} /> {section.title}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </nav>
                 <div className="ac-wizard-body">
                   {topLevelSections.map((section) => {

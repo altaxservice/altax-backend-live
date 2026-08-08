@@ -34,6 +34,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
 import { generateBillOfSalePdf } from "../govForms/billOfSale";
+import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
 import { generateGovForm, type CraData, type Form8822bData } from "../govForms/govForms.service";
 
 export const ownershipTransferRouter = Router();
@@ -238,37 +239,63 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   res.status(201).json({ ok: true, transferId, created, skippedReasons });
 }));
 
-ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/bill-of-sale.pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const { clientId, transferId } = req.params;
-  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
-
+async function loadBillOfSaleInputs(clientId: string, transferId: string) {
   const [client, transfer] = await Promise.all([
-    queryOne<any>(`SELECT client_id, client_name, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [clientId]),
+    queryOne<any>(`SELECT client_id, client_name, entity_type, ein, street_address, city, state, zip_code FROM altax.v3_clients WHERE client_id = $1`, [clientId]),
     queryOne<any>(`SELECT * FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]),
   ]);
-  if (!client || !transfer) return res.status(404).json({ error: "Transfer not found." });
+  if (!client || !transfer) return null;
 
   const businessAddress = [client.street_address, client.city, client.state, client.zip_code].filter((v) => String(v || "").trim()).join(", ");
   const buyerAddress = [transfer.buyer_street_address, transfer.buyer_city, transfer.buyer_state, transfer.buyer_zip_code].filter((v) => String(v || "").trim()).join(", ");
 
-  const pdfBytes = await generateBillOfSalePdf({
-    clientId: client.client_id,
-    businessName: client.client_name,
-    ein: client.ein || null,
-    businessAddress: businessAddress || null,
-    sellerName: transfer.seller_name,
-    sellerTitle: transfer.seller_title,
-    buyerName: transfer.buyer_name,
-    buyerTitle: transfer.buyer_title,
-    buyerAddress: buyerAddress || null,
-    effectiveDate: transfer.effective_date,
-    salePrice: transfer.sale_price !== null ? Number(transfer.sale_price) : null,
-    assetsIncluded: transfer.assets_included,
-    liabilitiesIncluded: transfer.liabilities_included,
-    additionalTerms: transfer.additional_terms,
-  });
+  return {
+    client,
+    data: {
+      clientId: client.client_id,
+      businessName: client.client_name,
+      ein: client.ein || null,
+      businessAddress: businessAddress || null,
+      sellerName: transfer.seller_name,
+      sellerTitle: transfer.seller_title,
+      buyerName: transfer.buyer_name,
+      buyerTitle: transfer.buyer_title,
+      buyerAddress: buyerAddress || null,
+      effectiveDate: transfer.effective_date,
+      salePrice: transfer.sale_price !== null ? Number(transfer.sale_price) : null,
+      assetsIncluded: transfer.assets_included,
+      liabilitiesIncluded: transfer.liabilities_included,
+      additionalTerms: transfer.additional_terms,
+      entityType: client.entity_type || null,
+      state: client.state || null,
+    },
+  };
+}
+
+ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/bill-of-sale.pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const loaded = await loadBillOfSaleInputs(clientId, transferId);
+  if (!loaded) return res.status(404).json({ error: "Transfer not found." });
+
+  const pdfBytes = await generateBillOfSalePdf(loaded.data);
 
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="Bill of Sale - ${client.client_name}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="Bill of Sale - ${loaded.client.client_name}.pdf"`);
   res.send(Buffer.from(pdfBytes));
+}));
+
+ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/bill-of-sale.docx", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const loaded = await loadBillOfSaleInputs(clientId, transferId);
+  if (!loaded) return res.status(404).json({ error: "Transfer not found." });
+
+  const docxBuffer = await generateBillOfSaleDocx(loaded.data);
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", `attachment; filename="Bill of Sale - ${loaded.client.client_name}.docx"`);
+  res.send(docxBuffer);
 }));

@@ -91,6 +91,13 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
     );
   }
 
+  async function handleDownloadBillOfSaleDocx(t: OwnershipTransfer) {
+    await downloadFile(
+      `/clients/${clientId}/ownership-transfers/${t.transfer_id}/bill-of-sale.docx`,
+      buildFilename([clientName, "Bill of Sale", t.buyer_name], "docx")
+    );
+  }
+
   return (
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -186,7 +193,10 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                   <td>{t.effective_date ? fmtDateOnly(t.effective_date) : "—"}</td>
                   <td>{t.sale_price != null ? `$${Number(t.sale_price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
                   <td>{fmtDateOnly(t.created_at)}</td>
-                  <td><button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>Download Bill of Sale</button></td>
+                  <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>PDF</button>
+                    <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t)}>Word (.docx)</button>
+                  </td>
                 </tr>
               ))}
             </tbody>

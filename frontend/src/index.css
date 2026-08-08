@@ -484,16 +484,25 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .ac-wizard { display: flex; gap: 24px; align-items: flex-start; }
 .ac-wizard-nav {
   position: sticky; top: 16px; flex: 0 0 210px; display: flex; flex-direction: column; gap: 2px;
-  max-height: calc(100vh - 32px); overflow-y: auto;
+  max-height: calc(100vh - 32px); overflow-y: auto; transition: flex-basis 0.15s ease;
 }
-.ac-wizard-nav button {
+.ac-wizard-nav-toggle {
+  display: flex; align-items: center; justify-content: center; gap: 6px; align-self: flex-start;
+  width: 28px; height: 28px; padding: 0; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--muted); cursor: pointer; flex: 0 0 auto; margin-bottom: 4px;
+}
+.ac-wizard-nav-toggle:hover { background: var(--surface); color: var(--ink); }
+.ac-wizard-nav button:not(.ac-wizard-nav-toggle) {
   display: flex; align-items: center; gap: 9px; text-align: left; padding: 9px 10px; border-radius: 8px;
   border: none; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 700; cursor: pointer;
   white-space: nowrap;
 }
-.ac-wizard-nav button:hover { background: var(--surface); color: var(--ink); }
+.ac-wizard-nav button:not(.ac-wizard-nav-toggle):hover { background: var(--surface); color: var(--ink); }
 .ac-wizard-nav button.active { background: var(--teal-soft); color: var(--teal); }
 .ac-wizard-nav button svg { flex: 0 0 auto; }
+.ac-wizard.nav-collapsed .ac-wizard-nav { flex-basis: 36px; }
+.ac-wizard.nav-collapsed .ac-wizard-nav-links { display: none; }
+.ac-wizard.nav-collapsed .ac-wizard-nav-toggle { align-self: center; }
 .ac-wizard-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 16px; }
 .ac-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 20px; background: var(--paper); scroll-margin-top: 16px; }
 .ac-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
