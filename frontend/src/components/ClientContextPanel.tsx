@@ -19,13 +19,14 @@ interface Summary {
 
 interface ClientFlag {
   flagId: string | null;
-  flagType: "BalancePastDue" | "Credit" | "Custom";
+  flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
   color: "red" | "green" | "amber";
   createdAt: string | null;
   createdBy: string | null;
   resolvable: boolean;
+  linkTaskId?: string;
 }
 
 function fmtMoney(v: unknown): string {
@@ -35,6 +36,7 @@ function fmtMoney(v: unknown): string {
 
 function flagLabel(f: ClientFlag): string {
   if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
+  if (f.flagType === "AgencyPastDue") return `${f.note} Past Due${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
   if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
   return `${f.note}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}`;
 }
@@ -157,11 +159,22 @@ export function ClientContextPanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
               {flags.map((f) => (
                 <div
-                  key={f.flagId || f.flagType}
+                  key={f.flagId || f.linkTaskId || f.flagType}
                   className={`status-pill status-${f.color}`}
                   style={{ justifyContent: "space-between", width: "100%", padding: "6px 10px", fontSize: 12 }}
                 >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{flagLabel(f)}</span>
+                  {f.linkTaskId ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/tasks/${f.linkTaskId}`)}
+                      title="Open this task"
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", textAlign: "left", padding: 0, textDecoration: "underline", overflow: "hidden", textOverflow: "ellipsis" }}
+                    >
+                      {flagLabel(f)}
+                    </button>
+                  ) : (
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{flagLabel(f)}</span>
+                  )}
                   {f.resolvable && f.flagId && (
                     <button
                       type="button"

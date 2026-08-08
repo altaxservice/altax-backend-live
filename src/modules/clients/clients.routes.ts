@@ -203,24 +203,34 @@ function nextFlagId(): string {
 
 interface ClientFlag {
   flagId: string | null;
-  flagType: "BalancePastDue" | "Credit" | "Custom";
+  flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
   color: "red" | "green" | "amber";
   createdAt: string | null;
   createdBy: string | null;
   resolvable: boolean;
+  linkTaskId?: string;
 }
 
 /**
  * Noticeable, colored account-level issues for the client panel — kept
  * separate from the freeform Activity Timeline because a note's "read" state
  * says nothing about whether the underlying problem is actually fixed.
- * Balance Past Due is computed fresh from real invoice data on every call
- * (never stored) so it can't go stale and self-clears the moment the invoice
- * is paid. Credit and Custom are staff-entered since this app has no source
- * of truth for either — no overpayment/credit-memo concept exists anywhere,
- * and "something else" is by definition not something the system can compute.
+ * Balance Past Due (money owed TO the firm) is computed fresh from real
+ * invoice data on every call. Agency Past Due (money the CLIENT owes an
+ * agency directly — sales tax, EFTPS, MD withholding, MD UI, etc.) reuses
+ * the exact same source as the client's existing Tax Payments tab: any task
+ * with payment_required=true already carries a real agency_due_date and
+ * payment_amount, entered by staff per obligation — one flag per unpaid task
+ * past its due date, labeled with that task's own service_line/task_name so
+ * every tax type staff tracks this way (not just MD sales tax) shows up
+ * automatically, with zero new data entry and zero new categorization to
+ * maintain. Neither is stored here — both self-clear the moment the
+ * underlying invoice/task is marked paid. Credit and Custom are staff-
+ * entered since this app has no source of truth for either — no
+ * overpayment/credit-memo concept exists anywhere, and "something else" is
+ * by definition not something the system can compute.
  */
 async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   const flags: ClientFlag[] = [];
@@ -234,6 +244,21 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   const overdueAmount = Number(overdue?.total || 0);
   if (overdueAmount > 0) {
     flags.push({ flagId: null, flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false });
+  }
+
+  const agencyRows = await query<any>(
+    `SELECT task_id, task_name, service_line, payment_amount, agency_due_date FROM altax.v3_tasks
+      WHERE client_id = $1 AND payment_required = true AND paid_date IS NULL
+            AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE
+      ORDER BY agency_due_date ASC`,
+    [clientId]
+  );
+  for (const row of agencyRows) {
+    flags.push({
+      flagId: null, flagType: "AgencyPastDue", amount: row.payment_amount !== null ? Number(row.payment_amount) : null,
+      note: row.service_line || row.task_name, color: "red", createdAt: null, createdBy: null, resolvable: false,
+      linkTaskId: row.task_id,
+    });
   }
 
   const manual = await query<any>(
