@@ -32,6 +32,7 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
+import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote } from "lucide-react";
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -64,7 +65,12 @@ const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "tax_prep")
 const showMdAnnualReport = (f: Record<string, any>) => isBusiness(f) || Boolean(f.mdAnnualReportEnabled);
 const showEntityType = (f: Record<string, any>) => isBusiness(f) || filled(f.entityType);
 
-const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
+// Same 7-card shape and order as the Add Client wizard (ClientsListPage.tsx)
+// — Payroll/Sales Tax/Tax Prep/Business Compliance nest inside "Services
+// Provided" via nestedIn, exactly like the Add Client form nests them, so a
+// client's profile no longer looks like a different, older app than the
+// form used to create it.
+const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }[] = [
   {
     title: "Client Identity",
     fields: [
@@ -79,54 +85,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     ],
   },
   {
-    // No FieldConfig entries — rendered as a special-cased checklist below
-    // (multi-select doesn't fit the FieldKind union), same pattern AddressFields
-    // uses for the "Contact" section.
-    title: "Services Provided",
-    fields: [],
-  },
-  {
-    title: "Payroll Details",
-    fields: [
-      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollFrequency(f) },
-      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll Provider", kind: "select", options: PAYROLL_PROVIDERS, hidden: (f) => !showPayrollSystem(f) },
-      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
-      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
-      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
-      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showW21099(f) },
-    ],
-  },
-  {
-    title: "Sales Tax Details",
-    fields: [
-      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showSalesTaxDetails(f) },
-    ],
-  },
-  {
-    title: "Tax Preparation Details",
-    fields: [
-      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES, hidden: (f) => !showTaxPrepDetails(f) },
-    ],
-  },
-  {
-    title: "Business Compliance",
-    fields: [
-      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox", hidden: (f) => !showMdAnnualReport(f) },
-    ],
-  },
-  {
-    // Split from Contact — matches the Add Client form (ClientsListPage.tsx),
-    // which moved Assigned To out of the combined section into its own
-    // "Assignment & Forms" group: who owns this client internally is a
-    // different kind of fact than how to reach the client, and the two forms
-    // previously disagreed on the grouping (create had them split, edit didn't).
-    title: "Assigned To",
-    fields: [
-      { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "select" },
-    ],
-  },
-  {
-    title: "Contact",
+    title: "Contact & Address",
     fields: [
       { key: "email", apiKey: "email", label: "Email", kind: "text" },
       { key: "phone", apiKey: "phone", label: "Phone", kind: "text" },
@@ -138,7 +97,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
     ],
   },
   {
-    title: "Tax IDs & Responsible Party",
+    title: "Business Tax IDs",
     fields: [
       { key: "state_tax_id", apiKey: "stateTaxId", label: "State Tax ID", kind: "text" },
       { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f) },
@@ -157,11 +116,69 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[] }[] = [
       // fill in regardless of whether that checkbox has been set yet.
       { key: "md_ui_employer_id", apiKey: "mdUiEmployerId", label: "MD UI Employer ID", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "md_ui_tax_rate", apiKey: "mdUiTaxRate", label: "MD UI Tax Rate (%)", kind: "text", hidden: (f) => !isBusiness(f) },
+    ],
+  },
+  {
+    title: "Owner / Responsible Party",
+    fields: [
       { key: "company_contact_name", apiKey: "companyContactName", label: "Owner Name", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_title", apiKey: "companyContactTitle", label: "Owner Title", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Owner SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_email", apiKey: "companyContactEmail", label: "Owner Email", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_phone", apiKey: "companyContactPhone", label: "Owner Phone", kind: "text", hidden: (f) => !isBusiness(f) },
+    ],
+  },
+  {
+    // No FieldConfig entries — rendered as a special-cased checklist below
+    // (multi-select doesn't fit the FieldKind union), same pattern AddressFields
+    // uses for the "Contact & Address" section. Payroll/Sales Tax/Tax Prep/
+    // Business Compliance render as nested sub-cards inside this one (see
+    // nestedIn below), matching how the Add Client wizard nests them.
+    title: "Services Provided",
+    fields: [],
+  },
+  {
+    title: "Payroll Details",
+    nestedIn: "Services Provided",
+    fields: [
+      { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollFrequency(f) },
+      { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll Provider", kind: "select", options: PAYROLL_PROVIDERS, hidden: (f) => !showPayrollSystem(f) },
+      { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
+      { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
+      { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
+      { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showW21099(f) },
+    ],
+  },
+  {
+    title: "Sales Tax Details",
+    nestedIn: "Services Provided",
+    fields: [
+      { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showSalesTaxDetails(f) },
+    ],
+  },
+  {
+    title: "Tax Preparation Details",
+    nestedIn: "Services Provided",
+    fields: [
+      { key: "business_return_type", apiKey: "businessReturnType", label: "Business Return Type", kind: "select", options: RETURN_TYPES, hidden: (f) => !showTaxPrepDetails(f) },
+    ],
+  },
+  {
+    title: "Business Compliance",
+    nestedIn: "Services Provided",
+    fields: [
+      { key: "md_annual_report_enabled", apiKey: "mdAnnualReportEnabled", label: "MD Annual Report Enabled", kind: "checkbox", hidden: (f) => !showMdAnnualReport(f) },
+    ],
+  },
+  {
+    title: "Assignment & Forms",
+    fields: [
+      { key: "assigned_to", apiKey: "assignedTo", label: "Assigned To", kind: "select" },
+    ],
+  },
+  {
+    title: "Notes",
+    fields: [
       { key: "notes", apiKey: "notes", label: "Notes", kind: "textarea" },
     ],
   },
@@ -204,6 +221,28 @@ export function ClientDetailPage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Edit form jump-nav — same sticky-nav + scroll-spy pattern as the Add
+  // Client wizard (ClientsListPage.tsx), so a client's profile edit form
+  // isn't a visually different, older-feeling app than the form used to
+  // create it.
+  const [activeEditSection, setActiveEditSection] = useState("Client Identity");
+  const editSectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  function scrollToEditSection(title: string) {
+    editSectionRefs.current[title]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  useEffect(() => {
+    if (!editing) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        if (visible[0]) setActiveEditSection(visible[0].target.getAttribute("data-section-title") || "");
+      },
+      { rootMargin: "-15% 0px -70% 0px", threshold: [0, 0.25, 0.5, 1] }
+    );
+    Object.values(editSectionRefs.current).forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [editing, form.clientType]);
 
   // Autosave for the Edit Client form — only active while actually editing
   // (formKey null otherwise), so viewing a client's profile never checks or
@@ -478,7 +517,7 @@ export function ClientDetailPage() {
       </div>
 
       {editing ? (
-        <form onSubmit={handleSave} className="card" style={{ maxWidth: 960 }}>
+        <form onSubmit={handleSave} className="card" style={{ maxWidth: 1180 }}>
           {pendingEditDraft && (
             <DraftRestoreBanner
               updatedAt={pendingEditDraft.updatedAt}
@@ -487,150 +526,200 @@ export function ClientDetailPage() {
             />
           )}
           {saveError && <ErrorBanner error={saveError} />}
-          {EDIT_SECTIONS.map((section) => {
-            const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
-            // A conditional section (Payroll/Sales Tax/Tax Prep/Business Compliance
-            // Details) with nothing currently visible shouldn't show an empty
-            // header — only "Services Provided" is allowed to have zero
-            // FieldConfig entries (it renders its own checklist below instead).
-            if (visibleFields.length === 0 && section.title !== "Services Provided") return null;
-            return (
-            <div key={section.title}>
-              <div className="form-section-title">{section.title}</div>
-              {section.title === "Services Provided" && (
-                <>
-                  <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
-                    Select every service this client is engaged for — the Contracts section below will suggest the matching contract for each one.
-                    {!isBusiness(form) && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
-                    {servicesForClientType(form.clientType, form.services as string[] || []).map((s) => (
-                      <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                        <input
-                          type="checkbox"
-                          checked={(form.services as string[] || []).includes(s.key)}
-                          onChange={(e) => setForm((prev) => {
-                            const services = e.target.checked
-                              ? [...(prev.services as string[] || []), s.key]
-                              : (prev.services as string[] || []).filter((k) => k !== s.key);
-                            return { ...prev, services, payrollEnabled: services.includes("payroll") };
-                          })}
-                        />
-                        {s.label}
-                      </label>
-                    ))}
+          {(() => {
+            const renderEditField = (f: FieldConfig) => (
+              f.kind === "checkbox" ? (
+                <label key={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form[f.apiKey])}
+                    onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.checked }))}
+                  />
+                  {f.label}
+                </label>
+              ) : f.kind === "select" ? (
+                <div className="field" key={f.apiKey}>
+                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
+                    <option value="">{f.apiKey === "assignedTo" ? "Unassigned" : "Select…"}</option>
+                    {f.apiKey === "assignedTo" && form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && (
+                      <option value={form[f.apiKey]}>{form[f.apiKey]} (Inactive)</option>
+                    )}
+                    {(f.apiKey === "assignedTo" ? staffOptions : f.options || []).map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              ) : f.kind === "multiselect" ? (
+                // Stored as a single comma-joined string (e.g. "Email, SMS") in the
+                // same plain-text column a single-select used — no schema change,
+                // and nothing downstream parses this field strictly (real send-channel
+                // gating already uses the separate smsAllowed/emailAllowed checkboxes).
+                <div className="field" key={f.apiKey}>
+                  <label>{f.label}</label>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
+                    {(f.options || []).map((o) => {
+                      const selected = String(form[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
+                      return (
+                        <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(o)}
+                            onChange={(e) => setForm((prev) => {
+                              const prevSelected = String(prev[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
+                              const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
+                              return { ...prev, [f.apiKey]: next.join(", ") };
+                            })}
+                          />
+                          {o}
+                        </label>
+                      );
+                    })}
                   </div>
-                </>
-              )}
-              <div className="form-grid-3">
-                {visibleFields.map((f) => (
-                  f.kind === "checkbox" ? (
-                    <label key={f.apiKey} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(form[f.apiKey])}
-                        onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.checked }))}
-                      />
-                      {f.label}
-                    </label>
-                  ) : f.kind === "select" ? (
-                    <div className="field" key={f.apiKey}>
-                      <label htmlFor={f.apiKey}>{f.label}</label>
-                      <select id={f.apiKey} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))}>
-                        <option value="">{f.apiKey === "assignedTo" ? "Unassigned" : "Select…"}</option>
-                        {f.apiKey === "assignedTo" && form[f.apiKey] && !staffOptions.includes(form[f.apiKey]) && (
-                          <option value={form[f.apiKey]}>{form[f.apiKey]} (Inactive)</option>
+                </div>
+              ) : f.kind === "textarea" ? (
+                <div className="field" style={{ gridColumn: "1 / -1" }} key={f.apiKey}>
+                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <textarea id={f.apiKey} rows={f.key === "notes" ? 3 : 2} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                </div>
+              ) : f.kind === "date" ? (
+                <div className="field" key={f.apiKey}>
+                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <input id={f.apiKey} type="date" value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                </div>
+              ) : (
+                <div className="field" key={f.apiKey}>
+                  <label htmlFor={f.apiKey}>{f.label}</label>
+                  <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                  {f.suggestions && (
+                    <datalist id={`${f.apiKey}-list`}>
+                      {f.suggestions.map((o) => <option key={o} value={o} />)}
+                    </datalist>
+                  )}
+                </div>
+              )
+            );
+
+            const EDIT_SECTION_ICONS: Record<string, typeof Building2> = {
+              "Client Identity": Building2, "Contact & Address": MapPin, "Business Tax IDs": FileText,
+              "Owner / Responsible Party": UserRound, "Services Provided": Briefcase,
+              "Assignment & Forms": ClipboardList, "Notes": StickyNote,
+            };
+            const topLevelSections = EDIT_SECTIONS.filter((s) => !s.nestedIn);
+            const sectionVisible = (section: (typeof EDIT_SECTIONS)[number]) => {
+              const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
+              return visibleFields.length > 0 || section.title === "Services Provided";
+            };
+
+            return (
+              <div className="ac-wizard">
+                <nav className="ac-wizard-nav" aria-label="Client profile sections">
+                  {topLevelSections.filter(sectionVisible).map((section) => {
+                    const Icon = EDIT_SECTION_ICONS[section.title] || FileText;
+                    return (
+                      <button key={section.title} type="button" className={activeEditSection === section.title ? "active" : ""} onClick={() => scrollToEditSection(section.title)}>
+                        <Icon size={15} /> {section.title}
+                      </button>
+                    );
+                  })}
+                </nav>
+                <div className="ac-wizard-body">
+                  {topLevelSections.map((section) => {
+                    const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
+                    // A section with nothing currently visible shouldn't render an
+                    // empty card — only "Services Provided" is allowed to have zero
+                    // FieldConfig entries (it renders its own checklist + nested
+                    // sub-cards below instead).
+                    if (visibleFields.length === 0 && section.title !== "Services Provided") return null;
+                    const Icon = EDIT_SECTION_ICONS[section.title] || FileText;
+                    return (
+                      <section
+                        key={section.title}
+                        data-section-title={section.title}
+                        ref={(el) => { editSectionRefs.current[section.title] = el; }}
+                        className="ac-card"
+                      >
+                        <div className="ac-card-header"><Icon size={16} /><h3>{section.title}</h3></div>
+                        {section.title === "Services Provided" && (
+                          <>
+                            <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+                              Select every service this client is engaged for — the Contracts section below will suggest the matching contract for each one.
+                              {!isBusiness(form) && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
+                            </p>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
+                              {servicesForClientType(form.clientType, form.services as string[] || []).map((s) => (
+                                <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={(form.services as string[] || []).includes(s.key)}
+                                    onChange={(e) => setForm((prev) => {
+                                      const services = e.target.checked
+                                        ? [...(prev.services as string[] || []), s.key]
+                                        : (prev.services as string[] || []).filter((k) => k !== s.key);
+                                      return { ...prev, services, payrollEnabled: services.includes("payroll") };
+                                    })}
+                                  />
+                                  {s.label}
+                                </label>
+                              ))}
+                            </div>
+                          </>
                         )}
-                        {(f.apiKey === "assignedTo" ? staffOptions : f.options || []).map((o) => <option key={o}>{o}</option>)}
-                      </select>
-                    </div>
-                  ) : f.kind === "multiselect" ? (
-                    // Stored as a single comma-joined string (e.g. "Email, SMS") in the
-                    // same plain-text column a single-select used — no schema change,
-                    // and nothing downstream parses this field strictly (real send-channel
-                    // gating already uses the separate smsAllowed/emailAllowed checkboxes).
-                    <div className="field" key={f.apiKey}>
-                      <label>{f.label}</label>
-                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 6 }}>
-                        {(f.options || []).map((o) => {
-                          const selected = String(form[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
+                        <div className="form-grid-3">{visibleFields.map(renderEditField)}</div>
+                        {section.title === "Contact & Address" && (
+                          <>
+                            <div className="ac-subcard-title" style={{ marginTop: 14 }}>{isBusiness(form) ? "Business Address" : "Address"}</div>
+                            <AddressFields
+                              idPrefix="cd"
+                              showStateField={false}
+                              value={{ street: form.streetAddress ?? "", city: form.city ?? "", state: form.state ?? "", zip: form.zipCode ?? "" }}
+                              onChange={(patch) => setForm((prev) => ({
+                                ...prev,
+                                streetAddress: patch.street ?? prev.streetAddress,
+                                city: patch.city ?? prev.city,
+                                zipCode: patch.zip ?? prev.zipCode,
+                                state: patch.state ?? prev.state,
+                              }))}
+                            />
+                          </>
+                        )}
+                        {section.title === "Owner / Responsible Party" && isBusiness(form) && (
+                          <>
+                            <div className="ac-subcard-title" style={{ marginTop: 14 }}>Owner Home Address</div>
+                            <AddressFields
+                              idPrefix="cd-rp"
+                              value={{ street: form.companyContactStreetAddress ?? "", city: form.companyContactCity ?? "", state: form.companyContactState ?? "", zip: form.companyContactZipCode ?? "" }}
+                              onChange={(patch) => setForm((prev) => ({
+                                ...prev,
+                                companyContactStreetAddress: patch.street ?? prev.companyContactStreetAddress,
+                                companyContactCity: patch.city ?? prev.companyContactCity,
+                                companyContactZipCode: patch.zip ?? prev.companyContactZipCode,
+                                companyContactState: patch.state ?? prev.companyContactState,
+                              }))}
+                            />
+                          </>
+                        )}
+                        {section.title === "Services Provided" && EDIT_SECTIONS.filter((s) => s.nestedIn === "Services Provided").map((nested) => {
+                          const nestedVisible = nested.fields.filter((f) => !f.hidden || !f.hidden(form));
+                          if (nestedVisible.length === 0) return null;
                           return (
-                            <label key={o} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                              <input
-                                type="checkbox"
-                                checked={selected.includes(o)}
-                                onChange={(e) => setForm((prev) => {
-                                  const prevSelected = String(prev[f.apiKey] || "").split(",").map((s) => s.trim()).filter(Boolean);
-                                  const next = e.target.checked ? [...prevSelected, o] : prevSelected.filter((v) => v !== o);
-                                  return { ...prev, [f.apiKey]: next.join(", ") };
-                                })}
-                              />
-                              {o}
-                            </label>
+                            <div className="ac-subcard" key={nested.title}>
+                              <div className="ac-subcard-title">{nested.title}</div>
+                              <div className="form-grid-3">{nestedVisible.map(renderEditField)}</div>
+                            </div>
                           );
                         })}
-                      </div>
-                    </div>
-                  ) : f.kind === "textarea" ? (
-                    <div className="field" style={{ gridColumn: "1 / -1" }} key={f.apiKey}>
-                      <label htmlFor={f.apiKey}>{f.label}</label>
-                      <textarea id={f.apiKey} rows={f.key === "notes" ? 3 : 2} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
-                    </div>
-                  ) : f.kind === "date" ? (
-                    <div className="field" key={f.apiKey}>
-                      <label htmlFor={f.apiKey}>{f.label}</label>
-                      <input id={f.apiKey} type="date" value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
-                    </div>
-                  ) : (
-                    <div className="field" key={f.apiKey}>
-                      <label htmlFor={f.apiKey}>{f.label}</label>
-                      <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
-                      {f.suggestions && (
-                        <datalist id={`${f.apiKey}-list`}>
-                          {f.suggestions.map((o) => <option key={o} value={o} />)}
-                        </datalist>
-                      )}
-                    </div>
-                  )
-                ))}
+                        {section.title === "Notes" && (
+                          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                            <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+                            <button type="button" className="btn" onClick={() => { setEditing(false); setSearchParams({}); }}>Cancel</button>
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
-              {section.title === "Contact" && (
-                <AddressFields
-                  idPrefix="cd"
-                  showStateField={false}
-                  value={{ street: form.streetAddress ?? "", city: form.city ?? "", state: form.state ?? "", zip: form.zipCode ?? "" }}
-                  onChange={(patch) => setForm((prev) => ({
-                    ...prev,
-                    streetAddress: patch.street ?? prev.streetAddress,
-                    city: patch.city ?? prev.city,
-                    zipCode: patch.zip ?? prev.zipCode,
-                    state: patch.state ?? prev.state,
-                  }))}
-                />
-              )}
-              {section.title === "Tax IDs & Responsible Party" && isBusiness(form) && (
-                <>
-                  <div className="muted" style={{ fontSize: 12, margin: "-6px 0 8px" }}>Owner Home Address</div>
-                  <AddressFields
-                    idPrefix="cd-rp"
-                    value={{ street: form.companyContactStreetAddress ?? "", city: form.companyContactCity ?? "", state: form.companyContactState ?? "", zip: form.companyContactZipCode ?? "" }}
-                    onChange={(patch) => setForm((prev) => ({
-                      ...prev,
-                      companyContactStreetAddress: patch.street ?? prev.companyContactStreetAddress,
-                      companyContactCity: patch.city ?? prev.companyContactCity,
-                      companyContactZipCode: patch.zip ?? prev.companyContactZipCode,
-                      companyContactState: patch.state ?? prev.companyContactState,
-                    }))}
-                  />
-                </>
-              )}
-            </div>
             );
-          })}
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button type="submit" className={`btn btn-primary${saving ? " btn-loading" : ""}`} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
-            <button type="button" className="btn" onClick={() => { setEditing(false); setSearchParams({}); }}>Cancel</button>
-          </div>
+          })()}
         </form>
       ) : (
         <>
