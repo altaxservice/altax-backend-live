@@ -711,9 +711,30 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                         <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleUnmarkPeriodFiled(mdFiling.periods[0])}>
                           {markingPeriodEnd === mdFiling.periods[0].end ? "Undoing…" : "Undo — this wasn't actually filed"}
                         </button>
+                      ) : pickingPeriodEnd === mdFiling.periods[0].end ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                          <div className="field" style={{ maxWidth: 180, margin: 0 }}>
+                            <label>Actual filed date</label>
+                            <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                          </div>
+                          <div className="field" style={{ maxWidth: 180, margin: 0 }}>
+                            <label>Actual payment date</label>
+                            <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                          </div>
+                          <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end || !pickFiledDate || !pickPaidDate} onClick={() => handleMarkPeriodFiled(mdFiling.periods[0], pickFiledDate, pickPaidDate)}>
+                            {markingPeriodEnd === mdFiling.periods[0].end ? "Marking…" : "Confirm"}
+                          </button>
+                          <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
+                        </div>
                       ) : (
-                        <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleMarkPeriodFiled(mdFiling.periods[0])}>
-                          {markingPeriodEnd === mdFiling.periods[0].end ? "Marking…" : mdFiledDate === mdPaidDate ? `Mark Filed & Paid on ${fmtDate(mdPaidDate)}` : `Mark Filed ${fmtDate(mdFiledDate)}, Paid ${fmtDate(mdPaidDate)}`}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={markingPeriodEnd === mdFiling.periods[0].end}
+                          onClick={() => { setPickingPeriodEnd(mdFiling.periods[0].end); setPickFiledDate(mdFiling.periods[0].dueDate); setPickPaidDate(mdFiling.periods[0].dueDate); }}
+                          title="Enter this period's actual filed/paid dates"
+                        >
+                          Mark Filed
                         </button>
                       )}
                     </div>
