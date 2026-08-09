@@ -437,8 +437,9 @@ const FLAG_TYPE_LABELS_AR: Record<string, string> = {
   Credit: "رصيد دائن في الحساب",
 };
 const FLAG_CATEGORY_LABELS_AR: Record<string, string> = {
+  "Balance Past Due": "رصيد متأخر السداد",
   "Not in Good Standing": "الوضع القانوني غير سليم",
-  "Compliance Issue": "مشكلة امتثال",
+  "Compliance Issue": "عدم الالتزام بمتطلبات قوانين سياسة الشركات في ولاية ماريلاند",
   "Missing Documentation": "مستندات ناقصة",
   "Legal / Dispute": "نزاع / مسألة قانونية",
   "Ownership Change Pending": "تغيير الملكية قيد الإجراء",

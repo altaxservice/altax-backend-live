@@ -612,7 +612,7 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
   paymentMethods: { label: "Payment Methods", values: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"] },
   communicationChannels: { label: "Communication Channels", values: ["Email", "Portal Note", "SMS", "WhatsApp", "Phone"] },
   clientFlagCategories: { label: "Client Flag Categories", values: [
-    "Not in Good Standing", "Compliance Issue", "Missing Documentation", "Legal / Dispute",
+    "Balance Past Due", "Not in Good Standing", "Compliance Issue", "Missing Documentation", "Legal / Dispute",
     "Ownership Change Pending", "Collections", "Other",
   ] },
 };
