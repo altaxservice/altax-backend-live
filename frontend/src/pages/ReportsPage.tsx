@@ -102,8 +102,15 @@ function fmtMoney(v: unknown): string {
 const INCOME_TYPES = ["Sales Revenue", "Income", "Revenue"];
 const COGS_TYPES = ["COGS", "Cost of Goods Sold"];
 const EXPENSE_HINTS = ["expense", "payroll tax", "office"];
-const ASSET_HINTS = ["cash", "asset", "bank", "receivable"];
+// "bank" removed — the only account anywhere containing that substring is "Bank Fees"
+// (an Expense account), which it was misclassifying as an asset. Must stay in sync
+// with reports.routes.ts (guarded by src/tests/accountBucketing.test.ts).
+const ASSET_HINTS = ["cash", "asset", "receivable"];
 const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
+// Equity accounts (Owner Equity, Owner Draw, Retained Earnings, Opening Balance Equity,
+// Owner Contributions, ...) have no bucket of their own without this — they fell into
+// "other", which the P&L expense filter below treats as an expense fallback.
+const EQUITY_HINTS = ["equity", "retained earnings", "owner draw", "owner contribution"];
 
 export function ReportsPage() {
   const { user } = useAuth();
@@ -240,12 +247,13 @@ export function ReportsPage() {
 
   const client = clients.find((c) => c.client_id === clientId);
 
-  function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "other" {
+  function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other" {
     const a = String(account || "").toLowerCase();
     if (INCOME_TYPES.some((t) => a.includes(t.toLowerCase()))) return "income";
     if (COGS_TYPES.some((t) => a.includes(t.toLowerCase()))) return "cogs";
     if (LIABILITY_HINTS.some((t) => a.includes(t))) return "liability";
     if (ASSET_HINTS.some((t) => a.includes(t))) return "asset";
+    if (EQUITY_HINTS.some((t) => a.includes(t))) return "equity";
     if (EXPENSE_HINTS.some((t) => a.includes(t))) return "expense";
     return "other";
   }
