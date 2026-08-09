@@ -7,6 +7,7 @@ import { StatusBadge } from "./StatusBadge";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
+import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 
@@ -34,6 +35,7 @@ interface ClientFlag {
   category?: string | null;
   details?: string | null;
   dueDate?: string | null;
+  shareWithClient: boolean;
 }
 
 function fmtMoney(v: unknown): string {
@@ -72,10 +74,12 @@ export function ClientContextPanel() {
   const [flagDetails, setFlagDetails] = useState("");
   const [flagDueDate, setFlagDueDate] = useState("");
   const [flagLinkTaskId, setFlagLinkTaskId] = useState("");
+  const [flagShareWithClient, setFlagShareWithClient] = useState(false);
   const [savingFlag, setSavingFlag] = useState(false);
   const [flagError, setFlagError] = useState<string | null>(null);
   const [options, setOptions] = useState<WebOptions | null>(null);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
+  const [showNotifyModal, setShowNotifyModal] = useState(false);
 
   useEffect(() => {
     api.get<WebOptions>("/system/options").then(setOptions).catch(() => {});
@@ -109,7 +113,7 @@ export function ClientContextPanel() {
 
   function resetFlagForm() {
     setFlagAmount(""); setFlagNote(""); setFlagCategory(""); setFlagCategoryOther("");
-    setFlagDetails(""); setFlagDueDate(""); setFlagLinkTaskId("");
+    setFlagDetails(""); setFlagDueDate(""); setFlagLinkTaskId(""); setFlagShareWithClient(false);
   }
 
   async function handleAddFlag(e: FormEvent) {
@@ -134,6 +138,7 @@ export function ClientContextPanel() {
         details: flagType === "Custom" ? (flagDetails.trim() || undefined) : undefined,
         dueDate: flagType === "Custom" ? (flagDueDate || undefined) : undefined,
         linkTaskId: flagType === "Custom" ? (flagLinkTaskId || undefined) : undefined,
+        shareWithClient: flagShareWithClient,
       });
       setShowAddFlag(false);
       setFlagType("Custom");
@@ -154,6 +159,16 @@ export function ClientContextPanel() {
       loadFlags(clientId);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not resolve this flag.");
+    }
+  }
+
+  async function handleToggleShare(flagId: string) {
+    if (!clientId) return;
+    try {
+      await api.post(`/clients/${clientId}/flags/${flagId}/toggle-share`, {});
+      loadFlags(clientId);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this flag.");
     }
   }
 
@@ -222,6 +237,17 @@ export function ClientContextPanel() {
                     ) : (
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{flagLabel(f)}</span>
                     )}
+                    {f.flagId && (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleShare(f.flagId!)}
+                        title={f.shareWithClient ? "Included the next time you notify this client — click to hide it" : "Not shared with the client — click to include it in the next notification"}
+                        aria-label={f.shareWithClient ? "Shared with client" : "Not shared with client"}
+                        style={{ background: "none", border: f.shareWithClient ? "1px solid currentColor" : "1px dashed currentColor", borderRadius: 4, cursor: "pointer", color: "inherit", opacity: f.shareWithClient ? 1 : 0.55, padding: "0 4px", marginLeft: 6, flex: "0 0 auto", fontSize: 10, lineHeight: "14px" }}
+                      >
+                        {f.shareWithClient ? "Shared" : "Share?"}
+                      </button>
+                    )}
                     {f.resolvable && f.flagId && (
                       <button
                         type="button"
@@ -241,7 +267,14 @@ export function ClientContextPanel() {
           )}
 
           {!showAddFlag ? (
-            <button type="button" className="btn btn-sm" style={{ marginBottom: 12 }} onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
+            <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
+              {flags && flags.length > 0 && (
+                <button type="button" className="btn btn-sm" onClick={() => setShowNotifyModal(true)}>
+                  Notify Client{flags.some((f) => f.shareWithClient) ? ` (${flags.filter((f) => f.shareWithClient).length})` : ""}
+                </button>
+              )}
+            </div>
           ) : (
             <form onSubmit={handleAddFlag} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
               {flagError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{flagError}</div>}
@@ -283,6 +316,11 @@ export function ClientContextPanel() {
                   )}
                 </>
               )}
+
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                <input type="checkbox" checked={flagShareWithClient} onChange={(e) => setFlagShareWithClient(e.target.checked)} />
+                Share with client — include this in the client's "Notify Client" email/SMS
+              </label>
 
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingFlag}>{savingFlag ? "Saving…" : "Save Flag"}</button>
@@ -362,6 +400,16 @@ export function ClientContextPanel() {
           <div style={{ marginTop: 14 }}>
             <button type="button" className="btn btn-sm" style={{ width: "100%" }} onClick={() => navigate(`/billing?clientId=${client.client_id}`)}>View Billing</button>
           </div>
+
+          {showNotifyModal && (
+            <NotifyClientFlagsModal
+              clientId={client.client_id}
+              clientName={client.client_name}
+              clientEmail={client.email}
+              clientPhone={client.phone}
+              onClose={() => setShowNotifyModal(false)}
+            />
+          )}
         </>
       )}
     </aside>

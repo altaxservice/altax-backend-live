@@ -218,6 +218,8 @@ interface ClientFlag {
   category?: string | null;
   details?: string | null;
   dueDate?: string | null;
+  /** Whether this flag is allowed to appear in a client-facing notification (see POST :clientId/flags/notify-preview). Computed flags (Balance/Agency Past Due) are always eligible; manual flags default to false until staff opts them in. */
+  shareWithClient: boolean;
 }
 
 /**
@@ -254,7 +256,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   );
   const overdueAmount = Number(overdue?.total || 0);
   if (overdueAmount > 0) {
-    flags.push({ flagId: null, flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false });
+    flags.push({ flagId: null, flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false, shareWithClient: true });
   }
 
   const agencyRows = await query<any>(
@@ -268,7 +270,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
     flags.push({
       flagId: null, flagType: "AgencyPastDue", amount: row.payment_amount !== null ? Number(row.payment_amount) : null,
       note: row.service_line || row.task_name, color: "red", createdAt: null, createdBy: null, resolvable: false,
-      linkTaskId: row.task_id,
+      linkTaskId: row.task_id, shareWithClient: true,
     });
   }
 
@@ -293,7 +295,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
           flags.push({
             flagId: null, flagType: "AgencyPastDue", amount: p.balanceDue,
             note: `MD Sales & Use Tax (ending ${p.end})`, color: "red", createdAt: null, createdBy: null, resolvable: false,
-            linkUrl: `/accounting?client=${clientId}&tab=Sales`,
+            linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
           });
         }
       }
@@ -301,7 +303,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   }
 
   const manual = await query<any>(
-    `SELECT flag_id, flag_type, amount, note, category, details, due_date, link_task_id, created_at, created_by
+    `SELECT flag_id, flag_type, amount, note, category, details, due_date, link_task_id, created_at, created_by, share_with_client
        FROM altax.v3_client_flags
       WHERE client_id = $1 AND status = 'Open' ORDER BY created_at DESC`,
     [clientId]
@@ -312,7 +314,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
       note: row.note, color: row.flag_type === "Credit" ? "green" : "amber",
       createdAt: row.created_at, createdBy: row.created_by, resolvable: true,
       category: row.category, details: row.details, dueDate: row.due_date,
-      linkTaskId: row.link_task_id || undefined,
+      linkTaskId: row.link_task_id || undefined, shareWithClient: row.share_with_client === true,
     });
   }
 
@@ -377,11 +379,13 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
     }
   }
 
+  const shareWithClient = Boolean(body.shareWithClient);
+
   const flagId = nextFlagId();
   await query(
-    `INSERT INTO altax.v3_client_flags (flag_id, client_id, flag_type, amount, note, category, details, due_date, link_task_id, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [flagId, clientId, flagType, amount, note, category, details, dueDate, linkTaskId, req.user!.email]
+    `INSERT INTO altax.v3_client_flags (flag_id, client_id, flag_type, amount, note, category, details, due_date, link_task_id, created_by, share_with_client)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [flagId, clientId, flagType, amount, note, category, details, dueDate, linkTaskId, req.user!.email, shareWithClient]
   );
   await logAudit("Clients", "FLAG_ADDED", clientId, "flag", "", flagType, `${flagType} flag added for client by ${req.user!.email}${note ? `: ${note}` : ""}.`, req.user!.email);
   res.status(201).json({ ok: true, flagId });
@@ -409,6 +413,99 @@ clientsRouter.post("/:clientId/flags/:flagId/delete", requireAuth, requireRole("
   await query(`DELETE FROM altax.v3_client_flags WHERE flag_id = $1`, [flagId]);
   await logAudit("Clients", "FLAG_DELETED", clientId, "flag", row.flag_type, "", `${row.flag_type} flag deleted by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
+}));
+
+/** Flips whether a manual flag is allowed to appear in a client-facing notification — see POST :clientId/flags/notify-preview. */
+clientsRouter.post("/:clientId/flags/:flagId/toggle-share", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, flagId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_flags WHERE flag_id = $1 AND client_id = $2`, [flagId, clientId]);
+  if (!row) return res.status(404).json({ error: "Flag not found." });
+  const next = !row.share_with_client;
+  await query(`UPDATE altax.v3_client_flags SET share_with_client = $2 WHERE flag_id = $1`, [flagId, next]);
+  await logAudit("Clients", "FLAG_SHARE_TOGGLED", clientId, "flag", String(row.share_with_client), String(next),
+    `${row.flag_type} flag ${next ? "marked shareable with" : "hidden from"} client by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, shareWithClient: next });
+}));
+
+/** English/Arabic label pairs for the flag types and preset categories staff can pick — everything not in these maps (a custom dropdown option, or free-text notes) stays as the original English text in both columns, same convention computeClientPeriodSummaryTable already uses for staff-defined free text with no stored translation. */
+const FLAG_TYPE_LABELS_AR: Record<string, string> = {
+  BalancePastDue: "رصيد متأخر السداد",
+  AgencyPastDue: "تقديم متأخر لدى الجهة الحكومية",
+  Credit: "رصيد دائن في الحساب",
+};
+const FLAG_CATEGORY_LABELS_AR: Record<string, string> = {
+  "Not in Good Standing": "الوضع القانوني غير سليم",
+  "Compliance Issue": "مشكلة امتثال",
+  "Missing Documentation": "مستندات ناقصة",
+  "Legal / Dispute": "نزاع / مسألة قانونية",
+  "Ownership Change Pending": "تغيير الملكية قيد الإجراء",
+  "Collections": "تحصيل ديون",
+  "Other": "أخرى",
+};
+const FLAG_TYPE_LABELS_EN: Record<string, string> = {
+  BalancePastDue: "Balance Past Due",
+  AgencyPastDue: "Agency Filing Past Due",
+  Credit: "Credit on Account",
+};
+
+/**
+ * Builds the bilingual EN/AR body for a "here are your open account items"
+ * notification — pure computation, no send. Only flags with
+ * shareWithClient=true are ever included (see the migration's doc comment
+ * for why manual flags default to excluded). Returns null when there's
+ * nothing shareable, so the route can 404 with a clear reason instead of
+ * sending an empty message.
+ */
+async function buildClientFlagsNotification(clientId: string): Promise<{ subject: string; messageEnglish: string; messageArabic: string; count: number } | null> {
+  const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return null;
+  const flags = (await computeClientFlags(clientId)).filter((f) => f.shareWithClient);
+  if (flags.length === 0) return null;
+
+  const enLines: string[] = [];
+  const arLines: string[] = [];
+  for (const f of flags) {
+    const label = f.category || FLAG_TYPE_LABELS_EN[f.flagType] || f.flagType;
+    const labelAr = f.category
+      ? (FLAG_CATEGORY_LABELS_AR[f.category] || f.category)
+      : (FLAG_TYPE_LABELS_AR[f.flagType] || label);
+    const amountText = f.amount !== null ? ` — ${fmtMoneyPlain(f.amount)}` : "";
+    const noteText = f.flagType !== "Custom" && f.note ? ` (${f.note})` : "";
+    const dueText = f.dueDate ? ` — Due ${fmtFlagDate(f.dueDate)}` : "";
+    const dueTextAr = f.dueDate ? ` — الاستحقاق ${fmtFlagDate(f.dueDate)}` : "";
+    enLines.push(`• ${label}${noteText}${amountText}${dueText}${f.details ? `: ${f.details}` : ""}`);
+    arLines.push(`• ${labelAr}${noteText}${amountText}${dueTextAr}${f.details ? `: ${f.details}` : ""}`);
+  }
+
+  const subject = `Important Account Items — ${client.client_name}`;
+  const messageEnglish = [
+    `Dear ${client.client_name},`, "",
+    "Please review the following item(s) on your account:", "",
+    ...enLines, "",
+    "If you have any questions or need help resolving these, please contact our office.",
+  ].join("\n");
+  const messageArabic = [
+    `عزيزنا ${client.client_name}،`, "",
+    "يرجى مراجعة البند/البنود التالية في حسابك:", "",
+    ...arLines, "",
+    "إذا كانت لديك أي أسئلة أو تحتاج إلى مساعدة في حل هذه الأمور، يرجى التواصل مع مكتبنا.",
+  ].join("\n");
+
+  return { subject, messageEnglish, messageArabic, count: flags.length };
+}
+
+/** Read-only preview of what a "Notify Client" send would contain — lets the frontend show/edit the bilingual message before actually sending it via POST /communications. */
+clientsRouter.get("/:clientId/flags/notify-preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const content = await buildClientFlagsNotification(clientId);
+  if (!content) return res.status(404).json({ error: "No flags are marked to share with the client yet. Check \"Share with client\" on a flag first." });
+  res.json({ ok: true, ...content });
 }));
 
 const SWOT_FIELDS = [
@@ -599,6 +696,10 @@ const INDIVIDUAL_SERVICE_KEYS = ["personal_tax_prep", "immigration", "consulting
 
 function fmtMoneyPlain(v: number): string {
   return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function fmtFlagDate(v: unknown): string {
+  const d = v ? new Date(v as string) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { timeZone: "UTC" }) : "";
 }
 
 /**
