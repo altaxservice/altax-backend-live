@@ -553,13 +553,23 @@ const EXPENSE_HINTS = ["expense", "payroll tax", "office"];
 // account name depends on it (see reports.routes.ts git history for the incident).
 const ASSET_HINTS = ["cash", "asset", "receivable"];
 const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
+// Equity accounts (Owner Equity, Owner Draw, Retained Earnings, Opening Balance Equity,
+// Owner Contributions, ...) were never a recognized bucket at all — they fell into
+// "other", and loadBucketedGl's P&L expense filter treats "other" as an expense (a
+// reasonable fallback for genuine-but-unlabeled expense accounts like "Dues and
+// Subscriptions"), so every equity account silently showed up as a P&L expense line
+// the moment it had any GL activity. Confirmed live on DEL Studio Architects' P&L
+// (Opening Balance Equity, Retained Earnings, Owner Contributions all appeared under
+// Expenses) before this fix.
+const EQUITY_HINTS = ["equity", "retained earnings", "owner draw", "owner contribution"];
 
-function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "other" {
+function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other" {
   const a = String(account || "").toLowerCase();
   if (INCOME_TYPES.some((t) => a.includes(t.toLowerCase()))) return "income";
   if (COGS_TYPES.some((t) => a.includes(t.toLowerCase()))) return "cogs";
   if (LIABILITY_HINTS.some((t) => a.includes(t))) return "liability";
   if (ASSET_HINTS.some((t) => a.includes(t))) return "asset";
+  if (EQUITY_HINTS.some((t) => a.includes(t))) return "equity";
   if (EXPENSE_HINTS.some((t) => a.includes(t))) return "expense";
   return "other";
 }
