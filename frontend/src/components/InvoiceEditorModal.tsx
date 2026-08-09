@@ -116,6 +116,17 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
   }, [clientId]);
 
   useEffect(() => {
+    if (isEdit || shipFrom) return;
+    api.get<{ firmName: string; addressLine1: string; addressLine2: string; phone: string; email: string }>("/firm-settings")
+      .then((firm) => {
+        const lines = [firm.firmName, firm.addressLine1, firm.addressLine2, firm.phone].filter((l) => l && l.trim());
+        setShipFrom((prev) => (prev ? prev : lines.join("\n")));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (sameAsBillTo) setShipTo(billTo);
   }, [billTo, sameAsBillTo]);
 
