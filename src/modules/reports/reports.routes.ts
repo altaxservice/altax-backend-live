@@ -80,6 +80,7 @@ function defaultFirmSummaryRange(): { from: string; to: string } {
 // Snapshot and Reports' Financial Overview already show, instead of a second computation
 // that could drift out of sync with what's on screen.
 export async function computeFirmSummary(from: string, to: string, clientId?: string) {
+  await ensureCoaTypeCache();
   const startDate = new Date(`${from}T00:00:00`);
   const endDate = new Date(`${to}T00:00:00`);
   const startMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
@@ -394,6 +395,7 @@ export async function computeClientApEstimate(clientId: string): Promise<number>
 
 /** COGS total for the window — computeFirmSummary doesn't split this out (it only needs revenue/expense for the P&L trend), so Gross Margin gets its own small query using the same bucketFor classification the rest of this file already uses. Exported for the monthly snapshot sweep. */
 export async function computeClientCogs(clientId: string, from: string, to: string): Promise<number> {
+  await ensureCoaTypeCache();
   const rows = await query<any>(
     `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
        FROM altax.v3_gl_entries
@@ -563,8 +565,41 @@ const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 // Expenses) before this fix.
 const EQUITY_HINTS = ["equity", "retained earnings", "owner draw", "owner contribution"];
 
-function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other" {
+type Bucket = "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other";
+const COA_TYPE_TO_BUCKET: Record<string, Bucket> = {
+  Income: "income", Revenue: "income", COGS: "cogs", Expense: "expense",
+  Asset: "asset", Liability: "liability", Equity: "equity",
+};
+
+/**
+ * Name-keyword guessing (below) used to be the only classification, and it's fragile by
+ * construction: it has already misclassified "Bank Fees" as an asset and let Equity
+ * accounts leak onto the P&L as expenses (see git history), simply because an account's
+ * real category doesn't always show up as a substring of its name — "Bank Fees" is an
+ * Expense, "Furniture and Equipment" is an Asset, "Prepaid Expenses" is an Asset despite
+ * the word "expense" in it. The Chart of Accounts already carries the real, staff-assigned
+ * account_type for every account, so that's now checked FIRST and is authoritative;
+ * keyword-guessing only ever runs as a fallback for a GL account name with no COA row
+ * (e.g. a stray/orphaned account, or COA type "Other" which isn't a real bucket).
+ */
+let coaTypeCache: Map<string, string> | null = null;
+let coaTypeCacheAt = 0;
+const COA_TYPE_CACHE_TTL_MS = 30_000;
+
+async function ensureCoaTypeCache(): Promise<void> {
+  if (coaTypeCache && Date.now() - coaTypeCacheAt < COA_TYPE_CACHE_TTL_MS) return;
+  const rows = await query<any>(`SELECT account_name, account_type FROM altax.v3_coa`);
+  const next = new Map<string, string>();
+  for (const r of rows) next.set(String(r.account_name || "").toLowerCase(), r.account_type);
+  coaTypeCache = next;
+  coaTypeCacheAt = Date.now();
+}
+
+function bucketFor(account: string): Bucket {
   const a = String(account || "").toLowerCase();
+  const coaType = coaTypeCache?.get(a);
+  const coaBucket = coaType ? COA_TYPE_TO_BUCKET[coaType] : undefined;
+  if (coaBucket) return coaBucket;
   if (INCOME_TYPES.some((t) => a.includes(t.toLowerCase()))) return "income";
   if (COGS_TYPES.some((t) => a.includes(t.toLowerCase()))) return "cogs";
   if (LIABILITY_HINTS.some((t) => a.includes(t))) return "liability";
@@ -659,6 +694,7 @@ export async function computeMdFilingForReport(
  * account under a narrow date range for exactly this reason.
  */
 async function loadBucketedGl(clientId: string, from: string, to: string) {
+  await ensureCoaTypeCache();
   const [periodRows, cumulativeRows] = await Promise.all([
     query<any>(
       `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit

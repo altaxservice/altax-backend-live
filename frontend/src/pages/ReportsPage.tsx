@@ -112,6 +112,12 @@ const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 // "other", which the P&L expense filter below treats as an expense fallback.
 const EQUITY_HINTS = ["equity", "retained earnings", "owner draw", "owner contribution"];
 
+type Bucket = "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other";
+const COA_TYPE_TO_BUCKET: Record<string, Bucket> = {
+  Income: "income", Revenue: "income", COGS: "cogs", Expense: "expense",
+  Asset: "asset", Liability: "liability", Equity: "equity",
+};
+
 export function ReportsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -149,9 +155,19 @@ export function ReportsPage() {
   const [summaryTable, setSummaryTable] = useState<SummaryTableSection[] | null>(null);
   const [summaryTableLoading, setSummaryTableLoading] = useState(false);
   const [summaryTableError, setSummaryTableError] = useState<string | null>(null);
+  const [coaTypeByName, setCoaTypeByName] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
+  }, []);
+
+  // The Chart of Accounts' own account_type is the authoritative source for
+  // bucketFor() below — see backend reports.routes.ts's ensureCoaTypeCache for why
+  // keyword-guessing on the account name alone (the old approach) isn't reliable.
+  useEffect(() => {
+    api.get<{ accounts: { account_name: string; account_type: string }[] }>("/accounting/coa")
+      .then((r) => setCoaTypeByName(new Map(r.accounts.map((a) => [String(a.account_name || "").toLowerCase(), a.account_type]))))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -247,8 +263,11 @@ export function ReportsPage() {
 
   const client = clients.find((c) => c.client_id === clientId);
 
-  function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "equity" | "other" {
+  function bucketFor(account: string): Bucket {
     const a = String(account || "").toLowerCase();
+    const coaType = coaTypeByName.get(a);
+    const coaBucket = coaType ? COA_TYPE_TO_BUCKET[coaType] : undefined;
+    if (coaBucket) return coaBucket;
     if (INCOME_TYPES.some((t) => a.includes(t.toLowerCase()))) return "income";
     if (COGS_TYPES.some((t) => a.includes(t.toLowerCase()))) return "cogs";
     if (LIABILITY_HINTS.some((t) => a.includes(t))) return "liability";
