@@ -270,6 +270,23 @@ export function ReportsPage() {
     return map;
   }, [filtered]);
 
+  // Assets/Liabilities are point-in-time balances (Balance Sheet "as of" `to`), not
+  // period activity — unlike Income/COGS/Expense they must never be bounded by `from`,
+  // or picking a short/recent window makes every account look like it has no history.
+  // `entries` already holds the client's full unfiltered GL, so this only needs `to`.
+  const cumulativeByAccount = useMemo(() => {
+    const map = new Map<string, { debit: number; credit: number }>();
+    for (const e of entries) {
+      if (!e.entry_date || String(e.entry_date).slice(0, 10) > to) continue;
+      const key = e.account || "Unclassified";
+      const row = map.get(key) || { debit: 0, credit: 0 };
+      row.debit += Number(e.debit) || 0;
+      row.credit += Number(e.credit) || 0;
+      map.set(key, row);
+    }
+    return map;
+  }, [entries, to]);
+
   const income = Array.from(byAccount.entries()).filter(([acct]) => bucketFor(acct) === "income");
   const cogs = Array.from(byAccount.entries()).filter(([acct]) => bucketFor(acct) === "cogs");
   const expenses = Array.from(byAccount.entries()).filter(([acct]) => bucketFor(acct) === "expense" || bucketFor(acct) === "other");
@@ -283,8 +300,8 @@ export function ReportsPage() {
   const salesTax = byAccount.get("Sales Tax Payable")?.credit || 0;
   const payrollGross = (byAccount.get("Payroll Expense")?.debit || 0);
 
-  const assets = Array.from(byAccount.entries()).filter(([acct]) => bucketFor(acct) === "asset");
-  const liabilities = Array.from(byAccount.entries()).filter(([acct]) => bucketFor(acct) === "liability");
+  const assets = Array.from(cumulativeByAccount.entries()).filter(([acct]) => bucketFor(acct) === "asset");
+  const liabilities = Array.from(cumulativeByAccount.entries()).filter(([acct]) => bucketFor(acct) === "liability");
   const totalAssets = assets.reduce((s, [, v]) => s + (v.debit - v.credit), 0);
   const totalLiabilities = liabilities.reduce((s, [, v]) => s + (v.credit - v.debit), 0);
 

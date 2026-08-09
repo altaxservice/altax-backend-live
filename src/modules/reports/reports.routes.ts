@@ -646,22 +646,45 @@ export async function computeMdFilingForReport(
   return { ...breakdown, filedDate, paidDate };
 }
 
+/**
+ * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
+ * legitimately only wants the activity strictly between `from` and `to`. Assets,
+ * Liabilities, and Equity are point-in-time balances — a Balance Sheet "as of" a date
+ * means everything since the account's first-ever entry through that date, not just
+ * activity that happens to fall inside whatever `from` the caller picked. Using the same
+ * from/to filter for both (as this used to) meant a Balance Sheet pulled for a short or
+ * recent window — e.g. "8/1/2026-8/9/2026" — showed Cash and every liability as if the
+ * business had no assets or debts before August, when in reality those balances just
+ * predate the window. Confirmed live: a real client's Balance Sheet showed $0 for every
+ * account under a narrow date range for exactly this reason.
+ */
 async function loadBucketedGl(clientId: string, from: string, to: string) {
-  const rows = await query<any>(
-    `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
-       FROM altax.v3_gl_entries
-      WHERE client_id = $1 AND entry_date::date >= $2::date AND entry_date::date <= $3::date
-      GROUP BY account ORDER BY account`,
-    [clientId, from, to]
-  );
-  const lines: LedgerLine[] = rows.map((r: any) => ({ account: r.account || "Unclassified", debit: Number(r.debit) || 0, credit: Number(r.credit) || 0 }));
+  const [periodRows, cumulativeRows] = await Promise.all([
+    query<any>(
+      `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+         FROM altax.v3_gl_entries
+        WHERE client_id = $1 AND entry_date::date >= $2::date AND entry_date::date <= $3::date
+        GROUP BY account ORDER BY account`,
+      [clientId, from, to]
+    ),
+    query<any>(
+      `SELECT account, COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+         FROM altax.v3_gl_entries
+        WHERE client_id = $1 AND entry_date::date <= $2::date
+        GROUP BY account ORDER BY account`,
+      [clientId, to]
+    ),
+  ]);
+  const toLines = (rows: any[]): LedgerLine[] => rows.map((r) => ({ account: r.account || "Unclassified", debit: Number(r.debit) || 0, credit: Number(r.credit) || 0 }));
+  const periodLines = toLines(periodRows);
+  const cumulativeLines = toLines(cumulativeRows);
   return {
-    income: lines.filter((l) => bucketFor(l.account) === "income"),
-    cogs: lines.filter((l) => bucketFor(l.account) === "cogs"),
-    expenses: lines.filter((l) => bucketFor(l.account) === "expense" || bucketFor(l.account) === "other"),
-    assets: lines.filter((l) => bucketFor(l.account) === "asset"),
-    liabilities: lines.filter((l) => bucketFor(l.account) === "liability"),
-    all: lines,
+    income: periodLines.filter((l) => bucketFor(l.account) === "income"),
+    cogs: periodLines.filter((l) => bucketFor(l.account) === "cogs"),
+    expenses: periodLines.filter((l) => bucketFor(l.account) === "expense" || bucketFor(l.account) === "other"),
+    assets: cumulativeLines.filter((l) => bucketFor(l.account) === "asset"),
+    liabilities: cumulativeLines.filter((l) => bucketFor(l.account) === "liability"),
+    all: periodLines,
   };
 }
 
