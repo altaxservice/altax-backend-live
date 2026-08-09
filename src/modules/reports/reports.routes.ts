@@ -546,7 +546,12 @@ reportsRouter.get("/csv/ar-aging", requireAuth, requireRole("admin"), asyncHandl
 const INCOME_TYPES = ["Sales Revenue", "Income", "Revenue"];
 const COGS_TYPES = ["COGS", "Cost of Goods Sold"];
 const EXPENSE_HINTS = ["expense", "payroll tax", "office"];
-const ASSET_HINTS = ["cash", "asset", "bank", "receivable"];
+// "bank" was previously in this list to catch bank-account-named assets, but the only
+// account anywhere in the system containing that substring is "Bank Fees" (an Expense
+// account) — the keyword only ever misclassified it as an asset since ASSET_HINTS is
+// checked before EXPENSE_HINTS. Removed rather than reordered, since no real asset
+// account name depends on it (see reports.routes.ts git history for the incident).
+const ASSET_HINTS = ["cash", "asset", "receivable"];
 const LIABILITY_HINTS = ["payable", "liability", "tax payable"];
 
 function bucketFor(account: string): "income" | "cogs" | "expense" | "asset" | "liability" | "other" {
