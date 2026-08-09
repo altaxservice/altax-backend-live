@@ -63,6 +63,12 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
     try {
       const res = await api.post<{ sent: boolean; sendError?: string }>("/communications", {
         clientId, subject, messageEnglish, messageArabic, channel, sentTo, sendNow: true, sourceSystem: "Client Flags",
+        // Always send both languages here regardless of the client's stored
+        // preferred_language (which POST /communications otherwise defaults
+        // to) — this feature exists specifically to notify in English AND
+        // Arabic, not to respect the single-language preference used for
+        // other correspondence like invoices or general messages.
+        languagePreference: "Both",
       });
       if (res.sent) {
         setSent(true);
