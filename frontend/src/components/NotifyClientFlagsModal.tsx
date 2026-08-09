@@ -35,6 +35,7 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
   const [messageArabic, setMessageArabic] = useState("");
   const [channel, setChannel] = useState<"Email" | "SMS">(clientEmail ? "Email" : "SMS");
   const [sentTo, setSentTo] = useState(clientEmail || clientPhone || "");
+  const [cc, setCc] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -61,8 +62,11 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
     setSending(true);
     setSendError(null);
     try {
+      // CC only makes sense for Email — sendChannel has no cc concept for SMS.
+      const ccList = channel === "Email" ? cc.split(/[,;]/).map((v) => v.trim()).filter((v) => v.includes("@")) : [];
       const res = await api.post<{ sent: boolean; sendError?: string }>("/communications", {
         clientId, subject, messageEnglish, messageArabic, channel, sentTo, sendNow: true, sourceSystem: "Client Flags",
+        cc: ccList.length ? ccList : undefined,
         // Always send both languages here regardless of the client's stored
         // preferred_language (which POST /communications otherwise defaults
         // to) — this feature exists specifically to notify in English AND
@@ -96,7 +100,9 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
 
         {!loading && !loadError && (
           sent ? (
-            <div className="status-pill status-green" style={{ padding: "8px 12px" }}>✓ Sent to {sentTo} via {channel}.</div>
+            <div className="status-pill status-green" style={{ padding: "8px 12px" }}>
+              ✓ Sent to {sentTo} via {channel}{channel === "Email" && cc.trim() ? ` (cc: ${cc.trim()})` : ""}.
+            </div>
           ) : (
             <>
               <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
@@ -115,6 +121,12 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
                 <label htmlFor="notify-flags-sentto">{channel === "Email" ? "Email address" : "Phone number"}</label>
                 <input id="notify-flags-sentto" value={sentTo} onChange={(e) => setSentTo(e.target.value)} placeholder={channel === "Email" ? "client@example.com" : "+1 555 555 5555"} />
               </div>
+              {channel === "Email" && (
+                <div className="field">
+                  <label htmlFor="notify-flags-cc">CC (optional, comma-separated)</label>
+                  <input id="notify-flags-cc" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="bookkeeper@example.com, owner@example.com" />
+                </div>
+              )}
               <div className="field">
                 <label htmlFor="notify-flags-subject">Subject</label>
                 <input id="notify-flags-subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
