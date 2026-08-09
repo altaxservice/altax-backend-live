@@ -20,6 +20,17 @@ function fmtMoney(v: unknown): string {
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
 
+interface AccountNotice {
+  flagId: string | null;
+  labelEn: string;
+  labelAr: string;
+  note: string | null;
+  details: string | null;
+  amount: number | null;
+  dueDate: string | null;
+  color: "red" | "green" | "amber";
+}
+
 interface ClientTaxRow {
   task_id: string; task_name: string; agency_due_date: string | null; paid_date: string | null;
   payment_amount: string | number | null; confirmation_number: string | null; status: string;
@@ -642,7 +653,11 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[]; appointments: MyAppointment[] }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { t, dir } = useLanguage();
+  const { t, dir, lang } = useLanguage();
+  const [notices, setNotices] = useState<AccountNotice[]>([]);
+  useEffect(() => {
+    api.get<{ notices: AccountNotice[] }>("/clients/notices/mine").then((res) => setNotices(res.notices)).catch(() => {});
+  }, []);
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
   const unpaidTaxRows = taxRows.filter((r) => !r.paid_date);
@@ -665,6 +680,33 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           <Link to="/my-business" className="ghost-button">{t("nav.myBusiness")}</Link>
         </div>
       </div>
+
+      {notices.length > 0 && (
+        <div className="command-panel" style={{ marginBottom: 14 }}>
+          <div className="command-panel-header">
+            <div>
+              <h2 className="command-panel-title">{t("dashboard.client.accountNotices")}</h2>
+              <div className="command-panel-note">{t("dashboard.client.accountNoticesNote")}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 4px 4px" }}>
+            {notices.map((n, i) => (
+              <div
+                key={n.flagId || i}
+                className={`status-pill status-${n.color}`}
+                style={{ flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "8px 12px", fontSize: 12.5 }}
+              >
+                <div style={{ fontWeight: 700 }}>
+                  {lang === "ar" ? n.labelAr : n.labelEn}
+                  {n.amount !== null && ` — ${fmtMoney(n.amount)}`}
+                  {n.dueDate && ` — ${t("dashboard.client.dueLabel")} ${fmtDate(n.dueDate)}`}
+                </div>
+                {(n.details || n.note) && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 3 }}>{n.details || n.note}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>
         <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>

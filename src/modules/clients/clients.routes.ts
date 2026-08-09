@@ -498,6 +498,37 @@ async function buildClientFlagsNotification(clientId: string): Promise<{ subject
   return { subject, messageEnglish, messageArabic, count: flags.length };
 }
 
+/**
+ * Client-portal read model of "here's what's outstanding on your account" —
+ * only flags staff has explicitly marked shareWithClient=true, and only the
+ * fields needed to display them. No flagId-driven action is exposed to the
+ * client: a flag is a fact only staff can resolve (by fixing the underlying
+ * balance/filing/issue), so this is deliberately read-only. A notice
+ * disappears from this list the moment staff resolves it or unshares it —
+ * same computeClientFlags() the staff-side panel uses, just filtered and
+ * bilingual-labeled for the client's own view.
+ */
+clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role !== "client" || !req.user!.clientId) return res.json({ notices: [] });
+  const flags = (await computeClientFlags(req.user!.clientId)).filter((f) => f.shareWithClient);
+  const notices = flags.map((f) => {
+    const labelEn = f.category || FLAG_TYPE_LABELS_EN[f.flagType] || f.flagType;
+    const labelAr = f.category
+      ? (FLAG_CATEGORY_LABELS_AR[f.category] || f.category)
+      : (FLAG_TYPE_LABELS_AR[f.flagType] || labelEn);
+    return {
+      flagId: f.flagId,
+      labelEn, labelAr,
+      note: f.flagType !== "Custom" ? f.note : null,
+      details: f.details ?? null,
+      amount: f.amount,
+      dueDate: f.dueDate ?? null,
+      color: f.color,
+    };
+  });
+  res.json({ notices });
+}));
+
 /** Read-only preview of what a "Notify Client" send would contain — lets the frontend show/edit the bilingual message before actually sending it via POST /communications. */
 clientsRouter.get("/:clientId/flags/notify-preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;

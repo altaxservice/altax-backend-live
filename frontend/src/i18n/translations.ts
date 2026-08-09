@@ -90,6 +90,9 @@ export const translations: Record<string, Record<Lang, string>> = {
   "dashboard.client.noInvoices": { en: "No open invoices.", ar: "لا توجد فواتير مستحقة." },
   "dashboard.client.upcomingAppointments": { en: "Upcoming Appointments", ar: "المواعيد القادمة" },
   "dashboard.client.rescheduleOrCancel": { en: "Reschedule / Cancel", ar: "إعادة الجدولة / الإلغاء" },
+  "dashboard.client.accountNotices": { en: "Account Notices", ar: "إشعارات الحساب" },
+  "dashboard.client.accountNoticesNote": { en: "Please contact our office to resolve these.", ar: "يرجى التواصل مع مكتبنا لحل هذه البنود." },
+  "dashboard.client.dueLabel": { en: "Due", ar: "الاستحقاق" },
 
   // Documents — client portal
   "documents.client.title": { en: "Documents", ar: "المستندات" },
