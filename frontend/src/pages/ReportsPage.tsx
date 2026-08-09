@@ -74,6 +74,7 @@ interface SalesTaxReport {
     periods: (MdFilingResult & { start: string; end: string; dueDate: string })[];
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
+    filedDate: string;
     paidDate: string;
   } | null;
 }
@@ -129,6 +130,7 @@ export function ReportsPage() {
   // (server-derived, not editable here), but when it was actually paid isn't
   // known ahead of time, so this defaults to today and staff can back-date it
   // to match the real filing.
+  const [mdFiledDate, setMdFiledDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [periodMessage, setPeriodMessage] = useState<{ subject: string; body: string; bodyArabic: string } | null>(null);
   const [messageLoading, setMessageLoading] = useState(false);
@@ -181,11 +183,11 @@ export function ReportsPage() {
     if (!clientId || tab !== "Sales & Tax") return;
     setSalesTaxLoading(true);
     setSalesTaxError(null);
-    api.get<SalesTaxReport>(`/reports/sales-tax/${clientId}?from=${from}&to=${to}&mdPaidDate=${mdPaidDate}`)
+    api.get<SalesTaxReport>(`/reports/sales-tax/${clientId}?from=${from}&to=${to}&mdFiledDate=${mdFiledDate}&mdPaidDate=${mdPaidDate}`)
       .then(setSalesTaxReport)
       .catch((err) => { setSalesTaxReport(null); setSalesTaxError(err instanceof ApiError ? err.message : "Could not load the sales & tax report."); })
       .finally(() => setSalesTaxLoading(false));
-  }, [clientId, tab, from, to, mdPaidDate]);
+  }, [clientId, tab, from, to, mdFiledDate, mdPaidDate]);
 
   useEffect(() => {
     if (!clientId || tab !== "Client Message") return;
@@ -208,12 +210,12 @@ export function ReportsPage() {
     setSummaryTableLoading(true);
     setSummaryTableError(null);
     api.get<{ sections: SummaryTableSection[] }>(
-      `/templates/period-summary-table/${encodeURIComponent(clientId)}?periodStart=${from}&periodEnd=${to}&mdPaidDate=${mdPaidDate}`
+      `/templates/period-summary-table/${encodeURIComponent(clientId)}?periodStart=${from}&periodEnd=${to}&mdFiledDate=${mdFiledDate}&mdPaidDate=${mdPaidDate}`
     )
       .then((r) => setSummaryTable(r.sections))
       .catch((err) => setSummaryTableError(err instanceof ApiError ? err.message : "Could not load this period's figures."))
       .finally(() => setSummaryTableLoading(false));
-  }, [clientId, tab, from, to, mdPaidDate]);
+  }, [clientId, tab, from, to, mdFiledDate, mdPaidDate]);
 
   useEffect(() => {
     // FIRM_WIDE isn't a real client — every tab that actually reads `entries`/
@@ -369,7 +371,7 @@ export function ReportsPage() {
   // shows the same MD discount/penalty/interest block) so what a preparer
   // downloads or sends matches what they were just looking at on screen —
   // rather than silently recomputing against "today" a second time.
-  const mdPaidDateQuery = tab === "Sales & Tax" || tab === "Sales, Tax & Payroll Report" ? `&mdPaidDate=${mdPaidDate}` : "";
+  const mdPaidDateQuery = tab === "Sales & Tax" || tab === "Sales, Tax & Payroll Report" ? `&mdFiledDate=${mdFiledDate}&mdPaidDate=${mdPaidDate}` : "";
 
   async function handlePrintReport(mode: "view" | "download") {
     const segment = REPORT_PDF_SEGMENT[tab];
@@ -802,9 +804,15 @@ export function ReportsPage() {
                         </div>
                       </div>
                       <div style={{ padding: 16 }}>
-                        <div className="field" style={{ maxWidth: 220, margin: "0 0 12px" }}>
-                          <label htmlFor="rp-md-paid-date">Filing / payment date</label>
-                          <input id="rp-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
+                        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                          <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                            <label htmlFor="rp-md-filed-date">Filing date</label>
+                            <input id="rp-md-filed-date" type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
+                          </div>
+                          <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                            <label htmlFor="rp-md-paid-date">Payment date</label>
+                            <input id="rp-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
+                          </div>
                         </div>
                         {!salesTaxReport.mdFiling.frequencyUsed && (
                           <p className="muted" style={{ fontSize: 11.5, margin: "0 0 12px", color: "var(--red)" }}>

@@ -86,6 +86,7 @@ function SalesTaxCalculator() {
   const [loading, setLoading] = useState(false);
 
   const [mdDueDate, setMdDueDate] = useState(nextMdDueDate());
+  const [mdFiledDate, setMdFiledDate] = useState(todayIso());
   const [mdPaidDate, setMdPaidDate] = useState(todayIso());
   const [mdFiling, setMdFiling] = useState<MdFilingResult | null>(null);
   const [mdFilingLoading, setMdFilingLoading] = useState(false);
@@ -150,13 +151,13 @@ function SalesTaxCalculator() {
     if (state !== "MD" || !result || result.totalTax <= 0) { setMdFiling(null); return; }
     setMdFilingLoading(true);
     const t = setTimeout(() => {
-      api.get<MdFilingResult>(`/calculators/md-filing?taxDue=${result.totalTax}&dueDate=${mdDueDate}&paidDate=${mdPaidDate}`)
+      api.get<MdFilingResult>(`/calculators/md-filing?taxDue=${result.totalTax}&dueDate=${mdDueDate}&filedDate=${mdFiledDate}&paidDate=${mdPaidDate}`)
         .then(setMdFiling)
         .catch(() => setMdFiling(null))
         .finally(() => setMdFilingLoading(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [state, result, mdDueDate, mdPaidDate]);
+  }, [state, result, mdDueDate, mdFiledDate, mdPaidDate]);
 
   // Taxable amount excludes 0%-rate lines (the Non-Taxable category, or any
   // exempt category like PA's Grocery) — Gross sales (Line 3), by contrast,
@@ -171,6 +172,7 @@ function SalesTaxCalculator() {
     setResult(null);
     setError(null);
     setMdDueDate(nextMdDueDate());
+    setMdFiledDate(todayIso());
     setMdPaidDate(todayIso());
     setMdFiling(null);
     setEmailTo("");
@@ -182,6 +184,7 @@ function SalesTaxCalculator() {
       state,
       lines: lines.filter((l) => l.categoryId && Number(l.taxableAmount) > 0).map((l) => ({ categoryId: l.categoryId, taxableAmount: Number(l.taxableAmount) })),
       mdDueDate: state === "MD" ? mdDueDate : undefined,
+      mdFiledDate: state === "MD" ? mdFiledDate : undefined,
       mdPaidDate: state === "MD" ? mdPaidDate : undefined,
     };
   }
@@ -336,13 +339,17 @@ function SalesTaxCalculator() {
           <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "0 0 6px" }}>
             Filing Discount / Late Penalty (Form 202)
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 4 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="stc-md-due-date">Return due date</label>
               <input id="stc-md-due-date" type="date" value={mdDueDate} onChange={(e) => setMdDueDate(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="stc-md-paid-date">Filing / payment date</label>
+              <label htmlFor="stc-md-filed-date">Filing date</label>
+              <input id="stc-md-filed-date" type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label htmlFor="stc-md-paid-date">Payment date</label>
               <input id="stc-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
             </div>
           </div>

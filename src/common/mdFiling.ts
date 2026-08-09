@@ -165,12 +165,21 @@ export function mdFilingTargetDate(dueDateIso: string): string {
   return target.toISOString().slice(0, 10);
 }
 
-export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDateStr: string): Promise<MdFilingResult> {
+/**
+ * The timely discount legally requires the return to be BOTH filed and paid
+ * by the due date (see this file's top doc comment, Line 18) — so the LATER
+ * of filedDateStr/paidDateStr is what actually governs on-time status and
+ * the penalty/interest math. Being on time on one date but late on the
+ * other still loses the discount.
+ */
+export async function computeMdFiling(taxDue: number, dueDateStr: string, filedDateStr: string, paidDateStr: string): Promise<MdFilingResult> {
   const dueDate = parseIsoDateUTC(dueDateStr);
+  const filedDate = parseIsoDateUTC(filedDateStr);
   const paidDate = parseIsoDateUTC(paidDateStr);
+  const effectiveDate = filedDate > paidDate ? filedDate : paidDate;
   const params = await loadMdFilingParams();
 
-  if (paidDate <= dueDate) {
+  if (effectiveDate <= dueDate) {
     const discount = computeDiscount(taxDue, params);
     return {
       taxDue, onTime: true, discount, penalty: 0, interest: 0, interestRateMonthly: params.interestMonthly, monthsLate: 0,
@@ -178,7 +187,7 @@ export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDa
     };
   }
 
-  const monthsLate = monthsLateInclusive(dueDate, paidDate);
+  const monthsLate = monthsLateInclusive(dueDate, effectiveDate);
   const penalty = round2(taxDue * params.penaltyRate);
   const interest = round2(taxDue * params.interestMonthly * monthsLate);
   return {
@@ -267,7 +276,13 @@ export interface MdFilingPeriodResult extends MdFilingResult {
   dueDate: string;
   /** Internal "file by" reminder target — see mdFilingTargetDate's doc comment. Not the statutory deadline. */
   targetFilingDate: string;
-  /** Set when staff has explicitly marked this period filed (v3_md_filing_payments) — the date that was used, overriding paidDateStr. Null means this result used the caller's (usually "today") date, not a real recorded filing. */
+  /** The filing date actually used for this period's on-time/penalty math (either the caller's default or a recorded real filing). */
+  filedDate: string;
+  /** The payment date actually used for this period's on-time/penalty math. */
+  paidDate: string;
+  /** Set when staff has explicitly marked this period filed/paid (v3_md_filing_payments) — the filed date that was used, overriding filedDateStr. Null means this result used the caller's (usually "today") date, not a real recorded filing. */
+  markedFiledDate: string | null;
+  /** Set when staff has explicitly marked this period filed/paid (v3_md_filing_payments) — the paid date that was used, overriding paidDateStr. Null means this result used the caller's (usually "today") date, not a real recorded filing. */
   markedPaidDate: string | null;
 }
 
@@ -304,8 +319,9 @@ export async function computeMdFilingBreakdown(
   from: string,
   to: string,
   frequency: string | null | undefined,
+  filedDateStr: string,
   paidDateStr: string,
-  recordedPaidDates?: Map<string, string>
+  recordedFilings?: Map<string, { filedDate: string; paidDate: string }>
 ): Promise<MdFilingBreakdown> {
   const { periods, frequencyUsed } = splitIntoMdFilingPeriods(from, to, frequency);
   const results: MdFilingPeriodResult[] = [];
@@ -319,15 +335,18 @@ export async function computeMdFilingBreakdown(
         .reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0)
     );
     if (taxDue <= 0) continue;
-    // A period staff has explicitly marked filed uses that REAL paid date instead
-    // of paidDateStr (normally "today") — so its on-time/late status and
-    // penalty/interest freeze at the actual filing event rather than recomputing
-    // against whatever day this happens to be rendered.
-    const markedPaidDate = recordedPaidDates?.get(period.end) ?? null;
-    const result = await computeMdFiling(taxDue, period.dueDate, markedPaidDate || paidDateStr);
+    // A period staff has explicitly marked filed uses those REAL filed/paid dates
+    // instead of filedDateStr/paidDateStr (normally "today") — so its on-time/late
+    // status and penalty/interest freeze at the actual filing event rather than
+    // recomputing against whatever day this happens to be rendered.
+    const recorded = recordedFilings?.get(period.end) ?? null;
+    const filedDate = recorded?.filedDate ?? filedDateStr;
+    const paidDate = recorded?.paidDate ?? paidDateStr;
+    const result = await computeMdFiling(taxDue, period.dueDate, filedDate, paidDate);
     results.push({
       ...result, start: period.start, end: period.end, dueDate: period.dueDate,
-      targetFilingDate: mdFilingTargetDate(period.dueDate), markedPaidDate,
+      targetFilingDate: mdFilingTargetDate(period.dueDate), filedDate, paidDate,
+      markedFiledDate: recorded?.filedDate ?? null, markedPaidDate: recorded?.paidDate ?? null,
     });
   }
   const totals = results.reduce(

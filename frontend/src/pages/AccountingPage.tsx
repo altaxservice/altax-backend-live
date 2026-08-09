@@ -236,9 +236,10 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
+  const [mdFiledDate, setMdFiledDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<{
-    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string })[];
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string })[];
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
   } | null>(null);
@@ -395,7 +396,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
       const requestId = ++mdFilingRequestId.current;
       setMdFilingLoading(true);
       setMdFilingError(null);
-      api.get<{ mdFiling: typeof mdFiling }>(`/reports/md-filing/${clientId}?from=${period.start}&to=${period.end}&mdPaidDate=${mdPaidDate}`)
+      api.get<{ mdFiling: typeof mdFiling }>(`/reports/md-filing/${clientId}?from=${period.start}&to=${period.end}&mdFiledDate=${mdFiledDate}&mdPaidDate=${mdPaidDate}`)
         .then((r) => {
           if (requestId !== mdFilingRequestId.current) return;
           setMdFiling(r.mdFiling);
@@ -411,7 +412,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
         });
     }, 300);
     return () => clearTimeout(t);
-  }, [clientId, clientState, period.start, period.end, mdPaidDate, mdFilingReloadKey]);
+  }, [clientId, clientState, period.start, period.end, mdFiledDate, mdPaidDate, mdFilingReloadKey]);
 
   /**
    * Records a period as actually filed on `mdPaidDate` (the same "Filing / payment
@@ -424,7 +425,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   async function handleMarkPeriodFiled(p: { start: string; end: string }) {
     setMarkingPeriodEnd(p.end);
     try {
-      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, paidDate: mdPaidDate });
+      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, filedDate: mdFiledDate, paidDate: mdPaidDate });
       setMdFilingReloadKey((k) => k + 1);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not mark this period filed.");
@@ -640,9 +641,15 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
               </p>
             ) : (
               <>
-                <div className="field" style={{ maxWidth: 220, margin: "0 0 10px" }}>
-                  <label>Filing / payment date</label>
-                  <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                  <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                    <label>Filing date</label>
+                    <input type="date" value={mdFiledDate} onChange={(e) => setMdFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                  </div>
+                  <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                    <label>Payment date</label>
+                    <input type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                  </div>
                 </div>
 
                 {mdFiling && mdFiling.periods.length > 0 && !mdFiling.frequencyUsed && (
@@ -670,7 +677,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                       color: mdFiling.periods[0].markedPaidDate ? "var(--teal)" : mdFiling.periods[0].onTime ? "var(--green)" : "var(--red)",
                     }}>
                       {mdFiling.periods[0].markedPaidDate
-                        ? `✓ Filed ${fmtDate(mdFiling.periods[0].markedPaidDate)}`
+                        ? (mdFiling.periods[0].markedFiledDate === mdFiling.periods[0].markedPaidDate
+                            ? `✓ Filed & Paid ${fmtDate(mdFiling.periods[0].markedPaidDate)}`
+                            : `✓ Filed ${fmtDate(mdFiling.periods[0].markedFiledDate!)}, Paid ${fmtDate(mdFiling.periods[0].markedPaidDate)}`)
                         : mdFiling.periods[0].onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.periods[0].monthsLate} month${mdFiling.periods[0].monthsLate === 1 ? "" : "s"} past due`}
                     </div>
                     <div className="metric-grid metric-grid-3">
@@ -694,7 +703,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                         </button>
                       ) : (
                         <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleMarkPeriodFiled(mdFiling.periods[0])}>
-                          {markingPeriodEnd === mdFiling.periods[0].end ? "Marking…" : `Mark Filed on ${fmtDate(mdPaidDate)}`}
+                          {markingPeriodEnd === mdFiling.periods[0].end ? "Marking…" : mdFiledDate === mdPaidDate ? `Mark Filed & Paid on ${fmtDate(mdPaidDate)}` : `Mark Filed ${fmtDate(mdFiledDate)}, Paid ${fmtDate(mdPaidDate)}`}
                         </button>
                       )}
                     </div>
@@ -726,7 +735,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                               <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
                               <td>
                                 {p.markedPaidDate ? (
-                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
+                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
                                     {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
                                   </button>
                                 ) : (

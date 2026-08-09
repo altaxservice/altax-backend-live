@@ -492,9 +492,10 @@ export interface SalesTaxReportData {
   sales: SalesTaxSaleRow[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
   mdFiling?: {
-    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string })[];
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string })[];
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
+    filedDate: string;
     paidDate: string;
   } | null;
 }
@@ -604,19 +605,20 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
     }
     y += 10;
     y = sectionLabel(c, y, "Filing Discount / Late Penalty (Form 202)");
-    y = row(c, y, "Filing / payment date", fmtDate(data.mdFiling.paidDate));
+    y = row(c, y, "Filing date", fmtDate(data.mdFiling.filedDate));
+    y = row(c, y, "Payment date", fmtDate(data.mdFiling.paidDate));
     if (!data.mdFiling.frequencyUsed) {
       c.text(48, y, "Filing frequency not set on client profile — shown as one combined period; verify against the client's actual filing schedule.", { size: 8, color: MUTED });
       y += 16;
     }
     for (const p of data.mdFiling.periods) {
-      // A late period draws up to 7 lines (~108pt: header + 5 rows + the
+      // A late period draws up to 9 lines (~136pt: header + 7 rows + the
       // period-header's own leading gap) after this check passes, so the
       // threshold has to leave that much room above the footer — the old
       // fixed "PAGE_H - 110" left only ~16pt, which is why a period landing
       // near the bottom of a page ran straight into the footer text instead
       // of rolling to a new page.
-      if (y > PAGE_H - 154) {
+      if (y > PAGE_H - 182) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
@@ -626,6 +628,8 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       y += 14;
       y = row(c, y, "Return due date", fmtDate(p.dueDate), { indent: true });
       y = row(c, y, "Target filing date (internal)", fmtDate(p.targetFilingDate), { indent: true });
+      y = row(c, y, "Filed", fmtDate(p.filedDate), { indent: true });
+      y = row(c, y, "Paid", fmtDate(p.paidDate), { indent: true });
       y = row(c, y, "Tax due", money(p.taxDue), { indent: true });
       if (p.onTime) {
         y = row(c, y, "Timely discount (Line 18)", `− ${money(p.discount)}`, { indent: true });
@@ -1019,7 +1023,7 @@ export async function generateClientSwotPdf(data: ClientSwotReportData): Promise
 
 export interface CalculatorSalesTaxLine { categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
 export interface CalculatorSalesTaxMdFiling {
-  dueDate: string; targetFilingDate: string; paidDate: string; onTime: boolean;
+  dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string; onTime: boolean;
   discount: number; penalty: number; interest: number; interestRateMonthly: number; monthsLate: number; balanceDue: number;
 }
 export interface CalculatorSalesTaxPdfData {
@@ -1066,7 +1070,8 @@ export async function generateCalculatorSalesTaxPdf(data: CalculatorSalesTaxPdfD
     y = sectionLabel(c, y, "Filing Discount / Late Penalty (Form 202)");
     y = row(c, y, "Return due date", fmtDate(data.mdFiling.dueDate));
     y = row(c, y, "Target filing date (internal)", fmtDate(data.mdFiling.targetFilingDate));
-    y = row(c, y, "Filing / payment date", fmtDate(data.mdFiling.paidDate));
+    y = row(c, y, "Filing date", fmtDate(data.mdFiling.filedDate));
+    y = row(c, y, "Payment date", fmtDate(data.mdFiling.paidDate));
     if (data.mdFiling.onTime) {
       y = row(c, y, "Timely discount (Line 18)", `− ${money(data.mdFiling.discount)}`);
       y = row(c, y, "Balance due (Line 20)", money(data.mdFiling.balanceDue), { bold: true, accent: true });

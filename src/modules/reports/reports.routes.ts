@@ -595,21 +595,22 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
 // Exported for the same reason as computeFirmSummary above — the SWOT auto-draft
 // (clients.routes.ts) reuses this for its "current period" MD filing status signal
 // instead of re-deriving it, so it can never disagree with the reports/At a Glance figures.
-/** Recorded actual filing dates (v3_md_filing_payments) within a period-end range, keyed by period_end ISO string. */
-async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, string>> {
-  const rows = await query<{ period_end: string; paid_date: string }>(
-    `SELECT period_end::date::text AS period_end, paid_date::date::text AS paid_date
+/** Recorded actual filing/payment dates (v3_md_filing_payments) within a period-end range, keyed by period_end ISO string. */
+async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string }>> {
+  const rows = await query<{ period_end: string; filed_date: string; paid_date: string }>(
+    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date
        FROM altax.v3_md_filing_payments
       WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
     [clientId, expandedFrom, expandedTo]
   );
-  return new Map(rows.map((r) => [r.period_end, r.paid_date]));
+  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date }]));
 }
 
 export async function computeMdFilingForReport(
   client: ReportClientInfo,
   from: string,
   to: string,
+  filedDateOverride?: string,
   paidDateOverride?: string
 ) {
   if (client.state !== "MD") return null;
@@ -618,14 +619,16 @@ export async function computeMdFilingForReport(
   if (periods.length === 0) return null;
   const expandedFrom = periods[0].start;
   const expandedTo = periods[periods.length - 1].end;
-  const [sales, recordedPaidDates] = await Promise.all([
+  const [sales, recordedFilings] = await Promise.all([
     loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo),
     loadRecordedMdFilingPayments(client.clientId, expandedFrom, expandedTo),
   ]);
-  const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : new Date().toISOString().slice(0, 10);
-  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, paidDate, recordedPaidDates);
+  const today = new Date().toISOString().slice(0, 10);
+  const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
+  const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings);
   if (breakdown.periods.length === 0) return null;
-  return { ...breakdown, paidDate };
+  return { ...breakdown, filedDate, paidDate };
 }
 
 async function loadBucketedGl(clientId: string, from: string, to: string) {
@@ -1040,8 +1043,9 @@ reportsRouter.get("/pdf/sales-tax-payroll/:clientId", requireAuth, requireRole("
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
 
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const table = await computeClientPeriodSummaryTable(client.clientId, period.from, period.to, mdPaidDate);
+  const table = await computeClientPeriodSummaryTable(client.clientId, period.from, period.to, mdFiledDate, mdPaidDate);
   const { generateSalesTaxPayrollReportPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateSalesTaxPayrollReportPdf({
     client, from: period.from, to: period.to,
@@ -1261,8 +1265,9 @@ reportsRouter.get("/sales-tax/:clientId", requireAuth, requireRole("admin", "sta
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate);
   res.json({ client, from: period.from, to: period.to, ...data, mdFiling });
 }));
 
@@ -1280,8 +1285,9 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate);
   res.json({ mdFiling });
 }));
 
@@ -1302,28 +1308,30 @@ reportsRouter.post("/md-filing/:clientId/mark-paid", requireAuth, requireRole("a
   const body = req.body || {};
   const periodStart = String(body.periodStart || "").trim();
   const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
   const paidDate = String(body.paidDate || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
-    return res.status(400).json({ error: "periodStart, periodEnd, and paidDate must all be YYYY-MM-DD." });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return res.status(400).json({ error: "periodStart, periodEnd, filedDate, and paidDate must all be YYYY-MM-DD." });
   }
 
   const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
   const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, periodStart, periodEnd);
   const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
   const dueDate = mdDueDateForPeriod(periodEnd);
-  const result = await computeMdFiling(taxDue, dueDate, paidDate);
+  const result = await computeMdFiling(taxDue, dueDate, filedDate, paidDate);
 
   await query(
-    `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, paid_date, tax_due, balance_due, on_time, filed_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (client_id, period_end) DO UPDATE SET
-       period_start = EXCLUDED.period_start, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
+       period_start = EXCLUDED.period_start, filed_date = EXCLUDED.filed_date, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
        balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now()`,
-    [client.clientId, periodStart, periodEnd, paidDate, taxDue, result.balanceDue, result.onTime, req.user!.email]
+    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result.balanceDue, result.onTime, req.user!.email]
   );
-  await logAudit("Accounting", "MD_FILING_MARK_PAID", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${paidDate}`,
-    `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${paidDate} by ${req.user!.email}.`, req.user!.email);
-  res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
+  await logAudit("Accounting", "MD_FILING_MARK_PAID", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}, paid ${paidDate}`,
+    `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}, paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
 }));
 
 /** Reverses a mark-paid entry (staff correcting a mistaken date) — the period goes back to being computed live against today, same as before it was ever marked. */
@@ -1347,8 +1355,9 @@ reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", 
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate);
   const { generateSalesTaxPdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateSalesTaxPdf({ client, from: period.from, to: period.to, ...data, mdFiling });
 
@@ -1365,12 +1374,14 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
 
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdPaidDate);
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate);
   const rows: (string | number)[][] = data.byCategory.map((c) => [c.categoryName, c.state || "", `${(c.rate * 100).toFixed(2)}%`, c.taxableAmount.toFixed(2), c.taxAmount.toFixed(2)]);
   if (mdFiling) {
     rows.push(["", "", "", "", ""]);
-    rows.push(["Filing / payment date", "", "", "", mdFiling.paidDate]);
+    rows.push(["Filing date", "", "", "", mdFiling.filedDate]);
+    rows.push(["Payment date", "", "", "", mdFiling.paidDate]);
     for (const p of mdFiling.periods) {
       rows.push(["", "", "", "", ""]);
       rows.push([`Period ${p.start} to ${p.end}`, "", "", "", ""]);

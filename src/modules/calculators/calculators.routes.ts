@@ -48,10 +48,11 @@ calculatorsRouter.post("/sales-tax-preview", requireAuth, requireRole("admin", "
 calculatorsRouter.get("/md-filing", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const taxDue = Number(req.query.taxDue);
   const dueDate = String(req.query.dueDate || "").trim();
+  const filedDate = String(req.query.filedDate || "").trim();
   const paidDate = String(req.query.paidDate || "").trim();
   if (!Number.isFinite(taxDue) || taxDue < 0) return res.status(400).json({ error: "Enter the tax due amount." });
-  if (!dueDate || !paidDate) return res.status(400).json({ error: "Enter both the due date and the filing/payment date." });
-  res.json(await computeMdFiling(taxDue, dueDate, paidDate));
+  if (!dueDate || !filedDate || !paidDate) return res.status(400).json({ error: "Enter the due date, filing date, and payment date." });
+  res.json(await computeMdFiling(taxDue, dueDate, filedDate, paidDate));
 }));
 
 /**
@@ -69,11 +70,12 @@ async function buildCalculatorPdfData(body: any): Promise<CalculatorSalesTaxPdfD
 
   let mdFiling: CalculatorSalesTaxPdfData["mdFiling"] = null;
   const dueDate = String(body?.mdDueDate || "").trim();
+  const filedDate = String(body?.mdFiledDate || "").trim();
   const paidDate = String(body?.mdPaidDate || "").trim();
-  if (state.toUpperCase() === "MD" && totalTax > 0 && dueDate && paidDate) {
-    const result = await computeMdFiling(totalTax, dueDate, paidDate);
+  if (state.toUpperCase() === "MD" && totalTax > 0 && dueDate && filedDate && paidDate) {
+    const result = await computeMdFiling(totalTax, dueDate, filedDate, paidDate);
     mdFiling = {
-      dueDate, targetFilingDate: mdFilingTargetDate(dueDate), paidDate, onTime: result.onTime, discount: result.discount, penalty: result.penalty,
+      dueDate, targetFilingDate: mdFilingTargetDate(dueDate), filedDate, paidDate, onTime: result.onTime, discount: result.discount, penalty: result.penalty,
       interest: result.interest, interestRateMonthly: result.interestRateMonthly, monthsLate: result.monthsLate,
       balanceDue: result.balanceDue,
     };

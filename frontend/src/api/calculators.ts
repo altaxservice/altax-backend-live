@@ -32,5 +32,6 @@ export interface MdFilingResult {
   interestRateMonthly: number;
   monthsLate: number;
   balanceDue: number;
+  markedFiledDate: string | null;
   markedPaidDate: string | null;
 }

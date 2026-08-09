@@ -247,7 +247,7 @@ interface PeriodFigures {
   stateTax: number;
   suta: number;
   importantDates: { label: string; date: Date }[];
-  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; paidDate: string }) | null;
+  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; filedDate: string; paidDate: string }) | null;
 }
 
 /**
@@ -257,7 +257,7 @@ interface PeriodFigures {
  * Reports "Client Message" table and the new Sales, Tax & Payroll report) so the two
  * presentations can never drift into showing different numbers for the same period.
  */
-async function fetchPeriodFigures(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<PeriodFigures> {
+async function fetchPeriodFigures(clientId: string, periodStart: string, periodEnd: string, mdFiledDate?: string, mdPaidDate?: string): Promise<PeriodFigures> {
   const sales = await query<any>(
     `SELECT * FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date BETWEEN $2 AND $3 ORDER BY sale_date ASC`,
     [clientId, periodStart, periodEnd]
@@ -311,9 +311,11 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
   if (client?.state === "MD" && salesTaxDue > 0 && !Number.isNaN(periodEndDate.getTime())) {
     const { computeMdFiling, mdDueDateForPeriod } = await import("../../common/mdFiling");
     const dueDate = mdDueDateForPeriod(periodEnd);
-    const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : new Date().toISOString().slice(0, 10);
-    const result = await computeMdFiling(salesTaxDue, dueDate, paidDate);
-    mdFiling = { ...result, dueDate, paidDate };
+    const today = new Date().toISOString().slice(0, 10);
+    const filedDate = mdFiledDate && /^\d{4}-\d{2}-\d{2}$/.test(mdFiledDate) ? mdFiledDate : today;
+    const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : today;
+    const result = await computeMdFiling(salesTaxDue, dueDate, filedDate, paidDate);
+    mdFiling = { ...result, dueDate, filedDate, paidDate };
   }
 
   return {
@@ -349,8 +351,8 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
  * entirely when there's no data for that period, rather than printing an all-zeros
  * block.
  */
-export async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<string> {
-  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdPaidDate);
+export async function computeClientPeriodSummary(clientId: string, periodStart: string, periodEnd: string, mdFiledDate?: string, mdPaidDate?: string): Promise<string> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdFiledDate, mdPaidDate);
   const { sales, paychecks } = f;
 
   const lines: string[] = ["SUMMARY"];
@@ -425,8 +427,8 @@ export interface SummaryTable { sections: SummaryTableSection[]; hasData: boolea
  * task types like "1120 Return") with no stored Arabic equivalent, so those two stay
  * as-is in both columns, same as the firm name staying English on the Arabic site.
  */
-export async function computeClientPeriodSummaryTable(clientId: string, periodStart: string, periodEnd: string, mdPaidDate?: string): Promise<SummaryTable> {
-  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdPaidDate);
+export async function computeClientPeriodSummaryTable(clientId: string, periodStart: string, periodEnd: string, mdFiledDate?: string, mdPaidDate?: string): Promise<SummaryTable> {
+  const f = await fetchPeriodFigures(clientId, periodStart, periodEnd, mdFiledDate, mdPaidDate);
   const { sales, paychecks } = f;
   const sections: SummaryTableSection[] = [];
   const row = (label: string, labelAr: string, value: string): SummaryTableRow => ({ label, labelAr, value });
@@ -593,8 +595,9 @@ templatesRouter.get("/period-summary-table/:clientId", requireAuth, requireRole(
   const periodEnd = String(req.query.periodEnd || "").trim();
   if (!periodStart || !periodEnd) return res.status(400).json({ error: "periodStart and periodEnd are required." });
 
+  const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd, mdPaidDate);
+  const table = await computeClientPeriodSummaryTable(clientId, periodStart, periodEnd, mdFiledDate, mdPaidDate);
   res.json({ clientName: client.client_name, periodStart, periodEnd, ...table });
 }));
 
