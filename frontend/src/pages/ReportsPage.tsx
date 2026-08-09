@@ -138,6 +138,7 @@ export function ReportsPage() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [reportBusy, setReportBusy] = useState<string | null>(null);
+  const [reportCc, setReportCc] = useState("");
   const [summaryTable, setSummaryTable] = useState<SummaryTableSection[] | null>(null);
   const [summaryTableLoading, setSummaryTableLoading] = useState(false);
   const [summaryTableError, setSummaryTableError] = useState<string | null>(null);
@@ -462,13 +463,15 @@ export function ReportsPage() {
       const contentBase64 = await blobToBase64(await fetchAuthedBlob(path));
       const periodLabel = `${from} – ${to}`;
       const periodLabelAr = `الفترة من ${from} إلى ${to}`;
+      const cc = reportCc.split(/[,;]/).map((v) => v.trim()).filter((v) => v.includes("@"));
       const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
         clientId, subject: title.en, channel: "Email", sentTo, sendNow: true,
         messageEnglish: `Please find attached your ${title.en} for ${periodLabel}.`,
         messageArabic: `يرجى الاطلاع على ${title.ar} المرفق لـ ${periodLabelAr}.`,
         attachment: { filename: `${tab.replace(/[^A-Za-z0-9]+/g, "")}_${clientId}_${from}_${to}.pdf`, contentBase64, contentType: "application/pdf" },
+        cc: cc.length ? cc : undefined,
       });
-      if (res.sent) await notify(`${title.en} emailed to ${sentTo}.`);
+      if (res.sent) await notify(`${title.en} emailed to ${sentTo}${cc.length ? ` (cc: ${cc.join(", ")})` : ""}.`);
       else await notify(res.sendError ? `Could not send: ${res.sendError}` : "Could not send this report.");
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not send this report.");
@@ -583,9 +586,18 @@ export function ReportsPage() {
                       {/* No single client to email a firm-wide roll-up to — Preview/Download/
                           CSV still work firm-wide since they don't need a recipient. */}
                       {!isFirmWide && (
-                        <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
-                          {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
-                        </button>
+                        <>
+                          <input
+                            type="text"
+                            placeholder="CC (optional, comma-separated)"
+                            value={reportCc}
+                            onChange={(e) => setReportCc(e.target.value)}
+                            style={{ width: 220, padding: "6px 8px", fontSize: 12.5 }}
+                          />
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
+                            {reportBusy === "firm-email" ? "Sending…" : "Email Report"}
+                          </button>
+                        </>
                       )}
                     </div>
                   ) : (REPORT_PDF_SEGMENT[tab] || REPORT_CSV_SEGMENT[tab]) && (
@@ -624,9 +636,18 @@ export function ReportsPage() {
                           just be a second, more generic way to do the same thing on that one tab.
                           Trial Balance has no PDF (see REPORT_PDF_SEGMENT) so there's nothing to email. */}
                       {tab !== "Client Message" && REPORT_PDF_SEGMENT[tab] && (
-                        <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
-                          {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
-                        </button>
+                        <>
+                          <input
+                            type="text"
+                            placeholder="CC (optional, comma-separated)"
+                            value={reportCc}
+                            onChange={(e) => setReportCc(e.target.value)}
+                            style={{ width: 220, padding: "6px 8px", fontSize: 12.5 }}
+                          />
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleSendReport()}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-email` ? "Sending…" : "Email Report"}
+                          </button>
+                        </>
                       )}
                     </div>
                   )}

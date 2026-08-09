@@ -247,6 +247,15 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [mdFilingError, setMdFilingError] = useState<string | null>(null);
   const [mdFilingReloadKey, setMdFilingReloadKey] = useState(0);
   const [markingPeriodEnd, setMarkingPeriodEnd] = useState<string | null>(null);
+  // Per-row filed/paid date entry for the multi-period table — without this,
+  // "Mark Filed" on any row recorded the single shared Filing/Payment date
+  // fields above the table, so backfilling several historical periods meant
+  // re-typing those two fields before every click, and forgetting to update
+  // them recorded today's date as the filed date, producing a false penalty/
+  // interest on a period that was actually filed on time.
+  const [pickingPeriodEnd, setPickingPeriodEnd] = useState<string | null>(null);
+  const [pickFiledDate, setPickFiledDate] = useState("");
+  const [pickPaidDate, setPickPaidDate] = useState("");
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -422,11 +431,12 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
    * existing debounced fetch above (via mdFilingReloadKey) to pull the confirmed
    * state back rather than trusting the optimistic response.
    */
-  async function handleMarkPeriodFiled(p: { start: string; end: string }) {
+  async function handleMarkPeriodFiled(p: { start: string; end: string }, filedDate?: string, paidDate?: string) {
     setMarkingPeriodEnd(p.end);
     try {
-      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, filedDate: mdFiledDate, paidDate: mdPaidDate });
+      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, filedDate: filedDate || mdFiledDate, paidDate: paidDate || mdPaidDate });
       setMdFilingReloadKey((k) => k + 1);
+      setPickingPeriodEnd(null);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not mark this period filed.");
     } finally {
@@ -738,9 +748,26 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                                   <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
                                     {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
                                   </button>
+                                ) : pickingPeriodEnd === p.end ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
+                                    <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                                    <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                                    <div style={{ display: "flex", gap: 4 }}>
+                                      <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickFiledDate || !pickPaidDate} onClick={() => handleMarkPeriodFiled(p, pickFiledDate, pickPaidDate)}>
+                                        {markingPeriodEnd === p.end ? "…" : "Confirm"}
+                                      </button>
+                                      <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
+                                    </div>
+                                  </div>
                                 ) : (
-                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleMarkPeriodFiled(p)}>
-                                    {markingPeriodEnd === p.end ? "Marking…" : "Mark Filed"}
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm"
+                                    disabled={markingPeriodEnd === p.end}
+                                    onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(p.dueDate); }}
+                                    title="Enter this period's actual filed/paid dates"
+                                  >
+                                    Mark Filed
                                   </button>
                                 )}
                               </td>

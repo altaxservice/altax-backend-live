@@ -6,6 +6,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
 import { sendChannel, bodyToDirectionalHtml, type SendAttachment } from "../../common/sendChannel";
+import { parseEmailList } from "../../common/notifications";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
@@ -235,6 +236,11 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   // sent) and always addressed to the client's own email on file.
   const sentTo = isStaffOrAdmin ? String(body.sentTo || client.email || "").trim() : (client.email || "").trim();
   const sendNow = isStaffOrAdmin ? (body.sendNow === undefined ? true : Boolean(body.sendNow)) : false;
+  // Only admin/staff may add extra recipients on a send they control — same
+  // gate as sentTo/sendNow above, so a client/employee can't loop in an
+  // arbitrary third-party address through this route.
+  const cc = isStaffOrAdmin ? parseEmailList(body.cc) : undefined;
+  const bcc = isStaffOrAdmin ? parseEmailList(body.bcc) : undefined;
 
   const firmName = (await getFirmProfile()).firmName;
   const base = publicBaseUrl(req);
@@ -278,7 +284,7 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
     : (normalizedChannel === "sms" || normalizedChannel === "whatsapp") && !client.sms_allowed ? "Client has not opted in to SMS/WhatsApp."
     : null;
   const result = consentError ? { sent: false, error: consentError }
-    : sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl }) : { sent: false };
+    : sendNow ? await sendChannel(channel, sentTo, subject, previewBody, { req, firmName, attachment, viewUrl, documentUrl, portalUrl, cc, bcc }) : { sent: false };
   const status = result.sent ? "Saved + Sent" : result.error ? `Saved — ${result.error}` : "Saved";
 
   await query(

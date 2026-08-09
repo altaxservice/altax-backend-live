@@ -48,7 +48,7 @@ export function bodyToDirectionalHtml(body: string): string {
  */
 export async function sendChannel(
   channel: string, to: string, subject: string, body: string,
-  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string; documentUrl?: string; portalUrl?: string } = {}
+  opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string; documentUrl?: string; portalUrl?: string; cc?: string[]; bcc?: string[] } = {}
 ): Promise<{ sent: boolean; error?: string }> {
   const normalized = String(channel || "").trim().toLowerCase();
   if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
@@ -58,7 +58,7 @@ export async function sendChannel(
       const attachments = opts.attachment
         ? [{ filename: opts.attachment.filename, content: Buffer.from(opts.attachment.contentBase64, "base64"), contentType: opts.attachment.contentType }]
         : undefined;
-      await sendEmail({ to, subject, html, attachments });
+      await sendEmail({ to, subject, html, attachments, cc: opts.cc, bcc: opts.bcc });
     } else {
       const firmName = opts.firmName || "AL Tax Service";
       let effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
