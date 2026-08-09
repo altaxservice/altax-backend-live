@@ -315,7 +315,7 @@ function isoDateOnly(v: unknown): string | null {
  * due (no sales recorded) are skipped rather than shown as a zero row.
  */
 export async function computeMdFilingBreakdown(
-  sales: { saleDate: unknown; totalTaxDue: number }[],
+  sales: { saleDate: unknown; totalTaxDue: number; paymentDate?: unknown }[],
   from: string,
   to: string,
   frequency: string | null | undefined,
@@ -326,22 +326,31 @@ export async function computeMdFilingBreakdown(
   const { periods, frequencyUsed } = splitIntoMdFilingPeriods(from, to, frequency);
   const results: MdFilingPeriodResult[] = [];
   for (const period of periods) {
-    const taxDue = round2(
-      sales
-        .filter((s) => {
-          const d = isoDateOnly(s.saleDate);
-          return d !== null && d >= period.start && d <= period.end;
-        })
-        .reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0)
-    );
+    const salesInPeriod = sales.filter((s) => {
+      const d = isoDateOnly(s.saleDate);
+      return d !== null && d >= period.start && d <= period.end;
+    });
+    const taxDue = round2(salesInPeriod.reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0));
     if (taxDue <= 0) continue;
+    // The sales input row(s) for this period already carry their own Payment
+    // Date (set when staff entered/edited that sale) — for a period with no
+    // recorded Mark Filed action yet, that's a far better default than
+    // "today" (which is what filedDateStr/paidDateStr falls back to when the
+    // caller sent no explicit override). Most periods have exactly one sales
+    // row; when there's more than one, the latest payment date wins since
+    // that's the date the period was actually finalized.
+    const salesPaymentDate = salesInPeriod
+      .map((s) => isoDateOnly(s.paymentDate))
+      .filter((d): d is string => d !== null)
+      .sort()
+      .pop() ?? null;
     // A period staff has explicitly marked filed uses those REAL filed/paid dates
     // instead of filedDateStr/paidDateStr (normally "today") — so its on-time/late
     // status and penalty/interest freeze at the actual filing event rather than
     // recomputing against whatever day this happens to be rendered.
     const recorded = recordedFilings?.get(period.end) ?? null;
-    const filedDate = recorded?.filedDate ?? filedDateStr;
-    const paidDate = recorded?.paidDate ?? paidDateStr;
+    const filedDate = recorded?.filedDate ?? salesPaymentDate ?? filedDateStr;
+    const paidDate = recorded?.paidDate ?? salesPaymentDate ?? paidDateStr;
     const result = await computeMdFiling(taxDue, period.dueDate, filedDate, paidDate);
     results.push({
       ...result, start: period.start, end: period.end, dueDate: period.dueDate,

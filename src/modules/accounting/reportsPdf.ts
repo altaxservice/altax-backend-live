@@ -628,8 +628,8 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       y += 14;
       y = row(c, y, "Return due date", fmtDate(p.dueDate), { indent: true });
       y = row(c, y, "Target filing date (internal)", fmtDate(p.targetFilingDate), { indent: true });
-      y = row(c, y, "Filed", fmtDate(p.filedDate), { indent: true });
-      y = row(c, y, "Paid", fmtDate(p.paidDate), { indent: true });
+      y = row(c, y, "Filed Date", fmtDate(p.filedDate), { indent: true });
+      y = row(c, y, "Payment Date", fmtDate(p.paidDate), { indent: true });
       y = row(c, y, "Tax due", money(p.taxDue), { indent: true });
       if (p.onTime) {
         y = row(c, y, "Timely discount (Line 18)", `− ${money(p.discount)}`, { indent: true });

@@ -1068,10 +1068,10 @@ reportsRouter.get("/pdf/sales-tax-payroll/:clientId", requireAuth, requireRole("
 /** Just sale_date + total_tax_due, for MD filing's per-period summing — deliberately lighter than loadSalesTaxForPeriod (no byCategory join) since it's sometimes called over a widened date range that spans full filing periods rather than just the requested report window. */
 async function loadSalesDatesAndTaxForPeriod(clientId: string, from: string, to: string) {
   const rows = await query<any>(
-    `SELECT sale_date, total_tax_due FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date::date >= $2::date AND sale_date::date <= $3::date`,
+    `SELECT sale_date, total_tax_due, payment_date FROM altax.v3_sales_input WHERE client_id = $1 AND sale_date::date >= $2::date AND sale_date::date <= $3::date`,
     [clientId, from, to]
   );
-  return rows.map((r: any) => ({ saleDate: r.sale_date, totalTaxDue: Number(r.total_tax_due) || 0 }));
+  return rows.map((r: any) => ({ saleDate: r.sale_date, totalTaxDue: Number(r.total_tax_due) || 0, paymentDate: r.payment_date }));
 }
 
 async function loadSalesTaxForPeriod(clientId: string, from: string, to: string) {
