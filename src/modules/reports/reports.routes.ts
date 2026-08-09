@@ -1375,6 +1375,7 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
       rows.push(["", "", "", "", ""]);
       rows.push([`Period ${p.start} to ${p.end}`, "", "", "", ""]);
       rows.push(["Return due date", "", "", "", p.dueDate]);
+      rows.push(["Target filing date (internal)", "", "", "", p.targetFilingDate]);
       rows.push(["Tax due", "", "", "", p.taxDue.toFixed(2)]);
       if (p.onTime) {
         rows.push(["Timely discount", "", "", "", (-p.discount).toFixed(2)]);

@@ -147,6 +147,24 @@ export function mdDueDateForPeriod(periodEndIso: string): string {
   return due.toISOString().slice(0, 10);
 }
 
+/**
+ * An internal "file by" target, ahead of the real statutory due date — the
+ * firm's own buffer for mail/processing time, NOT a substitute for it. The
+ * actual MD due date (mdDueDateForPeriod) is always the 20th and is what
+ * drives on-time/penalty/interest math and every overdue flag; this is
+ * purely an earlier reminder date shown alongside it. 2 days early normally,
+ * 3 when the statutory due date itself falls on a Saturday or Sunday (more
+ * buffer needed since bank/mail processing doesn't run those days either).
+ */
+export function mdFilingTargetDate(dueDateIso: string): string {
+  const due = parseIsoDateUTC(dueDateIso);
+  const dayOfWeek = due.getUTCDay(); // 0 = Sunday, 6 = Saturday
+  const bufferDays = dayOfWeek === 0 || dayOfWeek === 6 ? 3 : 2;
+  const target = new Date(due);
+  target.setUTCDate(target.getUTCDate() - bufferDays);
+  return target.toISOString().slice(0, 10);
+}
+
 export async function computeMdFiling(taxDue: number, dueDateStr: string, paidDateStr: string): Promise<MdFilingResult> {
   const dueDate = parseIsoDateUTC(dueDateStr);
   const paidDate = parseIsoDateUTC(paidDateStr);
@@ -247,6 +265,8 @@ export interface MdFilingPeriodResult extends MdFilingResult {
   start: string;
   end: string;
   dueDate: string;
+  /** Internal "file by" reminder target — see mdFilingTargetDate's doc comment. Not the statutory deadline. */
+  targetFilingDate: string;
   /** Set when staff has explicitly marked this period filed (v3_md_filing_payments) — the date that was used, overriding paidDateStr. Null means this result used the caller's (usually "today") date, not a real recorded filing. */
   markedPaidDate: string | null;
 }
@@ -305,7 +325,10 @@ export async function computeMdFilingBreakdown(
     // against whatever day this happens to be rendered.
     const markedPaidDate = recordedPaidDates?.get(period.end) ?? null;
     const result = await computeMdFiling(taxDue, period.dueDate, markedPaidDate || paidDateStr);
-    results.push({ ...result, start: period.start, end: period.end, dueDate: period.dueDate, markedPaidDate });
+    results.push({
+      ...result, start: period.start, end: period.end, dueDate: period.dueDate,
+      targetFilingDate: mdFilingTargetDate(period.dueDate), markedPaidDate,
+    });
   }
   const totals = results.reduce(
     (acc, r) => ({

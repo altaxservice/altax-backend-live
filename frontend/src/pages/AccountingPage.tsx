@@ -238,7 +238,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   });
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<{
-    periods: (MdFilingResult & { start: string; end: string; dueDate: string })[];
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string })[];
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
   } | null>(null);
@@ -654,9 +654,15 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
 
                 {mdFiling && mdFiling.periods.length === 1 && (
                   <>
-                    <div style={{ marginBottom: 10 }}>
-                      <div className="small-label" style={{ marginBottom: 2 }}>Return due date</div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdFiling.periods[0].dueDate)}</div>
+                    <div style={{ marginBottom: 10, display: "flex", gap: 24 }}>
+                      <div>
+                        <div className="small-label" style={{ marginBottom: 2 }}>Return due date</div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdFiling.periods[0].dueDate)}</div>
+                      </div>
+                      <div>
+                        <div className="small-label" style={{ marginBottom: 2 }}>Target filing date</div>
+                        <div className="muted" style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdFiling.periods[0].targetFilingDate)}</div>
+                      </div>
                     </div>
                     <div style={{
                       display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 11.5, fontWeight: 700, marginBottom: 10,
@@ -701,7 +707,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                       <table>
                         <thead>
                           <tr>
-                            <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Tax Due</th>
+                            <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
                             <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
                           </tr>
                         </thead>
@@ -710,6 +716,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
                             <tr key={`${p.start}-${p.end}`}>
                               <td>{p.start} – {p.end}</td>
                               <td>{fmtDate(p.dueDate)}</td>
+                              <td className="muted">{fmtDate(p.targetFilingDate)}</td>
                               <td>{fmtMoney(p.taxDue)}</td>
                               <td className={p.onTime ? "muted" : ""} style={p.onTime ? undefined : { color: "var(--red)", fontWeight: 600 }}>
                                 {p.markedPaidDate ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}

@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { computeSalesTaxLines, listSalesTaxCategories, SalesTaxLineInput } from "../../common/taxRates";
-import { computeMdFiling } from "../../common/mdFiling";
+import { computeMdFiling, mdFilingTargetDate } from "../../common/mdFiling";
 import { logAudit } from "../../common/audit";
 import type { CalculatorSalesTaxPdfData } from "../accounting/reportsPdf";
 
@@ -73,7 +73,7 @@ async function buildCalculatorPdfData(body: any): Promise<CalculatorSalesTaxPdfD
   if (state.toUpperCase() === "MD" && totalTax > 0 && dueDate && paidDate) {
     const result = await computeMdFiling(totalTax, dueDate, paidDate);
     mdFiling = {
-      dueDate, paidDate, onTime: result.onTime, discount: result.discount, penalty: result.penalty,
+      dueDate, targetFilingDate: mdFilingTargetDate(dueDate), paidDate, onTime: result.onTime, discount: result.discount, penalty: result.penalty,
       interest: result.interest, interestRateMonthly: result.interestRateMonthly, monthsLate: result.monthsLate,
       balanceDue: result.balanceDue,
     };

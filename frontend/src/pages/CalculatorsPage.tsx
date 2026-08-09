@@ -50,6 +50,17 @@ const nextMdDueDate = () => {
   return due.toISOString().slice(0, 10);
 };
 
+/** Mirrors src/common/mdFiling.ts's mdFilingTargetDate — an internal "file by" buffer ahead of the real due date, not the statutory deadline itself. */
+const mdFilingTargetDate = (dueDateIso: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDateIso)) return null;
+  const due = new Date(`${dueDateIso}T00:00:00Z`);
+  const dayOfWeek = due.getUTCDay();
+  const bufferDays = dayOfWeek === 0 || dayOfWeek === 6 ? 3 : 2;
+  const target = new Date(due);
+  target.setUTCDate(target.getUTCDate() - bufferDays);
+  return target.toISOString().slice(0, 10);
+};
+
 /**
  * Adopts the exact same "Sales by Category" process as Accounting → Sales
  * Input: pick a state, then a repeatable list of category + taxable-amount
@@ -335,10 +346,15 @@ function SalesTaxCalculator() {
               <input id="stc-md-paid-date" type="date" value={mdPaidDate} onChange={(e) => setMdPaidDate(e.target.value)} />
             </div>
           </div>
-          <p className="muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+          <p className="muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 4 }}>
             MD sales tax returns are due the 20th of the month following the reporting period —
             paying on or before that date is on time, no penalty or interest.
           </p>
+          {mdFilingTargetDate(mdDueDate) && (
+            <p className="muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+              Internal target — file by <strong>{mdFilingTargetDate(mdDueDate)}</strong> to leave a buffer before the real deadline.
+            </p>
+          )}
           {mdFilingLoading ? (
             <p className="muted" style={{ fontSize: 13 }}>Calculating…</p>
           ) : mdFiling ? (
