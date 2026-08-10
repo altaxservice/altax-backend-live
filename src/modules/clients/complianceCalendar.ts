@@ -168,8 +168,25 @@ export function computeUpcomingDeadlines(params: {
     });
   }
 
+  // EFTPS/MD Withholding/MD UI/Business Tax Return all come from computeDuePeriod(),
+  // which (by design, for the Task Rules Agent's own use) always returns the most
+  // recently CLOSED period's due date, even if that date is months in the past —
+  // it has no idea whether that period was already filed outside this system before
+  // this tracking existed. Unlike MD Sales Tax (whose caller only passes a date once
+  // a real v3_md_filing_payments record confirms it's still unresolved), these 4
+  // sources have no such confirmation, so a past date here is unverified, not a
+  // proven overdue filing. Only show them once they're a genuine heads-up (today or
+  // later, within the normal cutoff) — a real overdue filing still surfaces through
+  // the actual flag system once staff approve a Task Rules Agent draft for it.
+  const UNVERIFIED_PAST_SOURCES = new Set<ComplianceDeadline["source"]>(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return"]);
+  const todayStart = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
   const cutoff = new Date(asOf.getTime() + withinDays * 86400000);
   return deadlines
-    .filter((d) => new Date(`${d.date}T00:00:00`) <= cutoff)
+    .filter((d) => {
+      const dueDate = new Date(`${d.date}T00:00:00`);
+      if (dueDate > cutoff) return false;
+      if (UNVERIFIED_PAST_SOURCES.has(d.source) && dueDate < todayStart) return false;
+      return true;
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
