@@ -70,6 +70,7 @@ export function DocumentsListPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [period, setPeriod] = useState(activeViewDates());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -160,14 +161,17 @@ export function DocumentsListPage() {
   }
 
   const filteredRequests = useMemo(() => {
-    return scopedRequests.filter((r) => {
+    let rows = scopedRequests.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       const d = r.request_date ? r.request_date.slice(0, 10) : null;
       if (d && period.start && d < period.start) return false;
       if (d && period.end && d > period.end) return false;
       return true;
     });
-  }, [scopedRequests, statusFilter, period]);
+    const q = search.trim().toLowerCase();
+    if (q) rows = rows.filter((r) => [r.requested_item, r.client_name, r.assigned_to, r.status].some((v) => String(v || "").toLowerCase().includes(q)));
+    return rows;
+  }, [scopedRequests, statusFilter, period, search]);
 
   const openRequestsAll = useMemo(() => scopedRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [scopedRequests]);
   const overdueAll = useMemo(() => openRequestsAll.filter(isOverdue), [openRequestsAll]);
@@ -268,6 +272,7 @@ export function DocumentsListPage() {
 
       {canManage && (
         <FilterBar
+          search={{ value: search, onChange: setSearch, placeholder: "Document, client, owner…" }}
           selects={[{ label: "Status", value: statusFilter, options: options?.documentStatuses || DOCUMENT_STATUSES, onChange: setStatusFilter }]}
           period={{ start: period.start, end: period.end, onStartChange: (v) => setPeriod((p) => ({ ...p, start: v })), onEndChange: (v) => setPeriod((p) => ({ ...p, end: v })), onActiveView: () => setPeriod(activeViewDates()) }}
           onRefresh={handleRefresh}

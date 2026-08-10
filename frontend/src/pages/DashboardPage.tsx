@@ -365,6 +365,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const { user } = useAuth();
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const service = searchParams.get("service") || "all";
   const status = searchParams.get("status") || "all";
@@ -385,9 +386,11 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   }
 
   const serviceOptions = Array.from(new Set(tasks.map((t) => t.service_line).filter((s): s is string => !!s))).sort();
+  const q = search.trim().toLowerCase();
   const filteredTasks = tasks
     .filter((t) => service === "all" || t.service_line === service)
-    .filter((t) => status === "all" || String(t.status || "").toLowerCase() === status.toLowerCase());
+    .filter((t) => status === "all" || String(t.status || "").toLowerCase() === status.toLowerCase())
+    .filter((t) => !q || [t.task_name, t.client_name, t.assigned_to, t.service_line].some((v) => String(v || "").toLowerCase().includes(q)));
 
   const openTasks = filteredTasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
@@ -413,6 +416,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         </div>
       )}
       <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: "Task, client, owner…" }}
         selects={[
           { label: "Service", value: service, options: serviceOptions, onChange: setService },
           { label: "Status", value: status, options: TASK_STATUSES, onChange: setStatus },

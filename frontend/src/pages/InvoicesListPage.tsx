@@ -56,6 +56,7 @@ export function InvoicesListPage() {
 
   const [period, setPeriod] = useState(activeViewDates());
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
 
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
   const [showSalesReceipt, setShowSalesReceipt] = useState(false);
@@ -268,8 +269,22 @@ export function InvoicesListPage() {
     if (!invoices) return [];
     let rows = invoices;
     if (statusFilter !== "all") rows = rows.filter((i) => i.status === statusFilter);
+    const q = search.trim().toLowerCase();
+    if (q) rows = rows.filter((i) => [i.invoice_id, clientName(i.client_id), i.description, i.total_amount].some((v) => String(v || "").toLowerCase().includes(q)));
     return rows;
-  }, [invoices, statusFilter]);
+  }, [invoices, statusFilter, search, clients]);
+
+  const filteredSchedules = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return schedules || [];
+    return (schedules || []).filter((s) => [s.client_name, s.description, s.amount].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [schedules, search]);
+
+  const filteredFirmPayments = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return firmPayments || [];
+    return (firmPayments || []).filter((p) => [p.payment_id, p.invoice_id, clientName(p.client_id as string), p.actual_amount].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [firmPayments, search, clients]);
 
   const kpis = useMemo(() => {
     const inv = invoices || [];
@@ -304,6 +319,7 @@ export function InvoicesListPage() {
 
       {canManage && (
         <FilterBar
+          search={{ value: search, onChange: setSearch, placeholder: "Invoice, client, description, amount…" }}
           selects={[{ label: "Status", value: statusFilter, options: INVOICE_STATUSES, onChange: setStatusFilter }]}
           period={{ start: period.start, end: period.end, onStartChange: (v) => setPeriod((p) => ({ ...p, start: v })), onEndChange: (v) => setPeriod((p) => ({ ...p, end: v })), onActiveView: () => setPeriod(activeViewDates()) }}
           onRefresh={handleRefresh}
@@ -468,14 +484,14 @@ export function InvoicesListPage() {
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>Recurring Billing</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{schedules.length} schedule(s)</span>
+            <span className="muted" style={{ fontSize: 12 }}>{filteredSchedules.length} schedule(s)</span>
           </div>
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
             <thead><tr><th scope="col">Client</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Frequency</th><th scope="col">Next Run</th><th scope="col">Due Days</th><th scope="col">Auto</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
-              {schedules.map((s) => (
+              {filteredSchedules.map((s) => (
                 <tr key={s.recurring_billing_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setRecurringModal({ editing: s })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRecurringModal({ editing: s }); } }}>
                   <td>{s.client_name as string}</td>
                   <td className="muted">{s.description as string}</td>
@@ -514,7 +530,7 @@ export function InvoicesListPage() {
           </table>
           </div>
           </div>
-          {schedules.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No recurring billing schedules yet.</p>}
+          {filteredSchedules.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{schedules?.length ? "No schedules match." : "No recurring billing schedules yet."}</p>}
         </div>
       )}
 
@@ -522,14 +538,14 @@ export function InvoicesListPage() {
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>Firm Invoice Payments</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{firmPayments?.length ?? 0} payment rows</span>
+            <span className="muted" style={{ fontSize: 12 }}>{filteredFirmPayments.length} payment rows</span>
           </div>
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
             <thead><tr><th scope="col">Payment</th><th scope="col">Invoice</th><th scope="col">Client</th><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Method</th><th scope="col">Status</th></tr></thead>
             <tbody>
-              {(firmPayments || []).map((p) => (
+              {filteredFirmPayments.map((p) => (
                 <tr key={p.payment_id} data-row-id={p.payment_id} tabIndex={0} onClick={() => navigate(`/billing/${p.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${p.invoice_id}`); } }}>
                   <td>{p.payment_id}</td>
                   <td className="muted">{p.invoice_id}</td>
@@ -544,7 +560,7 @@ export function InvoicesListPage() {
           </table>
           </div>
           </div>
-          {(firmPayments || []).length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No firm invoice payments for this period.</p>}
+          {filteredFirmPayments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{(firmPayments || []).length ? "No payments match." : "No firm invoice payments for this period."}</p>}
         </div>
       )}
 

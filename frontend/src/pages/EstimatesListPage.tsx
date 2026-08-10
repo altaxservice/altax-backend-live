@@ -20,6 +20,7 @@ export function EstimatesListPage() {
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useStickyState("estimates.status", "open");
+  const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -47,9 +48,12 @@ export function EstimatesListPage() {
   }, []);
 
   const filtered = (estimates || []).filter((e) => {
-    if (statusFilter === "all") return true;
-    if (statusFilter === "open") return e.status === "Draft" || e.status === "Contacted" || e.status === "Sent";
-    return e.status === statusFilter;
+    if (statusFilter === "all") { /* no-op */ }
+    else if (statusFilter === "open") { if (!(e.status === "Draft" || e.status === "Contacted" || e.status === "Sent")) return false; }
+    else if (e.status !== statusFilter) return false;
+    const q = search.trim().toLowerCase();
+    if (q && ![e.estimate_number, e.business_name, e.status, e.entity_type, e.business_type].some((v) => String(v || "").toLowerCase().includes(q))) return false;
+    return true;
   });
 
   const pipeline = (estimates || [])
@@ -103,12 +107,15 @@ export function EstimatesListPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {["open", "all", "Draft", "Contacted", "Sent", "Approved", "Declined"].map((s) => (
-          <button key={s} className={`btn btn-sm ${statusFilter === s ? "btn-primary" : ""}`} onClick={() => setStatusFilter(s)}>
-            {s === "open" ? "Open" : s === "all" ? "All" : s}
-          </button>
-        ))}
+      <div className="card" style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {["open", "all", "Draft", "Contacted", "Sent", "Approved", "Declined"].map((s) => (
+            <button key={s} className={`btn btn-sm ${statusFilter === s ? "btn-primary" : ""}`} onClick={() => setStatusFilter(s)}>
+              {s === "open" ? "Open" : s === "all" ? "All" : s}
+            </button>
+          ))}
+        </div>
+        <input placeholder="Search estimates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 200 }} />
       </div>
 
       {estimates === null && !error && <div className="spinner-wrap">Loading estimates…</div>}

@@ -42,6 +42,7 @@ export function PipelinePage() {
   const [moving, setMoving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useStickyState<Period>("pipeline.period", "This Quarter");
+  const [search, setSearch] = useState("");
 
   function load(): Promise<void> {
     return api.get<{ estimates: Estimate[] }>("/estimates")
@@ -72,12 +73,14 @@ export function PipelinePage() {
 
   const byStage = useMemo(() => {
     const grouped: Record<StageLabel, Estimate[]> = { New: [], Contacted: [], "Proposal Sent": [], Won: [], Lost: [] };
+    const q = search.trim().toLowerCase();
     for (const e of estimates || []) {
+      if (q && ![e.business_name, e.estimate_number, e.entity_type, e.business_type, e.jurisdiction, e.totals?.total].some((v) => String(v ?? "").toLowerCase().includes(q))) continue;
       const stage = stageForEstimate(e.status);
       if (stage) grouped[stage].push(e);
     }
     return grouped;
-  }, [estimates]);
+  }, [estimates, search]);
 
   const conversionStats = useMemo(() => {
     const won = (estimates || []).filter((e) => e.status === "Approved" && withinPeriod(e.estimate_date, period));
@@ -144,6 +147,10 @@ export function PipelinePage() {
           </div>
           <div className="metric-sub">{byStage.New.length + byStage.Contacted.length + byStage["Proposal Sent"].length} open estimates</div>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <input placeholder="Search pipeline — client, description, amount…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 280 }} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>

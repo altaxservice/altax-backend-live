@@ -47,6 +47,7 @@ export function UsersPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [inviteInfo, setInviteInfo] = useState<{ userId: string; inviteLink?: string; inviteToken?: string; temporaryPassword?: string; note?: string; inviteEmailed?: boolean; inviteEmailError?: string; email?: string } | null>(null);
   const [preparerEdit, setPreparerEdit] = useState<{ userId: string; name: string; ptin: string; cafNumber: string } | null>(null);
   const [preparerSaving, setPreparerSaving] = useState(false);
@@ -191,13 +192,15 @@ export function UsersPage() {
   }
 
   const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return (users || []).filter((u) => {
       if (roleFilter !== "all" && u.role.toLowerCase() !== roleFilter.toLowerCase()) return false;
       if (statusFilter === "Active" && !u.active) return false;
       if (statusFilter === "Inactive" && u.active) return false;
+      if (q && ![u.name, u.email, u.role].some((v) => String(v || "").toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [users, roleFilter, statusFilter]);
+  }, [users, roleFilter, statusFilter, search]);
 
   function handleExport() {
     exportCsv("portal-users.csv", [
@@ -226,6 +229,7 @@ export function UsersPage() {
       </div>
 
       <FilterBar
+        search={{ value: search, onChange: setSearch, placeholder: "Name, email, role…" }}
         selects={[
           { label: "Role", value: roleFilter, options: ROLE_FILTER_OPTIONS, onChange: setRoleFilter },
           { label: "Status", value: statusFilter, options: STATUS_FILTER_OPTIONS, onChange: setStatusFilter },

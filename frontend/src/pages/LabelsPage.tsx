@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LabelChips, type LabelInfo } from "../components/Labels";
@@ -18,6 +18,7 @@ export function LabelsPage() {
   const confirmDialog = useConfirm();
   const [labels, setLabels] = useState<LabelInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [name, setName] = useState("");
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [saving, setSaving] = useState(false);
@@ -81,6 +82,11 @@ export function LabelsPage() {
     }
   }
 
+  const filteredLabels = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? (labels || []).filter((l) => l.name.toLowerCase().includes(q)) : labels || [];
+  }, [labels, search]);
+
   if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!labels) return <div className="spinner-wrap">Loading…</div>;
 
@@ -103,11 +109,15 @@ export function LabelsPage() {
         <button type="submit" className="btn btn-primary" disabled={saving || !name.trim()}>{saving ? "Adding…" : "Add"}</button>
       </form>
 
+      <div style={{ marginBottom: 14 }}>
+        <input placeholder="Search labels…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 200 }} />
+      </div>
+
       <div className="table-scroll">
         <table>
           <thead><tr><th scope="col">Preview</th><th scope="col">Name</th><th scope="col">Color</th><th scope="col"></th></tr></thead>
           <tbody>
-            {labels.map((l) => (
+            {filteredLabels.map((l) => (
               <tr key={l.label_id}>
                 {editingId === l.label_id ? (
                   <>
@@ -135,7 +145,7 @@ export function LabelsPage() {
           </tbody>
         </table>
       </div>
-      {labels.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No labels yet — add one above.</p>}
+      {filteredLabels.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{labels.length === 0 ? "No labels yet — add one above." : "No labels match."}</p>}
     </div>
   );
 }

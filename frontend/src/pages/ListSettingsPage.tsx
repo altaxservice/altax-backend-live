@@ -36,6 +36,7 @@ export function ListSettingsPage() {
   const [categories, setCategories] = useState<DropdownCategory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [newValue, setNewValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ optionId: string; value: string } | null>(null);
@@ -137,6 +138,15 @@ export function ListSettingsPage() {
   if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!categories) return <div className="spinner-wrap">Loading…</div>;
 
+  const q = search.trim().toLowerCase();
+  const visibleCategories = categories
+    .map((cat) => {
+      if (!q) return cat;
+      const labelMatch = cat.label.toLowerCase().includes(q);
+      return { ...cat, options: labelMatch ? cat.options : cat.options.filter((o) => o.value.toLowerCase().includes(q)) };
+    })
+    .filter((cat) => !q || cat.label.toLowerCase().includes(q) || cat.options.length > 0);
+
   return (
     <div>
       <p className="muted" style={{ marginBottom: 16, maxWidth: 720 }}>
@@ -145,8 +155,14 @@ export function ListSettingsPage() {
         without deleting it; drag order with the arrows.
       </p>
 
-      {categories.map((cat) => {
-        const isOpen = open === cat.category;
+      <div style={{ marginBottom: 16 }}>
+        <input placeholder="Search list values…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 220 }} />
+      </div>
+
+      {q && visibleCategories.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No list values match.</p>}
+
+      {visibleCategories.map((cat) => {
+        const isOpen = q ? true : open === cat.category;
         const activeCount = cat.options.filter((o) => o.active).length;
         return (
           <div key={cat.category} className="command-panel" style={{ marginBottom: 10 }}>

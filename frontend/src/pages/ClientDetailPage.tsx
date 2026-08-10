@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
@@ -268,7 +268,9 @@ export function ClientDetailPage() {
   const [emailChangeOpen, setEmailChangeOpen] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [taskSearch, setTaskSearch] = useState("");
   const [comms, setComms] = useState<Communication[] | null>(null);
+  const [commSearch, setCommSearch] = useState("");
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("At a Glance");
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
@@ -335,6 +337,18 @@ export function ClientDetailPage() {
   }
 
   useEffect(loadComms, [clientId, user?.role]);
+
+  const filteredTasks = useMemo(() => {
+    const q = taskSearch.trim().toLowerCase();
+    if (!q) return tasks || [];
+    return (tasks || []).filter((t) => [t.task_name, t.status, t.assigned_to, t.service_line].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [tasks, taskSearch]);
+
+  const filteredComms = useMemo(() => {
+    const q = commSearch.trim().toLowerCase();
+    if (!q) return comms || [];
+    return (comms || []).filter((c) => [c.subject, c.channel, c.sent_to, c.message_english].some((v) => String(v || "").toLowerCase().includes(q)));
+  }, [comms, commSearch]);
 
   async function handleTaskStatusChange(taskId: string, status: string) {
     setSavingStatusId(taskId);
@@ -902,7 +916,8 @@ export function ClientDetailPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <strong style={{ fontSize: 14 }}>Tasks</strong>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span className="muted" style={{ fontSize: 12 }}>{tasks ? `${tasks.length} task(s)` : "Loading…"}</span>
+                  <input type="text" placeholder="Search tasks…" value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 180 }} />
+                  <span className="muted" style={{ fontSize: 12 }}>{tasks ? `${filteredTasks.length} of ${tasks.length} task(s)` : "Loading…"}</span>
                   <button type="button" className="btn btn-sm" onClick={() => navigate(`/tasks?new=1&clientId=${client.client_id}`)}>+ New Task</button>
                 </div>
               </div>
@@ -910,7 +925,7 @@ export function ClientDetailPage() {
               <table>
                 <thead><tr><th scope="col">Task</th><th scope="col">Service</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
                 <tbody>
-                  {(tasks || []).map((t) => (
+                  {filteredTasks.map((t) => (
                     <tr key={t.task_id}>
                       <td><Link to={`/tasks/${t.task_id}`}>{t.task_name}</Link></td>
                       <td className="muted">{t.service_line || "—"}</td>
@@ -940,6 +955,7 @@ export function ClientDetailPage() {
               </table>
               </div>
               {tasks && tasks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks for this client yet.</p>}
+              {tasks && tasks.length > 0 && filteredTasks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match "{taskSearch}".</p>}
             </div>
           )}
 
@@ -955,7 +971,12 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Communications" && canSeeStaffTabs && (
-            <ClientMessages client={client} messages={comms || []} onSent={loadComms} />
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                <input type="text" placeholder="Search message history…" value={commSearch} onChange={(e) => setCommSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 220 }} />
+              </div>
+              <ClientMessages client={client} messages={filteredComms} onSent={loadComms} />
+            </>
           )}
 
           {tab === "Billing" && canSeeStaffTabs && (
@@ -1062,6 +1083,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
   const [requestOpen, setRequestOpen] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [fileSearch, setFileSearch] = useState("");
 
   function load() {
     api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
@@ -1078,8 +1100,10 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
   useEffect(load, [clientId]);
 
   const openRequests = (requests || []).filter((r) => !["closed", "completed", "void", "archived"].includes(String(r.status || "").toLowerCase()));
-  const activeUploads = (uploads || []).filter((u) => !u.hidden_from_staff);
-  const archivedUploads = (uploads || []).filter((u) => u.hidden_from_staff);
+  const fq = fileSearch.trim().toLowerCase();
+  const searchedUploads = fq ? (uploads || []).filter((u) => [u.file_name, u.direction, (u as any).uploaded_by].some((v) => String(v || "").toLowerCase().includes(fq))) : (uploads || []);
+  const activeUploads = searchedUploads.filter((u) => !u.hidden_from_staff);
+  const archivedUploads = searchedUploads.filter((u) => u.hidden_from_staff);
 
   async function handleRevoke(uploadId: string) {
     const ok = await confirmDialog({ title: "Revoke file", message: `Revoke this file? It will disappear from ${clientName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`, confirmLabel: "Revoke", danger: true });
@@ -1149,7 +1173,8 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
           <strong style={{ fontSize: 14 }}>Files on File</strong>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${uploads.length} file(s)` : "Loading…"}</span>
+            <input type="text" placeholder="Search files…" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${searchedUploads.length} of ${uploads.length} file(s)` : "Loading…"}</span>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
             <button type="button" className="btn btn-sm" onClick={() => setRequestOpen(true)}>Request Document</button>
           </div>
@@ -1164,6 +1189,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           </table>
         </div>
         {uploads && uploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files on file for this client yet.</p>}
+        {uploads && uploads.length > 0 && searchedUploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files match "{fileSearch}".</p>}
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -1297,6 +1323,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
   const [previewText, setPreviewText] = useState<Record<string, string>>({});
   const [signInPersonFor, setSignInPersonFor] = useState<string | null>(null);
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
+  const [contractSearch, setContractSearch] = useState("");
 
   function load() {
     api.get<{ contracts: ClientContract[] }>(`/contracts/client/${clientId}`)
@@ -1317,6 +1344,8 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
     suggested.push(POA_RELEASE_SERVICE_KEY);
   }
   const pendingSignature = (contracts || []).filter((c) => c.status === "Draft" || c.status === "Sent");
+  const cq = contractSearch.trim().toLowerCase();
+  const filteredContracts = cq ? (contracts || []).filter((c) => [c.title, c.status, c.service_key].some((v) => String(v || "").toLowerCase().includes(cq))) : (contracts || []);
 
   async function handleGenerate(serviceKey: string) {
     setBusy(`gen-${serviceKey}`);
@@ -1461,7 +1490,10 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
         <strong style={{ fontSize: 14 }}>Contracts</strong>
-        <span className="muted" style={{ fontSize: 12 }}>{contracts ? `${contracts.length} contract(s)` : "Loading…"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="text" placeholder="Search contracts…" value={contractSearch} onChange={(e) => setContractSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+          <span className="muted" style={{ fontSize: 12 }}>{contracts ? `${filteredContracts.length} of ${contracts.length} contract(s)` : "Loading…"}</span>
+        </div>
       </div>
 
       {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
@@ -1520,7 +1552,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
         <table>
           <thead><tr><th scope="col">Contract</th><th scope="col">Status</th><th scope="col">Effective</th><th scope="col">Signed</th><th scope="col">Action</th></tr></thead>
           <tbody>
-            {(contracts || []).map((c) => (
+            {filteredContracts.map((c) => (
               <Fragment key={c.contract_id}>
                 <tr>
                   <td>{c.title}</td>
@@ -1620,6 +1652,9 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
           No services selected yet — edit this client and check off Services Provided to see suggested contracts.
         </p>
       )}
+      {contracts && contracts.length > 0 && filteredContracts.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No contracts match "{contractSearch}".</p>
+      )}
     </div>
   );
 }
@@ -1674,6 +1709,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
   const [submitFor, setSubmitFor] = useState<string | null>(null);
   const [submitForm, setSubmitForm] = useState({ submittedVia: SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+  const [filingSearch, setFilingSearch] = useState("");
 
   function load() {
     api.get<{ filings: PoaFiling[] }>(`/poa-forms/client/${clientId}`)
@@ -1762,11 +1798,19 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
     }
   }
 
+  const pq = filingSearch.trim().toLowerCase();
+  const filteredFilings = pq
+    ? (filings || []).filter((f) => [FORM_LABELS[f.form_type] || f.form_type, f.status, ...f.representatives.map((r) => r.name)].some((v) => String(v || "").toLowerCase().includes(pq)))
+    : (filings || []);
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <strong style={{ fontSize: 14 }}>Authorization Forms (IRS / MD POA)</strong>
-        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Authorization Form</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="text" placeholder="Search filings…" value={filingSearch} onChange={(e) => setFilingSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+          <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Authorization Form</button>
+        </div>
       </div>
 
       {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
@@ -1775,7 +1819,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
         <table>
           <thead><tr><th scope="col">Form</th><th scope="col">Representative(s)</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
           <tbody>
-            {(filings || []).map((f) => (
+            {filteredFilings.map((f) => (
               <Fragment key={f.filing_id}>
                 <tr>
                   <td>{FORM_LABELS[f.form_type] || f.form_type}</td>
@@ -1868,6 +1912,9 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
           No authorization forms on file yet — generate Form 2848, Form 8821, or MD Form 548 as needed.
         </p>
       )}
+      {filings && filings.length > 0 && filteredFilings.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No filings match "{filingSearch}".</p>
+      )}
 
       {generating && (
         <GeneratePoaFormModal
@@ -1940,6 +1987,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
   const [signInPersonForm, setSignInPersonForm] = useState({ signerName: "", signerTitle: "" });
   const [submitFor, setSubmitFor] = useState<string | null>(null);
   const [submitForm, setSubmitForm] = useState({ submittedVia: GOV_SUBMIT_VIA_OPTIONS[0], submittedNote: "" });
+  const [filingSearch, setFilingSearch] = useState("");
 
   function load() {
     api.get<{ filings: GovFormFiling[] }>(`/gov-forms/client/${clientId}`)
@@ -2028,11 +2076,19 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
     }
   }
 
+  const gq = filingSearch.trim().toLowerCase();
+  const filteredFilings = gq
+    ? (filings || []).filter((f) => [GOV_FORM_LABELS[f.form_type] || f.form_type, f.status].some((v) => String(v || "").toLowerCase().includes(gq)))
+    : (filings || []);
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <strong style={{ fontSize: 14 }}>Government Forms (SS-4 / 2553 / W-9 / 8832 / MD CRA)</strong>
-        <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Government Form</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="text" placeholder="Search forms…" value={filingSearch} onChange={(e) => setFilingSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+          <button type="button" className="btn btn-sm" onClick={() => setGenerating(true)}>+ Generate Government Form</button>
+        </div>
       </div>
 
       {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
@@ -2041,7 +2097,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
         <table>
           <thead><tr><th scope="col">Form</th><th scope="col">Status</th><th scope="col">Signed</th><th scope="col">Submitted</th><th scope="col">Action</th></tr></thead>
           <tbody>
-            {(filings || []).map((f) => (
+            {filteredFilings.map((f) => (
               <Fragment key={f.filing_id}>
                 <tr>
                   <td>{GOV_FORM_LABELS[f.form_type] || f.form_type}</td>
@@ -2132,6 +2188,9 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>
           No government forms on file yet — generate Form 2553, Form W-9, or Form 8832 as needed.
         </p>
+      )}
+      {filings && filings.length > 0 && filteredFilings.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No forms match "{filingSearch}".</p>
       )}
 
       {generating && (
@@ -2656,6 +2715,7 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
   const [creatingFromTime, setCreatingFromTime] = useState(false);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
 
   useEffect(() => {
     api.get<{ invoices: Invoice[] }>("/billing/invoices")
@@ -2699,15 +2759,18 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
   const openBalance = (invoices || [])
     .filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()))
     .reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
+  const iq = invoiceSearch.trim().toLowerCase();
+  const filteredInvoices = iq ? (invoices || []).filter((i) => [i.invoice_id, i.description, i.status].some((v) => String(v || "").toLowerCase().includes(iq))) : (invoices || []);
 
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <div>
           <strong style={{ fontSize: 14 }}>Billing</strong>
-          <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{invoices?.length ?? 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
+          <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{invoices ? `${filteredInvoices.length} of ${invoices.length}` : 0} invoice(s) · {fmtMoney(openBalance)} open balance</span>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="text" placeholder="Search invoices…" value={invoiceSearch} onChange={(e) => setInvoiceSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
           {Boolean(unbilledTime?.count) && (
             <button className="btn btn-sm btn-primary" disabled={creatingFromTime} onClick={handleCreateFromTime}>
               {creatingFromTime ? "Creating…" : `Create Invoice from Unbilled Time (${unbilledTime!.count}, ${fmtMoney(unbilledTime!.amount)})`}
@@ -2724,7 +2787,7 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
           <table>
             <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Due</th><th scope="col">Description</th><th scope="col">Amount</th><th scope="col">Balance</th><th scope="col">Status</th></tr></thead>
             <tbody>
-              {invoices.map((inv) => (
+              {filteredInvoices.map((inv) => (
                 <tr key={inv.invoice_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/billing/${inv.invoice_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/billing/${inv.invoice_id}`); } }}>
                   <td data-label="Invoice">{inv.invoice_id}</td>
                   <td className="muted" data-label="Date">{fmtDateOnly(inv.invoice_date)}</td>
@@ -2740,6 +2803,7 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
         </div>
       )}
       {invoices && invoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices for this client yet.</p>}
+      {invoices && invoices.length > 0 && filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices match "{invoiceSearch}".</p>}
       <p className="muted" style={{ fontSize: 12, margin: "10px 16px 12px" }}>
         Click a row to open the invoice. Looking to create an invoice or sales receipt? Use the firm-wide Billing page.
       </p>
@@ -2756,6 +2820,7 @@ interface ClientTaxRow {
 function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<ClientTaxRow[] | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     api.get<{ rows: ClientTaxRow[] }>("/billing/client-tax-payments")
@@ -2763,11 +2828,17 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
       .catch(() => setRows([]));
   }, [clientId]);
 
+  const q = search.trim().toLowerCase();
+  const filteredRows = q ? (rows || []).filter((r) => [r.task_name, r.status, r.confirmation_number, r.payment_amount].some((v) => String(v || "").toLowerCase().includes(q))) : (rows || []);
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <strong style={{ fontSize: 14 }}>Tax Payments</strong>
-        <span className="muted" style={{ fontSize: 12 }}>{rows?.length ?? 0} row(s)</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="text" placeholder="Search payments…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+          <span className="muted" style={{ fontSize: 12 }}>{rows ? `${filteredRows.length} of ${rows.length}` : 0} row(s)</span>
+        </div>
       </div>
       <p className="muted" style={{ fontSize: 12, margin: "10px 16px 0" }}>
         Tax obligations this client owes agencies directly (sales tax, payroll tax deposits, etc.) — tracked from
@@ -2780,7 +2851,7 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
           <table>
             <thead><tr><th scope="col">Payment / Due</th><th scope="col">Due / Paid</th><th scope="col">Expected</th><th scope="col">Paid</th><th scope="col">Status</th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.task_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td data-label="Payment / Due">{r.task_name}</td>
                   <td className="muted" data-label="Due / Paid">{fmtDateOnly(r.paid_date || r.agency_due_date)}</td>
@@ -2794,6 +2865,7 @@ function ClientTaxPaymentsSection({ clientId }: { clientId: string }) {
         </div>
       )}
       {rows && rows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tax payment tracking rows for this client yet.</p>}
+      {rows && rows.length > 0 && filteredRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No payments match "{search}".</p>}
     </div>
   );
 }
@@ -2824,6 +2896,7 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
   const [activityType, setActivityType] = useState(ACTIVITY_TYPES[0]);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
 
   function load() {
     api.get<{ activity: ActivityRow[] }>(`/clients/${clientId}/activity`)
@@ -2860,11 +2933,17 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
     }
   }
 
+  const q = search.trim().toLowerCase();
+  const filteredRows = q ? (rows || []).filter((r) => [r.type, r.note, r.logged_by].some((v) => String(v || "").toLowerCase().includes(q))) : (rows || []);
+
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
         <strong style={{ fontSize: 14 }}>Activity Timeline</strong>
-        <button type="button" className="btn btn-sm" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ Log Activity"}</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="text" placeholder="Search activity…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 180 }} />
+          <button type="button" className="btn btn-sm" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ Log Activity"}</button>
+        </div>
       </div>
       {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
       {adding && (
@@ -2886,12 +2965,14 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
       ) : rows.length === 0 ? (
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>No activity logged for this client yet.</p>
+      ) : filteredRows.length === 0 ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No activity matches "{search}".</p>
       ) : (
         <div className="table-scroll card-table">
           <table>
             <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Note</th><th scope="col">By</th><th scope="col"></th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.id}>
                   <td className="muted" data-label="When">{new Date(r.occurred_at).toLocaleString()}</td>
                   <td data-label="Type">{r.type}{r.source === "communication" ? " (sent)" : ""}</td>

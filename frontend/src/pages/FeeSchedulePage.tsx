@@ -36,6 +36,7 @@ export function FeeSchedulePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [jurisdictionFilter, setJurisdictionFilter] = useStickyState("fees.jurisdiction", "all");
   const [categoryFilter, setCategoryFilter] = useStickyState("fees.category", "all");
+  const [search, setSearch] = useState("");
 
   useEscapeToClose(() => setEditing(null), Boolean(editing));
   const editModalPanelRef = useRef<HTMLDivElement>(null);
@@ -49,9 +50,11 @@ export function FeeSchedulePage() {
   useEffect(load, []);
 
   const jurisdictions = Array.from(new Set((items || []).map((i) => i.jurisdiction))).sort();
+  const q = search.trim().toLowerCase();
   const filtered = (items || []).filter((i) => {
     if (jurisdictionFilter !== "all" && i.jurisdiction !== jurisdictionFilter) return false;
     if (categoryFilter !== "all" && i.category !== categoryFilter) return false;
+    if (q && ![i.name, i.notes, i.agency].some((v) => String(v || "").toLowerCase().includes(q))) return false;
     return true;
   });
 
@@ -140,6 +143,10 @@ export function FeeSchedulePage() {
             <option value="Government">Government / agency fee</option>
             <option value="Service">AL TAX service fee</option>
           </select>
+        </div>
+        <div className="field" style={{ margin: 0, minWidth: 200 }}>
+          <label htmlFor="fs-search">Search</label>
+          <input id="fs-search" placeholder="Fee name, notes, agency…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <div className="muted" style={{ fontSize: 12, paddingBottom: 8 }}>{filtered.length} of {(items || []).length} fees</div>
       </div>

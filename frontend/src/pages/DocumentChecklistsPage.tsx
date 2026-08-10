@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FIRM_SERVICES } from "../utils/clientOptions";
@@ -22,6 +22,7 @@ export function DocumentChecklistsPage() {
   const notify = useNotify();
   const [checklists, setChecklists] = useState<Checklist[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [clientType, setClientType] = useState("");
@@ -82,6 +83,11 @@ export function DocumentChecklistsPage() {
     }
   }
 
+  const filteredChecklists = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? (checklists || []).filter((c) => c.name.toLowerCase().includes(q)) : checklists || [];
+  }, [checklists, search]);
+
   if (error) return <ErrorBanner error={error} />;
 
   return (
@@ -93,6 +99,10 @@ export function DocumentChecklistsPage() {
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setCreating((v) => !v)}>{creating ? "Cancel" : "New Checklist"}</button>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <input placeholder="Search checklists…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 220 }} />
       </div>
 
       {creating && (
@@ -122,9 +132,11 @@ export function DocumentChecklistsPage() {
         <div className="spinner-wrap">Loading…</div>
       ) : !checklists.length ? (
         <p className="muted">No checklist templates yet.</p>
+      ) : !filteredChecklists.length ? (
+        <p className="muted">No checklists match.</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {checklists.map((c) => (
+          {filteredChecklists.map((c) => (
             <div key={c.checklist_id} className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
                 <div>

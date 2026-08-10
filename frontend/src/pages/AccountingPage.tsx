@@ -259,6 +259,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [refreshing, setRefreshing] = useState(false);
   function load(): Promise<void> {
@@ -353,6 +354,13 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
     : `${fmtDate(period.start) || "the beginning"} – ${fmtDate(period.end) || "today"}`;
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
+  const q = search.trim().toLowerCase();
+  const visibleSales = q
+    ? salesInPeriod.filter((s) => [
+        fmtDate(s.sale_date), fmtMoney(s.gross_sales), fmtMoney(s.total_tax_due), s.notes,
+        (s.lines || []).map((l: any) => l.category_name).join(", "),
+      ].some((v) => String(v || "").toLowerCase().includes(q)))
+    : salesInPeriod;
 
   function handleExportCsv() {
     exportCsv(
@@ -621,6 +629,9 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
             </button>
           ))}
         </div>
+        <div style={{ margin: "10px 16px 0" }}>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search date, amount, category, notes…" style={{ maxWidth: 260 }} />
+        </div>
         <div className="metric-grid" style={{ margin: 16 }}>
           <div className="metric"><div className="metric-label">Rows This Period</div><div className="metric-value">{salesInPeriod.length}</div></div>
           <div className="metric"><div className="metric-label">Period Sales</div><div className="metric-value">{fmtMoney(periodSales)}</div></div>
@@ -882,7 +893,7 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           <table>
             <thead><tr><th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th><th scope="col">Categories</th><th scope="col"></th></tr></thead>
             <tbody>
-              {salesInPeriod.map((s) => (
+              {visibleSales.map((s) => (
                 <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
                   <td>
                     <div>{fmtDate(s.sale_date)}</div>
@@ -904,10 +915,12 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
           </table>
           </div>
         </div>
-        {salesInPeriod.length === 0 && (
+        {visibleSales.length === 0 && (
           <p className="muted" style={{ padding: 16, textAlign: "center" }}>
             {sales.length === 0
               ? "No sales recorded yet."
+              : q
+              ? "No sales match that search."
               : `No sales in ${periodLabel}. This client has ${sales.length} sale(s) on other dates — widen the period or pick "All time".`}
           </p>
         )}
@@ -1162,6 +1175,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
+  const [search, setSearch] = useState("");
 
   function load() {
     api.get<{ employees: Employee[] }>(`/accounting/employees/${clientId}`).then((r) => setEmployees(r.employees.filter((e) =>
@@ -1208,6 +1222,10 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
   const periodNet = paychecksInPeriod.reduce((s, p) => s + Number(p.net_pay || 0), 0);
   const periodEmployeeTaxes = paychecksInPeriod.reduce((s, p) => s + Number(p.employee_taxes || 0), 0);
   const periodDeductions = paychecksInPeriod.reduce((s, p) => s + Number(p.total_deductions || 0), 0);
+  const payrollSearchQ = search.trim().toLowerCase();
+  const visiblePaychecks = payrollSearchQ
+    ? paychecksInPeriod.filter((p) => [p.employee, fmtDate(p.pay_date), fmtMoney(p.gross_wages), fmtMoney(p.net_pay)].some((v) => String(v || "").toLowerCase().includes(payrollSearchQ)))
+    : paychecksInPeriod;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -1434,6 +1452,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
         note={`${paychecks.length} rows`}
         action={
           <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee, date…" style={{ padding: "4px 6px", maxWidth: 180 }} />
             <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
             <span className="muted">to</span>
             <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
@@ -1522,7 +1541,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
             <tbody>
               {/* This is a different table from the Paychecks tab's — it also
                   needs to open its record rather than being a dead list. */}
-              {paychecksInPeriod.map((p) => (
+              {visiblePaychecks.map((p) => (
                 <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingPayCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingPayCheck(p); } }}>
                   <td>{fmtDate(p.pay_date)}</td>
                   <td>{p.employee}</td>
@@ -1544,7 +1563,7 @@ function PayrollTab({ clientId, clientState }: { clientId: string; clientState?:
           </table>
           </div>
         </div>
-        {paychecksInPeriod.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks in this period.</p>}
+        {visiblePaychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{payrollSearchQ ? "No paychecks match that search." : "No paychecks in this period."}</p>}
       </Panel>
       {showBatch && (
         <BatchPayrollModal
@@ -2029,9 +2048,11 @@ function ImportTab({ clientId }: { clientId: string }) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [results, setResults] = useState<ImportResultRow[] | null>(null);
+  const [rowSearch, setRowSearch] = useState("");
 
   function reset() {
     setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set());
+    setRowSearch("");
   }
 
   async function handlePreview() {
@@ -2087,6 +2108,12 @@ function ImportTab({ clientId }: { clientId: string }) {
   }
 
   const succeededCount = results ? results.filter((r) => r.ok).length : 0;
+  const rowSearchQ = rowSearch.trim().toLowerCase();
+  const visiblePreviewRows = preview
+    ? preview.rows
+        .map((row, i) => ({ row, i }))
+        .filter(({ row }) => !rowSearchQ || [row.employeeName, row.payDate, row.action].some((v) => String(v || "").toLowerCase().includes(rowSearchQ)))
+    : [];
 
   return (
     <Panel
@@ -2114,6 +2141,7 @@ function ImportTab({ clientId }: { clientId: string }) {
             <p style={{ marginBottom: 12 }}>
               Detected <strong>{SOURCE_LABEL[preview.source]}</strong> — {preview.kind === "employees" ? "Employees" : "Paychecks"} ({preview.rows.length} rows found).
             </p>
+            <input type="text" value={rowSearch} onChange={(e) => setRowSearch(e.target.value)} placeholder="Search employee, date, status…" style={{ maxWidth: 260, marginBottom: 10 }} />
             <div className="table-scroll" style={{ marginBottom: 14 }}>
               <table>
                 <thead>
@@ -2139,7 +2167,7 @@ function ImportTab({ clientId }: { clientId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.map((row, i) => (
+                  {visiblePreviewRows.map(({ row, i }) => (
                     <tr key={i} style={{ opacity: row.action === "duplicate" ? 0.6 : 1 }}>
                       <td><input type="checkbox" checked={selected.has(i)} onChange={() => toggleRow(i)} /></td>
                       {preview.kind === "employees" ? (
@@ -2229,6 +2257,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   const [printing, setPrinting] = useState<string | null>(null);
   const [viewingForm, setViewingForm] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<{ email: string; link?: string; emailed?: boolean } | null>(null);
+  const [search, setSearch] = useState("");
 
   const formLabel = isContractorTab ? "1099-NEC" : "W-2";
   function taxFormPath(emp: Employee) {
@@ -2312,6 +2341,11 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       .catch(() => {});
   }
   useEffect(load, [clientId, workerType]);
+
+  const workerSearchQ = search.trim().toLowerCase();
+  const visibleWorkers = workerSearchQ
+    ? workers.filter((e) => [e.employee_name, e.employee_id, e.pay_type, e.state, e.status].some((v) => String(v || "").toLowerCase().includes(workerSearchQ)))
+    : workers;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -2408,9 +2442,15 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
         title={isContractorTab ? "Contractors" : "Employees"}
         note={`${workers.length} profiles`}
         action={
-          <div className="field" style={{ margin: 0 }}>
-            <label>Tax Year</label>
-            <input type="number" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 90 }} />
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Search</label>
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, ID, role…" style={{ maxWidth: 200 }} />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Tax Year</label>
+              <input type="number" value={taxYear} onChange={(e) => setTaxYear(e.target.value)} style={{ width: 90 }} />
+            </div>
           </div>
         }
       >
@@ -2418,7 +2458,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
         <table>
           <thead><tr><th scope="col">Name</th><th scope="col">Pay Type</th><th scope="col">State</th><th scope="col">Rate</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
           <tbody>
-            {workers.map((e) => (
+            {visibleWorkers.map((e) => (
               <tr key={e.employee_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/employees/${e.employee_id}`)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); navigate(`/employees/${e.employee_id}`); } }}>
                 <td data-label="Name"><Link to={`/employees/${e.employee_id}`} style={{ fontWeight: 600 }}>{e.employee_name}</Link></td>
                 <td className="muted" data-label="Pay Type">{e.pay_type || "—"}</td>
@@ -2437,7 +2477,11 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
           </tbody>
         </table>
         </div>
-        {workers.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No {isContractorTab ? "contractors" : "employees"} added yet.</p>}
+        {visibleWorkers.length === 0 && (
+          <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+            {workers.length === 0 ? `No ${isContractorTab ? "contractors" : "employees"} added yet.` : "No profiles match that search."}
+          </p>
+        )}
         <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>Click a name to open their profile and send them a file. {formLabel}, Archive, and Delete are in the Actions menu.</p>
       </Panel>
     </div>
@@ -2471,6 +2515,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [paymentSearch, setPaymentSearch] = useState("");
 
   async function handleViewNec() {
     if (!necContractorId) return;
@@ -2557,6 +2602,11 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
     }
   }
 
+  const paymentSearchQ = paymentSearch.trim().toLowerCase();
+  const visiblePayments = paymentSearchQ
+    ? payments.filter((p) => [p.contractor_name, p.method, p.expense_category, p.memo, fmtMoney(p.amount)].some((v) => String(v || "").toLowerCase().includes(paymentSearchQ)))
+    : payments;
+
   return (
     // Stacked, not side-by-side: the payment history needs ~620px and only got
     // 476 as the right half of a two-column grid, so it was cut off at 100%
@@ -2599,7 +2649,11 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Record Payment"}</button>
         </form>
       </Panel>
-      <Panel title="Recent Contractor Payments" note={`${payments.length} rows`}>
+      <Panel
+        title="Recent Contractor Payments"
+        note={`${payments.length} rows`}
+        action={<input type="text" value={paymentSearch} onChange={(e) => setPaymentSearch(e.target.value)} placeholder="Search contractor, category, memo…" style={{ maxWidth: 240 }} />}
+      >
         {viewing && (
           <div className="card" style={{ margin: 16 }}>
             <strong>Payment — {viewing.contractor_name}</strong>
@@ -2656,7 +2710,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
                 ~145px past the panel edge; they now ride under their subject. */}
             <thead><tr><th scope="col">Date</th><th scope="col">Contractor</th><th scope="col" style={{ textAlign: "right" }}>Amount</th><th scope="col"></th></tr></thead>
             <tbody>
-              {payments.map((p) => (
+              {visiblePayments.map((p) => (
                 <tr key={p.contractor_payment_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewing(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(p); } }}>
                   <td>
                     <div>{fmtDate(p.payment_date)}</div>
@@ -2681,7 +2735,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
           </table>
           </div>
         </div>
-        {payments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No contractor payments yet.</p>}
+        {visiblePayments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{payments.length === 0 ? "No contractor payments yet." : "No payments match that search."}</p>}
       </Panel>
       <div style={{ gridColumn: "1 / -1" }}>
         <Panel title="1099-NEC">
@@ -2728,6 +2782,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [entries, setEntries] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
 
   const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
@@ -2839,6 +2894,11 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     }
   }
 
+  const jeSearchQ = search.trim().toLowerCase();
+  const visibleEntries = jeSearchQ
+    ? entries.filter((e) => [e.description, e.ref, e.journalEntryId, ...(e.lines || []).map((l: any) => `${l.account} ${l.notes || ""}`)].some((v) => String(v || "").toLowerCase().includes(jeSearchQ)))
+    : entries;
+
   return (
     // Stacked for the same reason as Contractors: the entry history and its
     // expanded detail card need the full width, not a ~366px column.
@@ -2890,7 +2950,11 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           <button type="submit" className="btn btn-primary" disabled={saving || !balanced}>{saving ? "Posting…" : "Post Journal Entry"}</button>
         </form>
       </Panel>
-      <Panel title="Recent Manual Entries" note={`${entries.length} entries`}>
+      <Panel
+        title="Recent Manual Entries"
+        note={`${entries.length} entries`}
+        action={<input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo…" style={{ maxWidth: 220 }} />}
+      >
         {/* Row click opens the full entry, matching how Sales rows behave. */}
         {viewingJe && (
           <div className="card" style={{ margin: 16 }}>
@@ -2951,7 +3015,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
                 line count ride under their neighbours rather than owning columns. */}
             <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col" style={{ textAlign: "right" }}>Total</th></tr></thead>
             <tbody>
-              {entries.map((e) => (
+              {visibleEntries.map((e) => (
                 <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
                   <td>
                     <div>{fmtDate(e.entryDate)}</div>
@@ -2968,7 +3032,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </table>
           </div>
         </div>
-        {entries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No manual entries posted yet.</p>}
+        {visibleEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{entries.length === 0 ? "No manual entries posted yet." : "No entries match that search."}</p>}
       </Panel>
     </div>
   );
@@ -2991,6 +3055,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
   });
 
   const [allAccounts, setAllAccounts] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
 
   function loadEntries(): Promise<void> {
     const params = new URLSearchParams();
@@ -3020,6 +3085,13 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
 
   const accounts = allAccounts;
   const filtered = entries;
+  // GL fetch is capped to the 2000 most recent rows in the current date/account
+  // filter (see the backend LIMIT 2000 in accounting.routes.ts) — this search
+  // only ever sees that already-loaded window, not the client's full history.
+  const glSearchQ = search.trim().toLowerCase();
+  const searched = glSearchQ
+    ? filtered.filter((g) => [g.ref, g.account, g.description, g.source].some((v) => String(v || "").toLowerCase().includes(glSearchQ)))
+    : filtered;
 
   function handleExportCsv() {
     exportCsv(
@@ -3056,6 +3128,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
       note={`${filtered.length} entries${filtered.length >= 2000 ? " (capped — narrow the date range to see more)" : ""}`}
       action={
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, flexWrap: "wrap" }}>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search account, ref, description…" style={{ padding: "4px 6px", maxWidth: 200 }} />
           <select value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)} style={{ padding: "4px 6px", maxWidth: 180 }}>
             <option value="">All accounts</option>
             {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -3076,6 +3149,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
           <div className="metric-value" style={{ color: Math.abs(totalDebit - totalCredit) < 0.01 ? undefined : "var(--red)" }}>{fmtMoney(Math.abs(totalDebit - totalCredit))}</div>
         </div>
       </div>
+      <p className="muted" style={{ fontSize: 11, margin: "-8px 16px 8px" }}>Searches the loaded entries only — narrow the date range above to search older activity.</p>
       {/* Clicking any line opens the WHOLE entry it belongs to, not just that
           line. A ledger row on its own is half a story — the useful question is
           always "what did this posting actually do", which means every line
@@ -3132,7 +3206,7 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
       <table>
         <thead><tr><th scope="col">Date</th><th scope="col">Ref</th><th scope="col">Account</th><th scope="col">Description</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th><th scope="col">Source</th></tr></thead>
         <tbody>
-          {filtered.slice(0, 60).map((g, i) => (
+          {searched.slice(0, 60).map((g, i) => (
             <tr
               key={g.gl_entry_id || i}
               style={{ cursor: "pointer" }}
@@ -3152,8 +3226,8 @@ function GlTab({ clientId, initialRef, initialAccount }: { clientId: string; ini
         </tbody>
       </table>
       </div>
-      {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No GL activity in this period.</p>}
-      {filtered.length > 60 && <p className="muted" style={{ padding: "0 16px 12px" }}>Showing most recent 60 of {filtered.length}.</p>}
+      {searched.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{glSearchQ ? "No loaded entries match that search." : "No GL activity in this period."}</p>}
+      {searched.length > 60 && <p className="muted" style={{ padding: "0 16px 12px" }}>Showing most recent 60 of {searched.length}.</p>}
     </Panel>
   );
 }
@@ -3179,6 +3253,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
     const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     return { start, end: "" };
   });
+  const [search, setSearch] = useState("");
 
   function load() {
     const params = new URLSearchParams();
@@ -3263,12 +3338,21 @@ function PaychecksTab({ clientId }: { clientId: string }) {
     }
   }
 
+  // The backend caps this fetch to the 1000 most recent paychecks in the
+  // current date range (see the LIMIT 1000 on GET /accounting/paychecks/:clientId)
+  // — search only ever sees that already-loaded window, not full history.
+  const paychecksSearchQ = search.trim().toLowerCase();
+  const visiblePaychecks = paychecksSearchQ
+    ? paychecks.filter((p) => [p.employee, fmtDate(p.pay_date), p.check_number, p.status].some((v) => String(v || "").toLowerCase().includes(paychecksSearchQ)))
+    : paychecks;
+
   return (
     <Panel
       title="Paychecks"
       note={`${paychecks.length} row${paychecks.length === 1 ? "" : "s"}${!period.start && !period.end ? "" : " in range — widen the dates to see more"}`}
       action={
         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee, date…" style={{ padding: "4px 6px", maxWidth: 180 }} />
           <input type="date" value={period.start} onChange={(e) => setPeriod((p) => ({ ...p, start: e.target.value }))} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={period.end} onChange={(e) => setPeriod((p) => ({ ...p, end: e.target.value }))} style={{ padding: "4px 6px" }} />
@@ -3346,6 +3430,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
               </div>
             </div>
           )}
+      <p className="muted" style={{ fontSize: 11, margin: "0 16px 8px" }}>Searches the loaded rows only — narrow or widen the date range above to search older activity.</p>
       <div className="scroll-list">
         <div className="table-scroll">
         <table>
@@ -3353,7 +3438,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
               as 11 columns this ran past the right edge at 100% zoom. */}
           <thead><tr><th scope="col">Pay Date</th><th scope="col">Employee</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Net Pay</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
           <tbody>
-            {paychecks.map((p) => (
+            {visiblePaychecks.map((p) => (
               <tr key={p.paycheck_id} style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => setViewingCheck(p)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewingCheck(p); } }}>
                 <td>
                   <div>{fmtDate(p.pay_date)}</div>
@@ -3395,7 +3480,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
         </table>
         </div>
       </div>
-      {paychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No paychecks yet.</p>}
+      {visiblePaychecks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{paychecks.length === 0 ? "No paychecks yet." : "No loaded paychecks match that search."}</p>}
     </Panel>
   );
 }
@@ -3458,6 +3543,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
   const [doneCount, setDoneCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   function load() {
     setItems(null);
@@ -3491,14 +3577,25 @@ function MonthEndTab({ clientId }: { clientId: string }) {
     }
   }
 
+  const monthEndSearchQ = search.trim().toLowerCase();
+  const visibleItems = items
+    ? (monthEndSearchQ ? items.filter((i) => [i.item_name, i.category, i.notes].some((v) => String(v || "").toLowerCase().includes(monthEndSearchQ))) : items)
+    : null;
+
   return (
     <Panel
       title="Month-End Close Checklist"
       note={items ? `${doneCount} of ${items.length} complete` : undefined}
       action={
-        <div className="field" style={{ margin: 0 }}>
-          <label>Period</label>
-          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Search</label>
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Item, category…" style={{ maxWidth: 180 }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Period</label>
+            <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
+          </div>
         </div>
       }
     >
@@ -3509,7 +3606,7 @@ function MonthEndTab({ clientId }: { clientId: string }) {
         <table>
           <thead><tr><th scope="col"></th><th scope="col">Item</th><th scope="col">Category</th><th scope="col">Notes</th><th scope="col">Completed By</th><th scope="col">Completed At</th></tr></thead>
           <tbody>
-            {items.map((item) => {
+            {(visibleItems || []).map((item) => {
               const isDone = item.status.toLowerCase() === "done";
               return (
                 <tr key={item.item_name} style={{ opacity: saving === item.item_name ? 0.6 : 1 }}>
@@ -3713,6 +3810,7 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [form941Quarter, setForm941Quarter] = useState(() => String(Math.floor(new Date().getMonth() / 3) + 1));
+  const [search, setSearch] = useState("");
 
   function load() {
     setLoading(true);
@@ -3741,15 +3839,25 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
         title="Year-End Forms Review"
         note="Check every employee/contractor is ready before generating tax forms"
         action={
-          <div className="field" style={{ margin: 0 }}>
-            <label>Tax Year</label>
-            <input type="number" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 100 }} />
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Search</label>
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Employee or contractor…" style={{ maxWidth: 200 }} />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>Tax Year</label>
+              <input type="number" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 100 }} />
+            </div>
           </div>
         }
       >
         {loading && <div className="spinner-wrap">Loading…</div>}
         {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
-        {!loading && data && (
+        {!loading && data && (() => {
+          const yearEndSearchQ = search.trim().toLowerCase();
+          const visibleEmployees = yearEndSearchQ ? data.employees.filter((e) => [e.employeeName, e.status].some((v) => String(v || "").toLowerCase().includes(yearEndSearchQ))) : data.employees;
+          const visibleContractors = yearEndSearchQ ? data.contractors.filter((c) => [c.contractorName, c.status].some((v) => String(v || "").toLowerCase().includes(yearEndSearchQ))) : data.contractors;
+          return (
           <div style={{ padding: 16 }}>
             {data.clientIssues.length > 0 && (
               <div className="error-banner" style={{ marginBottom: 16 }}>
@@ -3780,14 +3888,14 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
             </div>
 
             <div className="command-panel-header" style={{ padding: 0, marginBottom: 8 }}>
-              <h2 className="command-panel-title" style={{ fontSize: 15 }}>W-2 Review ({data.employees.length})</h2>
+              <h2 className="command-panel-title" style={{ fontSize: 15 }}>W-2 Review ({visibleEmployees.length})</h2>
             </div>
             <div className="scroll-list" style={{ marginBottom: 20 }}>
               <div className="table-scroll">
               <table>
                 <thead><tr><th scope="col">Employee</th><th scope="col">SSN</th><th scope="col">Wages</th><th scope="col">Fed Tax</th><th scope="col">MD Tax</th><th scope="col">Status</th><th scope="col">Review Issues</th><th scope="col"></th></tr></thead>
                 <tbody>
-                  {data.employees.map((e) => (
+                  {visibleEmployees.map((e) => (
                     <tr key={e.employeeId}>
                       <td>{e.employeeName}</td>
                       <td className="muted">{e.ssnOnFile ? "On file" : "Missing"}</td>
@@ -3807,17 +3915,17 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
               </table>
               </div>
             </div>
-            {data.employees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No employees on file.</p>}
+            {visibleEmployees.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{data.employees.length === 0 ? "No employees on file." : "No employees match that search."}</p>}
 
             <div className="command-panel-header" style={{ padding: 0, marginBottom: 8 }}>
-              <h2 className="command-panel-title" style={{ fontSize: 15 }}>1099-NEC Review ({data.contractors.length})</h2>
+              <h2 className="command-panel-title" style={{ fontSize: 15 }}>1099-NEC Review ({visibleContractors.length})</h2>
             </div>
             <div className="scroll-list" style={{ marginBottom: 20 }}>
               <div className="table-scroll">
               <table>
                 <thead><tr><th scope="col">Contractor</th><th scope="col">TIN</th><th scope="col">NEC (Box 1a)</th><th scope="col">Status</th><th scope="col">Review Issues</th><th scope="col"></th></tr></thead>
                 <tbody>
-                  {data.contractors.map((c) => (
+                  {visibleContractors.map((c) => (
                     <tr key={c.contractorId}>
                       <td>{c.contractorName}</td>
                       <td className="muted">{c.tinOnFile ? "On file" : "Missing"}</td>
@@ -3835,7 +3943,7 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
               </table>
               </div>
             </div>
-            {data.contractors.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No contractors on file.</p>}
+            {visibleContractors.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{data.contractors.length === 0 ? "No contractors on file." : "No contractors match that search."}</p>}
 
             <div className="command-panel-header" style={{ padding: 0, marginBottom: 8 }}>
               <h2 className="command-panel-title" style={{ fontSize: 15 }}>{clientState || "State"} Withholding Summary</h2>
@@ -3850,7 +3958,8 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                 : "This is an in-app total for reference, not an official state filing form — file directly with this state's revenue agency."}
             </p>
           </div>
-        )}
+          );
+        })()}
       </Panel>
     </div>
   );
@@ -4233,6 +4342,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
   const [grid, setGrid] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<"Entry" | "Variance">("Entry");
+  const [search, setSearch] = useState("");
 
   function key(accountName: string, month: number) {
     return `${accountName}::${month}`;
@@ -4277,13 +4387,20 @@ function BudgetTab({ clientId }: { clientId: string }) {
   if (error) return <ErrorBanner error={error} />;
   if (!data) return <div className="spinner-wrap">Loading…</div>;
 
+  const budgetSearchQ = search.trim().toLowerCase();
+  const visibleAccounts = budgetSearchQ ? data.accounts.filter((a) => a.accountName.toLowerCase().includes(budgetSearchQ)) : data.accounts;
+
   return (
     <div>
       <div className="card" style={{ padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <div className="field" style={{ margin: 0, maxWidth: 100 }}>
             <label>Year</label>
             <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value) || year)} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>Search</label>
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Account name…" style={{ maxWidth: 180 }} />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {(["Entry", "Variance"] as const).map((v) => (
@@ -4295,8 +4412,9 @@ function BudgetTab({ clientId }: { clientId: string }) {
       </div>
 
       {!data.accounts.length && <p className="muted">No Income/COGS/Expense accounts in the chart of accounts yet — add some on the COA tab first.</p>}
+      {data.accounts.length > 0 && visibleAccounts.length === 0 && <p className="muted">No accounts match that search.</p>}
 
-      {data.accounts.length > 0 && view === "Entry" && (
+      {visibleAccounts.length > 0 && view === "Entry" && (
         <div className="card table-scroll">
           <table>
             <thead>
@@ -4306,7 +4424,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.accounts.map((a) => (
+              {visibleAccounts.map((a) => (
                 <tr key={a.accountName}>
                   <td>{a.accountName}<div className="muted" style={{ fontSize: 11 }}>{a.accountType}</div></td>
                   {MONTH_LABELS.map((_, i) => (
@@ -4327,7 +4445,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {data.accounts.length > 0 && view === "Variance" && (
+      {visibleAccounts.length > 0 && view === "Variance" && (
         <div className="card table-scroll">
           <table>
             <thead>
@@ -4338,7 +4456,7 @@ function BudgetTab({ clientId }: { clientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.accounts.map((a) => {
+              {visibleAccounts.map((a) => {
                 // For Income, exceeding the target is favorable (teal); for
                 // COGS/Expense, exceeding the target is unfavorable (red) — the
                 // same +/- variance number means the opposite thing depending
@@ -4420,6 +4538,8 @@ function BankRecTab({ clientId }: { clientId: string }) {
   // reconcile "as of" a real bank statement date, same as reconciling
   // against a paper statement. Defaults to today.
   const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bankLineSearch, setBankLineSearch] = useState("");
+  const [glCandidateSearch, setGlCandidateSearch] = useState("");
 
   // Bank Rec Agent: Stage 1 (draft review) and Stage 2 (reconcile confirmation).
   const [drafts, setDrafts] = useState<JeDraft[] | null>(null);
@@ -4684,6 +4804,14 @@ function BankRecTab({ clientId }: { clientId: string }) {
   const unmatchedGl = data ? data.glCandidates : [];
   const unmatchedBankTotal = unmatchedBank.reduce((s, b) => s + b.amount, 0);
   const unmatchedGlTotal = unmatchedGl.reduce((s, g) => s + g.amount, 0);
+  const bankLineSearchQ = bankLineSearch.trim().toLowerCase();
+  const visibleUnmatchedBank = bankLineSearchQ
+    ? unmatchedBank.filter((b) => [b.description, fmtMoney(b.amount), b.statement_date].some((v) => String(v || "").toLowerCase().includes(bankLineSearchQ)))
+    : unmatchedBank;
+  const glCandidateSearchQ = glCandidateSearch.trim().toLowerCase();
+  const visibleUnmatchedGl = glCandidateSearchQ
+    ? unmatchedGl.filter((g) => [g.description, g.ref, fmtMoney(g.amount)].some((v) => String(v || "").toLowerCase().includes(glCandidateSearchQ)))
+    : unmatchedGl;
 
   return (
     <div>
@@ -4854,10 +4982,13 @@ function BankRecTab({ clientId }: { clientId: string }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 700, fontSize: 13 }}>
-              Bank Lines ({data.bankLines.filter((b) => !b.matched_gl_entry_id).length} unmatched)
+              Bank Lines ({unmatchedBank.length} unmatched)
+            </div>
+            <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)" }}>
+              <input type="text" value={bankLineSearch} onChange={(e) => setBankLineSearch(e.target.value)} placeholder="Search description, date, amount…" style={{ width: "100%" }} />
             </div>
             <div style={{ maxHeight: 480, overflowY: "auto" }}>
-              {data.bankLines.filter((b) => !b.matched_gl_entry_id).map((b) => (
+              {visibleUnmatchedBank.map((b) => (
                 <div key={b.line_id}>
                   <div
                     onClick={() => setSelectedBankLine(b.line_id === selectedBankLine ? null : b.line_id)}
@@ -4901,16 +5032,19 @@ function BankRecTab({ clientId }: { clientId: string }) {
                   )}
                 </div>
               ))}
-              {!data.bankLines.filter((b) => !b.matched_gl_entry_id).length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing unmatched.</p>}
+              {visibleUnmatchedBank.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{unmatchedBank.length === 0 ? "Nothing unmatched." : "No bank lines match that search."}</p>}
             </div>
           </div>
 
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", fontWeight: 700, fontSize: 13 }}>
-              GL Entries ({data.glCandidates.length} unmatched)
+              GL Entries ({unmatchedGl.length} unmatched)
+            </div>
+            <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--line)" }}>
+              <input type="text" value={glCandidateSearch} onChange={(e) => setGlCandidateSearch(e.target.value)} placeholder="Search description, ref, amount…" style={{ width: "100%" }} />
             </div>
             <div style={{ maxHeight: 480, overflowY: "auto" }}>
-              {data.glCandidates.map((g) => (
+              {visibleUnmatchedGl.map((g) => (
                 <div
                   key={g.gl_entry_id}
                   onClick={() => setSelectedGl(g.gl_entry_id === selectedGl ? null : g.gl_entry_id)}
@@ -4930,7 +5064,7 @@ function BankRecTab({ clientId }: { clientId: string }) {
                   <span style={{ fontWeight: 700 }}>{fmtMoney(g.amount)}</span>
                 </div>
               ))}
-              {!data.glCandidates.length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing unmatched.</p>}
+              {visibleUnmatchedGl.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{unmatchedGl.length === 0 ? "Nothing unmatched." : "No GL entries match that search."}</p>}
             </div>
           </div>
         </div>
@@ -5001,6 +5135,7 @@ function CoaTab() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(COA_FORM_DEFAULTS);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
 
   function load() {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa").then((r) => setAccounts(r.accounts)).catch((e) => setError(e instanceof ApiError ? e.message : "Could not load chart of accounts."));
@@ -5046,6 +5181,11 @@ function CoaTab() {
     load();
   }
 
+  const coaSearchQ = search.trim().toLowerCase();
+  const visibleAccounts = accounts
+    ? (coaSearchQ ? accounts.filter((a) => [a.account_id, a.account_name, a.account_type, a.detail_type].some((v) => String(v || "").toLowerCase().includes(coaSearchQ))) : accounts)
+    : [];
+
   return (
     <div>
       {isAdmin && (
@@ -5067,13 +5207,15 @@ function CoaTab() {
         </form>
       )}
       {accounts && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search account #, name, type…" style={{ maxWidth: 260, marginBottom: 10 }} />
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <div className="table-scroll">
             <table>
               <thead><tr><th scope="col">Account #</th><th scope="col">Account</th><th scope="col">Type</th><th scope="col">Detail Type</th><th scope="col">Normal Balance</th><th scope="col">Balance</th><th scope="col">Active</th>{isAdmin && <th scope="col"></th>}</tr></thead>
               <tbody>
-                {accounts.map((a) => (
+                {visibleAccounts.map((a) => (
                   <tr key={a.account_id}>
                     <td className="muted">{a.account_id}</td>
                     <td>{a.account_name}</td>
@@ -5090,11 +5232,15 @@ function CoaTab() {
                     )}
                   </tr>
                 ))}
+                {visibleAccounts.length === 0 && (
+                  <tr><td colSpan={isAdmin ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No accounts match that search.</td></tr>
+                )}
               </tbody>
             </table>
             </div>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
