@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { Calculator } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
@@ -7,6 +8,7 @@ import { APP_NAME } from "../utils/branding";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { FloatingCalculator } from "./FloatingCalculator";
 
 const EYEBROW = "OPERATIONS DASHBOARD";
 
@@ -21,6 +23,7 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
   const isPreparer = user?.role === "admin" || user?.role === "staff";
   const [showMore, setShowMore] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
   const showLanguageToggle = user?.role === "client" || user?.role === "employee";
   const userMenuRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -147,6 +150,18 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
           >
             <kbd>⌘K</kbd>
           </button>
+          {isPreparer && (
+            <button
+              type="button"
+              className="btn"
+              aria-label="Calculator"
+              aria-pressed={showCalculator}
+              title="Calculator — plain arithmetic, not the tax calculators under Calculators"
+              onClick={() => setShowCalculator((v) => !v)}
+            >
+              <Calculator size={15} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
           <div style={{ position: "relative" }} ref={userMenuRef}>
             <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
               <div>
@@ -175,6 +190,7 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
       {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
       {showTotpModal && <TwoFactorModal onClose={() => setShowTotpModal(false)} />}
       {showPreparerModal && <PreparerInfoModal onClose={() => setShowPreparerModal(false)} />}
+      {showCalculator && <FloatingCalculator onClose={() => setShowCalculator(false)} />}
     </>
   );
 }
