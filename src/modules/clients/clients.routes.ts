@@ -13,6 +13,7 @@ import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, comp
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
+import { computeUpcomingDeadlines } from "./complianceCalendar";
 import { sendEmail } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
@@ -830,6 +831,20 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     if (years >= 0) yearsInBusiness = years;
   }
 
+  // EFTPS/MD Withholding/MD UI/Business Tax Return upcoming deadlines — same
+  // engine that feeds the dashboard's Upcoming Deadlines card. MD Sales Tax,
+  // Payroll, Federal Payroll Tax, MD Annual Report, and S-Corp Election are
+  // filtered out here since they already have their own dedicated finding
+  // rules (or, for MD Annual Report, aren't yet one — left for a later pass).
+  const upcomingObligationDeadlines = computeUpcomingDeadlines({
+    mdCurrentPeriodDueDate: null, payrollNextDate: null, payrollEnabled: false,
+    eftpsEnabled: Boolean(clientRow.eftps_enabled),
+    mdWithholdingFrequency: clientRow.md_withholding_frequency || null,
+    mduiEnabled: Boolean(clientRow.mdui_enabled),
+    businessReturnType: clientRow.business_return_type || null,
+    withinDays: 60,
+  }).filter((d) => d.source === "EFTPS" || d.source === "MD Withholding" || d.source === "MD UI" || d.source === "Business Tax Return");
+
   return {
     clientId, industryCategory: clientRow.industry_category || null, yearsInBusiness,
     entityType: clientRow.entity_type || null,
@@ -845,6 +860,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     openTasks: ops.openTasks, balanceDue: ops.balanceDue, overdueInvoices,
     taxLiabilities: financials.taxLiabilities, cashBalance,
     mdFilingOnTime, mdLatePeriodEnds, mdCurrentPeriodDueDate, mdCurrentPeriodTaxDue, mdCurrentPeriodOnTime,
+    upcomingObligationDeadlines,
     budgetVariances,
     payrollThisMonthCost: payrollThisMonth.totalCost, payrollLastMonthCost: payrollLastMonth.totalCost, payrollPeriodLabel: periodLabel,
     alertThresholds: { cashThreshold: alertSettings.cashThreshold, overdueDaysThreshold: alertSettings.overdueDaysThreshold, filingDeadlineDaysThreshold: alertSettings.filingDeadlineDaysThreshold },

@@ -21,11 +21,12 @@
  */
 
 import { computeScorpElectionStatus } from "../../common/scorpElection";
+import { computeDuePeriod } from "../rules/rules.routes";
 
 export interface ComplianceDeadline {
   label: string;
   date: string; // YYYY-MM-DD
-  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election";
+  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election" | "EFTPS" | "MD Withholding" | "MD UI" | "Business Tax Return";
 }
 
 /** Next occurrence of a fixed month/day from `asOf` — rolls to next year if this year's date has already passed. */
@@ -77,6 +78,23 @@ export function computeFederalPayrollDeadlines(payrollEnabled: boolean, withinDa
  * card and (indirectly, via the SWOT findings engine's own MD-specific
  * rule) the alert sweep.
  */
+// Maryland Withholding filing frequency vocabulary ("Monthly"/"Quarterly"/
+// "Semiannual"/"Annually" — the same FREQ_OPTIONS as sales_tax_frequency) uses
+// plural "Annually", but computeDuePeriod's own frequency field expects
+// singular "Annual" — this map bridges that real, confirmed vocabulary split
+// rather than re-deriving it inline. See sql/056_task_rules_compliance_gaps.sql.
+const MD_WITHHOLDING_FREQ_TO_RULE_FREQUENCY: Record<string, string> = {
+  Monthly: "Monthly", Quarterly: "Quarterly", Semiannual: "Semiannual", Annually: "Annual",
+};
+
+// business_return_type -> months after Dec 31 year-end the return is due (matches
+// TR-011/TR-017/TR-021/TR-022 in sql/056): S-Corp (1120S) and Partnership (1065)
+// are due March 15 (offset 3); C-Corp (1120) and the owner's own Schedule C
+// (filed with the individual 1040) are due April 15 (offset 4).
+const BUSINESS_RETURN_DUE_OFFSET_MONTHS: Record<string, string> = {
+  "1120": "4", "1120S": "3", "1065": "3", "Schedule C": "4",
+};
+
 export function computeUpcomingDeadlines(params: {
   mdCurrentPeriodDueDate: string | null;
   payrollNextDate: string | null;
@@ -85,6 +103,10 @@ export function computeUpcomingDeadlines(params: {
   entityType?: string | null;
   dateOfFormation?: string | null;
   has2553Filing?: boolean;
+  eftpsEnabled?: boolean;
+  mdWithholdingFrequency?: string | null;
+  mduiEnabled?: boolean;
+  businessReturnType?: string | null;
   withinDays?: number;
   asOf?: Date;
 }): ComplianceDeadline[] {
@@ -102,6 +124,35 @@ export function computeUpcomingDeadlines(params: {
 
   if (params.mdAnnualReportEnabled) {
     deadlines.push({ label: "MD Annual Report", date: nextFixedAnnualDate(4, 15, asOf), source: "MD Annual Report" });
+  }
+
+  // Same due-date engine the seeded Task Rules use (sql/056), reused here rather
+  // than re-derived, so the "upcoming" preview on the dashboard and the actual
+  // task the Task Rules Agent later drafts never quietly disagree on the date.
+  if (params.eftpsEnabled) {
+    const period = computeDuePeriod({ frequency: "Monthly", due_day: "15", due_month: "1" }, asOf);
+    if (period) deadlines.push({ label: "EFTPS Deposit", date: period.dueDate, source: "EFTPS" });
+  }
+
+  const mdWhFrequency = params.mdWithholdingFrequency ? MD_WITHHOLDING_FREQ_TO_RULE_FREQUENCY[params.mdWithholdingFrequency] : undefined;
+  if (mdWhFrequency) {
+    const period = computeDuePeriod({ frequency: mdWhFrequency, due_day: "15", due_month: "1" }, asOf);
+    if (period) deadlines.push({ label: "MD Withholding Payment", date: period.dueDate, source: "MD Withholding" });
+    const reconciliation = computeDuePeriod({ frequency: "Annual", due_day: "31", due_month: "1" }, asOf);
+    if (reconciliation) deadlines.push({ label: "MD Withholding Annual Reconciliation (MW508)", date: reconciliation.dueDate, source: "MD Withholding" });
+  }
+
+  if (params.mduiEnabled) {
+    // due_day=24 matches the firm's own existing MD UI task rules (TR-009/TR-010) —
+    // an internal target a few days ahead of MD's own ~30-day statutory window.
+    const period = computeDuePeriod({ frequency: "Quarterly", due_day: "24", due_month: null }, asOf);
+    if (period) deadlines.push({ label: "MD UI Wages Filing & Payment", date: period.dueDate, source: "MD UI" });
+  }
+
+  const businessReturnOffset = params.businessReturnType ? BUSINESS_RETURN_DUE_OFFSET_MONTHS[params.businessReturnType] : undefined;
+  if (businessReturnOffset) {
+    const period = computeDuePeriod({ frequency: "Annual", due_day: "15", due_month: businessReturnOffset }, asOf);
+    if (period) deadlines.push({ label: "Business Tax Return", date: period.dueDate, source: "Business Tax Return" });
   }
 
   const scorp = computeScorpElectionStatus(params.entityType ?? null, params.dateOfFormation ?? null, params.has2553Filing ?? false, asOf);

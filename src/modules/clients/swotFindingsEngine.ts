@@ -71,6 +71,14 @@ export interface SwotEngineInput {
   mdCurrentPeriodTaxDue: number;
   mdCurrentPeriodOnTime: boolean | null;
 
+  // Upcoming deadlines beyond MD Sales Tax (which keeps its own dedicated rule
+  // above — Form 202 is the only one of these with real discount/penalty/
+  // interest math behind it). EFTPS, MD Withholding, MD UI, and Business Tax
+  // Return all come from the same computeUpcomingDeadlines() engine that feeds
+  // the dashboard's Upcoming Deadlines card (complianceCalendar.ts), so the
+  // finding and the dashboard never quietly disagree on a due date.
+  upcomingObligationDeadlines: { label: string; date: string; source: string }[];
+
   budgetVariances: { accountName: string; accountType: "Income" | "COGS" | "Expense"; budget: number; actual: number; variance: number; periodLabel: string }[];
 
   payrollThisMonthCost: number;
@@ -248,6 +256,34 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
         priority: daysUntilDue <= input.alertThresholds.filingDeadlineDaysThreshold ? "Urgent" : "High",
         recommendedAction: "File and pay before the due date to avoid penalty and interest.",
         dataType: "Fact", autoTriggerKey: `filing_deadline_soon:${input.mdCurrentPeriodDueDate}`,
+      });
+    }
+  }
+
+  // --- Upcoming obligation deadlines (EFTPS, MD Withholding, MD UI, Business Tax Return) ---
+  // Same window/urgency logic as the MD Sales Tax rule above, generalized
+  // across every other obligation computeUpcomingDeadlines() knows about via
+  // v3_clients' eftps_enabled/md_withholding_frequency/mdui_enabled/
+  // business_return_type. Each source gets its own auto_trigger_key prefix so
+  // they dedup and auto-resolve independently of each other and of MD Sales Tax.
+  {
+    const OBLIGATION_KEY_PREFIX: Record<string, string> = {
+      EFTPS: "eftps", "MD Withholding": "mdwh", "MD UI": "mdui", "Business Tax Return": "bustax",
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    for (const d of input.upcomingObligationDeadlines) {
+      const prefix = OBLIGATION_KEY_PREFIX[d.source];
+      if (!prefix) continue;
+      const daysUntilDue = daysBetween(today, d.date);
+      if (daysUntilDue < 0 || daysUntilDue > 14) continue;
+      findings.push({
+        category: "Weakness", subcategory: "Compliance",
+        findingText: `${d.label} is due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"} (${d.date}).`,
+        supportingData: `${d.label}, due date ${d.date}.`,
+        businessImpact: "Missing this deadline risks late-filing penalties and interest with the relevant agency.",
+        priority: daysUntilDue <= input.alertThresholds.filingDeadlineDaysThreshold ? "Urgent" : "High",
+        recommendedAction: "File and pay before the due date to avoid penalty and interest.",
+        dataType: "Fact", autoTriggerKey: `filing_deadline_soon:${prefix}:${d.date}`,
       });
     }
   }
