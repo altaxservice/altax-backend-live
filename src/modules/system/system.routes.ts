@@ -331,6 +331,77 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin"), asyncHandler
     ? { id: "client-ein", label: "Employer EINs on file", status: "ok", detail: "Every client running payroll has an EIN on file." }
     : { id: "client-ein", label: "Employer EINs on file", status: "warning", detail: `${missingEin.length} client(s) running payroll have no EIN on file, so their W-2/W-3/940/941 forms will print with a blank EIN box: ${missingEin.slice(0, 5).map((c: any) => c.client_name).join(", ")}${missingEin.length > 5 ? "…" : ""}. Fix from that client's profile.` });
 
+  // --- Service Type / Services Provided vs. the granular per-obligation flags ---
+  // Confirmed by direct investigation (2026-08-09): "Service Type" (Full Service,
+  // Sales Tax Only, etc.) and "Services Provided" (the checkbox list) are NOT
+  // connected to eftps_enabled/mdui_enabled/md_annual_report_enabled/
+  // md_withholding_frequency/sales_tax_frequency/business_return_type by any code
+  // path, database trigger, or the Task Rules Agent — they're three independent,
+  // manually-maintained fields. Since the auto-flag system (computeClientFlags /
+  // Task Rules Agent) only ever reads the granular fields, a client labeled "Full
+  // Service" with none of them actually set gets zero compliance tracking despite
+  // looking fully covered. These 5 checks surface that drift instead of silently
+  // trusting the label. Nudges only — nothing here writes to a client record.
+  const activeClientClause = `(status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))`;
+
+  const fullServiceUnconfigured = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause} AND service_type = 'Full Service'
+        AND COALESCE(payroll_enabled, false) = false
+        AND COALESCE(eftps_enabled, false) = false
+        AND COALESCE(mdui_enabled, false) = false
+        AND COALESCE(md_annual_report_enabled, false) = false
+        AND (sales_tax_frequency IS NULL OR sales_tax_frequency IN ('', 'N/A'))
+        AND (business_return_type IS NULL OR business_return_type IN ('', 'N/A'))`
+  );
+  checks.push(fullServiceUnconfigured.length === 0
+    ? { id: "service-type-full-service-empty", label: "\"Full Service\" clients have obligations configured", status: "ok", detail: "Every client labeled Full Service has at least one compliance obligation (payroll, EFTPS, MD Withholding, MD UI, MD Annual Report, sales tax, or business return type) actually turned on." }
+    : { id: "service-type-full-service-empty", label: "\"Full Service\" clients have obligations configured", status: "warning", detail: `${fullServiceUnconfigured.length} client(s) are labeled "Full Service" but have none of the compliance flags set — they'll get zero auto-flags no matter what's overdue: ${fullServiceUnconfigured.slice(0, 5).map((c: any) => c.client_name).join(", ")}${fullServiceUnconfigured.length > 5 ? "…" : ""}. Setting "Full Service" doesn't turn anything on automatically — review that client's profile and set the real obligations.` });
+
+  const payrollWithoutTaxObligations = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause}
+        AND (COALESCE(payroll_enabled, false) = true OR 'payroll' = ANY(services))
+        AND COALESCE(eftps_enabled, false) = false
+        AND COALESCE(mdui_enabled, false) = false
+        AND (md_withholding_frequency IS NULL OR md_withholding_frequency IN ('', 'N/A'))`
+  );
+  checks.push(payrollWithoutTaxObligations.length === 0
+    ? { id: "payroll-without-tax-obligations", label: "Payroll clients have payroll-tax deposits configured", status: "ok", detail: "Every client with payroll has at least one of EFTPS, MD Withholding, or MD UI configured." }
+    : { id: "payroll-without-tax-obligations", label: "Payroll clients have payroll-tax deposits configured", status: "warning", detail: `${payrollWithoutTaxObligations.length} client(s) have Payroll enabled but none of EFTPS/MD Withholding/MD UI are configured — real federal/state deposit deadlines for these clients aren't being tracked at all: ${payrollWithoutTaxObligations.slice(0, 5).map((c: any) => c.client_name).join(", ")}${payrollWithoutTaxObligations.length > 5 ? "…" : ""}. Confirm which of these actually apply and set them on that client's profile.` });
+
+  const taxObligationsWithoutPayroll = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause}
+        AND (COALESCE(eftps_enabled, false) = true OR COALESCE(mdui_enabled, false) = true
+             OR (md_withholding_frequency IS NOT NULL AND md_withholding_frequency NOT IN ('', 'N/A')))
+        AND COALESCE(payroll_enabled, false) = false
+        AND NOT ('payroll' = ANY(services))`
+  );
+  checks.push(taxObligationsWithoutPayroll.length === 0
+    ? { id: "tax-obligations-without-payroll", label: "Payroll-tax obligations match a payroll service", status: "ok", detail: "No client has EFTPS/MD Withholding/MD UI turned on without Payroll also marked as a service." }
+    : { id: "tax-obligations-without-payroll", label: "Payroll-tax obligations match a payroll service", status: "warning", detail: `${taxObligationsWithoutPayroll.length} client(s) have EFTPS, MD Withholding, or MD UI turned on but Payroll isn't marked as a service and payroll isn't enabled — possibly stale from a client who stopped running payroll: ${taxObligationsWithoutPayroll.slice(0, 5).map((c: any) => c.client_name).join(", ")}${taxObligationsWithoutPayroll.length > 5 ? "…" : ""}. Confirm whether these obligations still apply.` });
+
+  const salesTaxNoFrequency = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause}
+        AND (service_type = 'Sales Tax Only' OR 'sales_tax' = ANY(services))
+        AND (sales_tax_frequency IS NULL OR sales_tax_frequency IN ('', 'N/A'))`
+  );
+  checks.push(salesTaxNoFrequency.length === 0
+    ? { id: "sales-tax-frequency-missing", label: "Sales tax clients have a filing frequency set", status: "ok", detail: "Every client marked for sales tax has a real filing frequency, so MD sales tax flags can compute." }
+    : { id: "sales-tax-frequency-missing", label: "Sales tax clients have a filing frequency set", status: "warning", detail: `${salesTaxNoFrequency.length} client(s) are marked for sales tax (Service Type or Services Provided) but have no filing frequency set — no sales tax due date can be computed for them at all: ${salesTaxNoFrequency.slice(0, 5).map((c: any) => c.client_name).join(", ")}${salesTaxNoFrequency.length > 5 ? "…" : ""}. Set Sales Tax Frequency on that client's profile.` });
+
+  const businessEntityNoReturnType = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause}
+        AND entity_type IS NOT NULL AND entity_type NOT IN ('', 'Individual')
+        AND (business_return_type IS NULL OR business_return_type IN ('', 'N/A'))`
+  );
+  checks.push(businessEntityNoReturnType.length === 0
+    ? { id: "business-return-type-missing", label: "Business clients have a return type set", status: "ok", detail: "Every non-individual client has a business return type set, so its business tax return deadline can be tracked." }
+    : { id: "business-return-type-missing", label: "Business clients have a return type set", status: "warning", detail: `${businessEntityNoReturnType.length} client(s) have a real business entity type but no business return type set (1120/1120S/1065/Schedule C) — their business tax return deadline isn't being tracked: ${businessEntityNoReturnType.slice(0, 5).map((c: any) => c.client_name).join(", ")}${businessEntityNoReturnType.length > 5 ? "…" : ""}. Set Business Return Type on that client's profile.` });
+
   res.json({ checks });
 }));
 
