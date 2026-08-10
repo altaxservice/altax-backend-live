@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
+import type { PortalUser } from "../api/types2";
 import { usePrompt, useNotify } from "./ConfirmProvider";
 import { fmtDateOnly } from "../utils/date";
 
@@ -12,7 +13,7 @@ interface TaskBatchDraft {
 }
 interface AgentSummary { active: boolean; ruleCount: number; pendingCount: number; rangeLabel: string | null; autoRunEnabled: boolean }
 
-function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: TaskBatchDraft; selected: boolean; onToggleSelect: () => void; onChanged: () => void }) {
+function DraftRow({ draft, selected, onToggleSelect, onChanged, staffOptions }: { draft: TaskBatchDraft; selected: boolean; onToggleSelect: () => void; onChanged: () => void; staffOptions: string[] }) {
   const notify = useNotify();
   const promptFor = usePrompt();
   const [editing, setEditing] = useState(false);
@@ -68,16 +69,27 @@ function DraftRow({ draft, selected, onToggleSelect, onChanged }: { draft: TaskB
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => setEditing((e) => !e)}>{editing ? "Cancel Edit" : "Edit"}</button>
+          <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={() => setEditing((e) => !e)}>{editing ? "Cancel" : "Reassign"}</button>
           <button type="button" className="ghost-button btn-sm" disabled={busy} onClick={handleDismiss}>Dismiss</button>
           <button type="button" className="btn btn-sm btn-primary" disabled={busy || Boolean(draft.previewError)} onClick={handleApprove}>{busy ? "…" : "Approve"}</button>
         </div>
       </div>
 
       {editing && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, marginTop: 12, maxWidth: 480 }}>
-          <div className="field" style={{ margin: 0 }}><label htmlFor={`tra-assigned-${draft.task_batch_draft_id}`}>Assigned To</label><input id={`tra-assigned-${draft.task_batch_draft_id}`} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} placeholder="Each client's assigned staff" /></div>
-          <div className="field" style={{ margin: 0 }}><label htmlFor={`tra-notes-${draft.task_batch_draft_id}`}>Notes</label><input id={`tra-notes-${draft.task_batch_draft_id}`} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+        <div style={{ marginTop: 12, maxWidth: 480 }}>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>
+            Reassigns every task in this batch — all {draft.preview?.wouldCreate ?? draft.matched_client_count} client(s) — to one person. Leave blank to keep each client's own assigned staff.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <label htmlFor={`tra-assigned-${draft.task_batch_draft_id}`}>Reassign All To</label>
+              <select id={`tra-assigned-${draft.task_batch_draft_id}`} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+                <option value="">Each client's assigned staff</option>
+                {staffOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ margin: 0 }}><label htmlFor={`tra-notes-${draft.task_batch_draft_id}`}>Notes (all tasks)</label><input id={`tra-notes-${draft.task_batch_draft_id}`} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+          </div>
         </div>
       )}
     </div>
@@ -103,6 +115,7 @@ export function TaskRulesAgentPanel({ onBatchCreated }: { onBatchCreated: () => 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkApproving, setBulkApproving] = useState(false);
   const [togglingAutoRun, setTogglingAutoRun] = useState(false);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
 
   function load() {
     api.get<{ drafts: TaskBatchDraft[] }>("/rules/batch-drafts?status=Pending")
@@ -112,7 +125,13 @@ export function TaskRulesAgentPanel({ onBatchCreated }: { onBatchCreated: () => 
   function loadSummary() {
     api.get<AgentSummary>("/rules/agent/summary").then(setSummary).catch(() => {});
   }
-  useEffect(() => { load(); loadSummary(); }, []);
+  useEffect(() => {
+    load();
+    loadSummary();
+    api.get<{ users: PortalUser[] }>("/users")
+      .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
+      .catch(() => {});
+  }, []);
 
   function refreshAll() { load(); loadSummary(); onBatchCreated(); }
 
@@ -203,6 +222,7 @@ export function TaskRulesAgentPanel({ onBatchCreated }: { onBatchCreated: () => 
             selected={selected.has(draft.task_batch_draft_id)}
             onToggleSelect={() => setSelected((s) => { const next = new Set(s); next.has(draft.task_batch_draft_id) ? next.delete(draft.task_batch_draft_id) : next.add(draft.task_batch_draft_id); return next; })}
             onChanged={refreshAll}
+            staffOptions={staffOptions}
           />
         ))
       )}
