@@ -653,10 +653,10 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
  */
 export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: string[] }> = {
   taskTypes: { label: "Task / Service Types", values: [
-    "Custom", "Other", "Sales Tax Filing", "Sales Tax Payment", "Payroll Processing", "Payroll Tax Deposit",
-    "EFTPS Deposit", "MD Withholding Filing", "MD Withholding", "MD UI", "MD Annual Report Filing",
-    "MD Annual Report Payment", "Immigration Forms", "Business Formation", "EIN Registration", "Business License",
-    "Health Permit", "Use & Occupancy Permit", "Trader's License", "Tobacco License", "Personal Tax",
+    "Custom", "Other", "Sales Tax Filing & Payment", "Sales Tax Filing", "Sales Tax Payment", "Payroll Processing", "Payroll Tax Deposit",
+    "EFTPS Deposit", "MD Withholding Filing & Payment", "MD Withholding Filing", "MD Withholding", "MD UI Wages Filing & Payment", "MD UI",
+    "MD Annual Report Filing & Payment", "MD Annual Report Filing", "MD Annual Report Payment", "Immigration Forms", "Business Formation",
+    "EIN Registration", "Business License", "Health Permit", "Use & Occupancy Permit", "Trader's License", "Tobacco License", "Personal Tax",
     "Business Tax", "Business Return", "Bookkeeping", "IRS Notice", "State Notice",
   ] },
   immigrationFormTypes: { label: "Immigration Form Types", values: [

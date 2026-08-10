@@ -28,12 +28,17 @@ function ruleSortKey(ruleId: string): [number, string] {
 }
 
 /** Mirrors legacy's "Create Batch Tasks" modal — reachable from both the Tasks toolbar and each Rules row's "Run Batch" button. */
-export function CreateBatchTasksModal({ rules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
+export function CreateBatchTasksModal({ rules: allRules, initialRuleId, onClose, onDone }: { rules: TaskRule[]; initialRuleId?: string; onClose: () => void; onDone: () => void }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
   const toast = useToast();
   const confirmDialog = useConfirm();
+  // The backend rejects a batch run against an inactive rule outright, so this is UX
+  // polish rather than a safety fix — but a retired rule (e.g. one merged into another,
+  // see sql/058) sitting in this dropdown next to its live replacement reads as a real
+  // choice when it isn't one.
+  const rules = useMemo(() => allRules.filter((r) => r.active !== false), [allRules]);
   const [ruleId, setRuleId] = useState(initialRuleId || rules[0]?.rule_id || "");
   const [clients, setClients] = useState<Client[]>([]);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
