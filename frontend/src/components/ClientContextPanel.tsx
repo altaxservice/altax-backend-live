@@ -78,12 +78,15 @@ export function ClientContextPanel() {
   const [savingFlag, setSavingFlag] = useState(false);
   const [flagError, setFlagError] = useState<string | null>(null);
   const [options, setOptions] = useState<WebOptions | null>(null);
+  const [optionsError, setOptionsError] = useState(false);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
 
-  useEffect(() => {
-    api.get<WebOptions>("/system/options").then(setOptions).catch(() => {});
-  }, []);
+  function loadOptions() {
+    setOptionsError(false);
+    api.get<WebOptions>("/system/options").then(setOptions).catch(() => setOptionsError(true));
+  }
+  useEffect(() => { loadOptions(); }, []);
 
   function loadFlags(id: string) {
     api.get<{ flags: ClientFlag[] }>(`/clients/${id}/flags`).then((res) => setFlags(res.flags)).catch(() => setFlags([]));
@@ -290,10 +293,17 @@ export function ClientContextPanel() {
                 </>
               ) : (
                 <>
-                  <select value={flagCategory} onChange={(e) => setFlagCategory(e.target.value)} style={{ fontSize: 12.5 }}>
-                    <option value="">What kind of flag is this?</option>
-                    {(options?.clientFlagCategories || []).map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  {optionsError && !options ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "var(--red)" }}>
+                      Couldn't load flag categories.
+                      <button type="button" className="ghost-button btn-sm" onClick={loadOptions}>Retry</button>
+                    </div>
+                  ) : (
+                    <select value={flagCategory} onChange={(e) => setFlagCategory(e.target.value)} style={{ fontSize: 12.5 }} disabled={!options}>
+                      <option value="">{options ? "What kind of flag is this?" : "Loading…"}</option>
+                      {(options?.clientFlagCategories || []).map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  )}
                   {flagCategory === "Other" && (
                     <input type="text" placeholder="Describe it" value={flagCategoryOther} onChange={(e) => setFlagCategoryOther(e.target.value)} style={{ fontSize: 12.5 }} />
                   )}
