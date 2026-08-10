@@ -107,6 +107,8 @@ export function computeUpcomingDeadlines(params: {
   mdWithholdingFrequency?: string | null;
   mduiEnabled?: boolean;
   businessReturnType?: string | null;
+  /** `${source}|${date}` keys already marked done via v3_obligation_completions — see clients.routes.ts's /obligations/mark-done. */
+  completedKeys?: Set<string>;
   withinDays?: number;
   asOf?: Date;
 }): ComplianceDeadline[] {
@@ -183,6 +185,7 @@ export function computeUpcomingDeadlines(params: {
   const cutoff = new Date(asOf.getTime() + withinDays * 86400000);
   return deadlines
     .filter((d) => {
+      if (params.completedKeys?.has(`${d.source}|${d.date}`)) return false;
       const dueDate = new Date(`${d.date}T00:00:00`);
       if (dueDate > cutoff) return false;
       if (UNVERIFIED_PAST_SOURCES.has(d.source) && dueDate < todayStart) return false;

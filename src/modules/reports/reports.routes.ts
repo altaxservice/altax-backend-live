@@ -861,10 +861,12 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
   // limitation — no persisted per-period filing history exists), the
   // client's nearest scheduled payroll date, and (if payroll is enabled)
   // the next federal Form 941/940 due dates.
-  const [nextPayrollRow, has2553Row] = await Promise.all([
+  const [nextPayrollRow, has2553Row, completionRows] = await Promise.all([
     queryOne<any>(`SELECT MIN(next_pay_date) AS next_pay_date FROM altax.v3_payroll_schedules WHERE client_id = $1 AND status = 'Active'`, [clientId]),
     queryOne<any>(`SELECT 1 FROM altax.v3_gov_form_filings WHERE client_id = $1 AND form_type = '2553' AND status != 'Void' LIMIT 1`, [clientId]),
+    query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [clientId]),
   ]);
+  const completedKeys = new Set(completionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
   // A period staff has already marked filed has nothing left pending, even if it
   // was filed late — showing its due date as an "upcoming deadline" would be
   // stale. Pick the last period that's still actually unresolved.
@@ -881,6 +883,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     mdWithholdingFrequency: clientRow.md_withholding_frequency || null,
     mduiEnabled: Boolean(clientRow.mdui_enabled),
     businessReturnType: clientRow.business_return_type || null,
+    completedKeys,
   });
 
   res.json({

@@ -392,6 +392,55 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
   res.status(201).json({ ok: true, flagId });
 }));
 
+const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return"]);
+
+/**
+ * One click, right on the dashboard, to silence a specific upcoming/overdue
+ * obligation reminder once staff have actually handled it outside this
+ * system (e.g. filed EFTPS via the real IRS site) — no Task Rules Agent
+ * draft/approve/mark-paid detour required for something this lightweight.
+ * See sql/057_obligation_completions.sql.
+ */
+clientsRouter.post("/:clientId/obligations/mark-done", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const body = req.body || {};
+  const source = String(body.source || "").trim();
+  const dueDate = String(body.dueDate || "").trim();
+  const label = String(body.label || "").trim() || null;
+  if (!OBLIGATION_MARK_DONE_SOURCES.has(source)) return res.status(400).json({ error: "Unrecognized obligation type." });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ error: "dueDate must be YYYY-MM-DD." });
+
+  const completedDate = new Date().toISOString().slice(0, 10);
+  await query(
+    `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (client_id, source, due_date) DO UPDATE SET
+       label = EXCLUDED.label, completed_date = EXCLUDED.completed_date, completed_by = EXCLUDED.completed_by, completed_at = now()`,
+    [clientId, source, dueDate, label, completedDate, req.user!.email]
+  );
+  await logAudit("Clients", "OBLIGATION_MARKED_DONE", clientId, "obligation", "", `${source} (${dueDate})`,
+    `${label || source} (due ${dueDate}) marked done by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** Reverses a mark-done entry (staff correcting a mistake) — the deadline goes back to showing on the dashboard, same as before it was ever marked. */
+clientsRouter.post("/:clientId/obligations/unmark-done", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const body = req.body || {};
+  const source = String(body.source || "").trim();
+  const dueDate = String(body.dueDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ error: "dueDate must be YYYY-MM-DD." });
+
+  await query(`DELETE FROM altax.v3_obligation_completions WHERE client_id = $1 AND source = $2 AND due_date = $3::date`, [clientId, source, dueDate]);
+  await logAudit("Clients", "OBLIGATION_UNMARKED_DONE", clientId, "obligation", "", `${source} (${dueDate})`,
+    `${source} (due ${dueDate}) un-marked by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 clientsRouter.post("/:clientId/flags/:flagId/resolve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId, flagId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) {
@@ -836,12 +885,15 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   // Payroll, Federal Payroll Tax, MD Annual Report, and S-Corp Election are
   // filtered out here since they already have their own dedicated finding
   // rules (or, for MD Annual Report, aren't yet one — left for a later pass).
+  const obligationCompletionRows = await query<any>(`SELECT source, due_date FROM altax.v3_obligation_completions WHERE client_id = $1`, [clientId]);
+  const obligationCompletedKeys = new Set(obligationCompletionRows.map((r: any) => `${r.source}|${new Date(r.due_date).toISOString().slice(0, 10)}`));
   const upcomingObligationDeadlines = computeUpcomingDeadlines({
     mdCurrentPeriodDueDate: null, payrollNextDate: null, payrollEnabled: false,
     eftpsEnabled: Boolean(clientRow.eftps_enabled),
     mdWithholdingFrequency: clientRow.md_withholding_frequency || null,
     mduiEnabled: Boolean(clientRow.mdui_enabled),
     businessReturnType: clientRow.business_return_type || null,
+    completedKeys: obligationCompletedKeys,
     withinDays: 60,
   }).filter((d) => d.source === "EFTPS" || d.source === "MD Withholding" || d.source === "MD UI" || d.source === "Business Tax Return");
 

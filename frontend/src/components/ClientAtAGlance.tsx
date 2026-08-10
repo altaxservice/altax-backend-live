@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
+import { useNotify } from "./ConfirmProvider";
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -31,6 +32,8 @@ interface ClientRatios {
 interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number }
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
 interface Deadline { label: string; date: string; source?: string }
+/** Obligation types with a lightweight "Mark Done" record (v3_obligation_completions) — see clients.routes.ts's /obligations/mark-done. */
+const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return"]);
 interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {
@@ -145,6 +148,7 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
 export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId: string; summary: ClientSummary | null; onNavigateTab: (tab: string) => void }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const notify = useNotify();
   const isAdmin = user?.role === "admin";
   const goToReports = () => navigate(`/reports?clientId=${clientId}`);
   const [dash, setDash] = useState<ClientDashboard | null>(null);
@@ -152,6 +156,20 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flags, setFlags] = useState<ClientFlag[] | null>(null);
+  const [markingDone, setMarkingDone] = useState<string | null>(null);
+
+  async function handleMarkDone(d: Deadline) {
+    const key = `${d.source}|${d.date}`;
+    setMarkingDone(key);
+    try {
+      await api.post(`/clients/${clientId}/obligations/mark-done`, { source: d.source, dueDate: d.date, label: d.label });
+      setDash((prev) => (prev ? { ...prev, deadlines: prev.deadlines.filter((x) => `${x.source}|${x.date}` !== key) } : prev));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark this as done.");
+    } finally {
+      setMarkingDone(null);
+    }
+  }
 
   useEffect(() => {
     api.get<{ flags: ClientFlag[] }>(`/clients/${clientId}/flags`)
@@ -278,7 +296,19 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
                     const wording = days < 0 ? `is ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`
                       : days === 0 ? "is due today"
                       : `is due in ${days} day${days === 1 ? "" : "s"}`;
-                    return <span><strong>{urgentDeadlines[0].label}</strong> {wording}.</span>;
+                    const top = urgentDeadlines[0];
+                    const key = `${top.source}|${top.date}`;
+                    const markable = top.source && MARKABLE_DEADLINE_SOURCES.has(top.source);
+                    return (
+                      <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <span><strong>{top.label}</strong> {wording}.</span>
+                        {markable && (
+                          <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(top)}>
+                            {markingDone === key ? "…" : "Mark Done"}
+                          </button>
+                        )}
+                      </span>
+                    );
                   })()}
                 </div>
               )}
@@ -400,10 +430,19 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {dash.deadlines.map((d) => {
                       const days = daysUntil(d.date);
+                      const key = `${d.source}|${d.date}`;
+                      const markable = d.source && MARKABLE_DEADLINE_SOURCES.has(d.source);
                       return (
-                        <div key={`${d.label}-${d.date}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div key={`${d.label}-${d.date}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                           <span>{d.label} — {d.date}</span>
-                          <span className={`status-pill ${deadlinePillClass(days)}`}>{days < 0 ? "Overdue" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className={`status-pill ${deadlinePillClass(days)}`}>{days < 0 ? "Overdue" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}</span>
+                            {markable && (
+                              <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d)}>
+                                {markingDone === key ? "…" : "Mark Done"}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
