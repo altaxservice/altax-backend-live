@@ -50,6 +50,7 @@ const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
   { minutes: 4320, label: "3 days before" },
   { minutes: 1440, label: "1 day before" },
   { minutes: 240, label: "4 hours before" },
+  { minutes: 120, label: "2 hours before" },
   { minutes: 60, label: "1 hour before" },
 ];
 const STAFF_CHANNEL_OPTIONS: { value: AppointmentSettings["staffReminderChannel"]; label: string }[] = [
