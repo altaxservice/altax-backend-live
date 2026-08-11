@@ -11,6 +11,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
+import { saveListOrder } from "../utils/listNav";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
@@ -166,6 +167,12 @@ export function TasksListPage() {
     }
     return rows;
   }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, search, sortKey, sortDir, isArchivedView]);
+
+  // Lets TaskDetailPage's Previous/Next paging step through whatever
+  // filtered/sorted order is currently on screen — see utils/listNav.ts.
+  useEffect(() => {
+    saveListOrder("tasks", filtered.map((t) => t.task_id));
+  }, [filtered]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));

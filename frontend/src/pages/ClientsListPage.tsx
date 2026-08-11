@@ -13,6 +13,7 @@ import { useToast } from "../components/Toast";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
+import { saveListOrder } from "../utils/listNav";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
@@ -374,6 +375,12 @@ export function ClientsListPage() {
     });
     return rows;
   }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, quickTab, sortKey, sortDir]);
+
+  // Lets ClientDetailPage's Previous/Next paging step through whatever
+  // filtered/sorted order is currently on screen — see utils/listNav.ts.
+  useEffect(() => {
+    saveListOrder("clients", filtered.map((c) => c.client_id));
+  }, [filtered]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));

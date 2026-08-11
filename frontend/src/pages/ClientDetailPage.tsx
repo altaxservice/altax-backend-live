@@ -4,6 +4,8 @@ import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, bu
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { UploadFileModal } from "../components/UploadFileModal";
@@ -524,7 +526,10 @@ export function ClientDetailPage() {
         <span aria-hidden="true">/</span>
         <span style={{ color: "var(--ink)", fontWeight: 700 }}>{tab}</span>
       </nav>
-      <BackLink fallback="/clients" fallbackLabel="All clients" />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink fallback="/clients" fallbackLabel="All clients" />
+        <PrevNextNav basePath="/clients" {...getAdjacentIds("clients", clientId)} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <div className="muted" style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.03em" }}>{client.client_id}</div>

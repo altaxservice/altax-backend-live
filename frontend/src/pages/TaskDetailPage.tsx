@@ -6,6 +6,8 @@ import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
 import { TASK_STATUSES } from "../components/TaskCells";
 import { fmtDateOnly } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -158,7 +160,10 @@ export function TaskDetailPage() {
 
   return (
     <div>
-      <BackLink fallback="/tasks" fallbackLabel="All tasks" />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink fallback="/tasks" fallbackLabel="All tasks" />
+        <PrevNextNav basePath="/tasks" {...getAdjacentIds("tasks", taskId)} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{task.task_name}</h1>
