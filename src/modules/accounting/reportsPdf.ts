@@ -49,6 +49,26 @@ function fmtDate(v: unknown): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
 }
 
+/**
+ * Sets the PDF's own /Title metadata. The "Download" button already produces
+ * a correct filename via the `download` attribute, but "Preview / Print"
+ * opens the raw PDF in a new tab (viewFile()) — Save/Print-to-PDF from there
+ * falls back to whatever the browser's PDF viewer reads as the document
+ * title, which without this was blank, so it fell back to a generic browser
+ * default instead of anything client- or period-specific. Unlike a filename,
+ * this isn't a filesystem path, so "/" (date separators from fmtDate) and
+ * other punctuation are left alone — only typographic dashes/quotes get
+ * normalized to plain ASCII, since setTitle() WinAnsi-encodes and throws on
+ * characters outside that set.
+ */
+function setPdfTitle(doc: PDFDocument, parts: (string | null | undefined)[]) {
+  const title = parts
+    .filter((p) => p && p.trim())
+    .map((p) => p!.replace(/[‐-―]/g, "-").replace(/[‘-‟]/g, "'").replace(/\s+/g, " ").trim())
+    .join(" - ");
+  if (title) doc.setTitle(title);
+}
+
 export interface ReportClientInfo {
   clientName: string;
   clientId: string;
@@ -171,6 +191,7 @@ export interface PLReportData {
 
 export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "P&L", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { c } = await newPage(doc, font, bold);
@@ -215,6 +236,7 @@ export interface BalanceSheetReportData {
 
 export async function generateBalanceSheetPdf(data: BalanceSheetReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Balance Sheet", `As of ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { c } = await newPage(doc, font, bold);
@@ -259,6 +281,7 @@ export interface PayrollReportData {
 
 export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Payroll", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -362,6 +385,7 @@ export interface EmployeeReportData {
  */
 export async function generateEmployeeReportPdf(data: EmployeeReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Employee", data.employeeFilter, `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -508,6 +532,7 @@ export interface SalesTaxReportData {
  */
 export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Sales & Tax", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -676,6 +701,7 @@ export interface ClientMessageReportData {
 
 export async function generateClientMessagePdf(data: ClientMessageReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Client Message", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -726,6 +752,7 @@ export interface SalesTaxPayrollReportData {
  */
 export async function generateSalesTaxPayrollReportPdf(data: SalesTaxPayrollReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Sales, Tax & Payroll Report", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -770,6 +797,7 @@ export interface FirmOverviewReportData {
 /** Firm-wide analytics PDF — AL Tax Service's own numbers across every client, not a client deliverable, hence drawFirmHeader (firm letterhead) instead of drawHeader (client letterhead). Mirrors ReportsPage.tsx's Firm Overview tab exactly. Also doubles as a single client's overview when clientName/activeClientCount=null are passed (same layout, scoped numbers, no "active clients" stat since that's meaningless for one client). */
 export async function generateFirmOverviewPdf(data: FirmOverviewReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.clientName || "Firm", "Firm Overview", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { page, c } = await newPage(doc, font, bold);
@@ -830,6 +858,7 @@ export interface ArAgingReportData {
 /** Firm-wide — which clients owe the firm money and how overdue, bucketed off each open invoice's due_date. Internal collections tool, not a client deliverable, hence the firm letterhead. */
 export async function generateArAgingPdf(data: ArAgingReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, ["AR Aging", fmtDate(data.asOf)]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -923,6 +952,7 @@ export interface ClientSwotReportData {
  */
 export async function generateClientSwotPdf(data: ClientSwotReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Business Advisory Report"]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   let { page, c } = await newPage(doc, font, bold);
@@ -1046,6 +1076,7 @@ export interface CalculatorSalesTaxPdfData {
  */
 export async function generateCalculatorSalesTaxPdf(data: CalculatorSalesTaxPdfData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  setPdfTitle(doc, ["Sales Tax Calculator", data.state]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { page, c } = await newPage(doc, font, bold);
