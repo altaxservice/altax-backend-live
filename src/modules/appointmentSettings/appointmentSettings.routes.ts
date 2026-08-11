@@ -72,7 +72,8 @@ function parseReminderLeadMinutes(raw: unknown): number[] | undefined {
   return out;
 }
 
-function parseStaffReminderChannel(raw: unknown): StaffReminderChannel | undefined {
+/** Shared validator for both staffReminderChannel and clientReminderChannel — both fields use the exact same email/sms/both allow-list. */
+function parseReminderChannel(raw: unknown): StaffReminderChannel | undefined {
   return typeof raw === "string" && (STAFF_REMINDER_CHANNELS as string[]).includes(raw) ? (raw as StaffReminderChannel) : undefined;
 }
 
@@ -89,7 +90,8 @@ appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHan
     dayHours: parseDayHours(body.dayHours) as any,
     maxDaysAhead: num(body.maxDaysAhead, undefined),
     reminderLeadMinutes: parseReminderLeadMinutes(body.reminderLeadMinutes),
-    staffReminderChannel: parseStaffReminderChannel(body.staffReminderChannel),
+    staffReminderChannel: parseReminderChannel(body.staffReminderChannel),
+    clientReminderChannel: parseReminderChannel(body.clientReminderChannel),
     locationName: typeof body.locationName === "string" ? body.locationName.trim() : undefined,
     locationAddress: typeof body.locationAddress === "string" ? body.locationAddress.trim() : undefined,
     locationMapUrl: typeof body.locationMapUrl === "string" ? body.locationMapUrl.trim() : undefined,

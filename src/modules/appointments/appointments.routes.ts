@@ -360,14 +360,18 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
   const bookUrl = base ? `${base}/book` : "";
-  const settings = includeDetails ? await getAppointmentSettings() : null;
+  // Fetched unconditionally now (not just when includeDetails) so
+  // clientReminderChannel can gate which channels fire below for every
+  // notice type, not just Reminder/Confirmation — includeDetails still
+  // controls whether location/policy text gets baked into the message body.
+  const settings = await getAppointmentSettings();
   const durationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
-  const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes);
+  const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, includeDetails ? settings : null, durationMinutes);
 
   const marker = templateName === "Appointment Reminder" ? "REM" : templateName === "Appointment Cancelled" ? "CANCEL" : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
-  if (email) channels.push({ channel: "Email", to: email });
-  if (phone) channels.push({ channel: "SMS", to: phone });
+  if (email && (settings.clientReminderChannel === "email" || settings.clientReminderChannel === "both")) channels.push({ channel: "Email", to: email });
+  if (phone && (settings.clientReminderChannel === "sms" || settings.clientReminderChannel === "both")) channels.push({ channel: "SMS", to: phone });
 
   // Logged as one row per channel actually attempted — matches every other send
   // path in this app (Communications, reminders), so a failed SMS doesn't get
@@ -377,7 +381,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     let sendError: string | undefined;
     try {
       if (channel === "Email") {
-        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, settings, durationMinutes,
+        const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, includeDetails ? settings : null, durationMinutes,
           { title: appt.title || "Appointment", startDate: start, noticeType: templateName, bookUrl });
         // "Invite Others" guests are CC'd on the same confirmation/reminder/
         // cancellation email the primary contact gets — no separate send
@@ -388,7 +392,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
         // email copy — but the manage/book link still goes out here too, since
         // that's how an SMS/WhatsApp recipient actually acts without calling.
         const smsBody = buildAppointmentSmsText(templateName, appt.title || "Appointment", extra.appointmentDate, extra.appointmentTime,
-          durationMinutes, settings?.locationName, manageUrl, bookUrl);
+          durationMinutes, includeDetails ? settings.locationName : undefined, manageUrl, bookUrl);
         await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
       }
       sent = true;
