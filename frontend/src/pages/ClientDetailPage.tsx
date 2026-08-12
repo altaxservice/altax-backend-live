@@ -187,7 +187,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
@@ -1011,6 +1011,10 @@ export function ClientDetailPage() {
                 />
               </div>
             </Fragment>
+          )}
+
+          {tab === "Permits & Compliance" && canSeeStaffTabs && (
+            <HealthPermitsSection clientId={client.client_id} />
           )}
 
           {tab === "Vault & Payment Methods" && canSeeStaffTabs && (
@@ -1942,6 +1946,111 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
           onDone={() => { setEditingFiling(null); load(); }}
         />
       )}
+    </div>
+  );
+}
+
+interface HaccpPlanRow {
+  plan_id: string; client_id: string | null; business_name: string; business_type_key: string;
+  jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
+  created_at: string; updated_at: string;
+}
+
+/**
+ * Health Permit (HACCP) applications linked to this client — v3_haccp_plans
+ * already has a real client_id FK (see haccp.routes.ts's GET /plans?clientId),
+ * this section just surfaces it here instead of making staff go check the
+ * separate Health Permits area for every client. No duplicate record: this
+ * reads the same plan row the /haccp generator page edits, and "Open" deep-
+ * links straight back into it via ?planId= rather than making staff search
+ * for it again.
+ */
+function HealthPermitsSection({ clientId }: { clientId: string }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const toast = useToast();
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
+  const [plans, setPlans] = useState<HaccpPlanRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [typeLabels, setTypeLabels] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  function load() {
+    api.get<{ plans: HaccpPlanRow[] }>(`/haccp/plans?clientId=${encodeURIComponent(clientId)}`)
+      .then((res) => setPlans(res.plans))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load health permit applications."));
+  }
+  useEffect(load, [clientId]);
+  useEffect(() => {
+    api.get<{ businessTypes: { key: string; label: string }[] }>("/haccp/options")
+      .then((res) => setTypeLabels(Object.fromEntries(res.businessTypes.map((t) => [t.key, t.label]))))
+      .catch(() => {});
+  }, []);
+
+  async function handleDelete(plan: HaccpPlanRow) {
+    const ok = await confirmDialog({ title: "Delete health permit application", message: `Delete "${plan.business_name}"? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    setBusy(plan.plan_id);
+    try {
+      await api.post(`/haccp/plans/${plan.plan_id}/delete`, {});
+      toast("Health permit application deleted.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this application.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexWrap: "wrap", gap: 8 }}>
+        <strong style={{ fontSize: 14 }}>Health Permit Applications</strong>
+        <button type="button" className="btn btn-sm" onClick={() => navigate(`/haccp?clientId=${encodeURIComponent(clientId)}`)}>+ New Health Permit</button>
+      </div>
+
+      {error && <ErrorBanner error={error} style={{ margin: 16 }} />}
+
+      {plans && plans.length > 0 && (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Business</th><th scope="col">Type</th><th scope="col">Jurisdiction</th><th scope="col">Last Updated</th><th scope="col">Action</th></tr></thead>
+            <tbody>
+              {plans.map((p) => (
+                <tr key={p.plan_id}>
+                  <td>{p.business_name}</td>
+                  <td className="muted">{typeLabels[p.business_type_key] || p.business_type_key}</td>
+                  <td className="muted">{[p.jurisdiction, p.city, p.state].filter(Boolean).join(", ") || "—"}</td>
+                  <td className="muted">{new Date(p.updated_at).toLocaleDateString()}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" className="btn btn-sm" onClick={() => navigate(`/haccp?planId=${encodeURIComponent(p.plan_id)}`)}>Open</button>
+                      {isAdmin && (
+                        <button type="button" className="btn btn-sm" disabled={busy === p.plan_id} onClick={() => handleDelete(p)}>
+                          {busy === p.plan_id ? "Deleting…" : "Delete"}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {plans && plans.length === 0 && (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+          No health permit applications linked to this client yet.
+        </p>
+      )}
+      <div style={{ padding: "10px 16px", borderTop: plans && plans.length > 0 ? "1px solid var(--line)" : undefined }}>
+        <span className="muted" style={{ fontSize: 12 }}>
+          Generated permit documents (HACCP plan, license application, plan review) are saved to this client's{" "}
+          <button type="button" className="link-button" style={{ fontSize: 12 }} onClick={() => navigate(`/clients/${clientId}?tab=Documents`)}>Documents tab</button>.
+        </span>
+      </div>
     </div>
   );
 }

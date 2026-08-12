@@ -109,6 +109,9 @@ haccpRouter.post("/templates", requireAuth, requireRole("admin"), asyncHandler(a
 /** List saved plans — optionally filtered by clientId or a business-name search, for reprint/renewal reuse. */
 haccpRouter.get("/plans", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const clientId = String(req.query.clientId || "").trim();
+  if (clientId && !(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
   const search = String(req.query.search || "").trim();
   const clauses: string[] = [];
   const params: any[] = [];

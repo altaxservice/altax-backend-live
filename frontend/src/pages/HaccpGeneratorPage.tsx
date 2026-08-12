@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
@@ -90,6 +91,7 @@ export function HaccpGeneratorPage() {
   const confirmDialog = useConfirm();
   const notify = useNotify();
 
+  const [searchParams] = useSearchParams();
   const [options, setOptions] = useState<HaccpOptions | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [tab, setTab] = useState<"generate" | "saved">("generate");
@@ -209,6 +211,19 @@ export function HaccpGeneratorPage() {
       .then((r) => loadPlanIntoForm(r.plan))
       .catch((err) => toast(err instanceof ApiError ? err.message : "Could not load this plan."));
   }
+
+  // Deep link from the client's "Permits & Compliance" tab: ?planId=... opens
+  // straight into that saved plan instead of making staff find it again in the
+  // Saved Plans search; ?clientId=... (from "+ New Health Permit" on that same
+  // tab) preselects the client on a fresh form so the new plan is linked from
+  // the start rather than staff having to remember to pick it.
+  useEffect(() => {
+    const planId = searchParams.get("planId");
+    const clientId = searchParams.get("clientId");
+    if (planId) reopenForRenewal(planId);
+    else if (clientId) setForm((f) => ({ ...f, clientId }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
