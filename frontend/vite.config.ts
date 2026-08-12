@@ -33,8 +33,16 @@ export default defineConfig({
         // same request.mode:'navigate' as any other link) on a device that has this PWA
         // installed would otherwise get the cached login-page shell instead of their PDF.
         // Mirrors the identical carve-out in src/server.ts's own SPA-vs-API catch-all.
+        //
+        // Each pattern allows an optional "?..." suffix: Workbox tests these against
+        // pathname + search combined (NavigationRoute._matchCallback), not pathname alone,
+        // so a bare `$` anchor silently stops matching the moment a real link carries a
+        // query string. Confirmed live: /manage-appointment?token=... (every appointment
+        // email's link) fell through to the cached app shell and showed the admin login
+        // screen instead of the public manage page, because the old `/^\/manage-appointment$/`
+        // pattern never matched once `?token=...` was appended.
         navigateFallbackDenylist: [
-          /^\/$/, /^\/about$/, /^\/services$/, /^\/resources$/, /^\/tools(\/.*)?$/, /^\/news(\/.*)?$/, /^\/contact$/, /^\/book$/, /^\/manage-appointment$/, /^\/privacy$/, /^\/sms-terms$/, /^\/accessibility$/,
+          /^\/(\?.*)?$/, /^\/about(\?.*)?$/, /^\/services(\?.*)?$/, /^\/resources(\?.*)?$/, /^\/tools(\/.*)?(\?.*)?$/, /^\/news(\/.*)?(\?.*)?$/, /^\/contact(\?.*)?$/, /^\/book(\?.*)?$/, /^\/manage-appointment(\?.*)?$/, /^\/privacy(\?.*)?$/, /^\/sms-terms(\?.*)?$/, /^\/accessibility(\?.*)?$/,
           /^\/public\/contracts\//, /^\/public\/invoices\//,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
