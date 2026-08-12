@@ -203,7 +203,7 @@ function AppointmentTypesManager() {
  * location/map link, and the bilingual policy text appended to every
  * confirmation/reminder (see appointments.routes.ts's notifyAppointment).
  */
-export function CalendarSettingsPanel() {
+export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}) {
   const toast = useToast();
   const [settings, setSettings] = useState<AppointmentSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -225,6 +225,7 @@ export function CalendarSettingsPanel() {
       const res = await api.patch<AppointmentSettings>("/appointment-settings", settings);
       setSettings(res);
       toast("Calendar settings saved.");
+      onClose?.();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save calendar settings.");
     } finally {
@@ -236,6 +237,16 @@ export function CalendarSettingsPanel() {
 
   return (
     <form onSubmit={handleSubmit} className="card" style={{ maxWidth: 640, padding: 20 }}>
+      {onClose && (
+        <button
+          type="button"
+          className="link-button"
+          style={{ display: "block", marginBottom: 10, fontSize: 13 }}
+          onClick={onClose}
+        >
+          ← Back to Calendar
+        </button>
+      )}
       {error && <ErrorBanner error={error} />}
       <p className="muted" style={{ marginTop: 0, marginBottom: 16, fontSize: 13 }}>
         Controls the public "Book a Consultation" page, the SMS/WhatsApp greeting link, and every appointment

@@ -346,7 +346,7 @@ export function TaskCalendarPage() {
         </div>
       )}
 
-      {view === "Settings" && isAdmin && <CalendarSettingsPanel />}
+      {view === "Settings" && isAdmin && <CalendarSettingsPanel onClose={() => setView("Calendar")} />}
 
       {showNewAppt && (
         <NewAppointmentModal
