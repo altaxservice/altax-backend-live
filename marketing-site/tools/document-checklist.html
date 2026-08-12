@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMS &amp; WhatsApp Terms — AL TAX SERVICE</title>
+<title>Tax Document Checklist — AL TAX SERVICE</title>
 <script>try{if(localStorage.getItem('altax_lang')==='ar'){document.documentElement.lang='ar';document.documentElement.dir='rtl';}}catch(e){}</script>
 <link rel="icon" href="/images/logo.png" type="image/png">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 
@@ -48,39 +48,88 @@
 
 <section class="section section-forest section-sm">
   <div class="container" style="text-align:center;">
-    <span class="eyebrow" style="justify-content:center;" data-i18n="legal.eyebrow">Legal</span>
-    <h1 style="color:#fff; font-size:clamp(2.2rem,4vw,3rem);" data-i18n="sms.heading">SMS &amp; WhatsApp Communications Terms</h1>
-    <p style="max-width:56ch; margin:0 auto;" data-i18n="sms.lead">Details of our text messaging and WhatsApp program, including how to opt in, message frequency, and how to opt out at any time.</p>
+    <span class="eyebrow" style="justify-content:center;" data-i18n="checklist.heroEyebrow">Know Before You Go</span>
+    <h1 style="color:#fff; font-size:clamp(2rem,4vw,2.8rem);" data-i18n="checklist.heroHeading">What documents do you actually need?</h1>
+    <p style="max-width:60ch; margin:0 auto;" data-i18n="checklist.heroLead">Select what applies to you and get an instant, tailored checklist — the same list our team would ask you for.</p>
   </div>
 </section>
 
 <section class="section section-cream">
-  <div class="container legal-content reveal">
-    <p class="updated" data-i18n="legal.lastUpdated">Last updated: July 18, 2026</p>
+  <div class="container">
+    <div class="tool-card reveal">
+      <form id="checklist-form">
+        <h3 style="margin-top:0;" data-i18n="checklist.tagsHeading">Which of these apply to you?</h3>
+        <div class="checklist-tags">
+          <label class="checkbox-label">
+            <input type="checkbox" name="checklist-tag" value="selfEmployed">
+            <span data-i18n="checklist.tag.selfEmployed">Self-employed or freelance income</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="checklist-tag" value="newBusiness">
+            <span data-i18n="checklist.tag.newBusiness">Started a new business this year</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="checklist-tag" value="property">
+            <span data-i18n="checklist.tag.property">Rental property or sold a home</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="checklist-tag" value="lifeChange">
+            <span data-i18n="checklist.tag.lifeChange">Marriage, divorce, or a new dependent</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="checklist-tag" value="payroll">
+            <span data-i18n="checklist.tag.payroll">I have employees or contractors</span>
+          </label>
+        </div>
+      </form>
+      <div class="tool-disclaimer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
+        <p data-i18n="checklist.generalNote">Everyone needs these, plus whatever applies to your situation above.</p>
+      </div>
+    </div>
 
-    <h2 data-i18n="sms.programHeading">Program Description</h2>
-    <p data-i18n="sms.programBody">The AL TAX SERVICE SMS &amp; WhatsApp Program sends text and WhatsApp messages related to your relationship with our firm, including appointment confirmations and reminders, tax deadline reminders, requests for documents needed to complete your filing, and general updates about services you've requested. We do not send unsolicited marketing text messages.</p>
+    <div id="checklist-results" class="tool-card reveal" style="display:none;">
+      <h3 style="margin-top:0;" data-i18n="checklist.resultsHeading">Your document checklist</h3>
+      <ul id="checklist-results-list" class="checklist-results-list"></ul>
 
-    <h2 data-i18n="sms.optinHeading">How to Opt In</h2>
-    <p data-i18n="sms.optinBody">You may opt in by checking the SMS/WhatsApp consent box on our <a href="/contact" data-i18n-inner="sms.contactPageLink">Contact page</a>, or by verbally providing your mobile number and consent to a member of our team during a consultation or onboarding.</p>
+      <div style="margin-top:2rem; padding-top:2rem; border-top:1px solid rgba(22,24,26,0.08);">
+        <h3 data-i18n="checklist.emailListHeading">Want this emailed to you?</h3>
+        <p style="font-size:0.85rem; color:var(--color-text-soft); margin:0.3rem 0 1.4rem;" data-i18n="checklist.emailListNote">We'll send this exact list to your inbox — handy to check off as you gather everything.</p>
+        <form id="checklist-lead-form">
+          <div class="form-status" style="display:none;" role="status"></div>
+          <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+            <label for="cl-website">Leave this field blank</label>
+            <input type="text" id="cl-website" name="website" tabindex="-1" autocomplete="off">
+          </div>
+          <div class="field field-row">
+            <div>
+              <label for="cl-name" data-i18n="contact.firstNameLabel">First name *</label>
+              <input type="text" id="cl-name" name="lead-name" required>
+            </div>
+            <div>
+              <label for="cl-email" data-i18n="contact.emailLabel">Email *</label>
+              <input type="email" id="cl-email" name="lead-email" required>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cl-phone" data-i18n="contact.phoneFieldLabel">Phone *</label>
+            <input type="tel" id="cl-phone" name="lead-phone" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">
+            <span data-i18n="tools.getResults">Get My Results</span> <span class="arrow">&rarr;</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
 
-    <h2 data-i18n="sms.freqHeading">Message Frequency</h2>
-    <p data-i18n="sms.freqBody">Message frequency varies based on your engagement with our services. You can generally expect between 1 and 4 messages per month, with more frequent messages around tax filing deadlines.</p>
-
-    <h2 data-i18n="sms.ratesHeading">Message &amp; Data Rates</h2>
-    <p data-i18n="sms.ratesBody">Message and data rates may apply, depending on your mobile carrier and plan.</p>
-
-    <h2 data-i18n="sms.optoutHeading">How to Opt Out</h2>
-    <p data-i18n="sms.optoutBody">You may opt out of SMS/WhatsApp messages at any time by replying <bdi dir="ltr"><strong>STOP</strong></bdi> to any message you receive from us, or by contacting us directly at <bdi dir="ltr">+1 (443) 835-4492</bdi>. After you opt out, we will send one final message confirming your removal from the program.</p>
-
-    <h2 data-i18n="sms.helpHeading">Help</h2>
-    <p data-i18n="sms.helpBody">Reply <bdi dir="ltr"><strong>HELP</strong></bdi> to any message for assistance, or call our office directly at <bdi dir="ltr">+1 (443) 835-4492</bdi>.</p>
-
-    <h2 data-i18n="sms.carrierHeading">Carrier Liability</h2>
-    <p data-i18n="sms.carrierBody">Carriers are not liable for delayed or undelivered messages.</p>
-
-    <h2 data-i18n="sms.privacyHeading">Your Privacy</h2>
-    <p data-i18n="sms.privacyBody">Your mobile number and opt-in consent will never be sold, shared, or rented to third parties for marketing purposes. See our full <a href="/privacy" data-i18n-inner="sms.privacyPolicyLink">Privacy Policy</a> for details.</p>
+<section class="cta-banner reveal">
+  <h2 data-i18n="resources.ctaHeading">Have a question a webpage can't answer?</h2>
+  <p data-i18n="resources.ctaLead">Every business is different. Talk to us directly about your specific tax situation.</p>
+  <div class="ctas">
+    <a href="/book" class="btn btn-primary"><span data-i18n="cta.bookConsultation">Book a Consultation</span> <span class="arrow">&rarr;</span></a>
+    <a href="/contact" class="btn btn-outline"><span data-i18n="nav.contact">Contact Us</span></a>
   </div>
 </section>
 
@@ -142,7 +191,8 @@
   </div>
 </footer>
 
-<script src="js/translations.js"></script>
-<script src="js/main.js"></script>
+<script src="/js/translations.js"></script>
+<script src="/js/main.js"></script>
+<script src="/js/tools.js"></script>
 </body>
 </html>

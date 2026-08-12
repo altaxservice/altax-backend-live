@@ -35,6 +35,7 @@ import { timeTrackingRouter } from "./modules/timeTracking/timeTracking.routes";
 import { productsRouter } from "./modules/products/products.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
+import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
 import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete } from "./modules/appointments/appointments.routes";
@@ -161,6 +162,7 @@ const MARKETING_PAGES: Record<string, string> = {
   "/about": "about.html",
   "/services": "services.html",
   "/resources": "resources.html",
+  "/tools": "tools/index.html",
   "/news": "news.html",
   "/contact": "contact.html",
   "/book": "book.html",
@@ -187,6 +189,15 @@ const NEWS_ARTICLE_SLUGS = new Set([
 app.get("/news/:slug", (req, res, next) => {
   if (!NEWS_ARTICLE_SLUGS.has(req.params.slug)) return next();
   res.sendFile(path.join(marketingSiteDir, "news", `${req.params.slug}.html`));
+});
+
+// Public website tools (marketing-site/tools/*.html) — same explicit slug-allowlist
+// pattern as the news articles above, for the same reason (no disk path built from
+// unvalidated user input).
+const TOOL_PAGE_SLUGS = new Set(["business-health-check", "entity-comparison", "document-checklist"]);
+app.get("/tools/:slug", (req, res, next) => {
+  if (!TOOL_PAGE_SLUGS.has(req.params.slug)) return next();
+  res.sendFile(path.join(marketingSiteDir, "tools", `${req.params.slug}.html`));
 });
 
 // Several frontend page paths intentionally match API route prefixes 1:1 (the "/clients"
@@ -259,6 +270,7 @@ app.use("/time-tracking", timeTrackingRouter);
 app.use("/products", productsRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/public/contact", publicContactRouter);
+app.use("/public/tools", publicToolsRouter);
 app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/appointments", appointmentsRouter);
