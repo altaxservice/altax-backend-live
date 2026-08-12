@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
-import { logAudit } from "../../common/audit";
+import { logAudit, logClientActivity } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/encryption";
@@ -389,6 +389,7 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
     [flagId, clientId, flagType, amount, note, category, details, dueDate, linkTaskId, req.user!.email, shareWithClient]
   );
   await logAudit("Clients", "FLAG_ADDED", clientId, "flag", "", flagType, `${flagType} flag added for client by ${req.user!.email}${note ? `: ${note}` : ""}.`, req.user!.email);
+  await logClientActivity(clientId, "Flag Added", `${flagType} flag added${note ? `: ${note}` : ""}.`, req.user!.email);
   res.status(201).json({ ok: true, flagId });
 }));
 
@@ -450,6 +451,7 @@ clientsRouter.post("/:clientId/flags/:flagId/resolve", requireAuth, requireRole(
   if (!row) return res.status(404).json({ error: "Flag not found." });
   await query(`UPDATE altax.v3_client_flags SET status = 'Resolved', resolved_by = $2, resolved_at = now() WHERE flag_id = $1`, [flagId, req.user!.email]);
   await logAudit("Clients", "FLAG_RESOLVED", clientId, "flag", "Open", "Resolved", `${row.flag_type} flag resolved by ${req.user!.email}.`, req.user!.email);
+  await logClientActivity(clientId, "Flag Resolved", `${row.flag_type} flag${row.note ? ` (${row.note})` : ""} resolved.`, req.user!.email);
   res.json({ ok: true });
 }));
 
@@ -462,6 +464,7 @@ clientsRouter.post("/:clientId/flags/:flagId/delete", requireAuth, requireRole("
   if (!row) return res.status(404).json({ error: "Flag not found." });
   await query(`DELETE FROM altax.v3_client_flags WHERE flag_id = $1`, [flagId]);
   await logAudit("Clients", "FLAG_DELETED", clientId, "flag", row.flag_type, "", `${row.flag_type} flag deleted by ${req.user!.email}.`, req.user!.email);
+  await logClientActivity(clientId, "Flag Deleted", `${row.flag_type} flag${row.note ? ` (${row.note})` : ""} deleted.`, req.user!.email);
   res.json({ ok: true });
 }));
 

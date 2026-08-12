@@ -2879,7 +2879,11 @@ interface ActivityRow {
   id: string; type: string; note: string | null; occurred_at: string; logged_by: string | null; source: "log" | "communication";
 }
 
-const ACTIVITY_TYPES = ["Phone Call", "In-Person Meeting", "Video Call", "Voicemail", "Other"];
+// "Note" comes first and is the default selection — a general client note
+// (preferences, account context, a heads-up for whoever works this client
+// next) is the most common reason to open this form, distinct from logging
+// a specific interaction.
+const ACTIVITY_TYPES = ["Note", "Phone Call", "In-Person Meeting", "Video Call", "Voicemail", "Other"];
 
 /**
  * Manually-logged interaction timeline ("Called about Q3 estimate," "In-person
@@ -2961,7 +2965,7 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
           </div>
           <div className="field" style={{ margin: 0, flex: 1, minWidth: 220 }}>
             <label htmlFor="cd-activity-note">Note</label>
-            <input id="cd-activity-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Called about Q3 estimate" />
+            <input id="cd-activity-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Prefers email over calls, or: Called about Q3 estimate" />
           </div>
           <button type="button" className="btn btn-primary btn-sm" disabled={saving || !note.trim()} onClick={handleAdd}>{saving ? "Saving…" : "Save"}</button>
         </div>

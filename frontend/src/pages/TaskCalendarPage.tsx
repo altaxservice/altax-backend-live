@@ -272,7 +272,7 @@ export function TaskCalendarPage() {
                               <div style={{ display: "flex", gap: 4 }}>
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => handleCancelAppointment(a.appointment_id)}>Cancel</button>}
-                                <button className="btn btn-sm" onClick={() => handleDeleteAppointment(a.appointment_id)}>Delete</button>
+                                {isAdmin && <button className="btn btn-sm" onClick={() => handleDeleteAppointment(a.appointment_id)}>Delete</button>}
                               </div>
                             </td>
                           </tr>

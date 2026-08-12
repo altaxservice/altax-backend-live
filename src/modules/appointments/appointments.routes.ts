@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
-import { logAudit } from "../../common/audit";
+import { logAudit, logClientActivity } from "../../common/audit";
 import { sendEmail, sendSms, NotConfiguredError, parseEmailList } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
@@ -140,6 +140,10 @@ export async function createAppointment(input: CreateAppointmentInput): Promise<
 
   await logAudit("Calendar", "CREATE_APPOINTMENT", appointmentId, "", "", title,
     `Appointment "${title}" scheduled by ${input.createdBy}.`, input.createdBy);
+  if (clientId) {
+    const when = appt ? `${fmtDate(new Date(appt.start_time))} at ${fmtTime(new Date(appt.start_time))}` : "";
+    await logClientActivity(clientId, "Appointment Scheduled", `"${title}"${when ? ` — ${when}` : ""}.`, input.createdBy);
+  }
 
   return { appointmentId };
 }
@@ -926,6 +930,9 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
 
   await logAudit("Calendar", "UPDATE_APPOINTMENT", appointmentId, "", "", title,
     `Appointment "${title}" updated by ${req.user!.email}.`, req.user!.email);
+  if (existing.client_id) {
+    await logClientActivity(existing.client_id, "Appointment Updated", `"${title}" edited by ${req.user!.email}.`, req.user!.email);
+  }
   res.json({ ok: true });
 }));
 
@@ -944,15 +951,32 @@ appointmentsRouter.post("/:appointmentId/cancel", requireAuth, requireRole("admi
 
   await logAudit("Calendar", "CANCEL_APPOINTMENT", appointmentId, "Status", existing.status, "Cancelled",
     `Appointment "${existing.title}" cancelled by ${req.user!.email}.`, req.user!.email);
+  if (existing.client_id) {
+    await logClientActivity(existing.client_id, "Appointment Cancelled", `"${existing.title}" cancelled by ${req.user!.email}.`, req.user!.email);
+  }
   res.json({ ok: true });
 }));
 
-appointmentsRouter.post("/:appointmentId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+// Admin-only: staff can Edit and Cancel (both preserve the row and its
+// history — Cancel just flips status), but permanent deletion destroys the
+// compliance/audit trail entirely, so it's restricted one level up. See the
+// architecture review's "Remove Appointment Delete from Staff Portal" section.
+appointmentsRouter.post("/:appointmentId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { appointmentId } = req.params;
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
+  // Snapshot the row before it's gone — DELETE_APPOINTMENT used to log with
+  // empty old/new values, so the audit trail said only THAT something was
+  // deleted, never WHAT. This is the only trace left once the row is gone.
+  const snapshot = [
+    `Title: ${existing.title}`,
+    `Contact: ${existing.contact_name || existing.client_id || "—"}`,
+    `When: ${fmtDate(new Date(existing.start_time))} at ${fmtTime(new Date(existing.start_time))}`,
+    `Status: ${existing.status}`,
+    existing.assigned_to ? `Assigned to: ${existing.assigned_to}` : null,
+  ].filter(Boolean).join(" · ");
   await query(`DELETE FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
-  await logAudit("Calendar", "DELETE_APPOINTMENT", appointmentId, "", "", "",
-    `Appointment "${existing.title}" deleted by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Calendar", "DELETE_APPOINTMENT", appointmentId, "", snapshot, "",
+    `Appointment deleted by ${req.user!.email}. ${snapshot}`, req.user!.email);
   res.json({ ok: true });
 }));

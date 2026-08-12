@@ -21,6 +21,13 @@ interface Summary {
   documentsCount: number;
 }
 
+interface LastActivity {
+  type: string;
+  note: string | null;
+  occurred_at: string;
+  logged_by: string | null;
+}
+
 interface ClientFlag {
   flagId: string | null;
   flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
@@ -47,6 +54,11 @@ function fmtDateOnly(v: string | null | undefined): string {
   if (!v) return "";
   const d = new Date(`${v}T00:00:00`);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function fmtDateTime(v: string): string {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function flagLabel(f: ClientFlag): string {
@@ -81,6 +93,7 @@ export function ClientContextPanel() {
   const [optionsError, setOptionsError] = useState(false);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
+  const [lastActivity, setLastActivity] = useState<LastActivity | null | undefined>(undefined);
 
   function loadOptions() {
     setOptionsError(false);
@@ -98,11 +111,19 @@ export function ClientContextPanel() {
       setSummary(null);
       setFlags(null);
       setClientTasks([]);
+      setLastActivity(undefined);
       return;
     }
     let cancelled = false;
+    setLastActivity(undefined);
     api.get<{ client: Client }>(`/clients/${clientId}`).then((res) => { if (!cancelled) setClient(res.client); }).catch(() => { if (!cancelled) setClient(null); });
     api.get<Summary>(`/clients/${clientId}/summary`).then((res) => { if (!cancelled) setSummary(res); }).catch(() => { if (!cancelled) setSummary(null); });
+    // "What/Who/When happened" at a glance — most recent row from the same
+    // Activity Timeline shown in full on the client's Notes tab (appointment
+    // lifecycle, flags, and manual notes all flow into it).
+    api.get<{ activity: LastActivity[] }>(`/clients/${clientId}/activity`)
+      .then((res) => { if (!cancelled) setLastActivity(res.activity[0] || null); })
+      .catch(() => { if (!cancelled) setLastActivity(null); });
     // For the "link an existing task" picker on the flag form — this client's own
     // open tasks, so staff can point a flag at wherever it's actually being tracked
     // instead of typing a description with no connection to real work.
@@ -212,6 +233,34 @@ export function ClientContextPanel() {
           <h2 style={{ fontSize: 17, margin: "0 0 8px" }}>
             <button type="button" onClick={() => navigate(`/clients/${client.client_id}`)} className="client-panel-name-link">{client.client_name}</button>
           </h2>
+
+          {/* What/who/when at a glance — the most recent entry from the same
+              Activity Timeline shown in full on the Notes tab. */}
+          {lastActivity !== undefined && (
+            <button
+              type="button"
+              onClick={() => navigate(`/clients/${client.client_id}?tab=Notes`)}
+              title="Open the full Activity Timeline"
+              style={{
+                display: "block", width: "100%", textAlign: "left", background: "var(--panel, rgba(127,127,127,0.06))",
+                border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", marginBottom: 10, cursor: "pointer", color: "inherit",
+              }}
+            >
+              <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Last Activity</div>
+              {lastActivity ? (
+                <>
+                  <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {lastActivity.type}{lastActivity.note ? ` — ${lastActivity.note}` : ""}
+                  </div>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    {lastActivity.logged_by ? `By ${lastActivity.logged_by} · ` : ""}{fmtDateTime(lastActivity.occurred_at)}
+                  </div>
+                </>
+              ) : (
+                <div className="muted" style={{ fontSize: 12 }}>No activity logged yet</div>
+              )}
+            </button>
+          )}
 
           {/* Noticeable, colored account issues — separate from the freeform
               Activity Timeline because a note's "read" state says nothing
