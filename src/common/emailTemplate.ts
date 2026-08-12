@@ -67,3 +67,31 @@ export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<st
   </body>
 </html>`;
 }
+
+/**
+ * The portal-invite email body — previously duplicated near-verbatim in
+ * users.routes.ts (sendInviteEmail) and portalUserProvisioning.ts
+ * (provisionEmployeePortalUser's inline invite send), each with its own
+ * English-only copy the comments explicitly flagged as "kept in sync
+ * manually." One shared, bilingual version instead. Used for every portal
+ * role (admin/staff/employee/client invites all reuse this), so the wording
+ * stays generic rather than naming a specific role.
+ */
+export function portalInviteEmailHtml(name: string, link: string): string {
+  const greetingName = name ? name : "";
+  return `<div dir="ltr" style="text-align:left;">
+  <p>${greetingName ? `Hi ${greetingName},` : "Hello,"}</p>
+  <p>You've been invited to the AL TAX SERVICE portal, where you can access your documents, invoices, and messages anytime.</p>
+  <p>Click the link below to set up your account:</p>
+  <p><a href="${link}">${link}</a></p>
+  <p>This link expires in 7 days.</p>
+</div>
+<hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+<div dir="rtl" style="text-align:right;">
+  <p>${greetingName ? `مرحباً ${greetingName}،` : "مرحباً،"}</p>
+  <p>تمت دعوتكم للانضمام إلى بوابة AL TAX SERVICE، حيث يمكنكم الوصول إلى مستنداتكم وفواتيركم ورسائلكم في أي وقت.</p>
+  <p>يرجى الضغط على الرابط أدناه لإعداد حسابكم:</p>
+  <p><bdi dir="ltr"><a href="${link}">${link}</a></bdi></p>
+  <p>ينتهي هذا الرابط خلال 7 أيام.</p>
+</div>`;
+}

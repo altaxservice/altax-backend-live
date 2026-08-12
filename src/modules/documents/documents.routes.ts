@@ -210,8 +210,9 @@ async function notifyPortalFileShared(opts: {
     ? `AL TAX shared ${opts.fileNames.length} files with you`
     : `AL TAX shared a file with you: ${opts.fileNames[0]}`;
   const noteText = opts.notes ? `\nNote from AL TAX: ${opts.notes}` : "";
+  const noteTextAr = opts.notes ? `\nملاحظة من AL TAX: ${opts.notes}` : "";
   const messageEnglish = `AL TAX shared ${many ? `${opts.fileNames.length} files` : `"${opts.fileNames[0]}"`} with ${forWhom}: ${fileList}.\n\nSign in to your portal and open Documents to view or download.${noteText}`;
-  const messageArabic = `شارك AL TAX ${many ? `${opts.fileNames.length} ملفات` : "ملفاً"} معك: ${fileList}.\n\nسجّل الدخول إلى بوابتك وافتح المستندات لعرضها أو تحميلها.`;
+  const messageArabic = `شارك AL TAX ${many ? `${opts.fileNames.length} ملفات` : "ملفاً"} معك: ${fileList}.\n\nسجّل الدخول إلى بوابتك وافتح قسم المستندات لعرضها أو تحميلها.${noteTextAr}`;
 
   let status = "Saved";
   if (opts.recipientEmail) {
@@ -222,15 +223,25 @@ async function notifyPortalFileShared(opts: {
       const base = publicBaseUrl(opts.req);
       const loginUrl = base && !/localhost|127\.0\.0\.1/i.test(base) ? `${base}/login/${opts.portalPath}` : null;
       const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const fileListHtml = `<ul style="margin:0 0 14px; padding-left:20px;">${opts.fileNames.map((f) => `<li style="margin:2px 0; font-weight:700;">${esc(f)}</li>`).join("")}</ul>`;
+      const fileListHtmlAr = `<ul dir="rtl" style="margin:0 0 14px; padding-right:20px; padding-left:0;">${opts.fileNames.map((f) => `<li style="margin:2px 0; font-weight:700;">${esc(f)}</li>`).join("")}</ul>`;
       const html = await wrapEmailHtml(`
-        <p style="margin:0 0 14px;">Hello ${esc(forWhom)},</p>
-        <p style="margin:0 0 10px;">AL TAX has shared ${many ? "new documents" : "a new document"} with you:</p>
-        <ul style="margin:0 0 14px; padding-left:20px;">
-          ${opts.fileNames.map((f) => `<li style="margin:2px 0; font-weight:700;">${esc(f)}</li>`).join("")}
-        </ul>
-        ${opts.notes ? `<p style="margin:0 0 14px; color:#6b7280;">${esc(opts.notes)}</p>` : ""}
-        <p style="margin:0 0 18px;">Sign in to your portal and open <strong>Documents</strong> to view or download ${many ? "them" : "it"}.</p>
-        ${loginUrl ? `<p style="margin:0;"><a href="${loginUrl}" style="display:inline-block; background:#0f766e; color:#ffffff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">Open My Portal</a></p>` : ""}
+        <div dir="ltr" style="text-align:left;">
+          <p style="margin:0 0 14px;">Hello ${esc(forWhom)},</p>
+          <p style="margin:0 0 10px;">AL TAX has shared ${many ? "new documents" : "a new document"} with you:</p>
+          ${fileListHtml}
+          ${opts.notes ? `<p style="margin:0 0 14px; color:#6b7280;">${esc(opts.notes)}</p>` : ""}
+          <p style="margin:0 0 18px;">Sign in to your portal and open <strong>Documents</strong> to view or download ${many ? "them" : "it"}.</p>
+        </div>
+        <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+        <div dir="rtl" style="text-align:right;">
+          <p style="margin:0 0 14px;">مرحباً ${esc(forWhom)}،</p>
+          <p style="margin:0 0 10px;">شارك AL TAX ${many ? "مستندات جديدة" : "مستنداً جديداً"} معكم:</p>
+          ${fileListHtmlAr}
+          ${opts.notes ? `<p style="margin:0 0 14px; color:#6b7280;">${esc(opts.notes)}</p>` : ""}
+          <p style="margin:0 0 18px;">يرجى تسجيل الدخول إلى بوابتكم وفتح قسم <strong>المستندات</strong> لعرض${many ? "ها" : "ه"} أو تحميل${many ? "ها" : "ه"}.</p>
+        </div>
+        ${loginUrl ? `<p style="margin:0; text-align:center;"><a href="${loginUrl}" style="display:inline-block; background:#0f766e; color:#ffffff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">Open My Portal &nbsp;·&nbsp; <bdi dir="rtl">فتح بوابتي</bdi></a></p>` : ""}
       `, opts.req);
       await sendEmail({ to: opts.recipientEmail, cc: opts.cc, bcc: opts.bcc, subject, html });
       status = "Saved + Sent";

@@ -478,9 +478,9 @@ async function invoiceEmailHtml(opts: {
     const d = new Date(v);
     return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
   };
-  const row = (label: string, value: string, boldValue = false) => `
+  const row = (label: string, labelAr: string, value: string, boldValue = false) => `
     <tr>
-      <td style="padding:6px 0; color:#6b7280; font-size:13px;">${label}</td>
+      <td style="padding:6px 0; color:#6b7280; font-size:13px;">${label} <bdi dir="rtl" style="color:#9ca3af;">/ ${labelAr}</bdi></td>
       <td align="right" style="padding:6px 0; font-size:13px; ${boldValue ? "font-weight:700; font-size:15px;" : ""}">${value}</td>
     </tr>`;
   const body = `
@@ -489,14 +489,14 @@ async function invoiceEmailHtml(opts: {
            style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
       <tr><td style="padding:14px 18px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          ${row("Invoice #", esc(opts.invoiceId))}
-          ${row("Invoice Date", fmtDate(opts.invoiceDate))}
-          ${row("Due Date", fmtDate(opts.dueDate))}
-          ${row("Balance Due", `$${Number(opts.balanceDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)}
+          ${row("Invoice #", "رقم الفاتورة", esc(opts.invoiceId))}
+          ${row("Invoice Date", "تاريخ الفاتورة", fmtDate(opts.invoiceDate))}
+          ${row("Due Date", "تاريخ الاستحقاق", fmtDate(opts.dueDate))}
+          ${row("Balance Due", "الرصيد المستحق", `$${Number(opts.balanceDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, true)}
         </table>
       </td></tr>
     </table>
-    <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF.</p>`;
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">The full invoice is attached to this email as a PDF. <bdi dir="rtl">الفاتورة الكاملة مرفقة بهذه الرسالة بصيغة PDF.</bdi></p>`;
   return wrapEmailHtml(body, opts.req);
 }
 

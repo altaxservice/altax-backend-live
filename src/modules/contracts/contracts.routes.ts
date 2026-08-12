@@ -338,12 +338,33 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
     // on the <a> itself) — a plain blue underlined link is easy to miss or
     // mistake for something already visited on a phone; a real-looking button
     // is unambiguous.
-    const buttonHtml = `<p style="text-align:center; margin:24px 0;"><a href="${link}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700; font-size:15px; padding:12px 28px; border-radius:8px;">Review &amp; Sign Agreement</a></p><p style="font-size:12px; color:#6b7280;">Or copy this link into your browser: <a href="${link}">${link}</a></p>`;
+    const buttonHtml = `<p style="text-align:center; margin:24px 0;">
+        <a href="${link}" style="display:inline-block; background:#0f766e; color:#ffffff; text-decoration:none; font-weight:700; font-size:15px; padding:12px 28px; border-radius:8px;">
+          Review &amp; Sign &nbsp;·&nbsp; <bdi dir="rtl">مراجعة وتوقيع</bdi>
+        </a>
+      </p>
+      <p style="font-size:12px; color:#6b7280;">
+        Or copy this link into your browser: <bdi dir="ltr"><a href="${link}">${link}</a></bdi><br>
+        <bdi dir="rtl">أو انسخوا هذا الرابط في متصفحكم:</bdi> <bdi dir="ltr"><a href="${link}">${link}</a></bdi>
+      </p>`;
     try {
       await sendEmail({
         to: client.email,
         subject: `${contract.title} — please review and sign`,
-        html: await wrapEmailHtml(`<p>Hello ${escapeHtml(client.client_name)},</p><p>Please review and sign your <strong>${escapeHtml(contract.title)}</strong>:</p>${buttonHtml}<p>Thank you.</p>`, req),
+        html: await wrapEmailHtml(
+          `<div dir="ltr" style="text-align:left;">
+             <p>Hello ${escapeHtml(client.client_name)},</p>
+             <p>A document is ready for your review and signature: <strong>${escapeHtml(contract.title)}</strong>. Please use the button below to review it and sign electronically.</p>
+           </div>
+           <hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">
+           <div dir="rtl" style="text-align:right;">
+             <p>مرحباً ${escapeHtml(client.client_name)}،</p>
+             <p>هناك مستند بانتظار مراجعتكم وتوقيعكم: <strong>${escapeHtml(contract.title)}</strong>. يرجى استخدام الزر أدناه لمراجعته وتوقيعه إلكترونياً.</p>
+           </div>
+           ${buttonHtml}
+           <p style="text-align:center; color:#6b7280; font-size:12px;">Thank you. &nbsp;·&nbsp; <bdi dir="rtl">شكراً لكم.</bdi></p>`,
+          req
+        ),
       });
       emailed = true;
     } catch (err) {

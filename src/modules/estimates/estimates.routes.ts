@@ -232,7 +232,7 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
 
   const subject = String(req.body?.subject || `Estimate ${est.estimate_number} from AL Tax Service`).trim();
   const message = String(req.body?.message
-    || `Please find your estimate attached for ${est.business_name}. Total estimated: $${totals.total.toFixed(2)}.`).trim();
+    || `Please find your estimate for ${est.business_name} attached, with an estimated total of $${totals.total.toFixed(2)}. Let us know if you have any questions.`).trim();
 
   const { sendEmail } = await import("../../common/notifications");
   const { wrapEmailHtml } = await import("../../common/emailTemplate");
@@ -245,7 +245,7 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
       to, subject,
       html: await wrapEmailHtml(
         `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
-         <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF.</p>`,
+         <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF. <bdi dir="rtl">التقدير الكامل مرفق بهذه الرسالة بصيغة PDF.</bdi></p>`,
         req
       ),
       attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],

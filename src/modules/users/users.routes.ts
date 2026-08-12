@@ -52,9 +52,10 @@ function inviteLink(req: AuthedRequest, role: string, token: string, email?: str
 async function sendInviteEmail(email: string, name: string, link: string): Promise<{ sent: boolean; error?: string }> {
   try {
     const { sendEmail } = await import("../../common/notifications");
+    const { portalInviteEmailHtml } = await import("../../common/emailTemplate");
     await sendEmail({
-      to: email, subject: "You've been invited to the AL Tax Service portal",
-      html: `<p>Hi ${name || ""},</p><p>You've been invited to the AL Tax Service portal. Click the link below to set up your account:</p><p><a href="${link}">${link}</a></p>`,
+      to: email, subject: "You're invited to the AL TAX SERVICE portal",
+      html: portalInviteEmailHtml(name, link),
     });
     return { sent: true };
   } catch (err: any) {

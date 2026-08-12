@@ -77,9 +77,10 @@ export async function provisionEmployeePortalUser(req: Request, params: {
   if (issuedLink) {
     try {
       const { sendEmail } = await import("./notifications");
+      const { portalInviteEmailHtml } = await import("./emailTemplate");
       await sendEmail({
-        to: email, subject: "You've been invited to the AL Tax Service portal",
-        html: `<p>Hi ${params.employeeName || ""},</p><p>You've been invited to the AL Tax Service portal. Click the link below to set up your account:</p><p><a href="${issuedLink}">${issuedLink}</a></p>`,
+        to: email, subject: "You're invited to the AL TAX SERVICE portal",
+        html: portalInviteEmailHtml(params.employeeName, issuedLink),
       });
       inviteEmailed = true;
     } catch {
