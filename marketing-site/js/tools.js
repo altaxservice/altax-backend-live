@@ -95,7 +95,7 @@ function renderHealthCheckQuestions() {
   const container = document.getElementById('health-check-questions');
   if (!container) return;
   container.innerHTML = HEALTH_CHECK_QUESTIONS.map((q, i) => `
-    <fieldset class="health-question reveal">
+    <fieldset class="health-question">
       <legend>${i + 1}. <span data-i18n="${q.textKey}">${t(q.textKey)}</span></legend>
       <div class="health-options">
         ${q.options.map((optKey, idx) => `
