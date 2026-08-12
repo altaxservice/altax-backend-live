@@ -633,9 +633,9 @@ authRouter.post("/forgot-password", forgotLimiter, asyncHandler(async (req: Requ
     const link = resetLink(req, String(row.role || "").toLowerCase(), token, email);
     const html = await wrapEmailHtml(`
       <p>Hi ${row.name || ""},</p>
-      <p>We received a request to reset the password for your account. This link is valid for 1 hour.</p>
+      <p>We received a request to reset your password. Use the link below to choose a new one — it expires in 1 hour.</p>
       <p><a href="${link}">Reset your password</a></p>
-      <p>If you didn't request this, you can safely ignore this email — your password will not change.</p>
+      <p>Didn't request this? You can safely ignore this email — your password will not change.</p>
     `, req);
     const { sendEmail } = await import("../../common/notifications");
     await sendEmail({ to: email, subject: "Reset your password", html }).catch(() => {});

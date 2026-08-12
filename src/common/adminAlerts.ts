@@ -41,7 +41,7 @@ export async function alertAdmins(subject: string, detail: string): Promise<void
   try {
     const recipients = await activeAdminEmails();
     if (recipients.length === 0) return;
-    const html = `<p><strong>${escapeHtml(subject)}</strong></p><pre style="white-space:pre-wrap;font-family:monospace;font-size:13px;">${escapeHtml(detail)}</pre>`;
+    const html = `<p>A background job needs attention:</p><p><strong>${escapeHtml(subject)}</strong></p><pre style="white-space:pre-wrap;font-family:monospace;font-size:13px;">${escapeHtml(detail)}</pre>`;
     for (const to of recipients) {
       await sendEmail({ to, subject: `AL TAX Nexus alert: ${subject}`, html }).catch(() => {});
     }

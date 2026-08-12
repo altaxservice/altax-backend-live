@@ -160,9 +160,9 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     if (await alreadySent(sourceRecordId)) { staffSkipped++; continue; }
 
     const count = items.english.length;
-    const subject = `Daily task reminder — ${count} item${count === 1 ? "" : "s"}`;
-    const bodyEnglish = `You have ${count} task${count === 1 ? "" : "s"} due or overdue as of ${fmtDate(new Date())}:\n\n${items.english.join("\n\n")}`;
-    const bodyArabic = `لديك ${count} مهمة مستحقة أو متأخرة اعتباراً من ${fmtDate(new Date())}:\n\n${items.arabic.join("\n\n")}`;
+    const subject = `Your task digest — ${count} item${count === 1 ? "" : "s"} due or overdue`;
+    const bodyEnglish = `Here is your task summary for ${fmtDate(new Date())}. You have ${count} task${count === 1 ? "" : "s"} due or overdue:\n\n${items.english.join("\n\n")}`;
+    const bodyArabic = `فيما يلي ملخص مهامكم ليوم ${fmtDate(new Date())}. لديكم ${count} مهمة مستحقة أو متأخرة:\n\n${items.arabic.join("\n\n")}`;
 
     const result = await sendAndLog({
       clientId: null, clientName: null, relatedTaskId: null,
@@ -269,12 +269,12 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       ORDER BY ABS(SUM(debit) - SUM(credit)) DESC`
   );
   const booksHealthSection = unbalancedClients.length
-    ? `\n*** BOOKS OUT OF BALANCE (${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}) ***\n` +
+    ? `\nBOOKS OUT OF BALANCE — ${unbalancedClients.length} CLIENT${unbalancedClients.length === 1 ? "" : "S"}\n` +
       unbalancedClients.map((c) =>
         `- ${c.client_name || c.client_id}: off by $${Math.abs(Number(c.difference)).toFixed(2)} (debits $${c.debits} vs credits $${c.credits})`
       ).join("\n") +
-      `\nOpen Reports -> Trial Balance for the client to see and repair the exact entries.`
-    : `\nBooks health: every client's ledger balances.`;
+      `\nOpen Reports -> Trial Balance for each client listed to find and correct the entries.`
+    : `\nBOOKS HEALTH\nAll clients' ledgers are in balance. No action needed.`;
 
   // --- Upcoming appointments: everything Scheduled in the next 48 hours, so
   // admins/staff get a daily heads-up alongside the task summary instead of
@@ -292,7 +292,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     const who = a.linked_client_name || a.contact_name || "—";
     return `- ${when} ET — ${a.title || "Appointment"} with ${who}${a.assigned_to ? ` (${a.assigned_to})` : ""}`;
   };
-  const appointmentsSection = `\nUpcoming appointments, next 48 hours (${upcomingAppointments.length}):\n${upcomingAppointments.length ? upcomingAppointments.map(fmtApptLine).join("\n") : "None"}`;
+  const appointmentsSection = `\nUPCOMING APPOINTMENTS — next 48 hours (${upcomingAppointments.length})\n${upcomingAppointments.length ? upcomingAppointments.map(fmtApptLine).join("\n") : "None scheduled."}`;
 
   const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
   for (const admin of admins) {
@@ -300,15 +300,15 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
 
     const subject = unbalancedClients.length
-      ? `Firm task status — ${openTasks.length} open, BOOKS OUT OF BALANCE (${unbalancedClients.length})`
-      : `Firm task status — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
+      ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`
+      : `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
     const bodyEnglish = [
-      `Firm-wide task status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
+      `Firm-wide status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
       booksHealthSection,
       appointmentsSection,
-      `\nBy status:\n${statusBreakdown || "None"}`,
-      `\nOverdue (${overdueTasks.length}):\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None"}`,
-      `\nDue within ${daysAhead} day${daysAhead === 1 ? "" : "s"} (${dueSoonTasks.length}):\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None"}`,
+      `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
+      `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
+      `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
     ].join("\n");
 
     const result = await sendAndLog({
