@@ -549,6 +549,21 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingEl.style.display = 'none';
         manageCard.style.display = 'block';
         renderAppointment(data);
+        // The email now shows Confirm/Reschedule/Cancel as their own buttons
+        // instead of one "Manage Appointment" link — each carries an
+        // ?action= hint so this page immediately does what the client
+        // clicked for, rather than making them find the right button again
+        // here. Reuses the exact same click handlers below (defined further
+        // down but already attached by the time this fetch resolves, since
+        // that attachment code runs synchronously right after this function
+        // is invoked) — so every existing safeguard (native confirm() gate
+        // on Cancel, canManage check, etc.) still applies unchanged.
+        if (data.canManage) {
+          var action = new URLSearchParams(window.location.search).get('action') || '';
+          if (action === 'confirm') confirmBtn.click();
+          else if (action === 'reschedule') rescheduleBtn.click();
+          else if (action === 'cancel') cancelBtn.click();
+        }
       } catch (err) {
         loadingEl.style.display = 'none';
         notFoundEl.style.display = 'block';

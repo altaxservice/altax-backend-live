@@ -293,18 +293,48 @@ export function buildAppointmentEmailHtml(
     `;
   }
 
-  const ctaHref = isPastState ? hero.bookUrl : manageUrl;
-  const ctaLabel = isCancelled
-    ? `Book a New Time &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدًا جديدًا</bdi>`
-    : isCompleted
-    ? `Book Your Next Appointment &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدك القادم</bdi>`
-    : `Manage Appointment &nbsp;·&nbsp; <bdi dir="rtl">إدارة الموعد</bdi>`;
-  const ctaHtml = ctaHref
-    ? `<div style="text-align:center; margin-top:16px;">
-         <a href="${escapeHtml(ctaHref)}" style="display:inline-block; background:#c9a86a; color:#0f2d3e; padding:12px 26px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:700;">
-           ${ctaLabel}
-         </a>
-       </div>`
+  // For a live/upcoming appointment, show all 3 actions right in the email —
+  // Confirm, Reschedule, Cancel — as their own buttons rather than funneling
+  // through one "Manage Appointment" link the client has to click through
+  // first. Each still lands on the same public manage page (so the existing
+  // token/ownership checks and, for Cancel, the native confirm() safety gate
+  // all still apply — this only removes a click, not a safeguard), but an
+  // ?action= param tells that page's JS to immediately trigger the matching
+  // button there instead of making the client hunt for it. Only relevant
+  // for a Scheduled appointment still ahead of it — a cancelled/completed
+  // one has nothing to confirm/reschedule/cancel, so it keeps the single
+  // "book again" button below.
+  const ctaHtml = isPastState
+    ? (hero.bookUrl
+        ? `<div style="text-align:center; margin-top:16px;">
+             <a href="${escapeHtml(hero.bookUrl)}" style="display:inline-block; background:#c9a86a; color:#0f2d3e; padding:12px 26px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:700;">
+               ${isCancelled
+                 ? `Book a New Time &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدًا جديدًا</bdi>`
+                 : `Book Your Next Appointment &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدك القادم</bdi>`}
+             </a>
+           </div>`
+        : "")
+    : manageUrl
+    ? `
+      <div style="text-align:center; margin-top:16px;">
+        <a href="${escapeHtml(manageUrl)}&action=confirm" style="display:inline-block; width:100%; max-width:320px; box-sizing:border-box; background:#c9a86a; color:#0f2d3e; padding:12px 26px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:700;">
+          Confirm Your Appointment &nbsp;·&nbsp; <bdi dir="rtl">تأكيد الموعد</bdi>
+        </a>
+      </div>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%; max-width:320px; margin:10px auto 0; border-collapse:separate;">
+        <tr>
+          <td style="width:50%; padding-right:5px;">
+            <a href="${escapeHtml(manageUrl)}&action=reschedule" style="display:block; text-align:center; background:#ffffff; color:#0f2d3e; border:1px solid #d8c9a3; padding:10px 6px; border-radius:8px; text-decoration:none; font-size:12.5px; font-weight:700;">
+              Reschedule &nbsp;·&nbsp; <bdi dir="rtl">إعادة الجدولة</bdi>
+            </a>
+          </td>
+          <td style="width:50%; padding-left:5px;">
+            <a href="${escapeHtml(manageUrl)}&action=cancel" style="display:block; text-align:center; background:#ffffff; color:#6b7280; border:1px solid #e5e7eb; padding:10px 6px; border-radius:8px; text-decoration:none; font-size:12.5px; font-weight:700;">
+              Cancel &nbsp;·&nbsp; <bdi dir="rtl">إلغاء الموعد</bdi>
+            </a>
+          </td>
+        </tr>
+      </table>`
     : "";
 
   return `
