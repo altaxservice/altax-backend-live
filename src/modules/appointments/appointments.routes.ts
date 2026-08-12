@@ -159,7 +159,16 @@ function fmtCardParts(d: Date): { month: string; day: string; weekday: string } 
   };
 }
 
-export type AppointmentNoticeType = "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled";
+export type AppointmentNoticeType =
+  | "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled"
+  | "Appointment Confirmation Request" | "Appointment Rescheduled" | "Appointment Completed";
+
+/** Fixed 24-hours-before lead time for the "please confirm" ask — deliberately
+ * NOT part of the admin-editable REMINDER_LEAD_PRESETS list (no toggle; this
+ * always fires), and tracked in its own v3_appointments column
+ * (confirmation_request_sent_at) rather than reminder_lead_minutes_sent, since
+ * 1440 (24h) is already a common value in that admin-configured array. */
+export const CONFIRMATION_REQUEST_LEAD_MINUTES = 1440;
 
 /**
  * Builds the full bilingual PLAIN-TEXT body for logging/display (the
@@ -228,12 +237,16 @@ export function buildAppointmentEmailHtml(
   const englishHtml = escapeHtml(resolved.message_english).replace(/\n/g, "<br>");
   const arabicHtml = escapeHtml(resolved.message_arabic).replace(/\n/g, "<br>");
   const isCancelled = hero.noticeType === "Appointment Cancelled";
+  const isCompleted = hero.noticeType === "Appointment Completed";
+  const isPastState = isCancelled || isCompleted;
   const { month, day, weekday } = fmtCardParts(hero.startDate);
 
-  const cardBg = isCancelled ? "#5b6570" : "#0f2d3e";
-  const cardDateBg = isCancelled ? "#4a5560" : "#0a2029";
+  const cardBg = isPastState ? "#5b6570" : "#0f2d3e";
+  const cardDateBg = isPastState ? "#4a5560" : "#0a2029";
   const cancelledBadge = isCancelled
     ? `<span style="display:inline-block; margin-left:8px; padding:2px 9px; border:1px solid rgba(255,255,255,0.45); border-radius:999px; color:#ffffff; font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; vertical-align:middle;">Cancelled</span>`
+    : isCompleted
+    ? `<span style="display:inline-block; margin-left:8px; padding:2px 9px; border:1px solid rgba(255,255,255,0.45); border-radius:999px; color:#ffffff; font-size:10px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; vertical-align:middle;">Completed</span>`
     : "";
   const dateCard = `
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%; margin:2px 0 22px; border-collapse:separate;">
@@ -280,9 +293,11 @@ export function buildAppointmentEmailHtml(
     `;
   }
 
-  const ctaHref = isCancelled ? hero.bookUrl : manageUrl;
+  const ctaHref = isPastState ? hero.bookUrl : manageUrl;
   const ctaLabel = isCancelled
     ? `Book a New Time &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدًا جديدًا</bdi>`
+    : isCompleted
+    ? `Book Your Next Appointment &nbsp;·&nbsp; <bdi dir="rtl">احجز موعدك القادم</bdi>`
     : `Manage Appointment &nbsp;·&nbsp; <bdi dir="rtl">إدارة الموعد</bdi>`;
   const ctaHtml = ctaHref
     ? `<div style="text-align:center; margin-top:16px;">
@@ -316,12 +331,25 @@ export function buildAppointmentEmailHtml(
  */
 export function buildAppointmentSmsText(
   noticeType: AppointmentNoticeType, title: string, dateLabel: string, timeLabel: string,
-  durationMinutes: number, locationName: string | undefined, manageUrl: string, bookUrl: string
+  durationMinutes: number, locationName: string | undefined, manageUrl: string, bookUrl: string,
+  previousDateLabel?: string, previousTimeLabel?: string
 ): string {
   if (noticeType === "Appointment Cancelled") {
     return bookUrl
       ? `Your "${title}" on ${dateLabel} at ${timeLabel} was cancelled. Whenever you're ready, book a new time: ${bookUrl}`
       : `Your "${title}" on ${dateLabel} at ${timeLabel} was cancelled. Whenever you're ready, we'd love to have you back.`;
+  }
+  if (noticeType === "Appointment Completed") {
+    return `Thanks for coming in for "${title}"! Let us know if you need anything else.${bookUrl ? ` Book again: ${bookUrl}` : ""}`;
+  }
+  if (noticeType === "Appointment Confirmation Request") {
+    const manage = manageUrl ? ` Confirm, reschedule, or reach us: ${manageUrl}` : "";
+    return `Please confirm: "${title}" on ${dateLabel} at ${timeLabel}, tomorrow.${manage}`;
+  }
+  if (noticeType === "Appointment Rescheduled") {
+    const was = previousDateLabel && previousTimeLabel ? ` (was ${previousDateLabel} at ${previousTimeLabel})` : "";
+    const manage = manageUrl ? ` Manage: ${manageUrl}` : "";
+    return `Your "${title}" is now ${dateLabel} at ${timeLabel}${was}.${manage}`;
   }
   const lead = noticeType === "Appointment Reminder" ? "Reminder:" : "You're booked!";
   const closer = noticeType === "Appointment Reminder" ? "See you soon!" : "We can't wait to see you!";
@@ -346,6 +374,11 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   if (!email && !phone) return;
 
   const start = new Date(appt.start_time);
+  // previous_start_time is only ever set by the two reschedule call sites,
+  // right before they switch to the "Appointment Rescheduled" notice type —
+  // every other caller leaves it undefined, so previousDate/previousTime just
+  // fall back to substitutePlaceholders' blankable-token handling for them.
+  const previousStart = appt.previous_start_time ? new Date(appt.previous_start_time) : null;
   const extra: Record<string, string> = {
     appointmentTitle: appt.title || "",
     appointmentDate: fmtDate(start),
@@ -353,10 +386,12 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     appointmentLocation: appt.location ? ` at ${appt.location}` : "",
     appointmentLocationAr: appt.location ? ` في ${appt.location}` : "",
     clientName: appt.contact_name || appt.client_name || "",
+    previousDate: previousStart ? fmtDate(previousStart) : "",
+    previousTime: previousStart ? fmtTime(previousStart) : "",
   };
   const resolvedTemplate = await resolveTemplate(templateName, appt.client_id || "", "", "", extra);
   if (!resolvedTemplate) return;
-  const includeDetails = templateName !== "Appointment Cancelled";
+  const includeDetails = templateName !== "Appointment Cancelled" && templateName !== "Appointment Completed";
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
   const bookUrl = base ? `${base}/book` : "";
@@ -368,7 +403,12 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   const durationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
   const plainText = buildAppointmentPlainText(resolvedTemplate, includeDetails, manageUrl, includeDetails ? settings : null, durationMinutes);
 
-  const marker = templateName === "Appointment Reminder" ? "REM" : templateName === "Appointment Cancelled" ? "CANCEL" : "CONF";
+  const marker = templateName === "Appointment Reminder" ? "REM"
+    : templateName === "Appointment Cancelled" ? "CANCEL"
+    : templateName === "Appointment Confirmation Request" ? "CONFREQ"
+    : templateName === "Appointment Rescheduled" ? "RESCHED"
+    : templateName === "Appointment Completed" ? "DONE"
+    : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
   if (email && (settings.clientReminderChannel === "email" || settings.clientReminderChannel === "both")) channels.push({ channel: "Email", to: email });
   if (phone && (settings.clientReminderChannel === "sms" || settings.clientReminderChannel === "both")) channels.push({ channel: "SMS", to: phone });
@@ -392,7 +432,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
         // email copy — but the manage/book link still goes out here too, since
         // that's how an SMS/WhatsApp recipient actually acts without calling.
         const smsBody = buildAppointmentSmsText(templateName, appt.title || "Appointment", extra.appointmentDate, extra.appointmentTime,
-          durationMinutes, includeDetails ? settings.locationName : undefined, manageUrl, bookUrl);
+          durationMinutes, includeDetails ? settings.locationName : undefined, manageUrl, bookUrl,
+          extra.previousDate || undefined, extra.previousTime || undefined);
         await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
       }
       sent = true;
@@ -607,29 +648,91 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
 }
 
 /**
- * Flips any Scheduled appointment whose end time has passed to Completed.
- * Without this, a past appointment sat as "Scheduled" forever — visually
- * identical to an upcoming one on the Calendar page (both rendered the same
- * gray pill), with nothing to say "this already happened." "Completed" was
- * already an allowed status in the schema (sql/022_appointments.sql's CHECK
- * constraint) but nothing ever set it; StatusBadge's colorClassFor already
- * maps "completed" to green, so this needed no new frontend styling — just
- * the write. Called hourly from server.ts's cron, same shape as the other
- * sweeps here. Purely a bookkeeping flip: no client notification, since a
- * client doesn't need to be told their own past appointment happened, and no
- * "was this actually attended" judgment — a no-show still flips to Completed
- * exactly like an attended one; staff can still manually Cancel/Delete
- * afterward if that distinction matters for a specific appointment.
+ * Sends the "please confirm your appointment" ask exactly once, ~24 hours
+ * before each Scheduled appointment — a fixed lead time (CONFIRMATION_REQUEST_LEAD_MINUTES),
+ * not one of the admin-configurable reminderLeadMinutes above, since this
+ * always fires (no settings toggle) and is idempotency-tracked in its own
+ * column (confirmation_request_sent_at) rather than the shared
+ * reminder_lead_minutes_sent array, to avoid colliding with a real 1-day
+ * (1440-minute) reminder the admin may also have configured. Same 2-hour
+ * window / hourly-sweep shape as runAppointmentReminders above. Client-only
+ * (respects notify_client) — the team already gets a heads-up for this lead
+ * time via notifyAppointmentStaff if 1440 happens to be one of their
+ * configured lead times; this doesn't duplicate that.
  */
-export async function runAppointmentAutoComplete(actorEmail: string): Promise<{ completed: number }> {
+export async function runAppointmentConfirmationRequests(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number }> {
+  const target = new Date(Date.now() + CONFIRMATION_REQUEST_LEAD_MINUTES * 60 * 1000);
+  const windowStart = new Date(target.getTime() - 60 * 60 * 1000);
+  const windowEnd = new Date(target.getTime() + 60 * 60 * 1000);
+  let sent = 0, failed = 0;
+
+  const due = await query<any>(
+    `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+       LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+      WHERE a.status = 'Scheduled' AND a.start_time BETWEEN $1 AND $2
+        AND a.confirmation_request_sent_at IS NULL`,
+    [windowStart.toISOString(), windowEnd.toISOString()]
+  );
+  for (const appt of due) {
+    try {
+      if (appt.notify_client) {
+        await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Confirmation Request", actorEmail, req);
+      }
+      await query(
+        `UPDATE altax.v3_appointments SET confirmation_request_sent_at = now() WHERE appointment_id = $1`,
+        [appt.appointment_id]
+      );
+      sent++;
+    } catch {
+      failed++;
+    }
+  }
+  return { sent, failed };
+}
+
+/**
+ * Flips any Scheduled appointment whose end time has passed to Completed, and
+ * sends the client a thank-you (respecting notify_client, same as every other
+ * client-facing notice here). Without the status flip, a past appointment sat
+ * as "Scheduled" forever — visually identical to an upcoming one on the
+ * Calendar page (both rendered the same gray pill), with nothing to say "this
+ * already happened." "Completed" was already an allowed status in the schema
+ * (sql/022_appointments.sql's CHECK constraint) but nothing ever set it;
+ * StatusBadge's colorClassFor already maps "completed" to green, so this
+ * needed no new frontend styling — just the write. Called hourly from
+ * server.ts's cron, same shape as the other sweeps here. No "was this
+ * actually attended" judgment — a no-show still flips to Completed and still
+ * gets the thank-you exactly like an attended one; staff can still manually
+ * Cancel/Delete afterward if that distinction matters for a specific
+ * appointment (in which case the thank-you has already gone out — an
+ * accepted trade-off for keeping this a single unconditional sweep rather
+ * than a judgment call the system can't make).
+ */
+export async function runAppointmentAutoComplete(actorEmail: string, req?: Request): Promise<{ completed: number }> {
   const rows = await query<any>(
     `UPDATE altax.v3_appointments SET status = 'Completed', updated_at = now()
       WHERE status = 'Scheduled' AND end_time < now()
-      RETURNING appointment_id, title`
+      RETURNING *`
   );
+  // Batch-fetched separately rather than a JOIN in the UPDATE (Postgres's
+  // UPDATE...FROM can't express "match if present, otherwise still update" —
+  // a bare-contact booking with no client_id needs to complete too).
+  const clientIds = [...new Set(rows.map((r: any) => r.client_id).filter(Boolean))];
+  const clientNameById = new Map<string, string>();
+  if (clientIds.length) {
+    const clients = await query<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = ANY($1)`, [clientIds]);
+    for (const c of clients) clientNameById.set(c.client_id, c.client_name);
+  }
   for (const r of rows) {
     await logAudit("Calendar", "AUTO_COMPLETE_APPOINTMENT", r.appointment_id, "Status", "Scheduled", "Completed",
       `Appointment "${r.title}" auto-marked Completed after its scheduled time passed.`, actorEmail);
+    if (r.notify_client) {
+      try {
+        await notifyAppointment({ ...r, client_name: clientNameById.get(r.client_id) }, "Appointment Completed", actorEmail, req);
+      } catch {
+        // best-effort — the status flip above already succeeded and is logged
+      }
+    }
   }
   return { completed: rows.length };
 }
@@ -733,6 +836,7 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
        notify_client = $8,
        reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END,
        reminder_lead_minutes_sent = CASE WHEN $9 THEN '{}' ELSE reminder_lead_minutes_sent END,
+       confirmation_request_sent_at = CASE WHEN $9 THEN NULL ELSE confirmation_request_sent_at END,
        appointment_type_id = $10, appointment_type_name = $11, guest_emails = $12,
        updated_at = now()
      WHERE appointment_id = $1`,
@@ -768,7 +872,10 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
     // self-service reschedule already sends, or they'll show up at the old slot.
     if (timeChanged && updated) {
       if (updated.notify_client) {
-        await notifyAppointment({ ...updated, client_name: updated.linked_client_name }, "Appointment Confirmation", req.user!.email, req);
+        await notifyAppointment(
+          { ...updated, client_name: updated.linked_client_name, previous_start_time: existing.start_time },
+          "Appointment Rescheduled", req.user!.email, req
+        );
       }
       // Staff notification is independent of the client's own notify_client
       // preference — the assigned staff/admins need to know their calendar

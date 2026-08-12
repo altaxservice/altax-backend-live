@@ -444,6 +444,25 @@ publicAppointmentsRouter.post("/manage/:token/cancel", manageLimiter, asyncHandl
   res.json({ ok: true });
 }));
 
+/**
+ * The client's response to the 24h-before "please confirm" ask
+ * (runAppointmentConfirmationRequests) — just a timestamp write, no status
+ * change (the appointment is already Scheduled and stays that way). Mirrors
+ * the cancel handler's shape exactly. Idempotent: re-confirming just
+ * overwrites client_confirmed_at with a later timestamp, no error.
+ */
+publicAppointmentsRouter.post("/manage/:token/confirm", manageLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const appt = await findManageableAppointment(req.params.token);
+  if (!appt) return res.status(404).json({ error: "Appointment not found." });
+  if (appt.status !== "Scheduled") return res.status(400).json({ error: "This appointment is no longer active." });
+  if (new Date(appt.start_time).getTime() <= Date.now()) return res.status(400).json({ error: "This appointment has already passed." });
+
+  await query(`UPDATE altax.v3_appointments SET client_confirmed_at = now() WHERE appointment_id = $1`, [appt.appointment_id]);
+  await logAudit("Calendar", "CONFIRM_APPOINTMENT", appt.appointment_id, "", "", "Confirmed",
+    `Appointment "${appt.title}" confirmed by the client via the manage-appointment link.`, "Public Manage Link");
+  res.json({ ok: true });
+}));
+
 publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncHandler(async (req: Request, res: Response) => {
   const appt = await findManageableAppointment(req.params.token);
   if (!appt) return res.status(404).json({ error: "Appointment not found." });
@@ -477,8 +496,12 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
         [appt.appointment_id, paddedStart, paddedEnd]
       );
       if (clash.length) throw new Error("__clash__");
+      // Both reminder trackers reset — the new time needs its own fresh 24h-before
+      // confirmation ask and lead-time reminders, not whatever had already fired
+      // for the old slot.
       await query(
-        `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL, reminder_lead_minutes_sent = '{}', updated_at = now() WHERE appointment_id = $1`,
+        `UPDATE altax.v3_appointments SET start_time = $2, end_time = $3, reminder_sent_at = NULL,
+           reminder_lead_minutes_sent = '{}', confirmation_request_sent_at = NULL, updated_at = now() WHERE appointment_id = $1`,
         [appt.appointment_id, startTime, endTime]
       );
     });
@@ -493,7 +516,7 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
 
   const updated = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appt.appointment_id]);
   try {
-    await notifyAppointment({ ...updated, client_name: appt.client_name }, "Appointment Confirmation", "Public Manage Link", req);
+    await notifyAppointment({ ...updated, client_name: appt.client_name, previous_start_time: appt.start_time }, "Appointment Rescheduled", "Public Manage Link", req);
   } catch {
     // Best-effort — the reschedule itself already succeeded and is logged above.
   }

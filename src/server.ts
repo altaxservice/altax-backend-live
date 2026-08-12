@@ -38,7 +38,7 @@ import { publicContactRouter } from "./modules/publicContact/publicContact.route
 import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
-import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete } from "./modules/appointments/appointments.routes";
+import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete, runAppointmentConfirmationRequests } from "./modules/appointments/appointments.routes";
 import { runWeeklyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
@@ -355,6 +355,18 @@ cron.schedule("5 * * * *", () => {
 });
 // eslint-disable-next-line no-console
 console.log("Appointment auto-complete scheduled hourly.");
+
+// "Please confirm your appointment" — fixed 24-hours-before ask, offset 10
+// minutes past the hour so it doesn't hit the DB alongside the two sweeps
+// above. Not tied to Calendar Settings' reminderLeadMinutes (see
+// runAppointmentConfirmationRequests's doc comment) — always runs.
+cron.schedule("10 * * * *", () => {
+  runAppointmentConfirmationRequests("System (Appointment Confirmation Request Job)").catch((err) => {
+    alertAdmins("Appointment confirmation-request job failed", err instanceof Error ? (err.stack || err.message) : String(err));
+  });
+});
+// eslint-disable-next-line no-console
+console.log("Appointment confirmation requests scheduled hourly.");
 
 // Daily recurring-billing sweep — previously this only ran when a staff member
 // remembered to click "Run Recurring Billing," so a forgotten click meant a late

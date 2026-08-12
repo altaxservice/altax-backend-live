@@ -144,6 +144,7 @@ export function substitutePlaceholders(text: string, client: any | null, extra?:
   const blankable = new Set([
     "{{periodLabel}}", "{{periodLabelAr}}", "{{periodSummary}}", "{{periodSummaryAr}}",
     "{{appointmentLocation}}", "{{appointmentLocationAr}}",
+    "{{previousDate}}", "{{previousTime}}",
   ]);
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     const value = values[key];

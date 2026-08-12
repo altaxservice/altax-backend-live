@@ -505,6 +505,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const whenEl = document.getElementById('manage-when');
     const statusEl = document.getElementById('manage-form-status');
     const actionsEl = document.getElementById('manage-actions');
+    const confirmBtn = document.getElementById('manage-confirm-btn');
+    const confirmedNoteEl = document.getElementById('manage-confirmed-note');
     const cancelBtn = document.getElementById('manage-cancel-btn');
     const rescheduleBtn = document.getElementById('manage-reschedule-btn');
     const reschedulePanel = document.getElementById('manage-reschedule-panel');
@@ -553,6 +555,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     loadAppointment();
+
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      try {
+        const res = await fetch('/public/appointments/manage/' + encodeURIComponent(token) + '/confirm', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        if (confirmedNoteEl) confirmedNoteEl.style.display = 'block';
+      } catch (err) {
+        showStatus('error', (err && err.message) || t('manage.errorMessage') || 'Something went wrong. Please try again, or call us directly.');
+      } finally {
+        confirmBtn.disabled = false;
+      }
+    });
 
     cancelBtn.addEventListener('click', async () => {
       if (!window.confirm(t('manage.confirmCancel') || 'Cancel this appointment?')) return;
