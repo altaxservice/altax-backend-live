@@ -406,7 +406,7 @@ const TRANSLATIONS = {
   "manage.notFoundHeading": { en: "We couldn't find that appointment", ar: "لم نتمكن من العثور على هذا الموعد" },
   "manage.notFoundBody": { en: "This link may have expired or the appointment may already be gone. Please contact us directly if you need help.", ar: "قد يكون هذا الرابط منتهي الصلاحية أو أن الموعد لم يعد موجودًا. يرجى التواصل معنا مباشرة إذا احتجتم للمساعدة." },
   "manage.eyebrow": { en: "Manage Your Appointment", ar: "إدارة موعدكم" },
-  "manage.confirmBtn": { en: "Yes, I'll Be There", ar: "نعم، سأحضر" },
+  "manage.confirmBtn": { en: "Confirm Your Appointment", ar: "تأكيد الموعد" },
   "manage.confirmedNote": { en: "You're confirmed — see you then!", ar: "تم تأكيد حضوركم — نراكم قريبًا!" },
   "manage.cancelBtn": { en: "Cancel Appointment", ar: "إلغاء الموعد" },
   "manage.rescheduleBtn": { en: "Reschedule", ar: "إعادة الجدولة" },
