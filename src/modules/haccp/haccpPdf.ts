@@ -170,14 +170,20 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   if (addressParts.length) { c.text(L, leftY, addressParts.join(" — "), { size: 9.5 }); leftY += 14; }
   if (data.licenseNumber) { c.text(L, leftY, `License/Permit #: ${data.licenseNumber}`, { size: 9.5 }); leftY += 14; }
 
+  // Left-aligned at a fixed X (not right-aligned) — right-aligning each line
+  // gave every line a different starting position depending on its own
+  // length ("Risk Priority: Moderate" vs "Jurisdiction: Baltimore City"),
+  // which read as a ragged, hard-to-scan block. A shared left edge reads
+  // normally, left to right, like the rest of the page.
+  const metaX = R - 175;
   let rightY = blockTop + 4;
-  c.text(R, rightY, `Risk Priority: ${data.riskPriority}`, { size: 9.5, bold: true, color: TEAL, align: "right" });
+  c.text(metaX, rightY, `Risk Priority: ${data.riskPriority}`, { size: 9.5, bold: true, color: TEAL });
   rightY += 14;
-  c.text(R, rightY, `Jurisdiction: ${data.jurisdiction}`, { size: 9.5, align: "right" });
+  c.text(metaX, rightY, `Jurisdiction: ${data.jurisdiction}`, { size: 9.5 });
   rightY += 14;
-  c.text(R, rightY, `Prepared: ${fmtDate(data.createdAt)}`, { size: 9.5, align: "right" });
+  c.text(metaX, rightY, `Prepared: ${fmtDate(data.createdAt)}`, { size: 9.5 });
   rightY += 14;
-  c.text(R, rightY, `Plan ID: ${data.planId}`, { size: 8, color: MUTED, align: "right" });
+  c.text(metaX, rightY, `Plan ID: ${data.planId}`, { size: 8, color: MUTED });
   rightY += 14;
 
   y = Math.max(leftY, rightY) + 12;
