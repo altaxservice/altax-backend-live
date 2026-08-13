@@ -1043,6 +1043,10 @@ CREATE INDEX IF NOT EXISTS idx_v3_haccp_plans_business_type_key ON v3_haccp_plan
 -- TABLE IF NOT EXISTS above is a no-op once the table exists, so re-running
 -- the file alone wouldn't add this column to an already-created table).
 ALTER TABLE v3_haccp_plans ADD COLUMN IF NOT EXISTS license_application_data JSONB NOT NULL DEFAULT '{}';
+-- Distinct from license_application_data->officerTitle (the owner's role) and
+-- from contact_person (day-to-day contact, not necessarily the legal owner) —
+-- see sql/064_haccp_officer_owner_name.sql.
+ALTER TABLE v3_haccp_plans ADD COLUMN IF NOT EXISTS officer_owner_name VARCHAR(255);
 
 -- priority: Task creation had no priority field despite the rest of the app
 -- (requests, system options) already having a Normal/Low/High/Urgent concept.

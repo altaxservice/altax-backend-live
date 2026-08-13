@@ -167,6 +167,7 @@ interface PlanInput {
   businessName: string; businessTypeKey: string; jurisdiction: string;
   streetAddress?: string; city?: string; state?: string; zipCode?: string;
   phone?: string; email?: string; contactPerson?: string; licenseNumber?: string;
+  officerOwnerName?: string;
   clientId?: string | null; selectedMenuItems: string[]; selectedEquipment: EquipmentSelection[];
   licenseApplicationData: LicenseApplicationData;
 }
@@ -287,6 +288,7 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
     email: String(body.email || "").trim() || undefined,
     contactPerson: String(body.contactPerson || "").trim() || undefined,
     licenseNumber: String(body.licenseNumber || "").trim() || undefined,
+    officerOwnerName: String(body.officerOwnerName || "").trim() || undefined,
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : [],
     selectedEquipment: parseEquipmentSelection(body.selectedEquipment),
@@ -300,12 +302,12 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
   await query(
     `INSERT INTO altax.v3_haccp_plans
        (plan_id, client_id, business_name, business_type_key, jurisdiction, street_address, city, state, zip_code,
-        phone, email, contact_person, license_number, selected_menu_items, selected_equipment, rendered_body,
+        phone, email, contact_person, license_number, officer_owner_name, selected_menu_items, selected_equipment, rendered_body,
         license_application_data, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
     [planId, clientId, businessName, businessTypeKey, input.jurisdiction, input.streetAddress || null, input.city || null,
      input.state || null, input.zipCode || null, input.phone || null, input.email || null, input.contactPerson || null,
-     input.licenseNumber || null, JSON.stringify(input.selectedMenuItems), JSON.stringify(input.selectedEquipment),
+     input.licenseNumber || null, input.officerOwnerName || null, JSON.stringify(input.selectedMenuItems), JSON.stringify(input.selectedEquipment),
      rendered.renderedBody, JSON.stringify(input.licenseApplicationData), req.user!.email]
   );
   await logAudit("Haccp", "GENERATE", planId, "business_type_key", "", businessTypeKey,
@@ -338,6 +340,7 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
     email: String(body.email ?? existing.email ?? "").trim() || undefined,
     contactPerson: String(body.contactPerson ?? existing.contact_person ?? "").trim() || undefined,
     licenseNumber: String(body.licenseNumber ?? existing.license_number ?? "").trim() || undefined,
+    officerOwnerName: String(body.officerOwnerName ?? existing.officer_owner_name ?? "").trim() || undefined,
     clientId,
     selectedMenuItems: Array.isArray(body.selectedMenuItems) ? body.selectedMenuItems.map(String) : existing.selected_menu_items || [],
     selectedEquipment: body.selectedEquipment !== undefined ? parseEquipmentSelection(body.selectedEquipment) : parseEquipmentSelection(existing.selected_equipment),
@@ -350,12 +353,12 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
   await query(
     `UPDATE altax.v3_haccp_plans SET
        client_id=$2, business_name=$3, business_type_key=$4, jurisdiction=$5, street_address=$6, city=$7, state=$8,
-       zip_code=$9, phone=$10, email=$11, contact_person=$12, license_number=$13, selected_menu_items=$14,
-       selected_equipment=$15, rendered_body=$16, license_application_data=$17, updated_at=now()
+       zip_code=$9, phone=$10, email=$11, contact_person=$12, license_number=$13, officer_owner_name=$14, selected_menu_items=$15,
+       selected_equipment=$16, rendered_body=$17, license_application_data=$18, updated_at=now()
      WHERE plan_id=$1`,
     [req.params.planId, clientId, businessName, businessTypeKey, input.jurisdiction, input.streetAddress || null,
      input.city || null, input.state || null, input.zipCode || null, input.phone || null, input.email || null,
-     input.contactPerson || null, input.licenseNumber || null, JSON.stringify(input.selectedMenuItems),
+     input.contactPerson || null, input.licenseNumber || null, input.officerOwnerName || null, JSON.stringify(input.selectedMenuItems),
      JSON.stringify(input.selectedEquipment), rendered.renderedBody, JSON.stringify(input.licenseApplicationData)]
   );
   await logAudit("Haccp", "REGENERATE", req.params.planId, "business_type_key", existing.business_type_key, businessTypeKey,
@@ -409,7 +412,7 @@ function toLicensePdfInput(plan: any) {
     businessTypeLabel: HACCP_BUSINESS_TYPE_LABEL[plan.business_type_key] || plan.business_type_key,
     riskPriority: businessType?.riskPriority || ("Moderate" as const),
     streetAddress: plan.street_address, city: plan.city, state: plan.state, zipCode: plan.zip_code,
-    phone: plan.phone, email: plan.email, contactPerson: plan.contact_person,
+    phone: plan.phone, email: plan.email, contactPerson: plan.contact_person, officerOwnerName: plan.officer_owner_name,
     applicationData: (plan.license_application_data || {}) as LicenseApplicationData,
   };
 }

@@ -104,6 +104,13 @@ export interface LicensePdfInput {
   phone?: string | null;
   email?: string | null;
   contactPerson?: string | null;
+  /**
+   * The legal owner/officer's name — what these forms' real "Owner" /
+   * "Applicant's Name" fields are asking for. Falls back to contactPerson
+   * below only for plans saved before this field existed, so an old plan's
+   * PDF doesn't suddenly render blank; new plans should always set it.
+   */
+  officerOwnerName?: string | null;
   applicationData: LicenseApplicationData;
 }
 
@@ -124,11 +131,12 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
   out.addPage(p1);
   out.addPage(p2);
   const app = data.applicationData || {};
+  const ownerName = data.officerOwnerName || data.contactPerson || "";
 
   const c1 = new Cursor(p1, font, bold, PAGE_H);
   const cityStateZip = [data.city, data.state].filter(Boolean).join(", ");
   c1.text(150, 220, data.businessName, { size: 10 });
-  c1.text(175, 247, data.contactPerson || "", { size: 10 });
+  c1.text(175, 247, ownerName, { size: 10 });
   c1.text(378, 247, app.officerTitle || "", { size: 10 });
   c1.text(122, 274, app.tradeName || "", { size: 10 });
   c1.text(150, 301, [data.streetAddress, cityStateZip].filter(Boolean).join(", "), { size: 10 });
@@ -156,7 +164,7 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
     c2.text(400, 338, app.tobaccoLicenseNumber || "", { size: 9 });
   }
   c2.text(469, 602, app.officerTitle || "", { size: 10 });
-  c2.text(190, 624, data.contactPerson || "", { size: 10 });
+  c2.text(190, 624, ownerName, { size: 10 });
 
   return out.save();
 }
@@ -177,6 +185,7 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   const [p1] = await out.copyPages(template, [0]);
   out.addPage(p1);
   const app = data.applicationData || {};
+  const ownerName = data.officerOwnerName || data.contactPerson || "";
   const c = new Cursor(p1, font, bold, PAGE_H);
 
   const cityStateZip = [data.city, data.state].filter(Boolean).join(", ");
@@ -191,7 +200,7 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   if (app.ownerEntityType && entityCheckboxCenters[app.ownerEntityType] !== undefined) {
     c.text(entityCheckboxCenters[app.ownerEntityType], 258, "X", { size: 9, bold: true, color: TEAL, align: "center" });
   }
-  c.text(84, 277, data.contactPerson || "", { size: 10 });
+  c.text(84, 277, ownerName, { size: 10 });
   c.text(97, 299, app.ownerHomeStreet || "", { size: 10 });
   c.text(385, 299, app.ownerHomeCity || "", { size: 10 });
   c.text(523, 299, app.ownerHomeZip || "", { size: 10 });
@@ -212,7 +221,7 @@ export async function generatePlanReviewApplicationPdf(data: LicensePdfInput): P
   }
 
   c.text(469, 649, app.officerTitle || "", { size: 10 });
-  c.text(167, 684, data.contactPerson || "", { size: 10 });
+  c.text(167, 684, ownerName, { size: 10 });
 
   return out.save();
 }
@@ -239,6 +248,7 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
 
   const doc = await loadHealthFormTemplate("baltimore_county_food_service_permit_application.pdf");
   const cityStateZip = data.state || "MD";
+  const ownerName = data.officerOwnerName || data.contactPerson || "";
 
   const values: Record<string, string> = {
     "Trade Name": data.businessName,
@@ -259,13 +269,13 @@ export async function generateCountyFoodServicePermitApplicationPdf(data: Licens
     "Days of Operation": county.daysOfOperation || "",
     "Hours of Operation": county.hoursOfOperation || "",
     "Text1": county.numberOfEmployees || "",
-    "Owner": data.contactPerson || "",
+    "Owner": ownerName,
     "Zip Code_2": app.ownerHomeZip || "",
     "Address_2": [app.ownerHomeStreet, app.ownerHomeCity].filter(Boolean).join(", "),
     "Telephone_2": app.ownerHomePhone || "",
     "Resident Agent": county.residentAgentName || "",
     "Telephone_3": county.residentAgentPhone || "",
-    "Applicants Name": data.contactPerson || "",
+    "Applicants Name": ownerName,
     "Telephone_4": data.phone || "",
   };
   const managerFieldNames = [

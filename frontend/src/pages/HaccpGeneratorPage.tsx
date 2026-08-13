@@ -38,7 +38,7 @@ interface LicenseApplicationData {
 }
 interface HaccpPlanDetail extends HaccpPlanRow {
   street_address: string | null; zip_code: string | null; phone: string | null; email: string | null;
-  contact_person: string | null; license_number: string | null;
+  contact_person: string | null; license_number: string | null; officer_owner_name: string | null;
   selected_menu_items: string[]; selected_equipment: EquipmentSelection[]; rendered_body: string;
   license_application_data: LicenseApplicationData | null;
 }
@@ -47,7 +47,7 @@ const JURISDICTIONS = ["Baltimore City", "Baltimore County"];
 
 const EMPTY_FORM = {
   planId: "" as string, businessName: "", businessTypeKey: "", jurisdiction: "Baltimore City",
-  street: "", city: "", zip: "", phone: "", email: "", contactPerson: "", licenseNumber: "", clientId: "",
+  street: "", city: "", zip: "", phone: "", email: "", contactPerson: "", licenseNumber: "", officerOwnerName: "", clientId: "",
 };
 
 const EMPTY_LICENSE_FORM: LicenseApplicationData = {
@@ -189,7 +189,7 @@ export function HaccpGeneratorPage() {
       planId: plan.plan_id, businessName: plan.business_name, businessTypeKey: plan.business_type_key,
       jurisdiction: plan.jurisdiction, street: plan.street_address || "", city: plan.city || "", zip: plan.zip_code || "",
       phone: plan.phone || "", email: plan.email || "", contactPerson: plan.contact_person || "",
-      licenseNumber: plan.license_number || "", clientId: plan.client_id || "",
+      licenseNumber: plan.license_number || "", officerOwnerName: plan.officer_owner_name || "", clientId: plan.client_id || "",
     });
     setSelectedMenu(new Set(plan.selected_menu_items || []));
     setSelectedEquipment(plan.selected_equipment || []);
@@ -234,6 +234,7 @@ export function HaccpGeneratorPage() {
       businessName: form.businessName.trim(), businessTypeKey: form.businessTypeKey, jurisdiction: form.jurisdiction,
       streetAddress: form.street, city: form.city, state: "MD", zipCode: form.zip,
       phone: form.phone, email: form.email, contactPerson: form.contactPerson, licenseNumber: form.licenseNumber,
+      officerOwnerName: form.officerOwnerName,
       clientId: form.clientId || null,
       selectedMenuItems: Array.from(selectedMenu), selectedEquipment,
       licenseApplicationData: licenseForm,
@@ -489,8 +490,11 @@ export function HaccpGeneratorPage() {
               : "Fills the Baltimore City Food Facility License Application and Plan Review Application — together with the HACCP plan above, these three documents are the whole submission package."}
           </p>
           <div className="form-grid-3">
+            <div className="field"><label htmlFor="hp-officer-name">Officer/Owner Name</label><input id="hp-officer-name" value={form.officerOwnerName} onChange={(e) => setForm((f) => ({ ...f, officerOwnerName: e.target.value }))} placeholder="Legal name — fills every form's Owner/Applicant field" /></div>
             <div className="field"><label htmlFor="hp-officer-title">Officer/Owner Title</label><input id="hp-officer-title" value={licenseForm.officerTitle} onChange={(e) => setLicenseForm((f) => ({ ...f, officerTitle: e.target.value }))} placeholder="e.g. Owner" /></div>
             <div className="field"><label htmlFor="hp-trade-name">Trade Name (DBA)</label><input id="hp-trade-name" value={licenseForm.tradeName} onChange={(e) => setLicenseForm((f) => ({ ...f, tradeName: e.target.value }))} placeholder="Optional" /></div>
+          </div>
+          <div className="form-grid-3">
             <div className="field">
               <label htmlFor="hp-entity-type">Owner Entity Type</label>
               <select id="hp-entity-type" value={licenseForm.ownerEntityType} onChange={(e) => setLicenseForm((f) => ({ ...f, ownerEntityType: e.target.value as LicenseApplicationData["ownerEntityType"] }))}>
