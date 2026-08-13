@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
-import { logAudit } from "../../common/audit";
+import { logAudit, logClientActivity } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { encryptValue } from "../../common/encryption";
@@ -312,6 +312,9 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
   );
   await logAudit("Haccp", "GENERATE", planId, "business_type_key", "", businessTypeKey,
     `HACCP plan generated for ${businessName} by ${req.user!.email}.`, req.user!.email);
+  if (clientId) {
+    await logClientActivity(clientId, "Health Permit Application Created", `"${businessName}" (${input.jurisdiction}) started by ${req.user!.email}.`, req.user!.email);
+  }
 
   res.status(201).json({ ok: true, planId });
 }));
@@ -363,6 +366,9 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
   );
   await logAudit("Haccp", "REGENERATE", req.params.planId, "business_type_key", existing.business_type_key, businessTypeKey,
     `HACCP plan updated/regenerated for ${businessName} by ${req.user!.email}.`, req.user!.email);
+  if (clientId) {
+    await logClientActivity(clientId, "Health Permit Application Updated", `"${businessName}" updated by ${req.user!.email}.`, req.user!.email);
+  }
 
   res.json({ ok: true, planId: req.params.planId });
 }));
@@ -376,6 +382,9 @@ haccpRouter.post("/plans/:planId/delete", requireAuth, requireRole("admin"), asy
   await query(`DELETE FROM altax.v3_haccp_plans WHERE plan_id = $1`, [req.params.planId]);
   await logAudit("Haccp", "DELETE", req.params.planId, "business_name", existing.business_name, "",
     `HACCP plan for ${existing.business_name} deleted by ${req.user!.email}.`, req.user!.email);
+  if (existing.client_id) {
+    await logClientActivity(existing.client_id, "Health Permit Application Deleted", `"${existing.business_name}" deleted by ${req.user!.email}.`, req.user!.email);
+  }
 
   res.json({ ok: true });
 }));
@@ -518,6 +527,7 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
 
   await logAudit("Haccp", "SAVE_TO_DOCUMENTS", plan.plan_id, "client_id", "", plan.client_id,
     `HACCP package (3 PDFs) saved to Documents for ${plan.business_name} by ${req.user!.email}.`, req.user!.email);
+  await logClientActivity(plan.client_id, "Health Permit Documents Generated", `HACCP plan package (3 PDFs) saved to Documents for "${plan.business_name}" by ${req.user!.email}.`, req.user!.email);
 
   res.status(201).json({ ok: true, uploadIds });
 }));
