@@ -198,6 +198,65 @@ tasksRouter.get("/", requireAuth, asyncHandler(async (req: AuthedRequest, res: R
   res.json({ tasks: rows });
 }));
 
+/**
+ * UX-010 (Hard Audit, 2026-08-13) — clients previously had zero visibility
+ * into the actual work being done for them (only documents/invoices were
+ * exposed); every task route was admin/staff-only. Read-only, minimal-field
+ * view: no internal notes, confirmation numbers, portal credentials, or
+ * assigned-staff names — a client doesn't need to know who's handling it,
+ * just what's being done and where it stands. Status is translated into one
+ * of a handful of client-friendly buckets server-side so the 17 internal
+ * statuses (see TASK_STATUSES in TaskCells.tsx) never leak into the client UI,
+ * and both this route and any future client-facing consumer stay consistent.
+ * Must be registered before GET /:taskId or Express would match "mine" as a
+ * task_id instead.
+ */
+function clientFriendlyStatus(status: unknown): { label: string; tone: "open" | "waiting" | "review" | "done" } {
+  const s = String(status || "").trim().toLowerCase();
+  if (["completed", "closed", "archived"].includes(s)) return { label: "Completed", tone: "done" };
+  if (["waiting docs", "waiting on client", "pending", "additional information required"].includes(s)) {
+    return { label: "Waiting on You", tone: "waiting" };
+  }
+  if (["submitted", "in review", "inspection phase", "fee due", "approved"].includes(s)) {
+    return { label: "Submitted / Under Review", tone: "review" };
+  }
+  if (s === "not started") return { label: "Not Started Yet", tone: "open" };
+  return { label: "In Progress", tone: "open" };
+}
+
+tasksRouter.get("/mine", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = req.user!.clientId;
+  if (!clientId) return res.json({ active: [], recentlyCompleted: [] });
+
+  const activeRows = await query<any>(
+    `SELECT task_id, service_line, task_name, period, status, agency_due_date
+       FROM altax.v3_tasks
+      WHERE client_id = $1 AND lower(status) != 'void'
+      ORDER BY agency_due_date ASC NULLS LAST`,
+    [clientId]
+  );
+  const completedRows = await query<any>(
+    `SELECT task_id, service_line, task_name, period, status, agency_due_date, archived_at AS completed_at
+       FROM altax.v3_archived_tasks
+      WHERE client_id = $1 AND lower(status) = 'completed' AND archived_at > now() - interval '180 days'
+      ORDER BY archived_at DESC
+      LIMIT 15`,
+    [clientId]
+  );
+
+  const shape = (r: any) => ({
+    taskId: r.task_id,
+    serviceLine: r.service_line,
+    taskName: r.task_name,
+    period: r.period,
+    agencyDueDate: r.agency_due_date,
+    completedAt: r.completed_at || null,
+    ...clientFriendlyStatus(r.status),
+  });
+
+  res.json({ active: activeRows.map(shape), recentlyCompleted: completedRows.map(shape) });
+}));
+
 /** Single task — access-checked via canAccessTask (see above). */
 tasksRouter.get("/:taskId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { taskId } = req.params;

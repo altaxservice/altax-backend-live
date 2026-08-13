@@ -797,13 +797,67 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   );
 }
 
+interface MyServiceTask {
+  taskId: string;
+  serviceLine: string | null;
+  taskName: string | null;
+  period: string | null;
+  agencyDueDate: string | null;
+  completedAt: string | null;
+  label: string;
+  tone: "open" | "waiting" | "review" | "done";
+}
+
+/** UX-010 — maps the backend's canonical English label to a translation key; see clientFriendlyStatus() in tasks.routes.ts. */
+const SERVICE_STATUS_KEY: Record<string, string> = {
+  "Completed": "task.status.completed",
+  "Waiting on You": "task.status.waitingOnYou",
+  "Submitted / Under Review": "task.status.submittedReview",
+  "Not Started Yet": "task.status.notStarted",
+  "In Progress": "task.status.inProgress",
+};
+const SERVICE_TONE_CLASS: Record<MyServiceTask["tone"], string> = {
+  open: "status-blue", waiting: "status-amber", review: "status-teal", done: "status-green",
+};
+
+/** Read-only — no click-through (client role has no access to /tasks/:id) and no assigned-staff name, unlike the staff-facing TaskRows. */
+function MyServicesRows({ tasks, empty }: { tasks: MyServiceTask[]; empty: string }) {
+  const { t } = useLanguage();
+  if (!tasks.length) return <p className="muted" style={{ padding: 16 }}>{empty}</p>;
+  return (
+    <div className="work-card-list">
+      {tasks.map((task) => (
+        <article className="work-card" key={task.taskId}>
+          <div className="work-card-main">
+            <div className="work-card-title">{task.taskName || task.serviceLine || "Service"}</div>
+            <div className="work-card-meta">
+              {task.serviceLine && <span>{task.serviceLine}</span>}
+              {task.period && <span>{task.period}</span>}
+              {task.completedAt ? (
+                <span>{t("dashboard.client.completedLabel")} {fmtDate(task.completedAt)}</span>
+              ) : (
+                <span>{t("dashboard.client.dueLabel")} {fmtDate(task.agencyDueDate) || "—"}</span>
+              )}
+            </div>
+          </div>
+          <div className="work-card-side">
+            <span className={`status-pill ${SERVICE_TONE_CLASS[task.tone]}`}>{t(SERVICE_STATUS_KEY[task.label] || "task.status.inProgress")}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[]; appointments: MyAppointment[] }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { t, dir, lang } = useLanguage();
   const [notices, setNotices] = useState<AccountNotice[]>([]);
+  const [services, setServices] = useState<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>({ active: [], recentlyCompleted: [] });
   useEffect(() => {
     api.get<{ notices: AccountNotice[] }>("/clients/notices/mine").then((res) => setNotices(res.notices)).catch(() => {});
+    api.get<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>("/tasks/mine").then(setServices).catch(() => {});
   }, []);
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
@@ -871,6 +925,24 @@ function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: Docume
           <div className="metric-value"><Num>{fmtMoney(taxDue)}</Num></div>
           <div className="metric-note"><Num>{unpaidTaxRows.length}</Num> {t("dashboard.client.taxDueLower")}</div>
         </button>
+      </div>
+
+      <div className="command-panel" style={{ marginBottom: 14 }}>
+        <div className="command-panel-header">
+          <div>
+            <h2 className="command-panel-title">{t("dashboard.client.myServices")}</h2>
+            <div className="command-panel-note">{t("dashboard.client.myServicesNote")}</div>
+          </div>
+        </div>
+        <MyServicesRows tasks={services.active} empty={t("dashboard.client.noServices")} />
+        {services.recentlyCompleted.length > 0 && (
+          <>
+            <div className="command-panel-header" style={{ borderTop: "1px solid var(--line)" }}>
+              <div><h2 className="command-panel-title" style={{ fontSize: 13 }}>{t("dashboard.client.recentlyCompleted")}</h2></div>
+            </div>
+            <MyServicesRows tasks={services.recentlyCompleted} empty="" />
+          </>
+        )}
       </div>
 
       {appointments.length > 0 && (

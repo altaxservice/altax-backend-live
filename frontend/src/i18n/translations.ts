@@ -94,6 +94,16 @@ export const translations: Record<string, Record<Lang, string>> = {
   "dashboard.client.accountNotices": { en: "Account Notices", ar: "إشعارات الحساب" },
   "dashboard.client.accountNoticesNote": { en: "Please contact our office to resolve these.", ar: "يرجى التواصل مع مكتبنا لحل هذه البنود." },
   "dashboard.client.dueLabel": { en: "Due", ar: "الاستحقاق" },
+  "dashboard.client.completedLabel": { en: "Completed", ar: "أُنجز في" },
+  "dashboard.client.myServices": { en: "My Services", ar: "خدماتي" },
+  "dashboard.client.myServicesNote": { en: "What we're working on for you", ar: "ما نعمل عليه من أجلك" },
+  "dashboard.client.noServices": { en: "No active engagements right now.", ar: "لا توجد أعمال جارية حالياً." },
+  "dashboard.client.recentlyCompleted": { en: "Recently Completed", ar: "أُنجز مؤخراً" },
+  "task.status.completed": { en: "Completed", ar: "مكتمل" },
+  "task.status.waitingOnYou": { en: "Waiting on You", ar: "بانتظارك" },
+  "task.status.submittedReview": { en: "Submitted / Under Review", ar: "تم التقديم / قيد المراجعة" },
+  "task.status.notStarted": { en: "Not Started Yet", ar: "لم يبدأ بعد" },
+  "task.status.inProgress": { en: "In Progress", ar: "قيد التنفيذ" },
 
   // Documents — client portal
   "documents.client.title": { en: "Documents", ar: "المستندات" },
