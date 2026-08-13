@@ -406,8 +406,10 @@ function ClientValueReportCard({ clientId, clientName }: { clientId: string; cli
   const oneYearAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
   const [from, setFrom] = useState(oneYearAgo);
   const [to, setTo] = useState(today);
+  const rangeInvalid = Boolean(from) && Boolean(to) && from > to;
 
   async function handle(mode: "view" | "download") {
+    if (rangeInvalid) return;
     setBusy(mode);
     const qs = `?from=${from}&to=${to}`;
     try {
@@ -436,10 +438,11 @@ function ClientValueReportCard({ clientId, clientName }: { clientId: string; cli
             <div className="muted" style={{ marginBottom: 2 }}>To</div>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 12 }} />
           </label>
-          <button type="button" className="btn btn-sm" onClick={() => handle("view")} disabled={busy !== null}>{busy === "view" ? "Opening…" : "View Report"}</button>
-          <button type="button" className="btn btn-sm" onClick={() => handle("download")} disabled={busy !== null}>{busy === "download" ? "Downloading…" : "Download PDF"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => handle("view")} disabled={busy !== null || rangeInvalid}>{busy === "view" ? "Opening…" : "View Report"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => handle("download")} disabled={busy !== null || rangeInvalid}>{busy === "download" ? "Downloading…" : "Download PDF"}</button>
         </div>
       </div>
+      {rangeInvalid && <p style={{ color: "var(--red)", fontSize: 11.5, margin: "8px 0 0" }}>The "From" date must be on or before the "To" date.</p>}
     </div>
   );
 }

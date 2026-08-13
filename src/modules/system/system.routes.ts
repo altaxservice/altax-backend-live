@@ -342,9 +342,15 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin"), asyncHandler
   // "warning." The "warning" state exists purely to give a head start: the IRS/state
   // agencies typically publish next year's numbers in November/December, so a heads-up
   // starting in November leaves time to source and verify before it becomes urgent.
-  const now = new Date();
-  const currentTaxYear = now.getFullYear();
-  const isAnnualPrepWindow = now.getMonth() >= 10; // November (10) or December (11)
+  // Every other date-sensitive spot in this codebase (server.ts cron jobs,
+  // appointments.routes.ts) explicitly computes in America/New_York rather
+  // than trusting the process's own local time — this firm is Eastern-time,
+  // and a UTC-hosted server would otherwise flip the November-window and
+  // January-1 cutovers up to 4-5 hours early/late relative to the real
+  // Eastern date.
+  const nowEastern = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const currentTaxYear = nowEastern.getFullYear();
+  const isAnnualPrepWindow = nowEastern.getMonth() >= 10; // November (10) or December (11)
   const neededByTaxYear = isAnnualPrepWindow ? currentTaxYear + 1 : currentTaxYear;
   const withholdingSourcesNote = "Sources: IRS Publication 15-T (federal), MD Comptroller's Central Payroll Bureau withholding memo (Maryland), Virginia Tax's Income Tax Withholding Guide for Employers, DC OTR's individual income tax bracket schedule, and Delaware Division of Revenue's Tax Computation Schedule (from the PIT-EST instructions). Update the bracket constants in src/common/withholdingTables.ts, then bump the WITHHOLDING_TAX_YEAR constant at the top of that file.";
   if (WITHHOLDING_TAX_YEAR < currentTaxYear) {

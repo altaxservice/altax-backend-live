@@ -278,16 +278,28 @@ export function InvoicesListPage() {
   }, [invoices, clientIdFilter, statusFilter, search, clients]);
 
   const filteredSchedules = useMemo(() => {
+    let rows = schedules || [];
+    if (clientIdFilter) rows = rows.filter((s) => s.client_id === clientIdFilter);
     const q = search.trim().toLowerCase();
-    if (!q) return schedules || [];
-    return (schedules || []).filter((s) => [s.client_name, s.description, s.amount].some((v) => String(v || "").toLowerCase().includes(q)));
-  }, [schedules, search]);
+    if (q) rows = rows.filter((s) => [s.client_name, s.description, s.amount].some((v) => String(v || "").toLowerCase().includes(q)));
+    return rows;
+  }, [schedules, clientIdFilter, search]);
 
   const filteredFirmPayments = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return firmPayments || [];
     return (firmPayments || []).filter((p) => [p.payment_id, p.invoice_id, clientName(p.client_id as string), p.actual_amount].some((v) => String(v || "").toLowerCase().includes(q)));
   }, [firmPayments, search, clients]);
+
+  // Shared by the KPI tile below AND the "Client Tax Payment Tracking" table
+  // further down the page — the two used to compute this scoping separately
+  // (the table used raw, unscoped `taxRows`), so the tile's count and the
+  // table's own row count/contents could disagree while a client filter was
+  // active. One computation, used in both places, so they can't drift apart.
+  const scopedTaxRows = useMemo(
+    () => (taxRows || []).filter((r) => !clientIdFilter || r.client_id === clientIdFilter),
+    [taxRows, clientIdFilter]
+  );
 
   const kpis = useMemo(() => {
     // Scoped to the same clientIdFilter as filteredInvoices/filteredFirmPayments
@@ -301,7 +313,6 @@ export function InvoicesListPage() {
     const overdueBalance = overdue.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
     const scopedFirmPayments = (firmPayments || []).filter((p) => !clientIdFilter || p.client_id === clientIdFilter);
     const paidThisPeriod = scopedFirmPayments.reduce((sum, p) => sum + Number(p.actual_amount || 0), 0);
-    const scopedTaxRows = (taxRows || []).filter((r) => !clientIdFilter || r.client_id === clientIdFilter);
     const unpaidTaxRows = scopedTaxRows.filter((r) => !r.paid_date);
     const clientTaxDue = unpaidTaxRows.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
     return {
@@ -310,7 +321,7 @@ export function InvoicesListPage() {
       paidThisPeriod, paidCount: scopedFirmPayments.length,
       clientTaxDue, taxCount: scopedTaxRows.length,
     };
-  }, [invoices, firmPayments, taxRows, clientIdFilter]);
+  }, [invoices, firmPayments, scopedTaxRows, clientIdFilter]);
 
   function handleExport() {
     exportCsv("invoices.csv", [
@@ -584,14 +595,14 @@ export function InvoicesListPage() {
         <div ref={taxTrackingRef} className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>Client Tax Payment Tracking</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{taxRows?.length ?? 0} tax payment rows</span>
+            <span className="muted" style={{ fontSize: 12 }}>{scopedTaxRows.length} tax payment rows</span>
           </div>
           <div style={{ overflowX: "auto" }}>
           <div className="table-scroll">
           <table>
             <thead><tr><th scope="col">Payment / Due</th><th scope="col">Client</th><th scope="col">Related Task</th><th scope="col">Due / Paid</th><th scope="col">Expected</th><th scope="col">Paid</th><th scope="col">Status</th></tr></thead>
             <tbody>
-              {(taxRows || []).map((r) => (
+              {scopedTaxRows.map((r) => (
                 <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
                   <td>{r.task_name}</td>
                   <td className="muted">{r.client_name}</td>
@@ -606,7 +617,7 @@ export function InvoicesListPage() {
           </table>
           </div>
           </div>
-          {(taxRows || []).length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No client tax payment rows for this period.</p>}
+          {scopedTaxRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No client tax payment rows for this period.</p>}
         </div>
       )}
 

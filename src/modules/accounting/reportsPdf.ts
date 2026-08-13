@@ -1127,6 +1127,13 @@ export async function generateClientValueReportPdf(data: ClientValueReportData):
     y += 58;
   }
 
+  // Caps a single section's line count so a busy client's list of hundreds
+  // of tasks/documents can't turn this into an unbounded, silently enormous
+  // PDF — matches the same "cap + say what was dropped" pattern the sibling
+  // since-last-login digest already uses (system.routes.ts's LIMIT 200 +
+  // its "showing the most recent 200" note).
+  const LIST_ITEM_CAP = 150;
+
   async function listSection(title: string, items: ClientValueReportItem[]) {
     await ensureRoom(30);
     y = sectionLabel(c, y, title);
@@ -1135,16 +1142,31 @@ export async function generateClientValueReportPdf(data: ClientValueReportData):
       y += 10;
       return;
     }
-    for (const item of items) {
+    const shown = items.slice(0, LIST_ITEM_CAP);
+    for (const item of shown) {
+      // Reserve room for the right-aligned date on the label's own line —
+      // a long task name/filename that isn't wrapped would otherwise run
+      // past the page margin or straight through the date column.
+      const lines = wrapText(item.label, font, 10, PAGE_W - 96 - 90);
       await ensureRoom(16);
-      c.text(48, y, item.label, { size: 10 });
+      c.text(48, y, lines[0] || "", { size: 10 });
       c.text(PAGE_W - 48, y, fmtDate(item.date), { size: 9, color: MUTED, align: "right" });
       y += 14;
+      for (const line of lines.slice(1)) {
+        await ensureRoom(14);
+        c.text(48, y, line, { size: 10 });
+        y += 14;
+      }
       if (item.detail) {
         await ensureRoom(14);
         c.text(60, y, item.detail, { size: 8.5, color: MUTED });
         y += 12;
       }
+    }
+    if (items.length > shown.length) {
+      await ensureRoom(14);
+      c.text(48, y, `…and ${items.length - shown.length} more not shown.`, { size: 9, color: MUTED });
+      y += 14;
     }
     y += 10;
   }

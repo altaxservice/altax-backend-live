@@ -244,6 +244,13 @@ reportsRouter.get("/pdf/client-value-report/:clientId", requireAuth, requireRole
   const to = String(req.query.to || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
   const fromDefault = (() => { const d = new Date(`${to}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
   const from = String(req.query.from || "").slice(0, 10) || fromDefault;
+  // Without this, a reversed explicit range (e.g. a stale ?from= left over
+  // from a swapped date picker) silently matches zero rows in every query
+  // below — the requester gets a "successful" PDF with all-zero tiles and a
+  // nonsensical period label instead of any indication their range was wrong.
+  if (new Date(`${from}T00:00:00Z`).getTime() > new Date(`${to}T00:00:00Z`).getTime()) {
+    return res.status(400).json({ error: "The \"From\" date must be on or before the \"To\" date." });
+  }
 
   const tasksRows = await query<any>(
     `SELECT task_name, service_line, archived_at FROM altax.v3_archived_tasks

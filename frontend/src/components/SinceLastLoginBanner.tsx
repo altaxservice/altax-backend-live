@@ -37,9 +37,15 @@ function fmtAction(action: string): string {
 // listed here are the ones confirmed to carry the ID a detail route expects;
 // anything else in that module falls back to the module's list/section page
 // instead of guessing and risking a broken link.
-const CLIENT_ID_ACTIONS = new Set(["LOG_ACTIVITY", "DELETE_ACTIVITY", "SWOT_FINDINGS_SWEEP"]);
+// LOG_ACTIVITY/DELETE_ACTIVITY (clients.routes.ts) record_id is an activity_id;
+// SWOT_FINDINGS_SWEEP uses the literal "Firm"; OWNERSHIP_TRANSFER_CREATED/
+// EDITED/DELETED (ownershipTransfer.routes.ts) record_id is a transfer_id.
+const CLIENT_NON_ID_ACTIONS = new Set(["LOG_ACTIVITY", "DELETE_ACTIVITY", "SWOT_FINDINGS_SWEEP", "OWNERSHIP_TRANSFER_CREATED", "OWNERSHIP_TRANSFER_EDITED", "OWNERSHIP_TRANSFER_DELETED"]);
 const EMPLOYEE_NON_ID_ACTIONS = new Set(["IMPORT"]);
-const INVOICE_ID_ACTIONS = new Set(["CREATE_INVOICE", "CREATE_INVOICE_FROM_TIME", "EDIT_INVOICE", "VOID_INVOICE", "DELETE_INVOICE", "SEND_INVOICE", "CREATE_SHARE_LINK", "CREATE_SALES_RECEIPT"]);
+// BATCH_CREATE/TASK_RULES_AGENT_APPROVE/TASK_RULES_AGENT_DISMISS (rules.routes.ts,
+// the Task Rules Agent's own daily sweep) log a batch/draft id, not a task_id.
+const TASK_NON_ID_ACTIONS = new Set(["BATCH_CREATE", "TASK_RULES_AGENT_APPROVE", "TASK_RULES_AGENT_DISMISS"]);
+const INVOICE_ID_ACTIONS = new Set(["CREATE_INVOICE", "CREATE_INVOICE_FROM_TIME", "EDIT_INVOICE", "VOID_INVOICE", "DELETE_INVOICE", "SEND_INVOICE", "CREATE_SHARE_LINK", "CREATE_SALES_RECEIPT", "REVERSE_PAYMENT"]);
 
 /** Where a given event should take you — a specific record when the module/action
  * pairing is known to carry that record's real ID, otherwise that module's own
@@ -47,8 +53,8 @@ const INVOICE_ID_ACTIONS = new Set(["CREATE_INVOICE", "CREATE_INVOICE_FROM_TIME"
  * only for modules with no corresponding page at all. */
 function hrefForEvent(e: ActivityEvent): string | null {
   switch (e.module) {
-    case "Tasks": return e.recordId ? `/tasks/${e.recordId}` : "/tasks";
-    case "Clients": return e.recordId && !CLIENT_ID_ACTIONS.has(e.action) ? `/clients/${e.recordId}` : "/clients";
+    case "Tasks": return e.recordId && !TASK_NON_ID_ACTIONS.has(e.action) ? `/tasks/${e.recordId}` : "/tasks";
+    case "Clients": return e.recordId && !CLIENT_NON_ID_ACTIONS.has(e.action) ? `/clients/${e.recordId}` : "/clients";
     case "Employees": return e.recordId && !EMPLOYEE_NON_ID_ACTIONS.has(e.action) ? `/employees/${e.recordId}` : "/accounting";
     case "Contractors": return "/accounting";
     case "Billing": return e.recordId && INVOICE_ID_ACTIONS.has(e.action) ? `/billing/${e.recordId}` : "/billing";
