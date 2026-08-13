@@ -6,7 +6,10 @@ import { sendEmail } from "./notifications";
 import { getFirmProfile } from "./firmProfile";
 
 /**
- * Weekly automatic backup, encrypted and emailed to the firm's admins.
+ * Daily automatic backup, encrypted and emailed to the firm's admins. Was
+ * weekly (up to 6 days of data-loss exposure combined with the DB provider's
+ * short point-in-time-recovery window) — the job itself is cheap, so there
+ * was no real reason not to run it every day instead.
  *
  * The manual Download Full Backup button only helps if someone remembers to
  * click it; this removes the remembering. The mailbox becomes the offsite copy,
@@ -107,7 +110,7 @@ async function backupRecipients(): Promise<string[]> {
   return firm?.email ? [String(firm.email)] : [];
 }
 
-export async function runWeeklyBackupEmail(trigger: string): Promise<{ sentTo: string[]; totalRows: number; sizeKb: number }> {
+export async function runDailyBackupEmail(trigger: string): Promise<{ sentTo: string[]; totalRows: number; sizeKb: number }> {
   const recipients = await backupRecipients();
   if (recipients.length === 0) throw new Error("No admin email on file to send the backup to.");
 
@@ -120,9 +123,9 @@ export async function runWeeklyBackupEmail(trigger: string): Promise<{ sentTo: s
   for (const to of recipients) {
     await sendEmail({
       to,
-      subject: `AL TAX Nexus weekly backup — ${stamp}`,
+      subject: `AL TAX Nexus daily backup — ${stamp}`,
       html: `
-        <p>Attached is this week's encrypted backup of AL TAX Nexus: <strong>${totalRows.toLocaleString()} records across ${tableCount} tables</strong> (${sizeKb} KB).</p>
+        <p>Attached is today's encrypted backup of AL TAX Nexus: <strong>${totalRows.toLocaleString()} records across ${tableCount} tables</strong> (${sizeKb} KB).</p>
         <p>To restore it, open <strong>Security &rarr; Backup &amp; Restore</strong>, choose this file, and type RESTORE. The server decrypts it automatically — no password to enter.</p>
         <p style="color:#888;font-size:12px">The attachment is AES-256 encrypted; it cannot be read without the server's backup key. Keep a copy of that key (BACKUP_PASSPHRASE or VAULT_MASTER_KEY from the server settings) somewhere safe offline — it is what makes every backup readable.</p>`,
       attachments: [{ filename, content: Buffer.from(encrypted, "utf8"), contentType: "application/octet-stream" }],
@@ -130,7 +133,7 @@ export async function runWeeklyBackupEmail(trigger: string): Promise<{ sentTo: s
   }
 
   await logAudit("System", "AUTO_BACKUP_EMAILED", "", "", "", String(totalRows),
-    `Encrypted weekly backup (${totalRows} rows, ${sizeKb} KB) emailed to ${recipients.join(", ")} — ${trigger}.`,
+    `Encrypted daily backup (${totalRows} rows, ${sizeKb} KB) emailed to ${recipients.join(", ")} — ${trigger}.`,
     trigger);
   return { sentTo: recipients, totalRows, sizeKb };
 }

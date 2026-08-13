@@ -535,35 +535,53 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
   const cc = parseEmailList(body.cc);
   const bcc = parseEmailList(body.bcc);
 
+  const clientName = await getClientName(invoice.client_id);
   const results: { channel: string; ok: boolean; error?: string }[] = [];
   for (const channel of channels) {
+    let ok = false, error: string | undefined, providerMessageId: string | null = null, sentTo = "";
     try {
       if (channel === "email") {
-        const to = String(body.email || "").trim();
-        if (!to) throw new Error("No email address provided.");
-        await sendEmail({
-          to, cc, bcc, subject,
+        sentTo = String(body.email || "").trim();
+        if (!sentTo) throw new Error("No email address provided.");
+        const result = await sendEmail({
+          to: sentTo, cc, bcc, subject,
           html: await invoiceEmailHtml({
             message, invoiceId: invoice.invoice_id, invoiceDate: invoice.invoice_date,
             dueDate: invoice.due_date, balanceDue: Number(invoice.balance_due), req,
           }),
           attachments: [{ filename: `Invoice_${invoice.invoice_id}.pdf`, content: Buffer.from(built!.pdfBytes) }],
         });
+        providerMessageId = result.providerMessageId;
       } else if (channel === "sms") {
-        const to = String(body.phone || "").trim();
-        if (!to) throw new Error("No phone number provided.");
-        await sendSms({ to, body: message });
+        sentTo = String(body.phone || "").trim();
+        if (!sentTo) throw new Error("No phone number provided.");
+        const result = await sendSms({ to: sentTo, body: message });
+        providerMessageId = result.providerMessageId;
       } else if (channel === "whatsapp") {
-        const to = String(body.phone || "").trim();
-        if (!to) throw new Error("No phone number provided.");
-        await sendWhatsApp({ to, body: message });
+        sentTo = String(body.phone || "").trim();
+        if (!sentTo) throw new Error("No phone number provided.");
+        const result = await sendWhatsApp({ to: sentTo, body: message });
+        providerMessageId = result.providerMessageId;
       } else {
         throw new Error(`Unknown channel "${channel}".`);
       }
-      results.push({ channel, ok: true });
+      ok = true;
     } catch (err: any) {
-      results.push({ channel, ok: false, error: err?.message || "Send failed." });
+      error = err?.message || "Send failed.";
     }
+    results.push({ channel, ok, error });
+
+    // Previously this send never wrote a v3_communications row — it only
+    // reached the audit log below, which has no client_id, so the client's
+    // Activity Timeline never showed "we sent you this invoice" at all.
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,'',$7,$8,now(),$9,'Invoice',$1,$10)`,
+      [`COM-${idSuffix()}`, invoice.client_id, clientName, channel, subject, message, sentTo || null,
+        req.user!.email, ok ? "Saved + Sent" : `Saved — ${error}`, providerMessageId]
+    );
   }
 
   const summary = results.map((r) => `${r.channel}: ${r.ok ? "sent" : `failed (${r.error})`}`).join("; ");

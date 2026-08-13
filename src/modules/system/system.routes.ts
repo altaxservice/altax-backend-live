@@ -5,7 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
-import { buildBackupObject, runWeeklyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
+import { buildBackupObject, runDailyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
 import { WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
 
 export const systemRouter = Router();
@@ -54,7 +54,7 @@ systemRouter.get("/backup/export", requireAuth, requireRole("admin"), asyncHandl
 
 /** Sends the weekly encrypted backup email right now — for testing the pipeline and for pre-work snapshots. */
 systemRouter.post("/backup/email-now", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const result = await runWeeklyBackupEmail(req.user!.email);
+  const result = await runDailyBackupEmail(req.user!.email);
   res.json({ ok: true, ...result });
 }));
 
@@ -467,6 +467,37 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     ? { id: "cron-job-last-run-status", label: "Background jobs last-run status", status: "ok", detail: jobRuns.length > 0 ? `All ${jobRuns.length} tracked background job(s) succeeded (or were intentionally skipped) on their last run.` : "No background job has recorded a run yet." }
     : { id: "cron-job-last-run-status", label: "Background jobs last-run status", status: "critical", detail: `${failedJobs.length} background job(s) failed on their last run: ${failedJobs.map((j: any) => `${j.job_name} (${new Date(j.last_run_at).toLocaleString()})`).join(", ")}. Check Railway logs for the full error — the admin alert email sent at the time has the detail too.` });
 
+  // BC-002: backup-failure alerting previously only ever reached an admin
+  // through the same Resend path a revoked API key would also break — a dead
+  // email provider silently took out the backup, the alert about it, and
+  // every other admin notification at once. This reads v3_job_runs directly
+  // (no email involved at all), so it stays reliable even when Resend is down.
+  const backupJob = jobRuns.find((j: any) => j.job_name === "Daily Backup Email");
+  const daysSinceBackup = backupJob?.last_run_at ? Math.floor((Date.now() - new Date(backupJob.last_run_at).getTime()) / 86400000) : null;
+  if (!backupJob) {
+    checks.push({ id: "last-successful-backup", label: "Last successful backup", status: "warning", detail: "No backup job has run yet (or the app was just deployed) — the first daily backup email lands at 6:00AM America/New_York." });
+  } else if (backupJob.last_status !== "success") {
+    checks.push({ id: "last-successful-backup", label: "Last successful backup", status: "critical", detail: `The most recent backup run (${new Date(backupJob.last_run_at).toLocaleString()}) failed: ${backupJob.last_detail || "no detail recorded"}. Check RESEND_API_KEY and Railway logs — this is independent of email, so it stays accurate even if the alert email itself never arrived.` });
+  } else if (daysSinceBackup !== null && daysSinceBackup > 2) {
+    checks.push({ id: "last-successful-backup", label: "Last successful backup", status: "warning", detail: `Last successful backup was ${daysSinceBackup} days ago (${new Date(backupJob.last_run_at).toLocaleString()}) — expected daily. Check the cron job is still running.` });
+  } else {
+    checks.push({ id: "last-successful-backup", label: "Last successful backup", status: "ok", detail: `Last successful backup: ${new Date(backupJob.last_run_at).toLocaleString()}.` });
+  }
+
+  // TAX-007: a document request nudges the client forever (reminders.routes.ts's
+  // daily digest) but never once flags staff — a client who simply never
+  // responds can sit "Requested" indefinitely with nobody at the firm ever
+  // seeing it as stale. Same freshness-check shape as the withholding-tax-year
+  // check above, applied to a different kind of staleness.
+  const staleDocRequests = await query<any>(
+    `SELECT request_id, client_name, requested_item, request_date FROM altax.v3_document_requests
+      WHERE status = 'Requested' AND request_date < now() - interval '14 days'
+      ORDER BY request_date ASC`
+  );
+  checks.push(staleDocRequests.length === 0
+    ? { id: "stale-document-requests", label: "Outstanding document requests", status: "ok", detail: "No open document request has been outstanding for more than 14 days." }
+    : { id: "stale-document-requests", label: "Outstanding document requests", status: "warning", detail: `${staleDocRequests.length} document request(s) have been open for more than 14 days with no reply: ${staleDocRequests.slice(0, 5).map((r: any) => `${r.client_name} — ${r.requested_item} (requested ${new Date(r.request_date).toLocaleDateString()})`).join("; ")}${staleDocRequests.length > 5 ? "…" : ""}. Follow up directly, or mark it Not Applicable/Received if it's no longer needed.` });
+
   // Compliance-config checks are relevant to whoever does client onboarding —
   // frequently staff, not just admin — so staff get this narrower slice of
   // the page rather than being blocked from it entirely (see the checks below,
@@ -477,6 +508,7 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     "service-type-full-service-empty", "zero-compliance-flags-any-client",
     "payroll-without-tax-obligations", "tax-obligations-without-payroll",
     "sales-tax-frequency-missing", "business-return-type-missing",
+    "stale-document-requests",
   ]);
   const visibleChecks = req.user!.role === "admin" ? checks : checks.filter((c) => STAFF_VISIBLE_CHECK_IDS.has(c.id));
 

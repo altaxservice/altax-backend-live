@@ -147,10 +147,21 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
  * 2, with nothing explaining the difference.
  */
 async function computeClientOpsSummary(clientId: string, viewerAliases?: string[] | null) {
-  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents, myOpenTasks] = await Promise.all([
+  const [openTasks, overdueTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents, myOpenTasks] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
         WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`,
+      [clientId]
+    ),
+    // UX-009: the panel's "Open Tasks" count answers "how much work", but not
+    // "how much of it is late" — a staff member had to click through to Tasks
+    // to find that out. Same overdue definition (agency_due_date::date <
+    // CURRENT_DATE) as the compliance-flag queries below and the frontend's
+    // own isOverdue()/dueDays() in TaskCells.tsx.
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
+        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+          AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE`,
       [clientId]
     ),
     // Feeds the Client panel's status breakdown — same open-task scope as the
@@ -205,6 +216,7 @@ async function computeClientOpsSummary(clientId: string, viewerAliases?: string[
 
   return {
     openTasks: openTasks?.count || 0,
+    overdueTasks: overdueTasks?.count || 0,
     myOpenTasks: viewerAliases ? (myOpenTasks?.count || 0) : null,
     taskStatusBreakdown: (taskStatusBreakdown || []).map((r: any) => ({ status: r.status, count: r.count })),
     openRequests: openRequests?.count || 0,

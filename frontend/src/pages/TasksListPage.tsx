@@ -210,8 +210,17 @@ export function TasksListPage() {
     }
     setBulkBusy(true);
     try {
-      const res = await api.post<{ succeeded: number; failed: string[] }>("/tasks/bulk", { taskIds: Array.from(selected), action, confirm: confirmValue });
-      if (res.failed.length) await notify(`${res.succeeded} updated, ${res.failed.length} could not be updated (no access or not found).`);
+      const res = await api.post<{ succeeded: number; failed: string[]; evidenceMissing: { taskId: string; reason: string }[] }>(
+        "/tasks/bulk", { taskIds: Array.from(selected), action, confirm: confirmValue }
+      );
+      const parts: string[] = [];
+      if (res.failed.length) parts.push(`${res.failed.length} could not be updated (no access or not found)`);
+      // TAX-005: a filing/payment task now needs its evidence fields (filed
+      // date, paid date, confirmation number) filled in before it can be
+      // completed — skipped here rather than silently checked off with nothing
+      // to prove the work actually happened.
+      if (res.evidenceMissing.length) parts.push(`${res.evidenceMissing.length} skipped — missing completion evidence (open each task and fill in the filed/paid date and confirmation number)`);
+      if (parts.length) await notify(`${res.succeeded} updated. ${parts.join("; ")}.`);
       else toast(`${res.succeeded} task(s) ${action === "delete" ? "deleted" : "updated"}.`);
       setSelected(new Set());
       load();

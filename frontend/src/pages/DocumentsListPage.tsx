@@ -25,6 +25,17 @@ function isOverdue(r: DocumentRequest): boolean {
   const d = new Date(r.due_from_client);
   return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
 }
+// UX-004: overdue already had a red "(overdue)" tag here, but a request due
+// tomorrow looked identical to one due next month — nothing flagged it before
+// it actually lapsed. 3-day window matches isDueSoon's task-list convention
+// (TaskCells.tsx) so "soon" means the same thing across the app.
+function isDueSoon(r: DocumentRequest): boolean {
+  if (!r.due_from_client || CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())) return false;
+  const d = new Date(r.due_from_client);
+  if (Number.isNaN(d.getTime())) return false;
+  const days = (d.getTime() - Date.now()) / 86400000;
+  return days >= 0 && days <= 3;
+}
 
 function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?: (uploadId: string) => void }) {
   const { t } = useLanguage();
@@ -343,7 +354,7 @@ export function DocumentsListPage() {
                     <td><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                     <td data-label={t("documents.client.colStatus")}><StatusBadge status={r.status} /></td>
                     <td className="muted" data-label={t("documents.client.colPriority")}>{r.priority || "—"}</td>
-                    <td className="muted" data-label={t("documents.client.colDue")}>{r.due_from_client || "—"}</td>
+                    <td className="muted" data-label={t("documents.client.colDue")} style={isOverdue(r) ? { color: "var(--red)", fontWeight: 600 } : isDueSoon(r) ? { color: "var(--amber)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}</td>
                     <td data-label={t("documents.client.colFiles")}><FilesCell request={r} /></td>
                   </tr>
                 ))}
@@ -410,7 +421,7 @@ export function DocumentsListPage() {
                       <td>{r.client_name}</td>
                       <td data-label="Request"><span className="link-button" style={{ fontWeight: 600 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(r.client_id, r.client_name); navigate(`/documents/${r.request_id}`); }}>{r.requested_item}</span></td>
                       <td className="muted" data-label="Requested">{r.request_date ? fmtDateOnly(r.request_date) : "—"}</td>
-                      <td className={isOverdue(r) ? "muted" : "muted"} data-label="Due" style={isOverdue(r) ? { color: "var(--red)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : ""}</td>
+                      <td className="muted" data-label="Due" style={isOverdue(r) ? { color: "var(--red)", fontWeight: 600 } : isDueSoon(r) ? { color: "var(--amber)", fontWeight: 600 } : undefined}>{r.due_from_client || "—"}{isOverdue(r) ? " (overdue)" : isDueSoon(r) ? " (due soon)" : ""}</td>
                       <td className="muted" data-label="Owner">{r.assigned_to || "—"}</td>
                       <td data-label="Status" onClick={(e) => e.stopPropagation()}>
                         {canManage ? (

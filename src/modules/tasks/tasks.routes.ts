@@ -237,6 +237,24 @@ function isCompletedStatus(status: unknown): boolean {
 }
 
 /**
+ * TAX-005: confirmation_number/filed_date/paid_date were never required
+ * before a task could be marked Completed — a filing or payment task could
+ * be checked off with zero evidence it actually happened, single or bulk.
+ * portal_name/portal_url presence is the existing signal for "this task is
+ * filed through an agency portal" (the same fields v3_task_rules carries),
+ * used here rather than adding a new schema flag. Returns null when the
+ * task can be completed as-is, or a user-facing reason when it can't.
+ */
+function missingCompletionEvidence(task: { payment_required?: boolean; paid_date?: unknown; portal_name?: unknown; filed_date?: unknown; confirmation_number?: unknown }): string | null {
+  const missing: string[] = [];
+  if (task.payment_required && !task.paid_date) missing.push("a paid date");
+  if (task.portal_name && !task.filed_date) missing.push("a filed date");
+  if ((task.payment_required || task.portal_name) && !task.confirmation_number) missing.push("a confirmation number");
+  if (missing.length === 0) return null;
+  return `Add ${missing.join(", ")} before marking this task Completed.`;
+}
+
+/**
  * Moves a task row from v3_tasks into v3_archived_tasks (same columns plus
  * ArchivedAt/ArchivedBy/ArchiveReason) and removes it from the live table.
  * Ported behavior: legacy auto-archives a task the moment its status becomes
@@ -291,6 +309,15 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
   }
   if (Object.keys(fields).length === 0) {
     return res.status(400).json({ error: "No task fields received." });
+  }
+
+  // Only enforced on the actual transition into Completed — editing an
+  // already-completed task's notes, for instance, shouldn't retroactively
+  // block on evidence that was never required when it was originally closed.
+  if (Object.prototype.hasOwnProperty.call(fields, "status") && isCompletedStatus(fields.status) && !isCompletedStatus(old.status)) {
+    const merged = { ...old, ...fields };
+    const evidenceError = missingCompletionEvidence(merged);
+    if (evidenceError) return res.status(400).json({ error: evidenceError });
   }
 
   const setClause = Object.keys(fields).map((col, i) => `${col} = $${i + 2}`).join(", ");
@@ -376,6 +403,7 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
 
   let succeeded = 0;
   const failed: string[] = [];
+  const evidenceMissing: { taskId: string; reason: string }[] = [];
 
   for (const taskId of taskIds) {
     const task = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
@@ -385,6 +413,8 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
     }
 
     if (action === "complete") {
+      const evidenceError = missingCompletionEvidence(task);
+      if (evidenceError) { evidenceMissing.push({ taskId, reason: evidenceError }); continue; }
       await query(`UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now(), updated_by = $2 WHERE task_id = $1`, [taskId, req.user!.email]);
       await logAudit("Tasks", "EDIT", taskId, "status", task.status || "", "Completed",
         "Task bulk-completed from web app.", req.user!.email);
@@ -404,7 +434,7 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
     succeeded++;
   }
 
-  res.json({ ok: true, succeeded, failed });
+  res.json({ ok: true, succeeded, failed, evidenceMissing });
 }));
 
 /**

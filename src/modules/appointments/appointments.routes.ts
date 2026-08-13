@@ -401,12 +401,17 @@ export function buildAppointmentSmsText(
  * always write the log row so the client's Communications history has a
  * record even if the send itself failed (e.g. email not configured yet in
  * this environment). Exported so the public cancel/reschedule flow
- * (publicAppointments.routes.ts) can send the same kind of notice.
+ * (publicAppointments.routes.ts) can send the same kind of notice. Returns
+ * per-channel failure descriptions (BC-003) — the v3_communications row
+ * already carries the failure for anyone who opens that client's history,
+ * but the bulk reminder sweep (runAppointmentReminders) has no other way to
+ * know a "successful" pass actually failed to reach anyone, since every send
+ * is individually try/caught right here and never throws back out.
  */
-export async function notifyAppointment(appt: any, templateName: AppointmentNoticeType, actorEmail: string, req?: Request): Promise<void> {
+export async function notifyAppointment(appt: any, templateName: AppointmentNoticeType, actorEmail: string, req?: Request): Promise<{ failures: string[] }> {
   const email = appt.contact_email || null;
   const phone = appt.contact_phone || null;
-  if (!email && !phone) return;
+  if (!email && !phone) return { failures: [] };
 
   const start = new Date(appt.start_time);
   // previous_start_time is only ever set by the two reschedule call sites,
@@ -425,7 +430,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     previousTime: previousStart ? fmtTime(previousStart) : "",
   };
   const resolvedTemplate = await resolveTemplate(templateName, appt.client_id || "", "", "", extra);
-  if (!resolvedTemplate) return;
+  if (!resolvedTemplate) return { failures: [] };
   const includeDetails = templateName !== "Appointment Cancelled" && templateName !== "Appointment Completed";
   const base = publicBaseUrl(req);
   const manageUrl = base && appt.manage_token ? `${base}/manage-appointment?token=${appt.manage_token}` : "";
@@ -451,6 +456,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   // Logged as one row per channel actually attempted — matches every other send
   // path in this app (Communications, reminders), so a failed SMS doesn't get
   // silently masked by a successful email in the same log entry.
+  const failures: string[] = [];
   for (const { channel, to } of channels) {
     let sent = false;
     let sendError: string | undefined;
@@ -479,6 +485,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
       sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
     }
     const status = sent ? "Saved + Sent" : sendError ? `Saved — ${sendError}` : "Saved";
+    if (!sent) failures.push(`Client ${channel}${sendError ? `: ${sendError}` : ""}`);
     await query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, direction, channel, subject,
@@ -489,6 +496,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
         to, actorEmail, status, `APPT-${marker}-${appt.appointment_id}-${channel}`, providerMessageId]
     );
   }
+  return { failures };
 }
 
 function leadLabel(minutes: number): string {
@@ -605,9 +613,9 @@ export async function notifyStaffOfAppointmentChange(
   }
 }
 
-async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<void> {
+async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: StaffReminderChannel, req?: Request): Promise<{ failures: string[] }> {
   const recipients = await resolveStaffRecipients(appt);
-  if (recipients.size === 0) return;
+  if (recipients.size === 0) return { failures: [] };
 
   const start = new Date(appt.start_time);
   const who = appt.contact_name || appt.client_name || "a contact";
@@ -618,22 +626,28 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
     <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
   const smsBody = `AL TAX SERVICE: ${lead} — ${appt.title || "Appointment"} with ${who} on ${fmtDate(start)} at ${fmtTime(start)}${appt.location ? ` (${appt.location})` : ""}.`;
 
+  // Unlike notifyAppointment (client-facing), these internal heads-up sends are
+  // not logged to v3_communications — that log is client correspondence history,
+  // not staff internal notices. So the only way a failure here is ever visible
+  // anywhere (BC-003) is if the caller surfaces this return value.
+  const failures: string[] = [];
   for (const { email, phone } of recipients.values()) {
     if ((channel === "email" || channel === "both") && email) {
       try {
         await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) });
-      } catch {
-        // best-effort — one recipient's failed send shouldn't block the others or the sweep
+      } catch (err: any) {
+        failures.push(`Staff email to ${email}: ${err?.message || "send failed"}`);
       }
     }
     if ((channel === "sms" || channel === "both") && phone) {
       try {
         await sendSms({ to: phone, body: smsBody });
-      } catch {
-        // best-effort, same as above
+      } catch (err: any) {
+        failures.push(`Staff SMS to ${phone}: ${err?.message || "send failed"}`);
       }
     }
   }
+  return { failures };
 }
 
 /**
@@ -648,9 +662,18 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
  * fires regardless, since the team should know about an appointment even if
  * the client opted out of their own reminder.
  */
-export async function runAppointmentReminders(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number }> {
+export async function runAppointmentReminders(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number; channelFailures: number }> {
   const settings = await getAppointmentSettings();
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, channelFailures = 0;
+  // BC-003: notifyAppointment/notifyAppointmentStaff already try/catch every
+  // individual send internally (so one bad phone number can't take down the
+  // rest of the sweep), which means the outer try/catch below almost never
+  // fires for a real delivery failure — it only catches something more
+  // fundamental (DB down, template missing). Collecting the per-channel
+  // failures those two functions now return is the only way this run's own
+  // "did everything actually go out" accounting — and the admin alert below —
+  // reflects real delivery failures instead of just unhandled exceptions.
+  const channelFailureDetails: string[] = [];
 
   for (const leadMinutes of settings.reminderLeadMinutes) {
     const target = new Date(Date.now() + leadMinutes * 60 * 1000);
@@ -681,10 +704,17 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
       );
       if (!claimed.length) continue;
       try {
+        const apptFailures: string[] = [];
         if (appt.notify_client) {
-          await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail, req);
+          const { failures } = await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail, req);
+          apptFailures.push(...failures);
         }
-        await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, settings.staffReminderChannel, req);
+        const { failures: staffFailures } = await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, settings.staffReminderChannel, req);
+        apptFailures.push(...staffFailures);
+        if (apptFailures.length) {
+          channelFailures++;
+          channelFailureDetails.push(`${appt.title || "Appointment"} (${appt.appointment_id}, ${leadLabel(leadMinutes)}): ${apptFailures.join("; ")}`);
+        }
         sent++;
       } catch (err) {
         // Previously a bare `catch { failed++ }` — no console output, no alert,
@@ -709,7 +739,13 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
       `${failed} of ${sent + failed} appointment reminder(s) failed to send this run. Check the server logs for per-appointment errors (search "[runAppointmentReminders] failed for appointment").`
     );
   }
-  return { sent, failed };
+  if (channelFailureDetails.length > 0) {
+    await alertAdmins(
+      "Appointment reminders: some channels failed to deliver",
+      `${channelFailures} reminder(s) this run had at least one channel (client email/SMS or staff email/SMS) that failed to send, even though the overall reminder was marked sent:\n\n${channelFailureDetails.slice(0, 20).join("\n")}${channelFailureDetails.length > 20 ? `\n…and ${channelFailureDetails.length - 20} more.` : ""}`
+    );
+  }
+  return { sent, failed, channelFailures };
 }
 
 /**
@@ -725,11 +761,12 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
  * time via notifyAppointmentStaff if 1440 happens to be one of their
  * configured lead times; this doesn't duplicate that.
  */
-export async function runAppointmentConfirmationRequests(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number }> {
+export async function runAppointmentConfirmationRequests(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number; channelFailures: number }> {
   const target = new Date(Date.now() + CONFIRMATION_REQUEST_LEAD_MINUTES * 60 * 1000);
   const windowStart = new Date(target.getTime() - 60 * 60 * 1000);
   const windowEnd = new Date(target.getTime() + 60 * 60 * 1000);
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, channelFailures = 0;
+  const channelFailureDetails: string[] = []; // BC-003, same reasoning as runAppointmentReminders above
 
   const due = await query<any>(
     `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
@@ -750,7 +787,11 @@ export async function runAppointmentConfirmationRequests(actorEmail: string, req
     if (!claimed.length) continue;
     try {
       if (appt.notify_client) {
-        await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Confirmation Request", actorEmail, req);
+        const { failures } = await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Confirmation Request", actorEmail, req);
+        if (failures.length) {
+          channelFailures++;
+          channelFailureDetails.push(`${appt.title || "Appointment"} (${appt.appointment_id}): ${failures.join("; ")}`);
+        }
       }
       sent++;
     } catch (err) {
@@ -773,7 +814,13 @@ export async function runAppointmentConfirmationRequests(actorEmail: string, req
       `${failed} of ${sent + failed} appointment confirmation request(s) failed to send this run. Check the server logs for per-appointment errors (search "[runAppointmentConfirmationRequests] failed for appointment").`
     );
   }
-  return { sent, failed };
+  if (channelFailureDetails.length > 0) {
+    await alertAdmins(
+      "Appointment confirmation requests: some channels failed to deliver",
+      `${channelFailures} confirmation request(s) this run had a channel that failed to send:\n\n${channelFailureDetails.slice(0, 20).join("\n")}${channelFailureDetails.length > 20 ? `\n…and ${channelFailureDetails.length - 20} more.` : ""}`
+    );
+  }
+  return { sent, failed, channelFailures };
 }
 
 /**

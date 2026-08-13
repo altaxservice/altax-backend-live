@@ -62,7 +62,24 @@ function CommandPanel({ title, note, action, children }: { title: React.ReactNod
   );
 }
 
-function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: Task[]; empty: string; statusEditable?: boolean; onChanged?: () => void }) {
+/**
+ * UX-008: "Waiting / Pending" tasks have no due date pressure of their own —
+ * they're blocked on someone else (client, agency) — so nothing on the
+ * dashboard signaled when one had actually been sitting untouched for weeks
+ * vs. just entered that status yesterday. updated_at is the best available
+ * proxy for "last touched" (any edit bumps it, not just a status change, but
+ * there's no separate status-transition timestamp on v3_tasks to use
+ * instead). 7/21 day thresholds mirror the amber/red staleness convention
+ * used for AR aging and the stale-document-request Fix Center check.
+ */
+function staleDaysBadge(updatedAt: string | null): { days: number; className: string } | null {
+  if (!updatedAt) return null;
+  const days = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86400000);
+  if (days < 7) return null;
+  return { days, className: days >= 21 ? "status-red" : "status-amber" };
+}
+
+function TaskRows({ tasks, empty, statusEditable = true, showStaleness = false, onChanged }: { tasks: Task[]; empty: string; statusEditable?: boolean; showStaleness?: boolean; onChanged?: () => void }) {
   const navigate = useNavigate();
   const promptFor = usePrompt();
   const notify = useNotify();
@@ -119,7 +136,9 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
 
   return (
     <div className="work-card-list">
-      {tasks.map((t) => (
+      {tasks.map((t) => {
+        const stale = showStaleness ? staleDaysBadge(t.updated_at) : null;
+        return (
         <article className="work-card" key={t.task_id} onClick={() => navigate(`/tasks/${t.task_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${t.task_id}`); } }}>
           <div className="work-card-main">
             <div className="work-card-title">{t.task_name || t.service_line || "Task"}</div>
@@ -128,6 +147,7 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
               <span>{t.service_line || "Service"}</span>
               <span>Due {fmtDate(t.agency_due_date) || "Not set"}</span>
               <span>{t.assigned_to || "Unassigned"}</span>
+              {stale && <span className={`status-pill ${stale.className}`}>Untouched {stale.days}d</span>}
             </div>
           </div>
           <div className="work-card-side">
@@ -160,7 +180,8 @@ function TaskRows({ tasks, empty, statusEditable = true, onChanged }: { tasks: T
             </div>
           </div>
         </article>
-      ))}
+        );
+      })}
       {requestDocTask && (
         <RequestDocumentModal
           clientId={requestDocTask.client_id}
@@ -270,6 +291,17 @@ function docActionOptions(role: string | undefined, hasFile: boolean) {
   return actions;
 }
 
+/** UX-004: mirrors DocumentsListPage.tsx's isOverdue()/isDueSoon() — this panel had no urgency signal at all on the due date, just the plain string. */
+function docUrgency(d: DocumentRequest): "overdue" | "due-soon" | null {
+  if (!d.due_from_client || ["completed", "closed", "void"].includes(String(d.status || "").toLowerCase())) return null;
+  const due = new Date(d.due_from_client);
+  if (Number.isNaN(due.getTime())) return null;
+  const days = (due.getTime() - Date.now()) / 86400000;
+  if (days < 0) return "overdue";
+  if (days <= 3) return "due-soon";
+  return null;
+}
+
 function DocumentRows({ docs, empty }: { docs: DocumentRequest[]; empty: string }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -285,6 +317,7 @@ function DocumentRows({ docs, empty }: { docs: DocumentRequest[]; empty: string 
     <div className="work-card-list">
       {docs.map((d) => {
         const fileCount = Number(d.file_count || 0);
+        const urgency = docUrgency(d);
         return (
           <article className="work-card" key={d.request_id} onClick={() => navigate(`/documents/${d.request_id}`)} style={{ cursor: "pointer" }} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/documents/${d.request_id}`); } }}>
             <div className="work-card-main">
@@ -294,6 +327,7 @@ function DocumentRows({ docs, empty }: { docs: DocumentRequest[]; empty: string 
                 <span>Due {fmtDate(d.due_from_client) || "Not set"}</span>
                 <span>{d.assigned_to || "Unassigned"}</span>
                 <span>{fileCount ? `${fileCount} file(s)` : "No files"}</span>
+                {urgency && <span className={`status-pill ${urgency === "overdue" ? "status-red" : "status-amber"}`}>{urgency === "overdue" ? "Overdue" : "Due soon"}</span>}
               </div>
             </div>
             <div className="work-card-side">
@@ -710,7 +744,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
             <AttentionRows tasks={(dueSoon.length ? dueSoon : overdue).slice(0, 6)} empty="No due-soon tasks." />
           </CommandPanel>
           <CommandPanel title="Waiting / Pending" note={`${waiting.length} visible`}>
-            <TaskRows tasks={waiting.slice(0, 6)} empty="No waiting or pending tasks." onChanged={onChanged} />
+            <TaskRows tasks={waiting.slice(0, 6)} empty="No waiting or pending tasks." showStaleness onChanged={onChanged} />
           </CommandPanel>
         </div>
       </div>

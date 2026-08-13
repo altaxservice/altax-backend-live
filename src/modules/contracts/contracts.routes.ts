@@ -347,8 +347,9 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
         Or copy this link into your browser: <bdi dir="ltr"><a href="${link}">${link}</a></bdi><br>
         <bdi dir="rtl">أو انسخوا هذا الرابط في متصفحكم:</bdi> <bdi dir="ltr"><a href="${link}">${link}</a></bdi>
       </p>`;
+    let providerMessageId: string | null = null;
     try {
-      await sendEmail({
+      const result = await sendEmail({
         to: client.email,
         subject: `${contract.title} — please review and sign`,
         html: await wrapEmailHtml(
@@ -366,10 +367,24 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
           req
         ),
       });
+      providerMessageId = result.providerMessageId;
       emailed = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : "Could not send the email.";
     }
+
+    // Previously this send never wrote a v3_communications row — it only
+    // reached the audit log below, which has no client_id, so a signature
+    // request never appeared on the client's own Activity Timeline.
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,'',$6,$7,now(),$8,'Contract',$1,$9)`,
+      [`COM-${idSuffix()}`, contract.client_id, client.client_name, `${contract.title} — please review and sign`,
+        `A document is ready for your review and signature: ${contract.title}.`, client.email,
+        req.user!.email, emailed ? "Saved + Sent" : `Saved — ${emailError}`, providerMessageId]
+    );
   }
 
   await logAudit("Contracts", "SEND", contract.contract_id, "status", contract.status, "Sent",

@@ -39,7 +39,7 @@ import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
 import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete, runAppointmentConfirmationRequests } from "./modules/appointments/appointments.routes";
-import { runWeeklyBackupEmail } from "./common/autoBackup";
+import { runDailyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
@@ -347,11 +347,14 @@ cron.schedule("30 6 * * *", runScheduledJob("Daily Reminders", () => runReminder
 // eslint-disable-next-line no-console
 console.log("Daily reminders scheduled for 6:30AM America/New_York.");
 
-// Sundays 6:00AM ET, before the 6:30 digest — the week's encrypted backup
-// lands in the admin inbox without anyone remembering to click Download.
-cron.schedule("0 6 * * 0", runScheduledJob("Weekly Backup Email", () => runWeeklyBackupEmail("System (Weekly Backup Job)")), { timezone: "America/New_York" });
+// Daily 6:00AM ET, before the 6:30 digest — the day's encrypted backup lands
+// in the admin inbox without anyone remembering to click Download. Was
+// weekly (BC-004: up to 6 days of data-loss exposure, on top of the DB
+// provider's own short point-in-time-recovery window) — moved to daily since
+// the job itself is cheap and there was no real reason not to.
+cron.schedule("0 6 * * *", runScheduledJob("Daily Backup Email", () => runDailyBackupEmail("System (Daily Backup Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
-console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
+console.log("Daily encrypted backup email scheduled for 6:00AM America/New_York.");
 
 // Hourly sweep for appointment reminders — checks a window around each
 // configured lead time (Calendar Settings, see runAppointmentReminders's doc
