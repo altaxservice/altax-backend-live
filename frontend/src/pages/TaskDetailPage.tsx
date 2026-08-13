@@ -287,7 +287,7 @@ export function TaskDetailPage() {
       )}
 
       {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} clientId={task?.client_id ?? null} />}
-      {tab === "Activity Timeline" && canEdit && taskId && <TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} />}
+      {tab === "Activity Timeline" && canEdit && taskId && <TaskThread taskId={taskId} clientId={task?.client_id ?? null} initialMode={openParam === "message" ? "message" : "note"} />}
     </div>
   );
 }
@@ -389,7 +389,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
 
 interface StaffDirectoryEntry { name: string; email: string; role: string }
 
-function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialMode?: "note" | "message" }) {
+function TaskThread({ taskId, clientId, initialMode = "note" }: { taskId: string; clientId: string | null; initialMode?: "note" | "message" }) {
   const [thread, setThread] = useState<Communication[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"note" | "message">(initialMode);
@@ -412,9 +412,13 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
   useEffect(() => {
     // Fire-and-forget: this tab loading is the "staff looked at this task's
     // notes" signal for the client's Task Note unread counter — covers both a
-    // direct task visit and a click-through from the client's Task Notes inbox.
-    api.post(`/communications/task/${taskId}/notes/mark-read`, {}).catch(() => {});
-  }, [taskId]);
+    // direct task visit and a click-through from the client's Task Notes
+    // inbox. Dispatches a window event so the (separately-mounted) client
+    // panel can refresh its count live instead of only on client reselect.
+    api.post(`/communications/task/${taskId}/notes/mark-read`, {})
+      .then(() => { if (clientId) window.dispatchEvent(new CustomEvent("altax:notes-read", { detail: { clientId } })); })
+      .catch(() => {});
+  }, [taskId, clientId]);
 
   async function handleSend(e: FormEvent) {
     e.preventDefault();

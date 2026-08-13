@@ -3030,8 +3030,12 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
     // Fire-and-forget: this tab is the one true "staff looked at the client's
     // notes" signal for the panel's Client Note unread counter — no need to
     // block the list render on it, and a failure here is a passive side
-    // effect, not something worth surfacing as a user-facing error.
-    api.post(`/clients/${clientId}/activity/mark-read`, {}).catch(() => {});
+    // effect, not something worth surfacing as a user-facing error. The
+    // panel is a separate mount with its own already-fetched counts, so a
+    // window event is how it learns to refresh without a full client reselect.
+    api.post(`/clients/${clientId}/activity/mark-read`, {})
+      .then(() => window.dispatchEvent(new CustomEvent("altax:notes-read", { detail: { clientId } })))
+      .catch(() => {});
   }, [clientId]);
 
   async function handleAdd() {

@@ -438,15 +438,9 @@ communicationsRouter.post("/task", requireAuth, requireRole("admin", "staff"), a
   await logAudit("Communications", isNote ? "TASK_NOTE" : "TASK_MESSAGE", communicationId, task.task_id,
     req.user!.email, isNote ? "" : recipient, "Saved", req.user!.email);
 
-  // Self-mark-read — without this, writing a task note would immediately
-  // show as unread to its own author on the client's Task Note counter.
-  if (isNote) {
-    await query(
-      `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email) VALUES ('task_note', $1, $2)
-       ON CONFLICT DO NOTHING`,
-      [communicationId, req.user!.email]
-    );
-  }
+  // Deliberately NOT self-marked read — a newly added task note should show
+  // up as unread (including to its own author) until it's actually reviewed
+  // via the task's Activity Timeline tab.
 
   res.status(201).json({ ok: true, communicationId, status: "Saved" });
 }));

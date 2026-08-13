@@ -34,6 +34,16 @@ interface ActivityEntry {
   note: string | null;
   occurred_at: string;
   logged_by: string | null;
+  source?: "log" | "communication";
+}
+
+/** Which part of the app an activity entry came from — the "where" of what/where/when/who. */
+function whereForActivity(a: ActivityEntry): string {
+  if (a.source === "communication") return "Communications";
+  if (a.type.startsWith("Appointment")) return "Calendar";
+  if (a.type.startsWith("Flag")) return "Flags";
+  if (a.type.startsWith("Health Permit")) return "Health Permits";
+  return "Notes";
 }
 
 function fmtDateTime(v: string): string {
@@ -120,6 +130,20 @@ export function ClientContextPanel() {
       .then(setUnreadCounts)
       .catch(() => setUnreadCounts(null));
   }
+
+  // This panel is a separate, persistent mount from the Client/Task Detail
+  // pages — visiting a client's or task's Activity Timeline (which marks
+  // things read there) wouldn't otherwise refresh the counts already sitting
+  // in this panel's state until the client was reselected. Those pages
+  // dispatch this event right after a successful mark-read call.
+  useEffect(() => {
+    function onNotesRead(e: Event) {
+      const detail = (e as CustomEvent<{ clientId?: string }>).detail;
+      if (clientId && detail?.clientId === clientId) loadUnreadCounts(clientId);
+    }
+    window.addEventListener("altax:notes-read", onNotesRead);
+    return () => window.removeEventListener("altax:notes-read", onNotesRead);
+  }, [clientId]);
 
   useEffect(() => {
     if (!clientId) {
@@ -208,6 +232,7 @@ export function ClientContextPanel() {
       setShowAddNote(false);
       setNoteText("");
       loadRecentActivity(clientId);
+      loadUnreadCounts(clientId);
       toast("Note added.");
     } catch (err) {
       setNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
@@ -304,11 +329,12 @@ export function ClientContextPanel() {
                       style={{ background: "var(--panel, rgba(127,127,127,0.06))", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}
                     >
                       <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <span className="badge" style={{ minHeight: 0, padding: "2px 7px", fontSize: 10, marginRight: 6, verticalAlign: "middle" }}>{a.type}</span>
+                        <span className="badge" title="What" style={{ minHeight: 0, padding: "2px 7px", fontSize: 10, marginRight: 4, verticalAlign: "middle" }}>{a.type}</span>
+                        <span className="badge" title="Where" style={{ minHeight: 0, padding: "2px 7px", fontSize: 10, marginRight: 6, verticalAlign: "middle", background: "var(--paper)", border: "1px solid var(--line)", color: "var(--muted)" }}>{whereForActivity(a)}</span>
                         {a.note || ""}
                       </div>
                       <div className="muted" style={{ fontSize: 11 }}>
-                        {a.logged_by ? `By ${a.logged_by} · ` : ""}{fmtDateTime(a.occurred_at)}
+                        {a.logged_by ? `Who: ${a.logged_by} · ` : ""}When: {fmtDateTime(a.occurred_at)}
                       </div>
                     </div>
                   ))}
@@ -605,16 +631,25 @@ export function ClientContextPanel() {
 function ClientRow({ label, value, onClick, href, valueColor }: { label: string; value: string | null | undefined; onClick?: () => void; href?: string; valueColor?: string }) {
   const display = value || "—";
   const clickable = Boolean((onClick || href) && value);
+  const rowInner = (
+    <>
+      <span>{label}</span>
+      <span style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</span>
+    </>
+  );
+  // The whole row is the link/button when clickable — not just the value —
+  // so the label reads as part of the hyperlink too, not a plain label next
+  // to an unrelated-looking number.
+  if (clickable && href) {
+    return <a href={href} className="client-panel-row-link">{rowInner}</a>;
+  }
+  if (clickable && onClick) {
+    return <button type="button" onClick={onClick} className="client-panel-row-link">{rowInner}</button>;
+  }
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
       <span className="muted">{label}</span>
-      {clickable && href ? (
-        <a href={href} className="client-panel-value-link" style={valueColor ? { color: valueColor } : undefined}>{display}</a>
-      ) : clickable && onClick ? (
-        <button type="button" onClick={onClick} className="client-panel-value-link" style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</button>
-      ) : (
-        <span style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</span>
-      )}
+      <span style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</span>
     </div>
   );
 }

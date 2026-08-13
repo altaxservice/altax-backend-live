@@ -881,6 +881,14 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   color: var(--teal); cursor: pointer; text-decoration: none;
 }
 .client-panel-value-link:hover { text-decoration: underline; }
+/* Whole-row hyperlink for the Account section — the entire row (label AND
+   value) is the link, always underlined, not just the number on the right. */
+.client-panel-row-link {
+  display: flex; justify-content: space-between; align-items: center; width: 100%;
+  background: none; border: none; padding: 4px 0; margin: 0; font: inherit; font-size: 12.5px;
+  color: var(--teal); cursor: pointer; text-decoration: underline; text-align: left;
+}
+.client-panel-row-link:hover { opacity: 0.8; }
 
 /* Generic inline text-link-styled button — for file open/download actions inside
    table cells and other tight spaces where a bordered .ghost-button is too heavy. */

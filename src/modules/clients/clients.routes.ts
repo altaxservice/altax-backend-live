@@ -1371,13 +1371,10 @@ clientsRouter.post("/:clientId/activity", requireAuth, requireRole("admin", "sta
     [activityId, clientId, activityType, note, req.user!.email]
   );
   await logAudit("Clients", "LOG_ACTIVITY", activityId, "", "", activityType, `Activity logged for ${clientId} by ${req.user!.email}.`, req.user!.email);
-  // Self-mark-read — without this, writing a note would immediately show as
-  // unread to its own author on the panel's Client Note counter.
-  await query(
-    `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email) VALUES ('client_note', $1, $2)
-     ON CONFLICT DO NOTHING`,
-    [activityId, req.user!.email]
-  );
+  // Deliberately NOT self-marked read — a newly added note should show up as
+  // unread (including to its own author) until it's actually reviewed via the
+  // Activity Timeline tab, matching "when a note is added it should appear in
+  // the panel, and reviewing it is what marks it read."
   res.status(201).json({ ok: true, activityId });
 }));
 
