@@ -373,6 +373,27 @@ communicationsRouter.get("/task/:taskId", requireAuth, asyncHandler(async (req: 
   res.json({ communications: rows });
 }));
 
+/** Marks every Task Note on this task as read, for this reader — fired when the task's own Activity Timeline tab loads (covers both a direct visit and a click-through from the client's Task Notes inbox). */
+communicationsRouter.post("/task/:taskId/notes/mark-read", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role === "employee") return res.status(403).json({ error: "You do not have access to this task." });
+  const { taskId } = req.params;
+  const task = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+  if (!task) return res.status(404).json({ error: "Task not found." });
+
+  const aliases = await getUserAliases(req.user!.email);
+  const taskAllowed = isAssignedToUser(task.assigned_to, aliases) || (await canAccessClient(req.user!, task.client_id));
+  if (!taskAllowed) return res.status(403).json({ error: "You do not have access to this task." });
+
+  await query(
+    `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email)
+     SELECT 'task_note', communication_id, $2 FROM altax.v3_communications
+      WHERE related_task_id = $1 AND channel = 'Task Note'
+     ON CONFLICT DO NOTHING`,
+    [taskId, req.user!.email]
+  );
+  res.json({ ok: true });
+}));
+
 /**
  * Task note/message — ported from alTaxPortalCreateTaskCommunication. Admin/staff
  * only (approximates alTaxV5IsAssignableStaffRole_, which has no client/employee
@@ -416,6 +437,16 @@ communicationsRouter.post("/task", requireAuth, requireRole("admin", "staff"), a
 
   await logAudit("Communications", isNote ? "TASK_NOTE" : "TASK_MESSAGE", communicationId, task.task_id,
     req.user!.email, isNote ? "" : recipient, "Saved", req.user!.email);
+
+  // Self-mark-read — without this, writing a task note would immediately
+  // show as unread to its own author on the client's Task Note counter.
+  if (isNote) {
+    await query(
+      `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email) VALUES ('task_note', $1, $2)
+       ON CONFLICT DO NOTHING`,
+      [communicationId, req.user!.email]
+    );
+  }
 
   res.status(201).json({ ok: true, communicationId, status: "Saved" });
 }));

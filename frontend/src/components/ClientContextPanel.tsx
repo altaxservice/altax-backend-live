@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Client, Task } from "../api/types";
@@ -11,6 +11,13 @@ import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
+const PANEL_WIDTH_MIN = 260;
+const PANEL_WIDTH_MAX = 520;
+const PANEL_WIDTH_KEY = "altax_client_panel_width";
+
+function clampPanelWidth(n: number): number {
+  return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, n));
+}
 
 interface Summary {
   openTasks: number;
@@ -65,6 +72,32 @@ export function ClientContextPanel() {
   const [noteError, setNoteError] = useState<string | null>(null);
   const [showFlagHistory, setShowFlagHistory] = useState(false);
   const [flagHistory, setFlagHistory] = useState<ClientFlag[] | null>(null);
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0 ? clampPanelWidth(saved) : PANEL_WIDTH_MIN;
+  });
+  const [resizing, setResizing] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState<{ clientNoteUnread: number; taskNoteUnread: number } | null>(null);
+
+  function startResize(e: ReactMouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    setResizing(true);
+    function onMove(ev: MouseEvent) {
+      // Handle sits on the panel's LEFT edge, panel is flush against the
+      // right side of the screen — dragging left (clientX decreasing) widens it.
+      setPanelWidth(clampPanelWidth(startWidth + (startX - ev.clientX)));
+    }
+    function onUp() {
+      setResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setPanelWidth((w) => { localStorage.setItem(PANEL_WIDTH_KEY, String(w)); return w; });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   function loadOptions() {
     setOptionsError(false);
@@ -82,6 +115,12 @@ export function ClientContextPanel() {
       .catch(() => setRecentActivity([]));
   }
 
+  function loadUnreadCounts(id: string) {
+    api.get<{ clientNoteUnread: number; taskNoteUnread: number }>(`/clients/${id}/unread-counts`)
+      .then(setUnreadCounts)
+      .catch(() => setUnreadCounts(null));
+  }
+
   useEffect(() => {
     if (!clientId) {
       setClient(null);
@@ -91,12 +130,14 @@ export function ClientContextPanel() {
       setRecentActivity(undefined);
       setShowFlagHistory(false);
       setFlagHistory(null);
+      setUnreadCounts(null);
       return;
     }
     let cancelled = false;
     setRecentActivity(undefined);
     setShowFlagHistory(false);
     setFlagHistory(null);
+    loadUnreadCounts(clientId);
     api.get<{ client: Client }>(`/clients/${clientId}`).then((res) => { if (!cancelled) setClient(res.client); }).catch(() => { if (!cancelled) setClient(null); });
     api.get<Summary>(`/clients/${clientId}/summary`).then((res) => { if (!cancelled) setSummary(res); }).catch(() => { if (!cancelled) setSummary(null); });
     // Fast-review feed — a handful of the most recent client-level Notes/flag/
@@ -225,7 +266,12 @@ export function ClientContextPanel() {
   const hasBalancePastDue = (flags || []).some((f) => f.flagType === "BalancePastDue");
 
   return (
-    <aside className="client-panel">
+    <aside className="client-panel" style={{ width: panelWidth }}>
+      <div
+        className={`client-panel-resize-handle ${resizing ? "dragging" : ""}`}
+        onMouseDown={startResize}
+        title="Drag to resize"
+      />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4, gap: 6 }}>
         <div className="small-label" style={{ color: "var(--muted)" }}>{clientId}</div>
         <div style={{ display: "flex", gap: 4 }}>
@@ -258,7 +304,8 @@ export function ClientContextPanel() {
                       style={{ background: "var(--panel, rgba(127,127,127,0.06))", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}
                     >
                       <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {a.type}{a.note ? ` — ${a.note}` : ""}
+                        <span className="badge" style={{ minHeight: 0, padding: "2px 7px", fontSize: 10, marginRight: 6, verticalAlign: "middle" }}>{a.type}</span>
+                        {a.note || ""}
                       </div>
                       <div className="muted" style={{ fontSize: 11 }}>
                         {a.logged_by ? `By ${a.logged_by} · ` : ""}{fmtDateTime(a.occurred_at)}
@@ -271,7 +318,7 @@ export function ClientContextPanel() {
                 type="button"
                 className="btn btn-sm"
                 style={{ background: "none", border: "none", color: "var(--accent, inherit)", textDecoration: "underline", padding: 0, cursor: "pointer", fontSize: 11.5 }}
-                onClick={() => navigate(`/clients/${client.client_id}?tab=Notes`)}
+                onClick={() => navigate(`/clients/${client.client_id}?tab=${encodeURIComponent("Activity Timeline")}`)}
               >
                 View all →
               </button>
@@ -379,7 +426,7 @@ export function ClientContextPanel() {
               {/* This panel is shown globally across Tasks/Documents/Billing/etc,
                   independent of whatever else is on screen — this note always
                   attaches to the client, never to a task. Task notes live on
-                  the task's own "Notes & Messages" thread instead. */}
+                  the task's own Activity Timeline instead. */}
               <div className="muted" style={{ fontSize: 11, fontWeight: 600 }}>Note about {client.client_name}</div>
               {noteError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{noteError}</div>}
               <textarea
@@ -503,6 +550,18 @@ export function ClientContextPanel() {
                 value={fmtMoney(summary.balanceDue)}
                 onClick={() => navigate(`/billing?clientId=${client.client_id}`)}
                 valueColor={hasBalancePastDue ? "var(--red)" : undefined}
+              />
+              <ClientRow
+                label="Client Note"
+                value={String(unreadCounts?.clientNoteUnread ?? 0)}
+                onClick={() => navigate(`/clients/${client.client_id}?tab=${encodeURIComponent("Activity Timeline")}`)}
+                valueColor={(unreadCounts?.clientNoteUnread ?? 0) > 0 ? "var(--red)" : undefined}
+              />
+              <ClientRow
+                label="Task Note"
+                value={String(unreadCounts?.taskNoteUnread ?? 0)}
+                onClick={() => navigate(`/clients/${client.client_id}?tab=${encodeURIComponent("Task Notes")}`)}
+                valueColor={(unreadCounts?.taskNoteUnread ?? 0) > 0 ? "var(--red)" : undefined}
               />
             </div>
           )}

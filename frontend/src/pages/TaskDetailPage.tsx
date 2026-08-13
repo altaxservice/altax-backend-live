@@ -22,11 +22,11 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 const STATUS_OPTIONS = TASK_STATUSES;
 const PRIORITY_OPTIONS = ["Normal", "Low", "High", "Urgent"];
 
-const DETAIL_TABS = ["Details", "Attachments", "Notes & Messages"] as const;
+const DETAIL_TABS = ["Details", "Attachments", "Activity Timeline"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 function initialTabFor(openParam: string | null): DetailTab {
   if (openParam === "files") return "Attachments";
-  if (openParam === "message" || openParam === "note") return "Notes & Messages";
+  if (openParam === "message" || openParam === "note") return "Activity Timeline";
   return "Details";
 }
 
@@ -287,7 +287,7 @@ export function TaskDetailPage() {
       )}
 
       {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} clientId={task?.client_id ?? null} />}
-      {tab === "Notes & Messages" && canEdit && taskId && <TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} />}
+      {tab === "Activity Timeline" && canEdit && taskId && <TaskThread taskId={taskId} initialMode={openParam === "message" ? "message" : "note"} />}
     </div>
   );
 }
@@ -409,6 +409,12 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
   useEffect(() => {
     api.get<{ staff: StaffDirectoryEntry[] }>("/communications/staff-directory").then((r) => setStaff(r.staff)).catch(() => {});
   }, []);
+  useEffect(() => {
+    // Fire-and-forget: this tab loading is the "staff looked at this task's
+    // notes" signal for the client's Task Note unread counter — covers both a
+    // direct task visit and a click-through from the client's Task Notes inbox.
+    api.post(`/communications/task/${taskId}/notes/mark-read`, {}).catch(() => {});
+  }, [taskId]);
 
   async function handleSend(e: FormEvent) {
     e.preventDefault();
@@ -428,7 +434,7 @@ function TaskThread({ taskId, initialMode = "note" }: { taskId: string; initialM
   return (
     <div className="command-panel" style={{ maxWidth: 560 }}>
       <div className="command-panel-header">
-        <h2 className="command-panel-title">Notes &amp; Messages</h2>
+        <h2 className="command-panel-title">Activity Timeline</h2>
         <div className="command-panel-note">{thread?.length ?? 0} entries</div>
       </div>
 

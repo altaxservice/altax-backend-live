@@ -823,6 +823,23 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   background: var(--paper);
   padding: 18px 16px;
   overflow-y: auto;
+  position: relative;
+}
+/* Drag handle on the panel's left edge to widen/narrow it — an invisible hit
+   target until hovered/dragged, so it doesn't add visual clutter to a panel
+   that's meant to stay clean. */
+.client-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.client-panel-resize-handle:hover,
+.client-panel-resize-handle.dragging {
+  background: var(--teal-soft);
 }
 /* Collapsed state of .client-panel: a narrow vertical tab that gives the panel
    back once it has been hidden. Sits in the same flex slot, so hiding the panel

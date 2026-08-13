@@ -187,12 +187,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -409,9 +409,9 @@ export function ClientDetailPage() {
   // Lets other pages deep-link straight to a tab, e.g. Task Detail's
   // "All Client Documents" button -> /clients/:id?tab=Documents.
   const tabParam = searchParams.get("tab");
-  // Paired with ?tab=Notes (see the Clients list "Add Note" action) to land
-  // directly on the Notes tab with the add-note form already open, matching
-  // the Task Detail "Notes & Messages" ?open=note pattern.
+  // Paired with ?tab=Activity Timeline (see the Clients list "Add Note" action)
+  // to land directly on that tab with the add-note form already open, matching
+  // the Task Detail Activity Timeline's ?open=note pattern.
   const openParam = searchParams.get("open");
   // Paired with ?tab=Gov Forms (see the Clients list "Add Client" card's
   // quick-launch selects) — land on the Gov Forms tab with the matching
@@ -971,8 +971,12 @@ export function ClientDetailPage() {
             </>
           )}
 
-          {tab === "Notes" && canSeeStaffTabs && (
+          {tab === "Activity Timeline" && canSeeStaffTabs && (
             <ClientActivitySection clientId={client.client_id} autoOpen={openParam === "note"} />
+          )}
+
+          {tab === "Task Notes" && canSeeStaffTabs && (
+            <ClientTaskNotesInboxSection clientId={client.client_id} />
           )}
 
           {tab === "Communications" && canSeeStaffTabs && (
@@ -3022,6 +3026,13 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load activity."));
   }
   useEffect(load, [clientId]);
+  useEffect(() => {
+    // Fire-and-forget: this tab is the one true "staff looked at the client's
+    // notes" signal for the panel's Client Note unread counter — no need to
+    // block the list render on it, and a failure here is a passive side
+    // effect, not something worth surfacing as a user-facing error.
+    api.post(`/clients/${clientId}/activity/mark-read`, {}).catch(() => {});
+  }, [clientId]);
 
   async function handleAdd() {
     if (!note.trim()) return;
@@ -3097,6 +3108,67 @@ function ClientActivitySection({ clientId, autoOpen }: { clientId: string; autoO
                   <td data-label="Note">{r.note || "—"}</td>
                   <td className="muted" data-label="By">{r.logged_by || "—"}</td>
                   <td>{r.source === "log" && <button type="button" className="link-button" onClick={() => handleDelete(r)}>Delete</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface TaskNoteRow {
+  id: string; task_id: string; task_name: string; task_status: string;
+  note: string | null; sent_at: string; sent_by: string | null; is_read: boolean;
+}
+
+/**
+ * Cross-task inbox of Task Notes on this client's open tasks — the destination
+ * for the panel's "Task Note" counter. Each row links into its own task's
+ * Activity Timeline rather than duplicating the note-writing UI here; reading
+ * a note happens there (that's what marks it read), not in this list.
+ */
+function ClientTaskNotesInboxSection({ clientId }: { clientId: string }) {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<TaskNoteRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ taskNotes: TaskNoteRow[] }>(`/clients/${clientId}/task-notes`)
+      .then((res) => setRows(res.taskNotes))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load task notes."));
+  }, [clientId]);
+
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
+        <strong style={{ fontSize: 14 }}>Task Notes</strong>
+        <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+          Notes left on this client's open tasks — click through to a task's own Activity Timeline to read it.
+        </div>
+      </div>
+      {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
+      {!rows ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="muted" style={{ padding: 16, textAlign: "center" }}>No task notes on this client's open tasks.</p>
+      ) : (
+        <div className="table-scroll card-table">
+          <table>
+            <thead><tr><th scope="col"></th><th scope="col">Task</th><th scope="col">Note</th><th scope="col">By</th><th scope="col">When</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} style={r.is_read ? undefined : { fontWeight: 700 }}>
+                  <td>{!r.is_read && <span className="badge" style={{ minHeight: 0, padding: "2px 7px", fontSize: 10 }}>Unread</span>}</td>
+                  <td data-label="Task">
+                    <button type="button" className="link-button" onClick={() => navigate(`/tasks/${r.task_id}?open=note`)}>
+                      {r.task_name || r.task_id}
+                    </button>
+                  </td>
+                  <td data-label="Note">{r.note || "—"}</td>
+                  <td className="muted" data-label="By">{r.sent_by || "—"}</td>
+                  <td className="muted" data-label="When">{new Date(r.sent_at).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

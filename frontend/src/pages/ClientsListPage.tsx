@@ -295,7 +295,7 @@ export function ClientsListPage() {
     if (action === "review-documents") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Documents`); return; }
     if (action === "secure-vault") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}#vault`); return; }
     if (action === "edit") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?edit=1`); return; }
-    if (action === "note") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=Notes&open=note`); return; }
+    if (action === "note") { setSelectedClient(c.client_id, c.client_name); navigate(`/clients/${c.client_id}?tab=${encodeURIComponent("Activity Timeline")}&open=note`); return; }
     if (action === "send-invite") {
       try {
         const res = await api.post<{ inviteLink?: string; inviteEmailed?: boolean; inviteEmailError?: string }>("/users", {

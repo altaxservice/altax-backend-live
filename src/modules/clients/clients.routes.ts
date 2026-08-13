@@ -1371,6 +1371,13 @@ clientsRouter.post("/:clientId/activity", requireAuth, requireRole("admin", "sta
     [activityId, clientId, activityType, note, req.user!.email]
   );
   await logAudit("Clients", "LOG_ACTIVITY", activityId, "", "", activityType, `Activity logged for ${clientId} by ${req.user!.email}.`, req.user!.email);
+  // Self-mark-read — without this, writing a note would immediately show as
+  // unread to its own author on the panel's Client Note counter.
+  await query(
+    `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email) VALUES ('client_note', $1, $2)
+     ON CONFLICT DO NOTHING`,
+    [activityId, req.user!.email]
+  );
   res.status(201).json({ ok: true, activityId });
 }));
 
@@ -1382,8 +1389,89 @@ clientsRouter.post("/:clientId/activity/:activityId/delete", requireAuth, requir
   const row = await queryOne<any>(`SELECT * FROM altax.v3_client_activity_log WHERE activity_id = $1 AND client_id = $2`, [activityId, clientId]);
   if (!row) return res.status(404).json({ error: "Activity entry not found." });
   await query(`DELETE FROM altax.v3_client_activity_log WHERE activity_id = $1`, [activityId]);
+  await query(`DELETE FROM altax.v3_activity_reads WHERE entity_type = 'client_note' AND entity_id = $1`, [activityId]);
   await logAudit("Clients", "DELETE_ACTIVITY", activityId, "", row.activity_type || "", "", `Activity entry deleted by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
+}));
+
+/** Marks every one of this client's logged notes as read, for this reader — fired when the panel's "Activity Timeline" tab loads. */
+clientsRouter.post("/:clientId/activity/mark-read", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  await query(
+    `INSERT INTO altax.v3_activity_reads (entity_type, entity_id, reader_email)
+     SELECT 'client_note', activity_id, $2 FROM altax.v3_client_activity_log WHERE client_id = $1
+     ON CONFLICT DO NOTHING`,
+    [clientId, req.user!.email]
+  );
+  res.json({ ok: true });
+}));
+
+/**
+ * Per-staff-member unread counts for the panel's "Client Note"/"Task Note"
+ * Account rows. Scoped to req.user!.email — two staff members viewing the
+ * same client see independent counts. Task Note count is scoped to this
+ * client's OPEN tasks only — a note on a closed task isn't something that
+ * needs a badge nagging staff about it.
+ */
+clientsRouter.get("/:clientId/unread-counts", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const email = req.user!.email;
+  const [clientNote, taskNote] = await Promise.all([
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_client_activity_log l
+        WHERE l.client_id = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM altax.v3_activity_reads r
+             WHERE r.entity_type = 'client_note' AND r.entity_id = l.activity_id AND r.reader_email = $2
+          )`,
+      [clientId, email]
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_communications c
+        JOIN altax.v3_tasks t ON t.task_id = c.related_task_id
+       WHERE t.client_id = $1 AND c.channel = 'Task Note'
+         AND lower(t.status) NOT IN ('completed','void','closed','archived')
+         AND NOT EXISTS (
+           SELECT 1 FROM altax.v3_activity_reads r
+            WHERE r.entity_type = 'task_note' AND r.entity_id = c.communication_id AND r.reader_email = $2
+         )`,
+      [clientId, email]
+    ),
+  ]);
+  res.json({ clientNoteUnread: clientNote?.count || 0, taskNoteUnread: taskNote?.count || 0 });
+}));
+
+/**
+ * Cross-task inbox of every Task Note on this client's open tasks — the
+ * destination for the panel's "Task Note" counter. Each row links into its own
+ * task's Activity Timeline rather than duplicating the note-writing UI here.
+ */
+clientsRouter.get("/:clientId/task-notes", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const rows = await query<any>(
+    `SELECT c.communication_id AS id, c.related_task_id AS task_id, t.task_name, t.status AS task_status,
+            c.message_english AS note, c.sent_at, c.sent_by,
+            EXISTS (
+              SELECT 1 FROM altax.v3_activity_reads r
+               WHERE r.entity_type = 'task_note' AND r.entity_id = c.communication_id AND r.reader_email = $2
+            ) AS is_read
+       FROM altax.v3_communications c
+       JOIN altax.v3_tasks t ON t.task_id = c.related_task_id
+      WHERE t.client_id = $1 AND c.channel = 'Task Note'
+        AND lower(t.status) NOT IN ('completed','void','closed','archived')
+      ORDER BY c.sent_at DESC`,
+    [clientId, req.user!.email]
+  );
+  res.json({ taskNotes: rows });
 }));
 
 /** Next sequential C-#### id, matching the existing client_id pattern in real data. */
