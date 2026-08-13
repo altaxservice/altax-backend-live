@@ -211,8 +211,16 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 6;
   }
 
-  y += 8;
-  if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+  // Equipment List always starts on its own fresh page rather than flowing
+  // wherever the Menu happened to end — a long Menu used to push Equipment's
+  // heading right up against the bottom margin, so the list itself split
+  // awkwardly mid-entry across a page break a few items in. Forcing a clean
+  // page here means the split (if any) only ever happens between later items,
+  // not immediately after the heading.
+  pageNum += 1;
+  ({ page, c } = newPage(doc, font, bold, data.businessName));
+  y = 56;
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
   c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
   y += 8;
   c.line(L, y, R, y, LINE, 0.75);
