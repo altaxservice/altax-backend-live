@@ -899,7 +899,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
 
   const clientRow = await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation,
-            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type
+            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -995,6 +995,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     mdWithholdingFrequency: clientRow.md_withholding_frequency || null,
     mduiEnabled: Boolean(clientRow.mdui_enabled),
     businessReturnType: clientRow.business_return_type || null,
+    clientType: clientRow.client_type || null,
     completedKeys,
   });
 

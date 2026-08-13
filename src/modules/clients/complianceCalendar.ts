@@ -26,7 +26,7 @@ import { computeDuePeriod } from "../rules/rules.routes";
 export interface ComplianceDeadline {
   label: string;
   date: string; // YYYY-MM-DD
-  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election" | "EFTPS" | "MD Withholding" | "MD UI" | "Business Tax Return";
+  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election" | "EFTPS" | "MD Withholding" | "MD UI" | "Business Tax Return" | "Individual Tax Return" | "Estimated Tax";
 }
 
 /** Next occurrence of a fixed month/day from `asOf` — rolls to next year if this year's date has already passed. */
@@ -71,6 +71,55 @@ export function computeFederalPayrollDeadlines(payrollEnabled: boolean, withinDa
   return deadlines;
 }
 
+// Fixed federal individual-taxpayer dates: Form 1040 filing/extension-request
+// deadline (April 15), the extended filing deadline if Form 4868 was filed
+// (October 15), and the four Form 1040-ES quarterly estimated-payment dates
+// (Q4's own due date is January 15 of the FOLLOWING year, same "next
+// occurrence" pattern as Form 940 above).
+const FORM_1040_DUE = [4, 15] as [number, number];
+const FORM_1040_EXTENDED_DUE = [10, 15] as [number, number];
+const ESTIMATED_TAX_DUE_DATES: [number, number][] = [
+  [4, 15], // Q1
+  [6, 15], // Q2
+  [9, 15], // Q3
+  [1, 15], // Q4, due the following January
+];
+
+/**
+ * Hard audit (2026-08-13), TAX-002 — complianceCalendar.ts previously covered
+ * only the firm's clients as employers/sales-tax filers/business-return
+ * filers; a client_type='Individual' client (already a real, selectable
+ * value — see ClientsListPage.tsx's Client Type field) had zero deadline
+ * tracking of their own personal return. Every date here is a fixed federal
+ * due date, so — like the S-Corp/941/940 dates above — this never needs
+ * updating for a new year and needs no new schema.
+ */
+export function computeIndividualDeadlines(clientType: string | null | undefined, withinDays: number, asOf: Date = new Date()): ComplianceDeadline[] {
+  if (String(clientType || "").trim().toLowerCase() !== "individual") return [];
+  const cutoff = new Date(asOf.getTime() + withinDays * 86400000);
+  const deadlines: ComplianceDeadline[] = [];
+
+  const form1040Date = nextFixedAnnualDate(FORM_1040_DUE[0], FORM_1040_DUE[1], asOf);
+  if (new Date(`${form1040Date}T00:00:00`) <= cutoff) {
+    deadlines.push({ label: "Form 1040 (Individual Tax Return) — or file Form 4868 for an extension", date: form1040Date, source: "Individual Tax Return" });
+  }
+
+  const extendedDate = nextFixedAnnualDate(FORM_1040_EXTENDED_DUE[0], FORM_1040_EXTENDED_DUE[1], asOf);
+  if (new Date(`${extendedDate}T00:00:00`) <= cutoff) {
+    deadlines.push({ label: "Extended Filing Deadline (only if Form 4868 was filed)", date: extendedDate, source: "Individual Tax Return" });
+  }
+
+  const seenEstimated = new Set<string>();
+  for (const [month, day] of ESTIMATED_TAX_DUE_DATES) {
+    const date = nextFixedAnnualDate(month, day, asOf);
+    if (new Date(`${date}T00:00:00`) <= cutoff && !seenEstimated.has(date)) {
+      deadlines.push({ label: "Quarterly Estimated Tax Payment (Form 1040-ES)", date, source: "Estimated Tax" });
+      seenEstimated.add(date);
+    }
+  }
+  return deadlines;
+}
+
 /**
  * Combines MD filing + next payroll date (both already computed by the
  * caller) with the federal payroll deadlines above into one sorted list,
@@ -107,6 +156,8 @@ export function computeUpcomingDeadlines(params: {
   mdWithholdingFrequency?: string | null;
   mduiEnabled?: boolean;
   businessReturnType?: string | null;
+  /** v3_clients.client_type — "Individual" surfaces the Form 1040/4868/1040-ES deadlines below; any other value (or unset) surfaces none of them. */
+  clientType?: string | null;
   /** `${source}|${date}` keys already marked done via v3_obligation_completions — see clients.routes.ts's /obligations/mark-done. */
   completedKeys?: Set<string>;
   withinDays?: number;
@@ -156,6 +207,8 @@ export function computeUpcomingDeadlines(params: {
     const period = computeDuePeriod({ frequency: "Annual", due_day: "15", due_month: businessReturnOffset }, asOf);
     if (period) deadlines.push({ label: "Business Tax Return", date: period.dueDate, source: "Business Tax Return" });
   }
+
+  deadlines.push(...computeIndividualDeadlines(params.clientType, withinDays, asOf));
 
   const scorp = computeScorpElectionStatus(params.entityType ?? null, params.dateOfFormation ?? null, params.has2553Filing ?? false, asOf);
   // Only surfaced while there's still something to actually do about it —

@@ -533,7 +533,7 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
   res.status(201).json({ ok: true, flagId });
 }));
 
-const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return"]);
+const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax"]);
 
 /**
  * One click, right on the dashboard, to silence a specific upcoming/overdue
@@ -1055,9 +1055,10 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     mdWithholdingFrequency: clientRow.md_withholding_frequency || null,
     mduiEnabled: Boolean(clientRow.mdui_enabled),
     businessReturnType: clientRow.business_return_type || null,
+    clientType: clientRow.client_type || null,
     completedKeys: obligationCompletedKeys,
     withinDays: 60,
-  }).filter((d) => d.source === "EFTPS" || d.source === "MD Withholding" || d.source === "MD UI" || d.source === "Business Tax Return");
+  }).filter((d) => d.source === "EFTPS" || d.source === "MD Withholding" || d.source === "MD UI" || d.source === "Business Tax Return" || d.source === "Individual Tax Return" || d.source === "Estimated Tax");
 
   return {
     clientId, industryCategory: clientRow.industry_category || null, yearsInBusiness,
