@@ -14,6 +14,7 @@ import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, T
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { SinceLastLoginBanner } from "../components/SinceLastLoginBanner";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -355,9 +356,18 @@ export function DashboardPage() {
   if (loading) return <div className="spinner-wrap">Loading…</div>;
 
   if (user?.role === "client") return <ClientCommand docs={docs} invoices={invoices} taxRows={taxRows} appointments={appointments} />;
-  if (user?.role === "staff") return <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
   if (user?.role === "employee") return <EmployeeCommand />;
-  return <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />;
+  // "What happened while I was away" only makes sense for roles that see
+  // firm-wide/cross-client activity — clients and employees only ever see
+  // their own record, so there's nothing for them to have missed.
+  return (
+    <>
+      <SinceLastLoginBanner />
+      {user?.role === "staff"
+        ? <StaffCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />
+        : <AdminCommand tasks={tasks} clients={clients} docs={docs} invoices={invoices} onChanged={load} />}
+    </>
+  );
 }
 
 function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Task[]; clients: Client[]; docs: DocumentRequest[]; invoices: Invoice[]; onChanged: () => Promise<void> }) {

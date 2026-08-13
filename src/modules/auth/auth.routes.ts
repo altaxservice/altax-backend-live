@@ -269,7 +269,7 @@ authRouter.post("/login/verify-email-code", codeLimiter, asyncHandler(async (req
 
     // Burn the code in the same update that grants the session.
     await client.query(
-      `UPDATE altax.v3_users SET last_login = now(), login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0 WHERE user_id = $1`,
+      `UPDATE altax.v3_users SET previous_login = last_login, last_login = now(), login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0 WHERE user_id = $1`,
       [userId]
     );
     const token = issueSessionToken(result);
@@ -358,7 +358,7 @@ authRouter.post("/enroll/2fa/confirm", codeLimiter, asyncHandler(async (req: Req
     const result = await buildAuthSuccess(client, { ...row, totp_enabled: true });
     if (isError(result)) return res.status(401).json({ error: result.error });
 
-    await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [userId]);
+    await client.query(`UPDATE altax.v3_users SET previous_login = last_login, last_login = now() WHERE user_id = $1`, [userId]);
     await logAudit("Security", "2FA_ENROLLED", userId, "TOTPEnabled", "false", "true",
       "Two-factor authentication enrolled (mandatory enrollment at sign-in).", row.email);
 
@@ -415,14 +415,14 @@ authRouter.post("/login/verify-totp", codeLimiter, asyncHandler(async (req: Requ
       // Burn it in the same update that grants the session, so a code can never
       // be replayed even if two logins race.
       await client.query(
-        `UPDATE altax.v3_users SET last_login = now(), totp_backup_codes = $2::jsonb WHERE user_id = $1`,
+        `UPDATE altax.v3_users SET previous_login = last_login, last_login = now(), totp_backup_codes = $2::jsonb WHERE user_id = $1`,
         [row.user_id, JSON.stringify(remainingBackupCodes)]
       );
       await logAudit("Security", "2FA_BACKUP_CODE_USED", row.user_id, "BackupCodes",
         String((remainingBackupCodes as string[]).length + 1), String((remainingBackupCodes as string[]).length),
         `Signed in with a recovery code; ${(remainingBackupCodes as string[]).length} left.`, row.email);
     } else {
-      await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [row.user_id]);
+      await client.query(`UPDATE altax.v3_users SET previous_login = last_login, last_login = now() WHERE user_id = $1`, [row.user_id]);
     }
 
     const token = issueSessionToken(result);
@@ -593,7 +593,8 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
     await client.query(
       `UPDATE altax.v3_users
          SET password_hash = $1, password_salt = $2, password_hash_version = 3, last_password_change_at = $3,
-             invite_token = NULL, invite_expires = NULL, must_reset_password = FALSE, last_login = now()
+             invite_token = NULL, invite_expires = NULL, must_reset_password = FALSE,
+             previous_login = last_login, last_login = now()
        WHERE user_id = $4`,
       [fields.PasswordHash, fields.PasswordSalt, fields.LastPasswordChangeAt, row.user_id]
     );

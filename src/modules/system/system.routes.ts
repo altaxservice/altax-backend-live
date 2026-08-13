@@ -478,6 +478,58 @@ systemRouter.get("/security", requireAuth, requireRole("admin"), asyncHandler(as
   });
 }));
 
+// Everything logAudit() actually gets called with (see src/common/audit.ts callers)
+// minus the two purely internal/noisy ones — Security has its own dedicated feed
+// on the page above, and System is server-lifecycle stuff (backups, key rotation),
+// not something staff did.
+const ACTIVITY_DIGEST_MODULES = [
+  "Accounting", "Billing", "Calculators", "Calendar", "Checklists", "Clients", "Communications",
+  "Contractors", "Contracts", "Documents", "Employees", "Firm Portals", "Haccp", "Labels", "Leave",
+  "Reminders", "Reports", "Rules", "Secure Vault", "Settings", "Staff", "Tasks", "Templates",
+  "Time Tracking", "Tools",
+];
+
+/**
+ * "What happened since I was last here" — the cutoff is previous_login, not
+ * last_login: last_login is overwritten the instant the CURRENT session starts,
+ * so it can never be used as the boundary for "since I logged in" without every
+ * request seeing an empty window. previous_login is written by the same UPDATE,
+ * one login behind, specifically so this has something stable to compare against.
+ */
+systemRouter.get("/activity-since-login", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const me = await queryOne<any>(`SELECT previous_login FROM altax.v3_users WHERE user_id = $1`, [req.user!.sub]);
+  const since = me?.previous_login || null;
+  if (!since) {
+    return res.json({ since: null, count: 0, events: [] });
+  }
+
+  const events = await query<any>(
+    `SELECT logged_at, user_email, module, action, note
+       FROM altax.v3_audit_log
+      WHERE logged_at > $1 AND module = ANY($2::text[])
+      ORDER BY logged_at DESC
+      LIMIT 200`,
+    [since, ACTIVITY_DIGEST_MODULES]
+  );
+  const countRow = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM altax.v3_audit_log WHERE logged_at > $1 AND module = ANY($2::text[])`,
+    [since, ACTIVITY_DIGEST_MODULES]
+  );
+
+  res.json({
+    since,
+    count: Number(countRow?.count || 0),
+    truncated: Number(countRow?.count || 0) > events.length,
+    events: events.map((e: any) => ({
+      loggedAt: e.logged_at,
+      userEmail: e.user_email,
+      module: e.module,
+      action: e.action,
+      note: e.note,
+    })),
+  });
+}));
+
 /**
  * Default Global tax rates — one row per RateID the accounting module's
  * lookupRate() already falls back to in-memory when no configured row

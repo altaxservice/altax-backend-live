@@ -152,7 +152,7 @@ export async function authenticateUser(
     const result = await buildAuthSuccess(client, selectedUser, email);
     if (isErrorResult(result)) return result;
 
-    await client.query(`UPDATE altax.v3_users SET last_login = now() WHERE user_id = $1`, [selectedUser.user_id]);
+    await client.query(`UPDATE altax.v3_users SET previous_login = last_login, last_login = now() WHERE user_id = $1`, [selectedUser.user_id]);
     return result;
   } finally {
     client.release();
