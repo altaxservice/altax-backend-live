@@ -12,7 +12,7 @@ import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
-import { TASK_STATUSES, isOpenTask, isOverdue, isDueToday, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { TASK_STATUSES, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
@@ -32,6 +32,21 @@ const HISTORY_TABS = ["Completed", "Archived", "All History"] as const;
 type QuickTab = typeof QUICK_TABS[number];
 type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" | "assigned_to";
 
+// PERF-010 (Hard Audit, 2026-08-13) — live tabs (the fastest-growing, most-
+// visited view) are now server-paginated/filtered/sorted instead of the page
+// fetching every task the caller can see and filtering the whole set in the
+// browser on every keystroke. History tabs (Completed/Archived/All History)
+// are unchanged — smaller, slower-growing data, and "All History" genuinely
+// needs the full live+archived union, so pagination doesn't help there.
+const PAGE_SIZE = 50;
+const isLiveTab = (t: QuickTab): boolean => (LIVE_TABS as readonly string[]).includes(t);
+
+interface TaskSummary {
+  openCount: number; overdueCount: number; dueTodayCount: number; waitingCount: number;
+  taskGroupCount: number; topTaskGroup: { name: string; count: number } | null;
+  staffLoadCount: number; topStaff: { name: string; count: number } | null;
+}
+
 export function TasksListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -42,8 +57,15 @@ export function TasksListPage() {
   const { setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // `tasks` (the full live table) is now only fetched for the "All History"
+  // tab, which genuinely needs the whole live+archived union — every other
+  // live tab gets its rows from `pageTasks` (server-paginated) instead.
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [archivedTasks, setArchivedTasks] = useState<Task[] | null>(null);
+  const [pageTasks, setPageTasks] = useState<Task[] | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [summary, setSummary] = useState<TaskSummary | null>(null);
   const [rules, setRules] = useState<TaskRule[]>([]);
   const [options, setOptions] = useState<WebOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,19 +108,89 @@ export function TasksListPage() {
   const canManage = user?.role === "admin" || user?.role === "staff";
   const { allLabels, byEntity: taskLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabels("task");
 
-  function load(): Promise<void> {
+  /** Full live+archived union — the one thing only "All History" still needs. */
+  function loadAllHistory(): Promise<void> {
     return api.get<{ tasks: Task[] }>("/tasks")
       .then((res) => setTasks(res.tasks))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load tasks."));
   }
-  useEffect(() => { load(); }, []);
+
+  function liveQueryParams(): URLSearchParams {
+    const params = new URLSearchParams();
+    params.set("quickTab", quickTab);
+    if (clientIdFilter) params.set("clientId", clientIdFilter);
+    if (staffFilter !== "all") params.set("staff", staffFilter);
+    if (serviceFilter !== "all") params.set("service", serviceFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (labelFilter !== "all") params.set("label", labelFilter);
+    if (search.trim()) params.set("search", search.trim());
+    params.set("sortBy", sortKey);
+    params.set("sortDir", sortDir);
+    return params;
+  }
+
+  /** Server-paginated/filtered/sorted fetch for the 6 live tabs. */
+  function loadPage(): Promise<void> {
+    if (!isLiveTab(quickTab)) return Promise.resolve();
+    const params = liveQueryParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    return api.get<{ tasks: Task[]; totalCount: number }>(`/tasks?${params.toString()}`)
+      .then((res) => { setPageTasks(res.tasks); setTotalCount(res.totalCount); })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load tasks."));
+  }
+
+  function loadSummary(): Promise<void> {
+    return api.get<TaskSummary>("/tasks/summary").then(setSummary).catch(() => {});
+  }
 
   function loadArchived(): Promise<void> {
     return api.get<{ tasks: Task[] }>("/tasks/archived/list").then((res) => setArchivedTasks(res.tasks)).catch(() => {});
   }
+
+  /** Refreshes whatever's actually backing the current view, after a write. */
+  function reloadCurrentView(): Promise<void> {
+    return Promise.all([
+      isLiveTab(quickTab) ? loadPage() : Promise.resolve(),
+      quickTab === "All History" ? loadAllHistory() : Promise.resolve(),
+      archivedTasks !== null ? loadArchived() : Promise.resolve(),
+      loadSummary(),
+    ]).then(() => {});
+  }
+
+  useEffect(() => { loadSummary(); }, []);
+
   useEffect(() => {
-    if ((quickTab === "Archived" || quickTab === "Completed" || quickTab === "All History") && archivedTasks === null) loadArchived();
+    if (quickTab === "Archived" || quickTab === "Completed" || quickTab === "All History") {
+      if (archivedTasks === null) loadArchived();
+    }
+    if (quickTab === "All History" && tasks === null) loadAllHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickTab]);
+
+  // Immediate refetch for live tabs on any structural filter/sort/page change.
+  useEffect(() => {
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, sortKey, sortDir, page]);
+
+  // A filter/sort change should always land back on page 1 — but changing
+  // `page` itself obviously shouldn't re-trigger this reset.
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, sortKey, sortDir]);
+
+  // Debounced separately from the effect above — typing shouldn't fire a
+  // request per keystroke. Skips the mount-time firing (the effects above
+  // already cover the initial load) so the page doesn't double-fetch on open.
+  const searchMounted = useRef(false);
+  useEffect(() => {
+    if (!searchMounted.current) { searchMounted.current = true; return; }
+    const t = setTimeout(() => { setPage(1); loadPage(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   useEffect(() => {
     if (canManage) api.get<{ rules: TaskRule[] }>("/rules").then((res) => setRules(res.rules)).catch(() => {});
@@ -111,22 +203,24 @@ export function TasksListPage() {
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      await Promise.all([load(), archivedTasks !== null ? loadArchived() : Promise.resolve()]);
+      await Promise.all([
+        loadSummary(),
+        isLiveTab(quickTab) ? loadPage() : Promise.resolve(),
+        quickTab === "All History" ? loadAllHistory() : Promise.resolve(),
+        archivedTasks !== null ? loadArchived() : Promise.resolve(),
+      ]);
       toast("Data refreshed.");
     } finally {
       setRefreshing(false);
     }
   }
 
-  const staffOptions = useMemo(() => Array.from(new Set((tasks || []).map((t) => t.assigned_to).filter(Boolean))) as string[], [tasks]);
-  // Union of the canonical task-type list (/system/options) and whatever's actually
-  // on existing tasks — building this from live tasks alone (the old behavior) hid
-  // every task type no task had used yet, so newly added ones (Health Permit, Use &
-  // Occupancy Permit, …) could never be filtered on until a task existed for them.
-  const serviceOptions = useMemo(
-    () => Array.from(new Set([...(options?.taskTypes || []), ...(tasks || []).map((t) => t.service_line).filter(Boolean) as string[]])),
-    [tasks, options]
-  );
+  // Sourced from /system/options (the canonical, firm-wide lists) rather than
+  // derived from whatever tasks happen to be loaded — with live tabs now only
+  // ever holding one page of rows, deriving these from `tasks` would shrink
+  // the dropdowns to just what's on the current page.
+  const staffOptions = useMemo(() => options?.staff || [], [options]);
+  const serviceOptions = useMemo(() => options?.taskTypes || [], [options]);
   // Label names, not label_ids, since that's what the FilterBar select renders
   // as both the option value and its display text — safe because label names
   // are firm-unique (sql/030_labels.sql: uq_v3_labels_name).
@@ -135,26 +229,25 @@ export function TasksListPage() {
   const isArchivedView = quickTab === "Archived";
 
   /**
-   * Which underlying rows a quick-tab draws from. Completed tasks are auto-archived the
-   * moment their status is set (see tasks.routes.ts archiveTask), so a live-table
-   * status==='Completed' filter would always be empty — "Completed" has to read from the
-   * archive instead. "All History" merges both sources, matching legacy's description.
+   * History tabs only (Completed/Archived/All History) — filtered/sorted
+   * entirely client-side, same as before PERF-010. Live tabs get their rows
+   * from `pageTasks` directly (already filtered/sorted/paginated server-side)
+   * via `visibleRows` below, so this only ever computes for the other three.
+   * Completed tasks are auto-archived the moment their status is set (see
+   * tasks.routes.ts archiveTask), so a live-table status==='Completed' filter
+   * would always be empty — "Completed" has to read from the archive instead.
+   * "All History" merges both sources, matching legacy's description.
    */
   const baseRows: Task[] = useMemo(() => {
     if (quickTab === "Archived") return archivedTasks || [];
     if (quickTab === "Completed") return (archivedTasks || []).filter((t) => String(t.status || "").toLowerCase() === "completed");
     if (quickTab === "All History") return [...(tasks || []), ...(archivedTasks || [])];
-    return tasks || [];
+    return [];
   }, [quickTab, tasks, archivedTasks]);
 
-  const filtered = useMemo(() => {
+  const historyFiltered = useMemo(() => {
+    if (isLiveTab(quickTab)) return [];
     let rows = baseRows;
-    if (quickTab === "Active" || quickTab === "All Active") rows = rows.filter(isOpenTask);
-    else if (quickTab === "Overdue") rows = rows.filter((t) => isOpenTask(t) && isOverdue(t));
-    else if (quickTab === "Due Today") rows = rows.filter((t) => isOpenTask(t) && isDueToday(t));
-    else if (quickTab === "Due Week") rows = rows.filter((t) => isOpenTask(t) && isDueWeek(t));
-    else if (quickTab === "Waiting") rows = rows.filter((t) => isOpenTask(t) && isWaiting(t));
-
     if (clientIdFilter) rows = rows.filter((t) => t.client_id === clientIdFilter);
     if (staffFilter !== "all") rows = rows.filter((t) => t.assigned_to === staffFilter);
     if (serviceFilter !== "all") rows = rows.filter((t) => t.service_line === serviceFilter);
@@ -177,11 +270,17 @@ export function TasksListPage() {
     return rows;
   }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, taskLabels, search, sortKey, sortDir, isArchivedView]);
 
+  const visibleRows: Task[] = isLiveTab(quickTab) ? (pageTasks || []) : historyFiltered;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
   // Lets TaskDetailPage's Previous/Next paging step through whatever
-  // filtered/sorted order is currently on screen — see utils/listNav.ts.
+  // filtered/sorted order is currently on screen — see utils/listNav.ts. On a
+  // live tab this now only spans the current page, not the whole pipeline —
+  // standard for a paginated list, and Prev/Next still works, it just stops
+  // at the page boundary the way it would in any paginated UI.
   useEffect(() => {
-    saveListOrder("tasks", filtered.map((t) => t.task_id));
-  }, [filtered]);
+    saveListOrder("tasks", visibleRows.map((t) => t.task_id));
+  }, [visibleRows]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -192,8 +291,13 @@ export function TasksListPage() {
   function toggleSelected(taskId: string) {
     setSelected((prev) => { const next = new Set(prev); next.has(taskId) ? next.delete(taskId) : next.add(taskId); return next; });
   }
+  // Selects everything currently on screen — on a live tab that's just the
+  // current page, not every row matching the filter across every page. Kept
+  // deliberately scoped this way: a "select all matching filter" that spans
+  // pages would let one click bulk-complete/void/delete far more than what's
+  // visible, which is a much easier mistake to make sight-unseen.
   function toggleSelectAll() {
-    setSelected((prev) => (prev.size === filtered.length ? new Set() : new Set(filtered.map((t) => t.task_id))));
+    setSelected((prev) => (prev.size === visibleRows.length ? new Set() : new Set(visibleRows.map((t) => t.task_id))));
   }
 
   async function handleBulk(action: "complete" | "void" | "delete") {
@@ -226,7 +330,7 @@ export function TasksListPage() {
       if (parts.length) await notify(`${res.succeeded} updated. ${parts.join("; ")}.`);
       else toast(`${res.succeeded} task(s) ${action === "delete" ? "deleted" : "updated"}.`);
       setSelected(new Set());
-      load();
+      reloadCurrentView();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Bulk action failed.");
     } finally {
@@ -238,8 +342,7 @@ export function TasksListPage() {
     setRestoring(taskId);
     try {
       await api.post(`/tasks/${taskId}/restore`, {});
-      loadArchived();
-      load();
+      reloadCurrentView();
       toast("Task restored.");
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not restore this task.");
@@ -250,19 +353,23 @@ export function TasksListPage() {
 
   async function handleStatusChange(taskId: string, status: string) {
     setSavingStatusId(taskId);
+    const previousPageTasks = pageTasks;
     const previousTasks = tasks;
     // Optimistic local patch instead of an unbounded full-table refetch on
     // every single inline status change — the API call already tells us
-    // exactly what changed. `load()` still runs after, but in the background
-    // (not awaited) to reconcile any server-side derived fields, rather than
-    // blocking the UI on re-fetching rows that didn't change.
+    // exactly what changed. reloadCurrentView() still runs after, but in the
+    // background (not awaited) to reconcile any server-side derived fields
+    // and the summary tile counts, rather than blocking the UI on a refetch.
+    // Patches whichever array actually holds this row (pageTasks for a live
+    // tab, tasks for the All History view) — the other's map is a no-op.
+    setPageTasks((prev) => prev?.map((t) => (t.task_id === taskId ? { ...t, status } : t)) ?? prev);
     setTasks((prev) => prev?.map((t) => (t.task_id === taskId ? { ...t, status } : t)) ?? prev);
     try {
       await api.patch(`/tasks/${taskId}`, { status });
       toast("Status updated.");
-      load();
-      if (archivedTasks !== null) loadArchived();
+      reloadCurrentView();
     } catch (err) {
+      setPageTasks(previousPageTasks);
       setTasks(previousTasks);
       await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
@@ -283,7 +390,7 @@ export function TasksListPage() {
       try {
         await api.post(`/tasks/${task.task_id}/void`, { reason });
         toast("Task voided.");
-        load();
+        reloadCurrentView();
       } catch (err) {
         await notify(err instanceof ApiError ? err.message : "Could not void this task.");
       }
@@ -298,43 +405,52 @@ export function TasksListPage() {
       try {
         await api.post(`/tasks/${task.task_id}/delete`, { confirm: confirmValue });
         toast("Task deleted.");
-        load();
+        reloadCurrentView();
       } catch (err) {
         await notify(err instanceof ApiError ? err.message : "Could not delete this task.");
       }
     }
   }
 
-  function handleExport() {
-    exportCsv("tasks.csv", [
-      { key: "client_name", label: "Client" }, { key: "service_line", label: "Service" }, { key: "task_name", label: "Task" },
-      { key: "agency_due_date", label: "Due" }, { key: "status", label: "Status" }, { key: "assigned_to", label: "Owner" },
-    ], filtered as unknown as Record<string, unknown>[]);
+  /**
+   * "Export what I'm looking at" — for a live tab that means every row
+   * matching the current filters, not just the current page, so this makes
+   * its own server round-trip (same filters, no page/pageSize) rather than
+   * exporting just `visibleRows`.
+   */
+  async function handleExport() {
+    if (!isLiveTab(quickTab)) {
+      return exportCsv("tasks.csv", [
+        { key: "client_name", label: "Client" }, { key: "service_line", label: "Service" }, { key: "task_name", label: "Task" },
+        { key: "agency_due_date", label: "Due" }, { key: "status", label: "Status" }, { key: "assigned_to", label: "Owner" },
+      ], historyFiltered as unknown as Record<string, unknown>[]);
+    }
+    try {
+      const res = await api.get<{ tasks: Task[] }>(`/tasks?${liveQueryParams().toString()}`);
+      exportCsv("tasks.csv", [
+        { key: "client_name", label: "Client" }, { key: "service_line", label: "Service" }, { key: "task_name", label: "Task" },
+        { key: "agency_due_date", label: "Due" }, { key: "status", label: "Status" }, { key: "assigned_to", label: "Owner" },
+      ], res.tasks as unknown as Record<string, unknown>[]);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not export tasks.");
+    }
   }
 
-  const openTasksAll = (tasks || []).filter(isOpenTask);
-  const overdueAll = openTasksAll.filter(isOverdue);
-  const dueTodayAll = openTasksAll.filter(isDueToday);
-  const waitingAll = openTasksAll.filter(isWaiting);
-  const taskGroupCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of openTasksAll) {
-      const key = t.task_name || t.service_line || "Task";
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [openTasksAll]);
-  const staffLoadCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of openTasksAll) {
-      const key = t.assigned_to || "Unassigned";
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [openTasksAll]);
+  // Firm-wide aggregate tiles (Open Tasks, Overdue, Due Today, Task Groups,
+  // Staff Load, Waiting) — sourced from /tasks/summary (computed in SQL over
+  // every open task, not just the current page) rather than derived from a
+  // full task-row fetch, which is exactly the cost PERF-010 removes.
+  const overdueAll = summary?.overdueCount ?? 0;
+  const dueTodayAll = summary?.dueTodayCount ?? 0;
+  const waitingAll = summary?.waitingCount ?? 0;
+  const openTasksCount = summary?.openCount ?? 0;
 
   const tableTitle = user?.role === "admin" ? "Master Task Pipeline" : "My Task Pipeline";
-  const ready = isArchivedView ? archivedTasks !== null : quickTab === "Completed" || quickTab === "All History" ? tasks !== null && archivedTasks !== null : tasks !== null;
+  const ready = isArchivedView
+    ? archivedTasks !== null
+    : quickTab === "Completed" ? archivedTasks !== null
+    : quickTab === "All History" ? tasks !== null && archivedTasks !== null
+    : pageTasks !== null;
 
   function goToTab(tab: QuickTab) {
     setQuickTab(tab);
@@ -346,7 +462,7 @@ export function TasksListPage() {
     <div>
       {clientIdFilter && (
         <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
-          <span>Showing tasks for <strong>{filtered[0]?.client_name || clientIdFilter}</strong> only.</span>
+          <span>Showing tasks for <strong>{visibleRows[0]?.client_name || clientIdFilter}</strong> only.</span>
           <button type="button" className="btn btn-sm" onClick={() => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("clientId"); return next; })}>Show all clients</button>
         </div>
       )}
@@ -402,35 +518,35 @@ export function TasksListPage() {
         <div className="metric-grid" style={{ marginBottom: 12 }}>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Open Tasks</div>
-            <div className="metric-value">{openTasksAll.length}</div>
-            <div className="metric-note">{filtered.length} visible</div>
+            <div className="metric-value">{openTasksCount}</div>
+            <div className="metric-note">{isLiveTab(quickTab) ? totalCount : visibleRows.length} visible</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("Overdue")}>
             <div className="metric-label">Overdue</div>
-            <div className="metric-value">{overdueAll.length}</div>
+            <div className="metric-value">{overdueAll}</div>
             <div className="metric-note">before today</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("Due Today")}>
             <div className="metric-label">Due Today</div>
-            <div className="metric-value">{dueTodayAll.length}</div>
+            <div className="metric-value">{dueTodayAll}</div>
             <div className="metric-note">{fmtDateOnly(new Date().toISOString())}</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Task Groups</div>
-            <div className="metric-value">{taskGroupCounts.length}</div>
+            <div className="metric-value">{summary?.taskGroupCount ?? 0}</div>
             {/* Just the single biggest group, not a 3-way pipe-joined list — the
                 full breakdown is one click away in the table itself, so this tile
                 only needs to say "here's what's piling up," not restate the table. */}
-            <div className="metric-note">{taskGroupCounts.length ? `Top: ${taskGroupCounts[0][0]} (${taskGroupCounts[0][1]})` : "—"}</div>
+            <div className="metric-note">{summary?.topTaskGroup ? `Top: ${summary.topTaskGroup.name} (${summary.topTaskGroup.count})` : "—"}</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("All Active")}>
             <div className="metric-label">Staff Load</div>
-            <div className="metric-value">{staffLoadCounts.length}</div>
-            <div className="metric-note">{staffLoadCounts.length ? `Busiest: ${staffLoadCounts[0][0]} (${staffLoadCounts[0][1]})` : "—"}</div>
+            <div className="metric-value">{summary?.staffLoadCount ?? 0}</div>
+            <div className="metric-note">{summary?.topStaff ? `Busiest: ${summary.topStaff.name} (${summary.topStaff.count})` : "—"}</div>
           </button>
           <button type="button" className="metric metric-clickable" onClick={() => goToTab("Waiting")}>
             <div className="metric-label">Waiting</div>
-            <div className="metric-value">{waitingAll.length}</div>
+            <div className="metric-value">{waitingAll}</div>
             <div className="metric-note">client/docs/pending</div>
           </button>
         </div>
@@ -448,7 +564,11 @@ export function TasksListPage() {
         <div className="card" style={{ padding: 0 }} id="master-task-pipeline">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
             <strong style={{ fontSize: 14 }}>{tableTitle}</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{filtered.length} tasks</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {isLiveTab(quickTab)
+                ? `${visibleRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${(page - 1) * PAGE_SIZE + visibleRows.length} of ${totalCount}`
+                : `${visibleRows.length} tasks`}
+            </span>
           </div>
           {/* No separate overflow:auto wrapper around .table-scroll — that div computed
               its own overflow-y to "auto" too (pairing a non-visible overflow-x with a
@@ -460,7 +580,7 @@ export function TasksListPage() {
             <thead>
               <tr>
                 {!isArchivedView && canManage && (
-                  <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === filtered.length} onChange={toggleSelectAll} /></th>
+                  <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === visibleRows.length} onChange={toggleSelectAll} /></th>
                 )}
                 {/* Client+Service, Task+Priority, Due+Risk and Owner+Last-Updated
                     are each stacked in one cell. As 12 separate columns this table
@@ -475,7 +595,7 @@ export function TasksListPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((t) => (
+              {visibleRows.map((t) => (
                 <tr key={t.task_id} data-row-id={t.task_id} tabIndex={0} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
@@ -555,13 +675,20 @@ export function TasksListPage() {
             </tbody>
           </table>
           </div>
-          {filtered.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
+          {visibleRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match.</p>}
+          {isLiveTab(quickTab) && totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: "1px solid var(--line)" }}>
+              <button type="button" className="btn btn-sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</button>
+              <span className="muted" style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+              <button type="button" className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+            </div>
+          )}
         </div>
       )}
 
       {showBatchModal && (
         rules.length > 0 ? (
-          <CreateBatchTasksModal rules={rules} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
+          <CreateBatchTasksModal rules={rules} onClose={() => setShowBatchModal(false)} onDone={() => reloadCurrentView()} />
         ) : (
           <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
             <div ref={batchEmptyPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
@@ -576,7 +703,7 @@ export function TasksListPage() {
         <NewWorkItemModal
           initialClientId={newWorkItemClientId}
           onClose={() => { setShowNewWorkItem(false); setSearchParams({}); }}
-          onDone={() => load()}
+          onDone={() => reloadCurrentView()}
         />
       )}
 
@@ -586,7 +713,7 @@ export function TasksListPage() {
           clientName={requestDocTask.client_name}
           taskId={requestDocTask.task_id}
           onClose={() => setRequestDocTask(null)}
-          onDone={() => load()}
+          onDone={() => reloadCurrentView()}
         />
       )}
     </div>

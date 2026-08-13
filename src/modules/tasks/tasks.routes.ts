@@ -179,8 +179,169 @@ const TASK_FILE_COLUMNS = `
   (SELECT u.file_url FROM altax.v3_document_uploads u WHERE u.task_id = t.task_id AND lower(u.status) NOT IN ('removed','replaced') ORDER BY u.uploaded_at DESC NULLS LAST LIMIT 1) AS first_file_url
 `;
 
+/**
+ * PERF-010 (Hard Audit, 2026-08-13) — "Active"/"All Active" both mean "not yet
+ * closed out"; the rest narrow that further by due-date or status. Mirrors
+ * isOpenTask/isOverdue/isDueToday/isDueWeek/isWaiting in TaskCells.tsx exactly
+ * (same status list, same day-boundary semantics as the CURRENT_DATE pattern
+ * already used throughout clients.routes.ts) so a row lands on the same tab
+ * whether the count came from the client-side filter or this SQL condition.
+ */
+const OPEN_STATUS_SQL = `lower(t.status) NOT IN ('completed','void','closed','archived')`;
+const LIVE_TAB_CONDITIONS: Record<string, string> = {
+  "Active": OPEN_STATUS_SQL,
+  "All Active": OPEN_STATUS_SQL,
+  "Overdue": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE`,
+  "Due Today": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date = CURRENT_DATE`,
+  "Due Week": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`,
+  "Waiting": `${OPEN_STATUS_SQL} AND lower(t.status) IN ('waiting docs', 'waiting on client', 'pending')`,
+};
+const TASK_SORT_COLUMNS: Record<string, string> = {
+  client_name: "t.client_name", task_name: "t.task_name", agency_due_date: "t.agency_due_date", assigned_to: "t.assigned_to",
+};
+
+/** Shared by both the paginated and summary routes below — same role scoping as the unpaginated GET / (admin sees all, staff sees only their own assigned work, client/employee see nothing). */
+async function taskRoleScopeSql(req: AuthedRequest): Promise<{ sql: string; params: any[] } | null> {
+  const role = req.user!.role;
+  if (role === "admin") return { sql: "1=1", params: [] };
+  if (role === "client" || role === "employee") return null;
+  const aliases = await getUserAliases(req.user!.email);
+  return { sql: `lower(t.assigned_to) = ANY($1::text[])`, params: [Array.from(aliases)] };
+}
+
+/**
+ * Builds the WHERE clause + params shared by the paginated listing and the
+ * CSV-export path (export is just this same query with no LIMIT/OFFSET) —
+ * one place so the two can never silently drift apart on what "matching the
+ * current filters" means.
+ */
+async function buildTaskFilterSql(req: AuthedRequest): Promise<{ where: string; params: any[] } | null> {
+  const scope = await taskRoleScopeSql(req);
+  if (!scope) return null;
+  const clauses: string[] = [scope.sql];
+  const params: any[] = [...scope.params];
+
+  const quickTab = String(req.query.quickTab || "");
+  if (LIVE_TAB_CONDITIONS[quickTab]) clauses.push(LIVE_TAB_CONDITIONS[quickTab]);
+
+  const clientId = String(req.query.clientId || "").trim();
+  if (clientId) { params.push(clientId); clauses.push(`t.client_id = $${params.length}`); }
+
+  const staff = String(req.query.staff || "").trim();
+  if (staff && staff !== "all") { params.push(staff); clauses.push(`t.assigned_to = $${params.length}`); }
+
+  const service = String(req.query.service || "").trim();
+  if (service && service !== "all") { params.push(service); clauses.push(`t.service_line = $${params.length}`); }
+
+  const status = String(req.query.status || "").trim();
+  if (status && status !== "all") { params.push(status.toLowerCase()); clauses.push(`lower(t.status) = $${params.length}`); }
+
+  const label = String(req.query.label || "").trim();
+  if (label && label !== "all") {
+    params.push(label);
+    clauses.push(`EXISTS (SELECT 1 FROM altax.v3_entity_labels el JOIN altax.v3_labels l ON l.label_id = el.label_id WHERE el.entity_type = 'task' AND el.entity_id = t.task_id AND l.name = $${params.length})`);
+  }
+
+  const search = String(req.query.search || "").trim();
+  if (search) {
+    params.push(`%${search}%`);
+    clauses.push(`(t.task_name ILIKE $${params.length} OR t.client_name ILIKE $${params.length} OR t.assigned_to ILIKE $${params.length} OR t.service_line ILIKE $${params.length})`);
+  }
+
+  return { where: clauses.join(" AND "), params };
+}
+
+/**
+ * Registered above GET /:taskId so "summary" isn't matched as a task_id.
+ * Cheap aggregate counts for TasksListPage's metric tiles — computed in SQL
+ * over every open task (not just the current page), so the tiles stay
+ * accurate without ever pulling full task rows over the wire just to count
+ * them.
+ */
+tasksRouter.get("/summary", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const scope = await taskRoleScopeSql(req);
+  if (!scope) return res.json({ openCount: 0, overdueCount: 0, dueTodayCount: 0, waitingCount: 0, taskGroupCount: 0, topTaskGroup: null, staffLoadCount: 0, topStaff: null });
+
+  const [counts] = await query<any>(
+    `SELECT
+       COUNT(*) FILTER (WHERE ${OPEN_STATUS_SQL}) AS open_count,
+       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Overdue"]}) AS overdue_count,
+       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Due Today"]}) AS due_today_count,
+       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Waiting"]}) AS waiting_count
+     FROM altax.v3_tasks t WHERE ${scope.sql}`,
+    scope.params
+  );
+  const taskGroups = await query<any>(
+    `SELECT COALESCE(NULLIF(t.task_name, ''), NULLIF(t.service_line, ''), 'Task') AS name, COUNT(*)::int AS count
+       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL}
+      GROUP BY 1 ORDER BY 2 DESC`,
+    scope.params
+  );
+  const staffLoad = await query<any>(
+    `SELECT COALESCE(NULLIF(t.assigned_to, ''), 'Unassigned') AS name, COUNT(*)::int AS count
+       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL}
+      GROUP BY 1 ORDER BY 2 DESC`,
+    scope.params
+  );
+
+  res.json({
+    openCount: Number(counts.open_count), overdueCount: Number(counts.overdue_count),
+    dueTodayCount: Number(counts.due_today_count), waitingCount: Number(counts.waiting_count),
+    taskGroupCount: taskGroups.length, topTaskGroup: taskGroups[0] || null,
+    staffLoadCount: staffLoad.length, topStaff: staffLoad[0] || null,
+  });
+}));
+
+/**
+ * Unchanged when called with no query params (backward compatible — every
+ * existing caller, e.g. DashboardPage.tsx's single unparameterized GET /tasks
+ * for its own admin/staff aggregate panels, keeps getting the exact same full
+ * result it always has). Passing `page` switches to the new path: server-side
+ * filtered/sorted/paginated rows, `{ tasks, totalCount, page, pageSize }`.
+ * Passing filters WITHOUT `page` returns the full filtered set unpaginated —
+ * that's what CSV export uses, so "export what I'm looking at" still means
+ * everything matching the filters, not just the current page.
+ */
 tasksRouter.get("/", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const role = req.user!.role;
+  const isFiltered = req.query.page !== undefined || req.query.quickTab !== undefined || req.query.search !== undefined
+    || req.query.staff !== undefined || req.query.service !== undefined || req.query.status !== undefined || req.query.label !== undefined;
+
+  if (isFiltered) {
+    const filter = await buildTaskFilterSql(req);
+    if (!filter) return res.json({ tasks: [], totalCount: 0 });
+
+    const sortCol = TASK_SORT_COLUMNS[String(req.query.sortBy || "")] || "t.agency_due_date";
+    const sortDir = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+
+    // task_id is always the final tiebreaker — without one, Postgres has no
+    // guaranteed stable order among rows that tie on sortCol (e.g. several
+    // tasks sharing the same due date, or all NULL), and consecutive
+    // LIMIT/OFFSET pages can then repeat or skip rows from one fetch to the
+    // next. Verified against real dev data (scripts/_verify_perf010.ts) —
+    // this exact gap showed up as a failed page1+page2-equals-first-10 check
+    // before task_id was added here.
+    const orderBy = `ORDER BY ${sortCol} ${sortDir} NULLS LAST, t.task_id ASC`;
+
+    if (req.query.page === undefined) {
+      const rows = await query(
+        `SELECT t.*, ${TASK_FILE_COLUMNS} FROM altax.v3_tasks t WHERE ${filter.where} ${orderBy}`,
+        filter.params
+      );
+      return res.json({ tasks: rows, totalCount: rows.length });
+    }
+
+    const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(String(req.query.pageSize), 10) || 50));
+    const [{ count }] = await query<any>(`SELECT COUNT(*)::int AS count FROM altax.v3_tasks t WHERE ${filter.where}`, filter.params);
+    const params = [...filter.params, pageSize, (page - 1) * pageSize];
+    const rows = await query(
+      `SELECT t.*, ${TASK_FILE_COLUMNS} FROM altax.v3_tasks t WHERE ${filter.where}
+        ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    return res.json({ tasks: rows, totalCount: Number(count), page, pageSize });
+  }
 
   if (role === "admin") {
     const rows = await query(`SELECT t.*, ${TASK_FILE_COLUMNS} FROM altax.v3_tasks t ORDER BY t.agency_due_date ASC NULLS LAST`);
