@@ -136,8 +136,18 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
  * signals below. Kept separate from the full profile fetch above so pages that
  * only need these counters don't pull the whole client row.
  */
-async function computeClientOpsSummary(clientId: string) {
-  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents] = await Promise.all([
+/**
+ * viewerAliases (staff role only — see the /summary route below): when passed,
+ * also computes how many of this client's open tasks are actually assigned to
+ * the viewer, using the identical `lower(assigned_to) = ANY(aliases)` scoping
+ * GET /tasks uses. Without this, the panel's "Open Tasks" count (every open
+ * task for the client, any assignee) didn't match what a staff member saw
+ * after clicking through to /tasks?clientId=X (server-scoped to just their
+ * own assigned tasks) — a staff member could see "5 Open Tasks" and land on
+ * 2, with nothing explaining the difference.
+ */
+async function computeClientOpsSummary(clientId: string, viewerAliases?: string[] | null) {
+  const [openTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents, myOpenTasks] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
         WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`,
@@ -183,10 +193,19 @@ async function computeClientOpsSummary(clientId: string) {
           AND employee_id IS NULL AND lower(COALESCE(direction, '')) <> 'internal'`,
       [clientId]
     ),
+    viewerAliases && viewerAliases.length
+      ? queryOne<any>(
+          `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
+            WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+              AND lower(assigned_to) = ANY($2::text[])`,
+          [clientId, viewerAliases]
+        )
+      : Promise.resolve(null),
   ]);
 
   return {
     openTasks: openTasks?.count || 0,
+    myOpenTasks: viewerAliases ? (myOpenTasks?.count || 0) : null,
     taskStatusBreakdown: (taskStatusBreakdown || []).map((r: any) => ({ status: r.status, count: r.count })),
     openRequests: openRequests?.count || 0,
     openInvoices: invoiceBalance?.count || 0,
@@ -202,7 +221,8 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  res.json(await computeClientOpsSummary(clientId));
+  const viewerAliases = req.user!.role === "staff" ? Array.from(await getUserAliases(req.user!.email)) : null;
+  res.json(await computeClientOpsSummary(clientId, viewerAliases));
 }));
 
 function nextFlagId(): string {

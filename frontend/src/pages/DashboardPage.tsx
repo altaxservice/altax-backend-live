@@ -9,7 +9,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
-import { fmtDateOnly as fmtDate } from "../utils/date";
+import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
@@ -408,6 +408,11 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const waiting = openTasks.filter(isWaiting);
   const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
   const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
+  // "Unpaid Balance" alone conflates a $0-due-in-30-days invoice with one that's
+  // genuinely late — the two carry very different urgency. This sub-count is the
+  // same daysUntil(due_date) < 0 rule InvoicesListPage's own "Overdue Balance" tile
+  // already uses, so the two screens agree on what "overdue" means.
+  const overdueInvoices = unpaidInvoices.filter((i) => (daysUntil(i.due_date) ?? 0) < 0);
   // One ranked list instead of showing the same overdue tasks twice (once here, once
   // in a since-removed "Needs Attention" panel): overdue first, then due-soon, then
   // everything else — isOverdue/isDueSoon are mutually exclusive day-ranges, so this
@@ -452,10 +457,10 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <div className="metric-value">{openTasks.length}</div>
           <div className="metric-note">{overdue.length} overdue</div>
         </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
+        <button type="button" className={`metric metric-clickable${overdueInvoices.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/billing")}>
           <div className="metric-label">Unpaid Balance</div>
           <div className="metric-value">{fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))}</div>
-          <div className="metric-note">{unpaidInvoices.length} invoices loaded</div>
+          <div className="metric-note">{overdueInvoices.length} overdue · {unpaidInvoices.length} total</div>
         </button>
         <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
           <div className="metric-label">Open Requests</div>
@@ -598,6 +603,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // discarded before, so surfacing it here costs nothing extra.
   const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
   const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
+  const overdueInvoices = unpaidInvoices.filter((i) => (daysUntil(i.due_date) ?? 0) < 0);
   const clientNames = new Map(clients.map((c) => [c.client_id, c.client_name]));
 
   return (
@@ -626,10 +632,10 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <div className="metric-value">{openTasks.length}</div>
           <div className="metric-note">{overdue.length} overdue</div>
         </button>
-        <button type="button" className="metric metric-clickable" onClick={() => navigate("/billing")}>
+        <button type="button" className={`metric metric-clickable${overdueInvoices.length > 0 ? " metric-critical" : ""}`} onClick={() => navigate("/billing")}>
           <div className="metric-label">Unpaid Balance</div>
           <div className="metric-value">{fmtMoney(unpaidInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0))}</div>
-          <div className="metric-note">{unpaidInvoices.length} invoices</div>
+          <div className="metric-note">{overdueInvoices.length} overdue · {unpaidInvoices.length} total</div>
         </button>
         <button type="button" className="metric metric-clickable" onClick={() => navigate("/documents")}>
           <div className="metric-label">Open Requests</div>
@@ -643,7 +649,10 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <TaskRows tasks={openTasks.slice(0, 12)} empty="No assigned open tasks." onChanged={onChanged} />
         </CommandPanel>
         <div className="command-stack">
-          <CommandPanel title="Due Soon" note={`${(dueSoon.length || overdue.length)} visible`}>
+          {/* Falls back to showing overdue tasks when nothing is due-soon, so this
+              panel isn't just empty — but that must never happen under the
+              unchanged "Due Soon" heading, or overdue work reads as routine. */}
+          <CommandPanel title={dueSoon.length ? "Due Soon" : "Overdue"} note={`${(dueSoon.length || overdue.length)} visible`}>
             <AttentionRows tasks={(dueSoon.length ? dueSoon : overdue).slice(0, 6)} empty="No due-soon tasks." />
           </CommandPanel>
           <CommandPanel title="Waiting / Pending" note={`${waiting.length} visible`}>

@@ -21,6 +21,8 @@ function clampPanelWidth(n: number): number {
 
 interface Summary {
   openTasks: number;
+  /** Staff role only — how many of openTasks are actually assigned to the viewer. Null for admin (sees everything, so no gap to explain). */
+  myOpenTasks: number | null;
   taskStatusBreakdown: { status: string; count: number }[];
   openRequests: number;
   openInvoices: number;
@@ -557,7 +559,11 @@ export function ClientContextPanel() {
           {summary && (
             <div className="client-panel-section">
               <div className="small-label">Account</div>
-              <ClientRow label="Open Tasks" value={String(summary.openTasks)} onClick={() => navigate(`/tasks?clientId=${client.client_id}`)} />
+              <ClientRow
+                label="Open Tasks"
+                value={summary.myOpenTasks !== null ? `${summary.openTasks} total · ${summary.myOpenTasks} assigned to you` : String(summary.openTasks)}
+                onClick={() => navigate(`/tasks?clientId=${client.client_id}`)}
+              />
               {summary.taskStatusBreakdown.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "2px 0 8px" }}>
                   {summary.taskStatusBreakdown.map((s) => (
