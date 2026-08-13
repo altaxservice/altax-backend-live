@@ -290,12 +290,12 @@ communicationsRouter.post("/", requireAuth, asyncHandler(async (req: AuthedReque
   await query(
     `INSERT INTO altax.v3_communications
        (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13,$1,$14)`,
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token, provider_message_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),$12,$13,$1,$14,$15)`,
     [
       communicationId, client.client_id, client.client_name, String(body.relatedTaskId || "").trim() || null,
       direction, channel, subject, messageEnglish, messageArabic, sentTo || null, req.user!.email, status,
-      String(body.sourceSystem || "Node Web App").trim(), shareToken,
+      String(body.sourceSystem || "Node Web App").trim(), shareToken, result.providerMessageId || null,
     ]
   );
 
@@ -498,9 +498,9 @@ communicationsRouter.post("/staff", requireAuth, requireRole("admin", "staff"), 
   await query(
     `INSERT INTO altax.v3_communications
        (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-     VALUES ($1,NULL,NULL,NULL,'Staff to Staff',$2,$3,$4,NULL,$5,$6,now(),$7,'Node Web App Staff',$1)`,
-    [communicationId, channel, subject, messageText, sentTo || recipient.email, req.user!.email, status]
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+     VALUES ($1,NULL,NULL,NULL,'Staff to Staff',$2,$3,$4,NULL,$5,$6,now(),$7,'Node Web App Staff',$1,$8)`,
+    [communicationId, channel, subject, messageText, sentTo || recipient.email, req.user!.email, status, result.providerMessageId || null]
   );
 
   await logAudit("Communications", "STAFF_MESSAGE", communicationId, "", req.user!.email, recipient.email,
@@ -567,9 +567,9 @@ communicationsRouter.post("/staff/bulk", requireAuth, requireRole("admin", "staf
       await query(
         `INSERT INTO altax.v3_communications
            (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-         VALUES ($1,NULL,NULL,NULL,'Staff to Staff',$2,$3,$4,NULL,$5,$6,now(),$7,'Node Web App Bulk Staff',$1)`,
-        [communicationId, channel, subject, messageText, sentTo, req.user!.email, status]
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+         VALUES ($1,NULL,NULL,NULL,'Staff to Staff',$2,$3,$4,NULL,$5,$6,now(),$7,'Node Web App Bulk Staff',$1,$8)`,
+        [communicationId, channel, subject, messageText, sentTo, req.user!.email, status, result.providerMessageId || null]
       );
       results.push({ email, name: recipient.name, channel, sent: result.sent, error: result.error });
     }
@@ -714,9 +714,9 @@ communicationsRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), a
       await query(
         `INSERT INTO altax.v3_communications
            (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token)
-         VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Node Web App Bulk',$1,$11)`,
-        [communicationId, client.client_id, client.client_name, channel, subject, messageEnglish || null, messageArabic || null, sentTo, req.user!.email, status, shareToken]
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, share_token, provider_message_id)
+         VALUES ($1,$2,$3,NULL,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Node Web App Bulk',$1,$11,$12)`,
+        [communicationId, client.client_id, client.client_name, channel, subject, messageEnglish || null, messageArabic || null, sentTo, req.user!.email, status, shareToken, result.providerMessageId || null]
       );
       results.push({ clientId, clientName: client.client_name, channel, sent: result.sent, error: result.error });
     }

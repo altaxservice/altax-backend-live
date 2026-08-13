@@ -110,9 +110,9 @@ export async function runMonthlyManagementSummary(actorEmail: string): Promise<{
     await query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
-          sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id)
-       VALUES ($1,NULL,NULL,NULL,$2,$3,'',$4,$5,'Outbound','Email',now(),$6,'MonthlyManagementSummary',$7)`,
-      [`COM-${idSuffix()}`, subject, body, email, actorEmail, result.sent ? "Sent" : "Failed", sourceRecordId]
+          sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,NULL,NULL,NULL,$2,$3,'',$4,$5,'Outbound','Email',now(),$6,'MonthlyManagementSummary',$7,$8)`,
+      [`COM-${idSuffix()}`, subject, body, email, actorEmail, result.sent ? "Sent" : "Failed", sourceRecordId, result.providerMessageId || null]
     );
     if (result.sent) sent++; else { skipped++; errors.push(`${email}: ${result.error || "send failed"}`); }
   }

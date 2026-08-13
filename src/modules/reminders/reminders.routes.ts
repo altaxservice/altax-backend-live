@@ -112,8 +112,10 @@ async function sendAndLog(opts: {
 
     let sent = false;
     let sendError: string | undefined;
+    let providerMessageId: string | null = null;
     try {
-      await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
+      const result = await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
+      providerMessageId = result.providerMessageId;
       sent = true;
     } catch (err: any) {
       sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
@@ -122,10 +124,10 @@ async function sendAndLog(opts: {
     await db.query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,'Outbound','Email',$5,$6,$7,$8,$9,now(),$10,'Reminders',$11)`,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,$4,'Outbound','Email',$5,$6,$7,$8,$9,now(),$10,'Reminders',$11,$12)`,
       [`COM-${idSuffix()}`, opts.clientId, opts.clientName, opts.relatedTaskId, opts.subject, opts.bodyEnglish, opts.bodyArabic,
-        opts.sentTo, opts.actorEmail, status, opts.sourceRecordId]
+        opts.sentTo, opts.actorEmail, status, opts.sourceRecordId, providerMessageId]
     );
     return { sent, sendError };
   });

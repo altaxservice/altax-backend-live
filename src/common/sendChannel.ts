@@ -49,16 +49,18 @@ export function bodyToDirectionalHtml(body: string): string {
 export async function sendChannel(
   channel: string, to: string, subject: string, body: string,
   opts: { req?: AuthedRequest; firmName?: string; attachment?: SendAttachment; viewUrl?: string; documentUrl?: string; portalUrl?: string; cc?: string[]; bcc?: string[] } = {}
-): Promise<{ sent: boolean; error?: string }> {
+): Promise<{ sent: boolean; error?: string; providerMessageId?: string | null }> {
   const normalized = String(channel || "").trim().toLowerCase();
   if (!to || !["email", "sms", "whatsapp"].includes(normalized)) return { sent: false };
   try {
+    let providerMessageId: string | null = null;
     if (normalized === "email") {
       const html = await wrapEmailHtml(bodyToDirectionalHtml(body), opts.req);
       const attachments = opts.attachment
         ? [{ filename: opts.attachment.filename, content: Buffer.from(opts.attachment.contentBase64, "base64"), contentType: opts.attachment.contentType }]
         : undefined;
-      await sendEmail({ to, subject, html, attachments, cc: opts.cc, bcc: opts.bcc });
+      const result = await sendEmail({ to, subject, html, attachments, cc: opts.cc, bcc: opts.bcc });
+      providerMessageId = result.providerMessageId;
     } else {
       const firmName = opts.firmName || "AL Tax Service";
       let effectiveBody = body.length > SMS_INLINE_MAX_CHARS && opts.viewUrl
@@ -71,10 +73,10 @@ export async function sendChannel(
         effectiveBody += ` Your attachment is available securely in your client portal: ${opts.portalUrl}`;
       }
       const prefixed = `${firmName}: ${effectiveBody}`;
-      if (normalized === "sms") await sendSms({ to, body: prefixed });
-      else await sendWhatsApp({ to, body: prefixed });
+      const result = normalized === "sms" ? await sendSms({ to, body: prefixed }) : await sendWhatsApp({ to, body: prefixed });
+      providerMessageId = result.providerMessageId;
     }
-    return { sent: true };
+    return { sent: true, providerMessageId };
   } catch (err: any) {
     return { sent: false, error: err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.") };
   }

@@ -8,6 +8,7 @@
  */
 import { Resend } from "resend";
 import twilio from "twilio";
+import { publicBaseUrl } from "./publicUrl";
 
 // Unlike the database (see config/db.ts's DATABASE_URL_DEV split), there's no
 // separate dev/prod credential for Resend/Twilio — whatever's in .env is live.
@@ -31,7 +32,14 @@ export class NotConfiguredError extends Error {}
 
 export interface EmailAttachment { filename: string; content: Buffer; contentType?: string }
 
-export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[]; subject: string; html: string; attachments?: EmailAttachment[] }): Promise<void> {
+/**
+ * Returns Resend's own id for the sent email (result.data.id) — the join key
+ * the delivery-status webhook (src/modules/webhooks/webhooks.routes.ts) later
+ * uses to find and update the right v3_communications row. null on any legacy
+ * caller path that doesn't have a matching Resend response shape (shouldn't
+ * happen in practice; typed permissively since Resend's SDK types allow it).
+ */
+export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[]; subject: string; html: string; attachments?: EmailAttachment[] }): Promise<{ providerMessageId: string | null }> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new NotConfiguredError("Email is not connected yet — add RESEND_API_KEY to the backend .env to enable sending.");
   const from = process.env.RESEND_FROM_EMAIL || "AL Tax Service <onboarding@resend.dev>";
@@ -43,6 +51,7 @@ export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[
     attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
   });
   if (result.error) throw new Error(result.error.message || "Resend rejected this email.");
+  return { providerMessageId: result.data?.id || null };
 }
 
 /**
@@ -65,16 +74,36 @@ function twilioClient(): ReturnType<typeof twilio> {
   return twilio(sid, token);
 }
 
-export async function sendSms(opts: { to: string; body: string }): Promise<void> {
+/** Returns Twilio's own message SID — the join key the delivery-status webhook later uses (see sendEmail's comment above for the same pattern). */
+export async function sendSms(opts: { to: string; body: string }): Promise<{ providerMessageId: string | null }> {
   const from = process.env.TWILIO_FROM_NUMBER;
   if (!from) throw new NotConfiguredError("SMS is not connected yet — add TWILIO_FROM_NUMBER to the backend .env to enable sending.");
   const client = twilioClient();
-  await client.messages.create({ from, to: opts.to, body: opts.body });
+  const message = await client.messages.create({ from, to: opts.to, body: opts.body, statusCallback: twilioStatusCallbackUrl() });
+  return { providerMessageId: message.sid || null };
 }
 
-export async function sendWhatsApp(opts: { to: string; body: string }): Promise<void> {
+export async function sendWhatsApp(opts: { to: string; body: string }): Promise<{ providerMessageId: string | null }> {
   const from = process.env.TWILIO_WHATSAPP_FROM;
   if (!from) throw new NotConfiguredError("WhatsApp is not connected yet — add TWILIO_WHATSAPP_FROM to the backend .env (requires Twilio's WhatsApp Business API + Meta verification) to enable sending.");
   const client = twilioClient();
-  await client.messages.create({ from: `whatsapp:${from}`, to: `whatsapp:${opts.to}`, body: opts.body });
+  const message = await client.messages.create({ from: `whatsapp:${from}`, to: `whatsapp:${opts.to}`, body: opts.body, statusCallback: twilioStatusCallbackUrl() });
+  return { providerMessageId: message.sid || null };
+}
+
+/**
+ * Twilio only calls a status-callback URL if the message itself set one (or
+ * the phone number's default webhook is configured in the Twilio console,
+ * which this app doesn't rely on) — passed explicitly here so delivery status
+ * works the moment Twilio credentials are set, with no separate Twilio-
+ * console configuration step. publicBaseUrl() with no req falls back to
+ * Railway's auto-injected RAILWAY_PUBLIC_DOMAIN (see publicUrl.ts) — this
+ * function is called from cron jobs with no request context, same situation
+ * that helper was already built for. Returns undefined (Twilio SDK then just
+ * doesn't request a callback) when neither is available — SMS/WhatsApp still
+ * sends, it just won't get delivery-status updates.
+ */
+function twilioStatusCallbackUrl(): string | undefined {
+  const base = publicBaseUrl();
+  return base ? `${base}/webhooks/twilio` : undefined;
 }

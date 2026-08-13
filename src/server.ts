@@ -51,6 +51,7 @@ import { budgetsRouter } from "./modules/budgets/budgets.routes";
 import { labelsRouter } from "./modules/labels/labels.routes";
 import { formDraftsRouter } from "./modules/formDrafts/formDrafts.routes";
 import { bankRecRouter } from "./modules/bankRec/bankRec.routes";
+import { webhooksRouter } from "./modules/webhooks/webhooks.routes";
 import cron from "node-cron";
 import { alertAdmins } from "./common/adminAlerts";
 
@@ -100,6 +101,12 @@ app.use(cors({
     callback(new Error("Not allowed by CORS"));
   },
 }));
+// Mounted BEFORE the global express.json() below — both webhook routes verify a
+// signature computed over the raw/form-encoded request body, and express.json()
+// would already have consumed those bytes by the time a route handler saw them.
+// No Origin header on a server-to-server webhook POST, so the CORS allow-list
+// above doesn't block these either way.
+app.use("/webhooks", webhooksRouter);
 app.use(express.json({ limit: "12mb" })); // covers base64-encoded file uploads (see documents.routes.ts POST /uploads) up to ~8MB raw
 
 // Previously a static {ok:true} with no database check, so a full DB outage would

@@ -240,8 +240,9 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
 
   let sent = false;
   let error: string | undefined;
+  let providerMessageId: string | null = null;
   try {
-    await sendEmail({
+    const result = await sendEmail({
       to, subject,
       html: await wrapEmailHtml(
         `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
@@ -250,6 +251,7 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
       ),
       attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],
     });
+    providerMessageId = result.providerMessageId;
     sent = true;
   } catch (err: any) {
     error = err?.message || "Send failed.";
@@ -263,9 +265,9 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
     }
     await query(
       `INSERT INTO altax.v3_communications
-         (communication_id, client_id, client_name, direction, channel, subject, message_english, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-       VALUES ($1,$2,$3,'Outbound','Email',$4,$5,$6,$7, now(), 'Sent','Estimate',$8)`,
-      [`COM-${idSuffix()}`, est.client_id, est.business_name, subject, message, to, req.user!.email, est.estimate_id]
+         (communication_id, client_id, client_name, direction, channel, subject, message_english, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,'Outbound','Email',$4,$5,$6,$7, now(), 'Sent','Estimate',$8,$9)`,
+      [`COM-${idSuffix()}`, est.client_id, est.business_name, subject, message, to, req.user!.email, est.estimate_id, providerMessageId]
     );
   }
 

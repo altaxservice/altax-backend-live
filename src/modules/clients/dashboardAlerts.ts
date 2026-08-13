@@ -126,23 +126,27 @@ export async function runDashboardAlertPush(createdFindings: CreatedFindingInfo[
     const body = `${f.findingText}\n\n${f.supportingData}\n\nRecommended action: ${f.recommendedAction}\n\nSee the client's At a Glance dashboard and SWOT Analysis tab for full context.`;
 
     let anySent = false;
+    // This row summarizes a fan-out to potentially several recipients across
+    // email+SMS, so it can only carry one provider id — the first successful
+    // send's, matched against whichever channel actually delivers first.
+    let providerMessageId: string | null = null;
     for (const r of recipients) {
       const emailResult = await sendChannel("email", r.email, subject, body, { firmName });
-      if (emailResult.sent) anySent = true;
+      if (emailResult.sent) { anySent = true; providerMessageId = providerMessageId || emailResult.providerMessageId || null; }
       if (r.phone) {
         const smsResult = await sendChannel("sms", r.phone, subject, `${f.clientName}: ${f.findingText} ${f.recommendedAction}`, { firmName });
-        if (smsResult.sent) anySent = true;
+        if (smsResult.sent) { anySent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
       }
     }
 
     await query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
-          sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id)
-       VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'DashboardAlerts',$9)`,
+          sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'DashboardAlerts',$9,$10)`,
       [
         `COM-${idSuffix()}`, f.clientId, f.clientName, subject, body,
-        recipients.map((r) => r.email).join(", "), actorEmail, anySent ? "Sent" : "Failed", f.findingId,
+        recipients.map((r) => r.email).join(", "), actorEmail, anySent ? "Sent" : "Failed", f.findingId, providerMessageId,
       ]
     );
     if (anySent) pushed++; else skipped++;

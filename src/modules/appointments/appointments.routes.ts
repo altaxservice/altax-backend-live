@@ -454,6 +454,7 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
   for (const { channel, to } of channels) {
     let sent = false;
     let sendError: string | undefined;
+    let providerMessageId: string | null = null;
     try {
       if (channel === "Email") {
         const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, includeDetails ? settings : null, durationMinutes,
@@ -461,7 +462,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
         // "Invite Others" guests are CC'd on the same confirmation/reminder/
         // cancellation email the primary contact gets — no separate send
         // path, no portal account, matching the existing Cc/Bcc convention.
-        await sendEmail({ to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
+        const result = await sendEmail({ to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
+        providerMessageId = result.providerMessageId;
       } else {
         // SMS stays short — a purpose-built one-liner, not the multi-paragraph
         // email copy — but the manage/book link still goes out here too, since
@@ -469,7 +471,8 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
         const smsBody = buildAppointmentSmsText(templateName, appt.title || "Appointment", extra.appointmentDate, extra.appointmentTime,
           durationMinutes, includeDetails ? settings.locationName : undefined, manageUrl, bookUrl,
           extra.previousDate || undefined, extra.previousTime || undefined);
-        await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
+        const result = await sendSms({ to, body: `AL TAX SERVICE: ${smsBody}` });
+        providerMessageId = result.providerMessageId;
       }
       sent = true;
     } catch (err: any) {
@@ -479,11 +482,11 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     await query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, direction, channel, subject,
-          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-       VALUES ($1,$2,$3,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Appointments',$11)`,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,'Outbound',$4,$5,$6,$7,$8,$9,now(),$10,'Appointments',$11,$12)`,
       [`COM-${idSuffix()}`, appt.client_id || null, appt.contact_name || appt.client_name || null,
         channel, resolvedTemplate.subject, plainText.english, plainText.arabic,
-        to, actorEmail, status, `APPT-${marker}-${appt.appointment_id}-${channel}`]
+        to, actorEmail, status, `APPT-${marker}-${appt.appointment_id}-${channel}`, providerMessageId]
     );
   }
 }

@@ -215,6 +215,7 @@ async function notifyPortalFileShared(opts: {
   const messageArabic = `شارك AL TAX ${many ? `${opts.fileNames.length} ملفات` : "ملفاً"} معك: ${fileList}.\n\nسجّل الدخول إلى بوابتك وافتح قسم المستندات لعرضها أو تحميلها.${noteTextAr}`;
 
   let status = "Saved";
+  let providerMessageId: string | null = null;
   if (opts.recipientEmail) {
     try {
       const { sendEmail } = await import("../../common/notifications");
@@ -243,7 +244,8 @@ async function notifyPortalFileShared(opts: {
         </div>
         ${loginUrl ? `<p style="margin:0; text-align:center;"><a href="${loginUrl}" style="display:inline-block; background:#0f766e; color:#ffffff; padding:10px 18px; border-radius:8px; text-decoration:none; font-weight:700;">Open My Portal &nbsp;·&nbsp; <bdi dir="rtl">فتح بوابتي</bdi></a></p>` : ""}
       `, opts.req);
-      await sendEmail({ to: opts.recipientEmail, cc: opts.cc, bcc: opts.bcc, subject, html });
+      const result = await sendEmail({ to: opts.recipientEmail, cc: opts.cc, bcc: opts.bcc, subject, html });
+      providerMessageId = result.providerMessageId;
       status = "Saved + Sent";
     } catch (err: any) {
       status = `Saved — ${err?.message || "email failed"}`;
@@ -253,10 +255,10 @@ async function notifyPortalFileShared(opts: {
   await query(
     `INSERT INTO altax.v3_communications
        (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-     VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Document Share',$1)`,
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+     VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Document Share',$1,$10)`,
     [nextCommunicationId(), opts.clientId, opts.clientName, subject, messageEnglish, messageArabic,
-      opts.recipientEmail, opts.req.user!.email, status]
+      opts.recipientEmail, opts.req.user!.email, status, providerMessageId]
   );
 }
 
