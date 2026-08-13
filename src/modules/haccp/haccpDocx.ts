@@ -21,8 +21,15 @@ import {
 import type { HaccpPdfData, HaccpMenuGroup, HaccpEquipmentLine } from "./haccpPdf";
 
 const FONT = "Calibri";
-const BANNER_FILL = "BFBFBF";
-const MUTED = "6B6B6B";
+// Warm neutral palette — cream/tan banners with a terracotta accent, instead
+// of the real sample's flat gray, per explicit user request for something
+// "cozier." Still reads as an official document (same layout/structure),
+// just warmer than plain gray-on-white.
+const BANNER_FILL = "F2E3CC";
+const ACCENT = "A8582E";
+const MUTED = "8A7A68";
+const RULE_COLOR = "D9C4A3";
+const WATERMARK_COLOR = "D8C6AA";
 
 const PAGE_WIDTH = 12240;
 const PAGE_HEIGHT = 15840;
@@ -66,8 +73,16 @@ function buildHeader(businessName: string, addressLine: string): Header {
       }),
       new Paragraph({
         spacing: { after: 120 },
-        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: RULE_COLOR, space: 4 } },
         children: [new TextRun({ text: addressLine, font: FONT, size: 22, color: MUTED })],
+      }),
+      // Straight (non-diagonal) watermark line — repeats on every page since
+      // it lives in the Header. A true rotated watermark like the PDF's needs
+      // a rendered image, which this app has no raster-image pipeline for;
+      // this is the agreed stand-in.
+      new Paragraph({
+        spacing: { after: 60 },
+        children: [new TextRun({ text: `PREPARED FOR ${businessName.toUpperCase()} — INTERNAL WORKING COPY`, italics: true, font: FONT, size: 14, color: WATERMARK_COLOR })],
       }),
     ],
   });
@@ -80,7 +95,7 @@ function buildFooter(businessName: string, jurisdiction: string): Footer {
     children: [
       new Paragraph({
         tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
-        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 4 } },
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: RULE_COLOR, space: 4 } },
         children: [
           new TextRun({ text: `${businessName} — HACCP Plan`, bold: true, font: FONT, size: 16 }),
           new TextRun({ text: "\t", font: FONT, size: 16 }),
@@ -101,14 +116,14 @@ function banner(text: string, opts: { subtitle?: string; centered?: boolean; siz
   const paras: Paragraph[] = [
     new Paragraph({
       alignment: align,
-      children: [new TextRun({ text, bold: true, italics: true, font: FONT, size: opts.size ?? 24 })],
+      children: [new TextRun({ text, bold: true, italics: true, font: FONT, size: opts.size ?? 24, color: ACCENT })],
     }),
   ];
   if (opts.subtitle) {
     paras.push(new Paragraph({
       alignment: align,
       spacing: { before: 60 },
-      children: [new TextRun({ text: opts.subtitle, italics: true, font: FONT, size: 18, color: "333333" })],
+      children: [new TextRun({ text: opts.subtitle, italics: true, font: FONT, size: 18, color: "6B5B49" })],
     }));
   }
   return new Table({
@@ -133,7 +148,7 @@ function banner(text: string, opts: { subtitle?: string; centered?: boolean; siz
 function plainHeading(text: string): Paragraph {
   return new Paragraph({
     spacing: { before: 120, after: 160 },
-    children: [new TextRun({ text, bold: true, italics: true, font: FONT, size: 26 })],
+    children: [new TextRun({ text, bold: true, italics: true, font: FONT, size: 26, color: ACCENT })],
   });
 }
 
@@ -159,7 +174,7 @@ function menuTable(groups: HaccpMenuGroup[]): Table {
       children: [new TableCell({
         width: { size: CONTENT_WIDTH, type: WidthType.DXA },
         shading: { type: ShadingType.CLEAR, fill: BANNER_FILL },
-        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${g.category.toUpperCase()}:`, bold: true, font: FONT, size: 22 })] })],
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${g.category.toUpperCase()}:`, bold: true, font: FONT, size: 22, color: ACCENT })] })],
       })],
     }));
     for (const item of g.items) {
@@ -201,7 +216,7 @@ function ccpHeaderRow(): TableRow {
     children: CCP_COLUMN_LABELS.map((label, i) => new TableCell({
       width: { size: CCP_COL_WIDTHS[i], type: WidthType.DXA },
       shading: { type: ShadingType.CLEAR, fill: BANNER_FILL },
-      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: label, bold: true, font: FONT, size: 18 })] })],
+      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: label, bold: true, font: FONT, size: 18, color: ACCENT })] })],
     })),
   });
 }
@@ -218,7 +233,7 @@ function leadInParagraph(m: RegExpMatchArray): Paragraph {
   const [, numPrefix, lead, rest] = m;
   const runs: TextRun[] = [];
   if (numPrefix) runs.push(new TextRun({ text: numPrefix, font: FONT, size: 20 }));
-  runs.push(new TextRun({ text: `${lead} `, bold: true, font: FONT, size: 20 }));
+  runs.push(new TextRun({ text: `${lead} `, bold: true, font: FONT, size: 20, color: ACCENT }));
   runs.push(new TextRun({ text: rest, font: FONT, size: 20 }));
   return new Paragraph({ spacing: { after: 140 }, alignment: AlignmentType.JUSTIFIED, children: runs });
 }
