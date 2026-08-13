@@ -266,7 +266,7 @@ interface DiagnosticCheck {
  * full explanation of each check and the manual fix for anything not auto-fixable
  * here.
  */
-systemRouter.get("/diagnostics", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const checks: DiagnosticCheck[] = [];
 
   try {
@@ -432,7 +432,44 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin"), asyncHandler
     ? { id: "business-return-type-missing", label: "Business clients have a return type set", status: "ok", detail: "Every non-individual client has a business return type set, so its business tax return deadline can be tracked." }
     : { id: "business-return-type-missing", label: "Business clients have a return type set", status: "warning", detail: `${businessEntityNoReturnType.length} client(s) have a real business entity type but no business return type set (1120/1120S/1065/Schedule C) — their business tax return deadline isn't being tracked: ${businessEntityNoReturnType.slice(0, 5).map((c: any) => c.client_name).join(", ")}${businessEntityNoReturnType.length > 5 ? "…" : ""}. Set Business Return Type on that client's profile.` });
 
-  res.json({ checks });
+  // Hard audit (2026-08-13), TAX-001: the "Full Service" check above only
+  // catches clients labeled exactly that — Add Client defaults service_type to
+  // blank, so a client onboarded without anyone picking a label (the actual
+  // reported gap) escaped detection forever. This check has no service_type
+  // condition at all — any active client with literally none of the
+  // compliance-relevant fields set, regardless of label, so a blank/other
+  // label can't hide the same problem.
+  const zeroComplianceFlags = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE ${activeClientClause}
+        AND COALESCE(payroll_enabled, false) = false
+        AND COALESCE(eftps_enabled, false) = false
+        AND COALESCE(mdui_enabled, false) = false
+        AND COALESCE(md_annual_report_enabled, false) = false
+        AND COALESCE(w21099_enabled, false) = false
+        AND (sales_tax_frequency IS NULL OR sales_tax_frequency IN ('', 'N/A'))
+        AND (business_return_type IS NULL OR business_return_type IN ('', 'N/A'))
+        AND (md_withholding_frequency IS NULL OR md_withholding_frequency IN ('', 'N/A'))
+        AND (services IS NULL OR array_length(services, 1) IS NULL OR array_length(services, 1) = 0)`
+  );
+  checks.push(zeroComplianceFlags.length === 0
+    ? { id: "zero-compliance-flags-any-client", label: "Every active client has at least one compliance obligation configured", status: "ok", detail: "No active client — regardless of Service Type label — has zero compliance flags set." }
+    : { id: "zero-compliance-flags-any-client", label: "Every active client has at least one compliance obligation configured", status: "warning", detail: `${zeroComplianceFlags.length} active client(s) have absolutely no compliance obligation configured — no payroll, EFTPS, MD UI, MD Annual Report, W-2/1099, sales tax, business return type, or MD Withholding — so they'll never generate a single auto-flag or deadline: ${zeroComplianceFlags.slice(0, 5).map((c: any) => c.client_name).join(", ")}${zeroComplianceFlags.length > 5 ? "…" : ""}. Review each one and set what actually applies, even if that's genuinely nothing (e.g. a dormant or non-client record).` });
+
+  // Compliance-config checks are relevant to whoever does client onboarding —
+  // frequently staff, not just admin — so staff get this narrower slice of
+  // the page rather than being blocked from it entirely (see the checks below,
+  // which stay admin-only: JWT/vault/email/SMS credential status, DB
+  // connectivity, and portal-user lockout all reveal system-security state
+  // that has no reason to be staff-visible).
+  const STAFF_VISIBLE_CHECK_IDS = new Set([
+    "service-type-full-service-empty", "zero-compliance-flags-any-client",
+    "payroll-without-tax-obligations", "tax-obligations-without-payroll",
+    "sales-tax-frequency-missing", "business-return-type-missing",
+  ]);
+  const visibleChecks = req.user!.role === "admin" ? checks : checks.filter((c) => STAFF_VISIBLE_CHECK_IDS.has(c.id));
+
+  res.json({ checks: visibleChecks });
 }));
 
 /**

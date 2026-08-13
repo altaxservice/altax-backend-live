@@ -105,7 +105,9 @@ export function FixCenterPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load system check."));
   }
 
-  useEffect(() => { loadDiagnostics(); load(); }, []);
+  const isAdmin = user?.role === "admin";
+
+  useEffect(() => { loadDiagnostics(); if (isAdmin) load(); }, [isAdmin]);
 
   async function handleSeedDefaults() {
     setSeeding(true);
@@ -137,7 +139,7 @@ export function FixCenterPage() {
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <button className="btn" onClick={() => { loadDiagnostics(); load(); }}>Refresh</button>
+        <button className="btn" onClick={() => { loadDiagnostics(); if (isAdmin) load(); }}>Refresh</button>
       </div>
 
       <div className="command-panel" style={{ marginBottom: 16 }}>
@@ -160,42 +162,46 @@ export function FixCenterPage() {
         {checks && checks.map((c) => <DiagnosticRow key={c.id} check={c} onFixed={loadDiagnostics} />)}
       </div>
 
-      <div className="command-panel" style={{ marginBottom: 16 }}>
-        <div className="command-panel-header">
-          <div>
-            <h2 className="command-panel-title">Seed Default Setup Data</h2>
-            <div className="command-panel-note">For a fresh deployment — safe to re-run, never overwrites existing rows.</div>
+      {isAdmin && (
+        <>
+          <div className="command-panel" style={{ marginBottom: 16 }}>
+            <div className="command-panel-header">
+              <div>
+                <h2 className="command-panel-title">Seed Default Setup Data</h2>
+                <div className="command-panel-note">For a fresh deployment — safe to re-run, never overwrites existing rows.</div>
+              </div>
+            </div>
+            <div style={{ padding: 16 }}>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Creates the default global tax rates (sales, payroll, FICA/FUTA/SUTA) and a standard chart of accounts if they
+                don't already exist. Any rate or account you've already configured is left untouched.
+              </p>
+              {seedResult && <div className="card" style={{ marginBottom: 12, borderColor: "var(--teal)" }}>{seedResult}</div>}
+              <button className="btn btn-primary" disabled={seeding} onClick={handleSeedDefaults}>{seeding ? "Seeding…" : "Seed Default Tax Rates & COA"}</button>
+            </div>
           </div>
-        </div>
-        <div style={{ padding: 16 }}>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Creates the default global tax rates (sales, payroll, FICA/FUTA/SUTA) and a standard chart of accounts if they
-            don't already exist. Any rate or account you've already configured is left untouched.
-          </p>
-          {seedResult && <div className="card" style={{ marginBottom: 12, borderColor: "var(--teal)" }}>{seedResult}</div>}
-          <button className="btn btn-primary" disabled={seeding} onClick={handleSeedDefaults}>{seeding ? "Seeding…" : "Seed Default Tax Rates & COA"}</button>
-        </div>
-      </div>
 
-      {error && <ErrorBanner error={error} />}
-      {!tables && !error && <div className="spinner-wrap">Loading…</div>}
-      {tables && (
-        <div className="command-panel">
-          <div className="command-panel-header"><h2 className="command-panel-title">Table Row Counts</h2><div className="command-panel-note">{tables.length} tables — useful when comparing before/after a data change</div></div>
-          <div className="table-scroll">
-          <table>
-            <thead><tr><th scope="col">Table</th><th scope="col">Row Count</th></tr></thead>
-            <tbody>
-              {tables.map((t) => (
-                <tr key={t.table}>
-                  <td>{t.table}</td>
-                  <td className="muted">{t.count.toLocaleString()} row(s)</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
+          {error && <ErrorBanner error={error} />}
+          {!tables && !error && <div className="spinner-wrap">Loading…</div>}
+          {tables && (
+            <div className="command-panel">
+              <div className="command-panel-header"><h2 className="command-panel-title">Table Row Counts</h2><div className="command-panel-note">{tables.length} tables — useful when comparing before/after a data change</div></div>
+              <div className="table-scroll">
+              <table>
+                <thead><tr><th scope="col">Table</th><th scope="col">Row Count</th></tr></thead>
+                <tbody>
+                  {tables.map((t) => (
+                    <tr key={t.table}>
+                      <td>{t.table}</td>
+                      <td className="muted">{t.count.toLocaleString()} row(s)</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -87,12 +87,21 @@ function App() {
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/security" element={<SecurityPage />} />
-                <Route path="/fix-center" element={<FixCenterPage />} />
                 <Route path="/firm-settings" element={<FirmSettingsPage />} />
                 <Route path="/firm-portals" element={<FirmPortalsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
                 <Route path="/labels" element={<LabelsPage />} />
                 <Route path="/document-checklists" element={<DocumentChecklistsPage />} />
+              </Route>
+              {/* Staff also get in here now (hard audit 2026-08-13, TAX-001) — the
+                  compliance-config checks (Service Type vs. actual obligations, etc.)
+                  are relevant to whoever does client onboarding, often staff, not
+                  just admin. The backend filters which checks staff actually see
+                  (system.routes.ts's STAFF_VISIBLE_CHECK_IDS) — the genuinely
+                  admin-only checks (JWT/vault/email/SMS credentials, DB connectivity,
+                  portal-user lockout) never reach a staff response. */}
+              <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
+                <Route path="/fix-center" element={<FixCenterPage />} />
               </Route>
               {/* Employees have no billing relationship with the firm — only their employer
                   (the client) does. Employees are paid via payroll, not invoiced. */}

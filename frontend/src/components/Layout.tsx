@@ -61,7 +61,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog },
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck },
   { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
-  { to: "/fix-center", label: "Fix Center", roles: ["admin"], group: "Firm", icon: Wrench },
+  { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
   { to: "/labels", label: "Labels", roles: ["admin"], group: "Firm", icon: Tag },
