@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
 import type { Client } from "../api/types";
@@ -40,6 +40,8 @@ export function InvoicesListPage() {
   const { user } = useAuth();
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const clientIdFilter = searchParams.get("clientId") || null;
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -268,11 +270,12 @@ export function InvoicesListPage() {
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
     let rows = invoices;
+    if (clientIdFilter) rows = rows.filter((i) => i.client_id === clientIdFilter);
     if (statusFilter !== "all") rows = rows.filter((i) => i.status === statusFilter);
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter((i) => [i.invoice_id, clientName(i.client_id), i.description, i.total_amount].some((v) => String(v || "").toLowerCase().includes(q)));
     return rows;
-  }, [invoices, statusFilter, search, clients]);
+  }, [invoices, clientIdFilter, statusFilter, search, clients]);
 
   const filteredSchedules = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -287,21 +290,27 @@ export function InvoicesListPage() {
   }, [firmPayments, search, clients]);
 
   const kpis = useMemo(() => {
-    const inv = invoices || [];
+    // Scoped to the same clientIdFilter as filteredInvoices/filteredFirmPayments
+    // below the fold — otherwise these KPI tiles would show firm-wide totals
+    // while the list under them shows only one client's rows, which reads as
+    // the numbers not matching what's actually listed.
+    const inv = (invoices || []).filter((i) => !clientIdFilter || i.client_id === clientIdFilter);
     const open = inv.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
     const openBalance = open.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
     const overdue = open.filter((i) => (daysUntil(i.due_date) ?? 0) < 0);
     const overdueBalance = overdue.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
-    const paidThisPeriod = (firmPayments || []).reduce((sum, p) => sum + Number(p.actual_amount || 0), 0);
-    const unpaidTaxRows = (taxRows || []).filter((r) => !r.paid_date);
+    const scopedFirmPayments = (firmPayments || []).filter((p) => !clientIdFilter || p.client_id === clientIdFilter);
+    const paidThisPeriod = scopedFirmPayments.reduce((sum, p) => sum + Number(p.actual_amount || 0), 0);
+    const scopedTaxRows = (taxRows || []).filter((r) => !clientIdFilter || r.client_id === clientIdFilter);
+    const unpaidTaxRows = scopedTaxRows.filter((r) => !r.paid_date);
     const clientTaxDue = unpaidTaxRows.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
     return {
       openBalance, openCount: open.length,
       overdueBalance, overdueCount: overdue.length,
-      paidThisPeriod, paidCount: (firmPayments || []).length,
-      clientTaxDue, taxCount: (taxRows || []).length,
+      paidThisPeriod, paidCount: scopedFirmPayments.length,
+      clientTaxDue, taxCount: scopedTaxRows.length,
     };
-  }, [invoices, firmPayments, taxRows]);
+  }, [invoices, firmPayments, taxRows, clientIdFilter]);
 
   function handleExport() {
     exportCsv("invoices.csv", [
@@ -316,6 +325,13 @@ export function InvoicesListPage() {
   return (
     <div dir={dir}>
       {/* No in-page h1 for any role — the topbar already reads "Billing"/"الفواتير". */}
+
+      {clientIdFilter && (
+        <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
+          <span>Showing invoices for <strong>{clientName(clientIdFilter)}</strong> only.</span>
+          <button type="button" className="btn btn-sm" onClick={() => setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("clientId"); return next; })}>Show all clients</button>
+        </div>
+      )}
 
       {canManage && (
         <FilterBar

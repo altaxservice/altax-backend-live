@@ -569,7 +569,7 @@ export function ClientContextPanel() {
                   shown — "do we have their paperwork" is one of the first things
                   staff check, so it belongs here rather than a page away. */}
               <ClientRow label="Documents" value={String(summary.documentsCount)} onClick={() => navigate(`/clients/${client.client_id}?tab=Documents`)} />
-              <ClientRow label="Employees" value={String(summary.employeesCount)} onClick={() => navigate(`/accounting?clientId=${client.client_id}`)} />
+              <ClientRow label="Employees" value={String(summary.employeesCount)} onClick={() => navigate(`/accounting?client=${client.client_id}&tab=Employees`)} />
               <ClientRow label="Invoices" value={String(summary.openInvoices)} onClick={() => navigate(`/billing?clientId=${client.client_id}`)} />
               <ClientRow
                 label="Balance"
@@ -597,7 +597,7 @@ export function ClientContextPanel() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/clients/${client.client_id}?tab=Documents`)}>Documents</button>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/tasks?clientId=${client.client_id}`)}>Tasks</button>
-              <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?clientId=${client.client_id}`)}>Accounting</button>
+              <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${client.client_id}`)}>Accounting</button>
               <button type="button" className="btn btn-sm" onClick={() => navigate(`/reports?clientId=${client.client_id}`)}>Reports</button>
             </div>
           </div>
@@ -631,10 +631,15 @@ export function ClientContextPanel() {
 function ClientRow({ label, value, onClick, href, valueColor }: { label: string; value: string | null | undefined; onClick?: () => void; href?: string; valueColor?: string }) {
   const display = value || "—";
   const clickable = Boolean((onClick || href) && value);
+  // text-decoration is set directly on both spans (not just the flex
+  // container) because flex items don't reliably inherit an ancestor's
+  // underline across browsers — without this the underline can visually
+  // stop short of the number, which is exactly what looked "not tracking
+  // the right number" to the user.
   const rowInner = (
     <>
-      <span>{label}</span>
-      <span style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</span>
+      <span style={{ textDecoration: clickable ? "underline" : undefined }}>{label}</span>
+      <span style={{ textDecoration: clickable ? "underline" : undefined, ...(valueColor ? { color: valueColor, fontWeight: 800 } : undefined) }}>{display}</span>
     </>
   );
   // The whole row is the link/button when clickable — not just the value —

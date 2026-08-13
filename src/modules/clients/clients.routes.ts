@@ -162,15 +162,25 @@ async function computeClientOpsSummary(clientId: string) {
         WHERE client_id = $1 AND lower(status) NOT IN ('paid','void')`,
       [clientId]
     ),
+    // Matches the "Employees" worker-profiles tab's own filter exactly
+    // (worker_type NOT LIKE contractor) — that tab does not exclude archived
+    // workers, so this count doesn't either; otherwise the badge and the
+    // list it links to disagree.
     queryOne<any>(
-      `SELECT COUNT(*)::int AS count FROM altax.v3_employees WHERE client_id = $1 AND lower(status) <> 'archived'`,
+      `SELECT COUNT(*)::int AS count FROM altax.v3_employees
+        WHERE client_id = $1 AND lower(COALESCE(worker_type, '')) NOT LIKE '%contractor%'`,
       [clientId]
     ),
     // Files actually on file for this client, so the panel can answer "do we
-    // have their documents?" without opening the Documents page.
+    // have their documents?" without opening the Documents page. Matches the
+    // Documents tab's own filter exactly (client-only uploads, not internal-
+    // direction rows) — those two exclusions live only in the frontend list's
+    // filter, so this count must mirror them or the badge overcounts what the
+    // list actually shows.
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_document_uploads
-        WHERE client_id = $1 AND lower(status) NOT IN ('removed','replaced')`,
+        WHERE client_id = $1 AND lower(status) NOT IN ('removed','replaced')
+          AND employee_id IS NULL AND lower(COALESCE(direction, '')) <> 'internal'`,
       [clientId]
     ),
   ]);
