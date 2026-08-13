@@ -16,7 +16,7 @@
  */
 import {
   AlignmentType, BorderStyle, Document, Footer, Header, LevelFormat, PageBreak, PageNumber, Packer, Paragraph,
-  ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
+  ShadingType, Table, TableCell, TableRow, TabStopType, TextRun, WidthType,
 } from "docx";
 import type { HaccpPdfData, HaccpMenuGroup, HaccpEquipmentLine } from "./haccpPdf";
 
@@ -73,15 +73,23 @@ function buildHeader(businessName: string, addressLine: string): Header {
   });
 }
 
-function buildFooter(): Footer {
+/** Matches haccpPdf.ts's footer exactly: business name + page number on one line, then the same COMAR/exclusive-use notice below it. */
+function buildFooter(businessName: string, jurisdiction: string): Footer {
+  const notice = `Prepared in accordance with Maryland COMAR 10.15.03 and ${jurisdiction} Health Department HACCP Guidelines. Prepared exclusively for ${businessName} — not for use by any other business.`;
   return new Footer({
     children: [
       new Paragraph({
-        alignment: AlignmentType.RIGHT,
+        tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 4 } },
         children: [
-          new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: 18 }),
-          new TextRun({ text: " | Page", font: FONT, size: 18 }),
+          new TextRun({ text: `${businessName} — HACCP Plan`, bold: true, font: FONT, size: 16 }),
+          new TextRun({ text: "\t", font: FONT, size: 16 }),
+          new TextRun({ children: ["Page ", PageNumber.CURRENT], font: FONT, size: 16, color: MUTED }),
         ],
+      }),
+      new Paragraph({
+        spacing: { before: 40 },
+        children: [new TextRun({ text: notice, font: FONT, size: 14, color: MUTED })],
       }),
     ],
   });
@@ -325,7 +333,7 @@ export async function generateHaccpDocx(data: HaccpPdfData): Promise<Buffer> {
           },
         },
         headers: { default: buildHeader(data.businessName, addressLine) },
-        footers: { default: buildFooter() },
+        footers: { default: buildFooter(data.businessName, data.jurisdiction) },
         children,
       },
     ],
