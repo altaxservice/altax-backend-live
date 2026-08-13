@@ -237,7 +237,16 @@ function renderBody(renderedBody: string): (Paragraph | Table)[] {
     openTable.push(ccpDataRow(rowFields));
     rowFields = {};
   }
-  function flushTable() {
+  /**
+   * Moves any pending quad into the open table AND immediately pushes that
+   * table into `out` — this must happen as soon as a non-quad line is seen,
+   * not deferred to the next Process/Section boundary, or a one-off note
+   * line right after a CCP quad (e.g. "CROSS-CONTAMINATION: ...") ends up
+   * rendered *before* the table it was meant to follow, since it would sit
+   * in `out` while the table was still waiting in the `openTable` buffer.
+   */
+  function flushPending() {
+    flushRowFields();
     if (openTable && openTable.length > 1) out.push(new Table({ width: { size: CONTENT_WIDTH, type: WidthType.DXA }, columnWidths: CCP_COL_WIDTHS, rows: openTable }));
     openTable = null;
   }
@@ -251,23 +260,20 @@ function renderBody(renderedBody: string): (Paragraph | Table)[] {
       rowFields[ccpMatch[1]] = ccpMatch[2];
       continue;
     }
-    flushRowFields();
+    flushPending();
 
     if (/^Process\b/i.test(line)) {
-      flushTable();
       out.push(banner(line, { size: 20 }));
       continue;
     }
     if (SECTION_HEADER_RE.test(line) && line === line.toUpperCase()) {
-      flushTable();
       out.push(banner(titleCase(line)));
       continue;
     }
     const leadMatch = line.match(LEAD_IN_RE);
     out.push(leadMatch ? leadInParagraph(leadMatch) : bodyParagraph(line));
   }
-  flushRowFields();
-  flushTable();
+  flushPending();
   return out;
 }
 
