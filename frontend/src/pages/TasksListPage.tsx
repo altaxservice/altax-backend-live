@@ -56,6 +56,7 @@ export function TasksListPage() {
   const [staffFilter, setStaffFilter] = useStickyState("tasks.staff", "all");
   const [serviceFilter, setServiceFilter] = useStickyState("tasks.service", "all");
   const [statusFilter, setStatusFilter] = useStickyState("tasks.status", searchParams.get("status") || "all");
+  const [labelFilter, setLabelFilter] = useStickyState("tasks.label", "all");
   const [period, setPeriod] = useState(activeViewDates());
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -123,6 +124,10 @@ export function TasksListPage() {
     () => Array.from(new Set([...(options?.taskTypes || []), ...(tasks || []).map((t) => t.service_line).filter(Boolean) as string[]])),
     [tasks, options]
   );
+  // Label names, not label_ids, since that's what the FilterBar select renders
+  // as both the option value and its display text — safe because label names
+  // are firm-unique (sql/030_labels.sql: uq_v3_labels_name).
+  const labelNames = useMemo(() => allLabels.map((l) => l.name).sort(), [allLabels]);
 
   const isArchivedView = quickTab === "Archived";
 
@@ -151,6 +156,7 @@ export function TasksListPage() {
     if (staffFilter !== "all") rows = rows.filter((t) => t.assigned_to === staffFilter);
     if (serviceFilter !== "all") rows = rows.filter((t) => t.service_line === serviceFilter);
     if (statusFilter !== "all") rows = rows.filter((t) => String(t.status || "").toLowerCase() === statusFilter.toLowerCase());
+    if (labelFilter !== "all") rows = rows.filter((t) => (taskLabels[t.task_id] || []).some((l) => l.name === labelFilter));
 
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter((t) => [t.task_name, t.client_name, t.assigned_to, t.service_line].some((v) => String(v || "").toLowerCase().includes(q)));
@@ -166,7 +172,7 @@ export function TasksListPage() {
       rows = [...rows].sort((a, b) => new Date(String(b.archived_at || b.agency_due_date || 0)).getTime() - new Date(String(a.archived_at || a.agency_due_date || 0)).getTime());
     }
     return rows;
-  }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, search, sortKey, sortDir, isArchivedView]);
+  }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, taskLabels, search, sortKey, sortDir, isArchivedView]);
 
   // Lets TaskDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts.
@@ -332,6 +338,7 @@ export function TasksListPage() {
             { label: "Staff", value: staffFilter, options: staffOptions, onChange: setStaffFilter },
             { label: "Service", value: serviceFilter, options: serviceOptions, onChange: setServiceFilter },
             { label: "Status", value: statusFilter, options: TASK_STATUSES, onChange: setStatusFilter },
+            { label: "Label", value: labelFilter, options: labelNames, onChange: setLabelFilter },
           ]}
           period={{ start: period.start, end: period.end, onStartChange: (v) => setPeriod((p) => ({ ...p, start: v })), onEndChange: (v) => setPeriod((p) => ({ ...p, end: v })), onActiveView: () => setPeriod(activeViewDates()) }}
           onRefresh={handleRefresh}

@@ -108,6 +108,7 @@ export function ClientsListPage() {
   const [typeFilter, setTypeFilter] = useStickyState("clients.type", "all");
   const [serviceFilter, setServiceFilter] = useStickyState("clients.service", "all");
   const [payrollProviderFilter, setPayrollProviderFilter] = useStickyState("clients.payrollProvider", "all");
+  const [labelFilter, setLabelFilter] = useStickyState("clients.label", "all");
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
@@ -352,6 +353,10 @@ export function ClientsListPage() {
     [clients]
   );
   const statuses = useMemo(() => Array.from(new Set((clients || []).map((c) => c.status).filter(Boolean))) as string[], [clients]);
+  // Label names, not label_ids, since that's what the FilterBar select renders
+  // as both the option value and its display text — safe because label names
+  // are firm-unique (sql/030_labels.sql: uq_v3_labels_name).
+  const labelNames = useMemo(() => allLabels.map((l) => l.name).sort(), [allLabels]);
 
   const filtered = useMemo(() => {
     if (!clients) return [];
@@ -362,6 +367,7 @@ export function ClientsListPage() {
       if (typeFilter !== "all" && String(c.client_type || "") !== typeFilter) return false;
       if (serviceFilter !== "all" && String(c.service_type || "") !== serviceFilter) return false;
       if (payrollProviderFilter !== "all" && String(c.payroll_system || "") !== payrollProviderFilter) return false;
+      if (labelFilter !== "all" && !(clientLabels[c.client_id] || []).some((l) => l.name === labelFilter)) return false;
       const tab = QUICK_TABS.find((t) => t.key === quickTab);
       if (tab && !tab.test(c)) return false;
       if (q && ![c.client_name, c.client_id, c.email, c.phone, c.assigned_to].some((v) => String(v || "").toLowerCase().includes(q))) return false;
@@ -374,7 +380,7 @@ export function ClientsListPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, quickTab, sortKey, sortDir]);
+  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, clientLabels, quickTab, sortKey, sortDir]);
 
   // Lets ClientDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts.
@@ -426,6 +432,7 @@ export function ClientsListPage() {
           { label: "Type", value: typeFilter, options: types, onChange: setTypeFilter },
           { label: "Service", value: serviceFilter, options: services, onChange: setServiceFilter },
           { label: "Payroll Provider", value: payrollProviderFilter, options: payrollProviders, onChange: setPayrollProviderFilter },
+          { label: "Label", value: labelFilter, options: labelNames, onChange: setLabelFilter },
         ]}
         onRefresh={handleRefresh}
         refreshing={refreshing}
