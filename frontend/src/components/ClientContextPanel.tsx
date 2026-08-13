@@ -94,6 +94,10 @@ export function ClientContextPanel() {
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [lastActivity, setLastActivity] = useState<LastActivity | null | undefined>(undefined);
+  const [showAddNote, setShowAddNote] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   function loadOptions() {
     setOptionsError(false);
@@ -103,6 +107,12 @@ export function ClientContextPanel() {
 
   function loadFlags(id: string) {
     api.get<{ flags: ClientFlag[] }>(`/clients/${id}/flags`).then((res) => setFlags(res.flags)).catch(() => setFlags([]));
+  }
+
+  function loadLastActivity(id: string) {
+    api.get<{ activity: LastActivity[] }>(`/clients/${id}/activity`)
+      .then((res) => setLastActivity(res.activity[0] || null))
+      .catch(() => setLastActivity(null));
   }
 
   useEffect(() => {
@@ -121,9 +131,7 @@ export function ClientContextPanel() {
     // "What/Who/When happened" at a glance — most recent row from the same
     // Activity Timeline shown in full on the client's Notes tab (appointment
     // lifecycle, flags, and manual notes all flow into it).
-    api.get<{ activity: LastActivity[] }>(`/clients/${clientId}/activity`)
-      .then((res) => { if (!cancelled) setLastActivity(res.activity[0] || null); })
-      .catch(() => { if (!cancelled) setLastActivity(null); });
+    loadLastActivity(clientId);
     // For the "link an existing task" picker on the flag form — this client's own
     // open tasks, so staff can point a flag at wherever it's actually being tracked
     // instead of typing a description with no connection to real work.
@@ -173,6 +181,26 @@ export function ClientContextPanel() {
       setFlagError(err instanceof ApiError ? err.message : "Could not add this flag.");
     } finally {
       setSavingFlag(false);
+    }
+  }
+
+  async function handleAddNote(e: FormEvent) {
+    e.preventDefault();
+    if (!clientId) return;
+    const note = noteText.trim();
+    if (!note) { setNoteError("Enter a note."); return; }
+    setNoteError(null);
+    setSavingNote(true);
+    try {
+      await api.post(`/clients/${clientId}/activity`, { activityType: "Staff Note", note });
+      setShowAddNote(false);
+      setNoteText("");
+      loadLastActivity(clientId);
+      toast("Note added.");
+    } catch (err) {
+      setNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -318,8 +346,9 @@ export function ClientContextPanel() {
             </div>
           )}
 
-          {!showAddFlag ? (
+          {!showAddFlag && !showAddNote ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(true); setNoteError(null); }}>+ Note</button>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
               {flags && flags.length > 0 && (
                 <button type="button" className="btn btn-sm" onClick={() => setShowNotifyModal(true)}>
@@ -327,6 +356,22 @@ export function ClientContextPanel() {
                 </button>
               )}
             </div>
+          ) : showAddNote ? (
+            <form onSubmit={handleAddNote} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+              {noteError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{noteError}</div>}
+              <textarea
+                placeholder="Client note — general info, preferences, follow-up, anything worth remembering about this client"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                rows={3}
+                autoFocus
+                style={{ fontSize: 12.5, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={savingNote}>{savingNote ? "Saving…" : "Save Note"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(false); setNoteError(null); setNoteText(""); }}>Cancel</button>
+              </div>
+            </form>
           ) : (
             <form onSubmit={handleAddFlag} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
               {flagError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{flagError}</div>}
