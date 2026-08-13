@@ -15,6 +15,7 @@ import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SinceLastLoginBanner } from "../components/SinceLastLoginBanner";
+import { useSelectedClient } from "../context/SelectedClientContext";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -205,6 +206,58 @@ function MiniKpis({ items }: { items: [string, string][] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+interface AtRiskClient {
+  clientId: string;
+  clientName: string;
+  balancePastDue: number;
+  agencyPastDueCount: number;
+  agencyPastDueAmount: number;
+  manualFlagCount: number;
+}
+
+/**
+ * UX-001 (hard audit 2026-08-13) — flags were previously visible only by
+ * opening one client's own panel at a time; nothing showed which clients
+ * across the whole firm had actually crossed into risk. Backed by
+ * GET /clients/flags, a set of firm-wide GROUP BY queries (not one call per
+ * client), so this loads in constant time regardless of client count.
+ */
+function AtRiskClientsPanel() {
+  const navigate = useNavigate();
+  const { setSelectedClient } = useSelectedClient();
+  const [clients, setClients] = useState<AtRiskClient[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ clients: AtRiskClient[] }>("/clients/flags").then((res) => { if (!cancelled) setClients(res.clients); }).catch(() => { if (!cancelled) setClients([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!clients || clients.length === 0) return null;
+
+  const go = (c: AtRiskClient) => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); };
+
+  return (
+    <CommandPanel title="At-Risk Clients" note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, or flag past due`}>
+      <div className="attention-list">
+        {clients.slice(0, 8).map((c) => (
+          <div className="attention-item" key={c.clientId} onClick={() => go(c)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(c); } }}>
+            <div className="attention-main">
+              <div className="attention-title">{c.clientName}</div>
+              <div className="attention-meta">
+                {c.balancePastDue > 0 && <span>{fmtMoney(c.balancePastDue)} overdue balance</span>}
+                {c.agencyPastDueCount > 0 && <span>{c.agencyPastDueCount} agency obligation{c.agencyPastDueCount === 1 ? "" : "s"} past due{c.agencyPastDueAmount > 0 ? ` (${fmtMoney(c.agencyPastDueAmount)})` : ""}</span>}
+                {c.manualFlagCount > 0 && <span>{c.manualFlagCount} open flag{c.manualFlagCount === 1 ? "" : "s"}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {clients.length > 8 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{clients.length - 8} more at-risk client{clients.length - 8 === 1 ? "" : "s"} not shown.</p>}
+    </CommandPanel>
   );
 }
 
@@ -474,6 +527,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <TaskRows tasks={priorityTasks.slice(0, 12)} empty="No priority tasks." onChanged={onChanged} />
         </CommandPanel>
         <div className="command-stack">
+          <AtRiskClientsPanel />
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />
           </CommandPanel>

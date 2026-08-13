@@ -225,6 +225,81 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   res.json(await computeClientOpsSummary(clientId, viewerAliases));
 }));
 
+/**
+ * Firm-wide at-risk-clients view (hard audit 2026-08-13, UX-001). The flags
+ * computeClientFlags() already tracks per client — balance past due, agency
+ * (tax/EFTPS/etc) obligations past due, and staff-entered manual flags — had
+ * no aggregate anywhere in the app: an owner could only discover a client had
+ * crossed into risk by opening that specific client's own panel. This runs
+ * the same underlying signals as three bulk GROUP BY queries instead of
+ * calling computeClientFlags() once per client (which would mean N+1 queries
+ * per page load, including a computeMdFilingForReport call for every MD
+ * client) — cost stays flat regardless of how many clients exist.
+ *
+ * Deliberately excludes the MD-sales-tax-filing-period flag computeClientFlags()
+ * also carries — that one isn't cheaply bulk-queryable without a larger
+ * refactor to computeMdFilingForReport itself. This view covers unpaid
+ * balances, tracked-obligation (agency) past-due tasks, and staff-entered
+ * flags, which is the majority of what "at risk" means day to day — not
+ * literally every flag type the per-client panel shows.
+ */
+clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const aliases = isAdmin ? null : Array.from(await getUserAliases(req.user!.email));
+  const staffScope = isAdmin ? "" : `AND c.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
+  const params = isAdmin ? [] : [aliases];
+
+  const [balanceRows, agencyRows, manualRows] = await Promise.all([
+    query<any>(
+      `SELECT c.client_id, c.client_name, COALESCE(SUM(i.balance_due), 0) AS amount
+         FROM altax.v3_clients c
+         JOIN altax.v3_invoices i ON i.client_id = c.client_id
+        WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0
+          AND i.due_date IS NOT NULL AND i.due_date::date < CURRENT_DATE
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+    query<any>(
+      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count, COALESCE(SUM(t.payment_amount), 0) AS amount
+         FROM altax.v3_clients c
+         JOIN altax.v3_tasks t ON t.client_id = c.client_id
+        WHERE t.payment_required = true AND t.paid_date IS NULL
+          AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+    query<any>(
+      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count
+         FROM altax.v3_clients c
+         JOIN altax.v3_client_flags f ON f.client_id = c.client_id
+        WHERE f.status = 'Open'
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+  ]);
+
+  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number }>();
+  const get = (clientId: string, clientName: string) => {
+    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0 });
+    return byClient.get(clientId)!;
+  };
+  for (const r of balanceRows) get(r.client_id, r.client_name).balancePastDue = Number(r.amount || 0);
+  for (const r of agencyRows) {
+    const c = get(r.client_id, r.client_name);
+    c.agencyPastDueCount = r.count || 0;
+    c.agencyPastDueAmount = Number(r.amount || 0);
+  }
+  for (const r of manualRows) get(r.client_id, r.client_name).manualFlagCount = r.count || 0;
+
+  // Ranked by dollars owed first (the most consequential kind of risk), then
+  // by how many distinct agency obligations are overdue.
+  const clients = Array.from(byClient.values()).sort((a, b) => (b.balancePastDue - a.balancePastDue) || (b.agencyPastDueCount - a.agencyPastDueCount));
+  res.json({ clients });
+}));
+
 function nextFlagId(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
