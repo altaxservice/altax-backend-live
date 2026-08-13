@@ -22,6 +22,13 @@ export interface GovFormFiling {
   submitted_at: string | null;
   submitted_note: string | null;
   created_at: string;
+  /** TAX-004 — optional second-approver step before Submit; null means no review was requested. */
+  review_status?: "pending_review" | "approved" | "rejected" | null;
+  review_requested_by?: string | null;
+  review_requested_at?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
 }
 
 export interface GovFormsMeta {

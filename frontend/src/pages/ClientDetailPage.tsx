@@ -2164,6 +2164,38 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
     }
   }
 
+  /** TAX-004 — optional maker-checker: filer's choice to route a Signed filing to an admin before Submit. */
+  async function handleRequestReview(f: GovFormFiling) {
+    setBusy(`review-req-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/request-review`, {});
+      toast("Sent for admin review.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not send this for review.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleReviewDecision(f: GovFormFiling, decision: "approved" | "rejected") {
+    let note: string | null = null;
+    if (decision === "rejected") {
+      note = await promptFor({ title: "Reject filing", message: `What needs to change on ${GOV_FORM_LABELS[f.form_type]}?` });
+      if (note === null) return;
+    }
+    setBusy(`review-${f.filing_id}`);
+    try {
+      await api.post(`/gov-forms/${f.filing_id}/review`, { decision, note });
+      toast(decision === "approved" ? "Filing approved." : "Filing sent back to the preparer.");
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not record this review decision.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleVoid(f: GovFormFiling) {
     const reason = await promptFor({ title: "Void filing", message: `Reason for voiding ${GOV_FORM_LABELS[f.form_type]}?` });
     if (reason === null) return;
@@ -2219,7 +2251,18 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
               <Fragment key={f.filing_id}>
                 <tr>
                   <td>{GOV_FORM_LABELS[f.form_type] || f.form_type}</td>
-                  <td><span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
+                  <td>
+                    <span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span>
+                    {f.review_status === "pending_review" && (
+                      <div className="status-pill status-amber" style={{ marginTop: 4, fontSize: 11 }} title={`Requested by ${f.review_requested_by || "—"}`}>Pending Review</div>
+                    )}
+                    {f.review_status === "rejected" && (
+                      <div className="status-pill status-red" style={{ marginTop: 4, fontSize: 11 }} title={f.review_note || undefined}>Review Rejected</div>
+                    )}
+                    {f.review_status === "approved" && f.status !== "Submitted" && (
+                      <div className="status-pill status-green" style={{ marginTop: 4, fontSize: 11 }}>Approved</div>
+                    )}
+                  </td>
                   <td className="muted">
                     {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
                   </td>
@@ -2236,8 +2279,20 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
                       {f.status === "Draft" && (
                         <button type="button" className="btn btn-sm" disabled={busy === `signip-${f.filing_id}`} onClick={() => openSignInPerson(f)}>Sign Now (In Person)</button>
                       )}
-                      {f.status === "Signed" && (
+                      {f.status === "Signed" && f.review_status !== "pending_review" && (f.review_status !== "rejected" || isAdmin) && (
                         <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Submitted</button>
+                      )}
+                      {f.status === "Signed" && isAdmin && f.review_status === "pending_review" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Approve &amp; Submit</button>
+                      )}
+                      {f.status === "Signed" && (!f.review_status || f.review_status === "rejected") && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `review-req-${f.filing_id}`} onClick={() => handleRequestReview(f)}>Send for Review</button>
+                      )}
+                      {isAdmin && f.review_status === "pending_review" && (
+                        <>
+                          <button type="button" className="btn btn-sm btn-primary" disabled={busy === `review-${f.filing_id}`} onClick={() => handleReviewDecision(f, "approved")}>Approve</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `review-${f.filing_id}`} onClick={() => handleReviewDecision(f, "rejected")}>Reject</button>
+                        </>
                       )}
                       {isAdmin && f.status !== "Void" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>

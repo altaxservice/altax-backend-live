@@ -16,6 +16,8 @@ import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SinceLastLoginBanner } from "../components/SinceLastLoginBanner";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { GOV_FORM_LABELS } from "../api/govForms";
+import type { GovFormType } from "../api/govForms";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -278,6 +280,57 @@ function AtRiskClientsPanel() {
         ))}
       </div>
       {clients.length > 8 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{clients.length - 8} more at-risk client{clients.length - 8 === 1 ? "" : "s"} not shown.</p>}
+    </CommandPanel>
+  );
+}
+
+interface PendingGovFormReview {
+  filing_id: string;
+  form_type: string;
+  review_requested_by: string | null;
+  review_requested_at: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  employee_id: string | null;
+  employee_name: string | null;
+}
+
+/** TAX-004 — an admin's only way to discover a filing sent for review otherwise is opening each client one by one. */
+function PendingFilingReviewsPanel() {
+  const navigate = useNavigate();
+  const { setSelectedClient } = useSelectedClient();
+  const [filings, setFilings] = useState<PendingGovFormReview[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ filings: PendingGovFormReview[] }>("/gov-forms/pending-review").then((res) => { if (!cancelled) setFilings(res.filings); }).catch(() => { if (!cancelled) setFilings([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!filings || filings.length === 0) return null;
+
+  const go = (f: PendingGovFormReview) => {
+    if (f.client_id) { setSelectedClient(f.client_id, f.client_name || ""); navigate(`/clients/${f.client_id}`); }
+    else if (f.employee_id) navigate(`/employees/${f.employee_id}`);
+  };
+
+  return (
+    <CommandPanel title="Filing Reviews" note={`${filings.length} government form${filings.length === 1 ? "" : "s"} awaiting your approval before submission`}>
+      <div className="attention-list">
+        {filings.slice(0, 8).map((f) => (
+          <div className="attention-item" key={f.filing_id} onClick={() => go(f)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(f); } }}>
+            <div className="attention-main">
+              <div className="attention-title">{GOV_FORM_LABELS[f.form_type as GovFormType] || f.form_type}</div>
+              <div className="attention-meta">
+                <span>{f.client_name || f.employee_name || "—"}</span>
+                <span>Requested by {f.review_requested_by || "—"}</span>
+                {f.review_requested_at && <span>{fmtDate(f.review_requested_at)}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {filings.length > 8 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{filings.length - 8} more not shown.</p>}
     </CommandPanel>
   );
 }
@@ -577,6 +630,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         </CommandPanel>
         <div className="command-stack">
           <AtRiskClientsPanel />
+          <PendingFilingReviewsPanel />
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />
           </CommandPanel>

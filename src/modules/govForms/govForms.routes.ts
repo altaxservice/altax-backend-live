@@ -204,7 +204,8 @@ govFormsRouter.get("/client/:clientId", requireAuth, requireRole("admin", "staff
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const rows = await query<any>(
     `SELECT filing_id, client_id, form_type, form_data, status, signed_at, signer_name, signer_title,
-            submitted_via, submitted_at, submitted_note, created_at
+            submitted_via, submitted_at, submitted_note, created_at,
+            review_status, review_requested_by, review_requested_at, reviewed_by, reviewed_at, review_note
        FROM altax.v3_gov_form_filings WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
@@ -251,7 +252,8 @@ govFormsRouter.get("/employee/:employeeId", requireAuth, requireRole("admin", "s
   if (!(await canAccessClient(req.user!, employee.client_id))) return res.status(403).json({ error: "You do not have access to this employee." });
   const rows = await query<any>(
     `SELECT filing_id, employee_id, form_type, form_data, status, signed_at, signer_name, signer_title,
-            sent_to_employee_at, attached_upload_id, submitted_via, submitted_at, submitted_note, created_at
+            sent_to_employee_at, attached_upload_id, submitted_via, submitted_at, submitted_note, created_at,
+            review_status, review_requested_by, review_requested_at, reviewed_by, reviewed_at, review_note
        FROM altax.v3_gov_form_filings WHERE employee_id = $1 ORDER BY created_at DESC`,
     [employeeId]
   );
@@ -464,6 +466,25 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
   res.json({ ok: true, uploadId });
 }));
 
+/**
+ * TAX-004 — admin-only queue of filings sent for review, across every
+ * client/employee (an admin has no other way to discover these otherwise
+ * than opening each client one by one). Registered above GET /:filingId so
+ * "pending-review" isn't matched as a filing id.
+ */
+govFormsRouter.get("/pending-review", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query<any>(
+    `SELECT f.filing_id, f.form_type, f.review_requested_by, f.review_requested_at,
+            f.client_id, c.client_name, f.employee_id, e.employee_name
+       FROM altax.v3_gov_form_filings f
+       LEFT JOIN altax.v3_clients c ON c.client_id = f.client_id
+       LEFT JOIN altax.v3_employees e ON e.employee_id = f.employee_id
+      WHERE f.review_status = 'pending_review'
+      ORDER BY f.review_requested_at ASC`
+  );
+  res.json({ filings: rows });
+}));
+
 govFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
@@ -527,23 +548,81 @@ govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"
   res.json({ ok: true });
 }));
 
+/**
+ * TAX-004 (Hard Audit, 2026-08-13) — optional maker-checker: a filer who wants
+ * a second set of eyes before submission can route it to an admin instead of
+ * submitting solo. Nothing changes for anyone who doesn't use this — the
+ * plain Submit path below still works unless review is actually pending.
+ */
+govFormsRouter.post("/:filingId/request-review", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await loadFiling(req, req.params.filingId);
+  if (filing === null) return res.status(404).json({ error: "Filing not found." });
+  if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  if (filing.status !== "Signed") return res.status(400).json({ error: "Record the signature before sending this for review." });
+  if (filing.review_status === "pending_review") return res.status(400).json({ error: "This filing is already pending review." });
+
+  await query(
+    `UPDATE altax.v3_gov_form_filings
+        SET review_status='pending_review', review_requested_by=$2, review_requested_at=now(),
+            reviewed_by=NULL, reviewed_at=NULL, review_note=NULL, updated_at=now()
+      WHERE filing_id=$1`,
+    [filing.filing_id, req.user!.email]
+  );
+  await logAudit("Tools", "REQUEST_GOV_FORM_REVIEW", filing.filing_id, "review_status", filing.review_status || "", "pending_review",
+    `${FORM_LABELS[filing.form_type] || filing.form_type} sent for admin review by ${req.user!.email} before submission.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** Admin-only approve/reject of a filing sent for review — see request-review above. */
+govFormsRouter.post("/:filingId/review", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const filing = await loadFiling(req, req.params.filingId);
+  if (filing === null) return res.status(404).json({ error: "Filing not found." });
+  if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+  if (filing.review_status !== "pending_review") return res.status(400).json({ error: "This filing is not awaiting review." });
+
+  const decision = String(req.body?.decision || "").trim();
+  if (!["approved", "rejected"].includes(decision)) return res.status(400).json({ error: "Decision must be approved or rejected." });
+  const note = String(req.body?.note || "").trim() || null;
+  if (decision === "rejected" && !note) return res.status(400).json({ error: "A note is required when rejecting a filing, so the preparer knows what to fix." });
+
+  await query(
+    `UPDATE altax.v3_gov_form_filings SET review_status=$2, reviewed_by=$3, reviewed_at=now(), review_note=$4, updated_at=now() WHERE filing_id=$1`,
+    [filing.filing_id, decision, req.user!.email, note]
+  );
+  await logAudit("Tools", "REVIEW_GOV_FORM", filing.filing_id, "review_status", "pending_review", decision,
+    `${FORM_LABELS[filing.form_type] || filing.form_type} review ${decision} by ${req.user!.email}${note ? `: ${note}` : "."}`, req.user!.email);
+  res.json({ ok: true });
+}));
+
 /** The firm's own record of the manual step this app can't automate — mailing, faxing, hand-delivering, uploading online (SS-4), or simply kept on file (W-4/W-9 never go to an agency). */
 govFormsRouter.post("/:filingId/submit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
   if (filing.status !== "Signed") return res.status(400).json({ error: "Record the signature before marking this submitted." });
+  if (filing.review_status === "pending_review" && req.user!.role !== "admin") {
+    return res.status(403).json({ error: "This filing was sent for review and needs admin approval before it can be submitted." });
+  }
+  if (filing.review_status === "rejected") {
+    return res.status(400).json({ error: "This filing's review was rejected — fix the issue and send it for review again before submitting." });
+  }
 
   const via = String(req.body?.submittedVia || "").trim();
   if (!via) return res.status(400).json({ error: "Choose how this was sent." });
   const note = String(req.body?.note || "").trim() || null;
 
+  // An admin submitting a still-pending review auto-resolves it as approved,
+  // rather than forcing a separate "approve, then submit" round trip.
+  const autoApprove = filing.review_status === "pending_review";
   await query(
-    `UPDATE altax.v3_gov_form_filings SET status='Submitted', submitted_via=$2, submitted_at=now(), submitted_note=$3, updated_at=now() WHERE filing_id=$1`,
-    [filing.filing_id, via, note]
+    `UPDATE altax.v3_gov_form_filings
+        SET status='Submitted', submitted_via=$2, submitted_at=now(), submitted_note=$3, updated_at=now()
+            ${autoApprove ? ", review_status='approved', reviewed_by=$4, reviewed_at=now()" : ""}
+      WHERE filing_id=$1`,
+    autoApprove ? [filing.filing_id, via, note, req.user!.email] : [filing.filing_id, via, note]
   );
   await logAudit("Tools", "SUBMIT_GOV_FORM", filing.filing_id, "status", "Signed", "Submitted",
-    `Marked submitted via ${via} by ${req.user!.email}.`, req.user!.email);
+    `Marked submitted via ${via} by ${req.user!.email}.${autoApprove ? " (Also approved the pending review.)" : ""}`, req.user!.email);
   res.json({ ok: true });
 }));
 
