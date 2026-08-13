@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
 
@@ -14,7 +15,14 @@ import { useLanguage } from "../context/LanguageContext";
 //   named feature with its own numbered steps and an optional "use it when" note,
 //   mirroring how a real training document reads. A section may mix both; topics
 //   render first when present.
-interface GuideTopic { heading: string; steps: string[]; useWhen?: string }
+/**
+ * UX-014 (Hard Audit, 2026-08-13) — route/routeLabel turn a topic's "Go to X"
+ * instruction into a real, clickable link instead of just describing where to
+ * go. Populated on the one topic per distinct destination whose steps
+ * actually say "Go to X" — not every topic, since most describe a sub-view
+ * of a page already linked elsewhere in the same section.
+ */
+interface GuideTopic { heading: string; steps: string[]; useWhen?: string; route?: string; routeLabel?: string }
 interface Section {
   key: string; label: string; title: string; roles: string[];
   intro?: string; topics?: GuideTopic[]; body: string[];
@@ -73,6 +81,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Finding a client",
+        route: "/clients", routeLabel: "Clients",
         steps: [
           "Go to Clients in the sidebar — every client the firm has ever added shows up here (Active by default; switch the Status filter to see Inactive/Archived too).",
           "Use the search box, or the Status / Owner / Type / Service filters, to narrow the list.",
@@ -175,6 +184,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Reading the Tasks list",
+        route: "/tasks", routeLabel: "Tasks",
         steps: [
           "Go to Tasks. The quick tabs split into two groups: live work (Active, Overdue, Due Today, Due Week, Waiting, All Active) and history (Completed, Archived, All History).",
           "Each row shows Client + Service, Task + Priority, Due date + how overdue/soon it is, and Owner + who last touched it, all stacked to keep the table narrow.",
@@ -249,6 +259,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Calendar view — deadlines by day",
+        route: "/calendar", routeLabel: "Calendar",
         steps: [
           "Go to Calendar in the sidebar. It's a month grid — any day with an open task due shows a badge, and turns red if something on it is overdue.",
           "Click a day to see exactly which tasks (and any appointments) are due that day, for which client, assigned to whom.",
@@ -293,6 +304,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Logging hours",
+        route: "/time-tracking", routeLabel: "Time Tracking",
         steps: [
           "Go to Time Tracking. Pick a date, optionally a client (leave it blank for internal, non-billable time), and enter hours worked.",
           "If this time should be billed to the client, check Billable and enter an hourly rate.",
@@ -336,6 +348,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Running a batch",
+        route: "/rules", routeLabel: "Rules",
         steps: [
           "Go to Rules in the sidebar. Click Create Batch Tasks (or Run Batch on a specific rule's row).",
           "The batch preview shows exactly which clients would get a new task before anything is created — review it, then confirm.",
@@ -363,6 +376,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Generating a HACCP plan",
+        route: "/haccp", routeLabel: "Health Permits",
         steps: [
           "Go to Health Permits in the sidebar.",
           "Fill in the business details and select the applicable menu categories.",
@@ -384,6 +398,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Creating and sending an estimate",
+        route: "/estimates", routeLabel: "Estimates",
         steps: [
           "Go to Estimates → New Estimate. Pick a client (or enter a new prospect's info), then add line items — or click \"Rebuild from Fee Schedule\" to pull real pricing instead of typing amounts by hand.",
           "Click Preview PDF to check it, then Send to Client to email it.",
@@ -398,6 +413,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Pipeline — tracking prospects as a funnel",
+        route: "/pipeline", routeLabel: "Pipeline",
         steps: [
           "Go to Pipeline in the sidebar. Every estimate shows up as a card in one of four columns: New → Contacted → Proposal Sent → Won/Lost.",
           "When you send a quote, move the card to Proposal Sent. When they say yes, click Won (this mirrors clicking Mark Approved on the estimate — you still convert it separately when ready). When they say no, click Lost.",
@@ -419,6 +435,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Maintaining the Fee Schedule",
+        route: "/fee-schedule", routeLabel: "Fee Schedule",
         steps: [
           "Go to Fee Schedule. Click Add Fee to add a new priced service, or click an existing row to edit its amount.",
           "Changing a fee here only affects future estimates — estimates already sent keep the amounts they were built with.",
@@ -427,6 +444,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Sales Tax Calculator",
+        route: "/calculators", routeLabel: "Calculators",
         steps: [
           "Go to Calculators. Enter gross sales and click + Add Category for each taxable category, or just enter one blended amount.",
           "It computes the tax due per the selected state's rate — nothing here is saved, it's scratch math for the counter.",
@@ -453,6 +471,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Creating and sending an invoice",
+        route: "/billing", routeLabel: "Billing",
         steps: [
           "Go to Billing → New Invoice (or from a client's profile → Billing tab).",
           "Add line items, set a due date, and Save.",
@@ -563,6 +582,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Financial reports (P&L, account snapshot)",
+        route: "/reports", routeLabel: "Reports",
         steps: [
           "Go to Reports, pick a client and a period.",
           "The P&L and account-balance tabs pull straight from that client's GL data — the same numbers you'd see in the Accounting workspace, just formatted for review or printing.",
@@ -570,6 +590,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "AR Aging",
+        route: "/reports", routeLabel: "Reports",
         steps: [
           "Go to Reports → AR Aging. It's firm-wide (no client picker) — every client with an open invoice balance shows up, bucketed by how overdue it is: Current, 1-30, 31-60, 61-90, 90+ days.",
           "Download PDF or Export CSV if you want to hand it to someone or archive it.",
@@ -604,6 +625,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Firm-wide Documents triage",
+        route: "/documents", routeLabel: "Documents",
         steps: [
           "Go to Documents in the sidebar for a firm-wide view of every open document request across all clients — use it to see what's still outstanding without opening each client one by one.",
           "For a specific client's documents (contracts, uploads, checklist), open that client's profile → Documents tab instead.",
@@ -625,6 +647,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Document Checklists (admin sets up, then automatic)",
+        route: "/document-checklists", routeLabel: "Document Checklists",
         steps: [
           "An admin sets up templates once: go to Document Checklists (Firm section), click New Checklist, name it (e.g. \"Business Formation Checklist\"), optionally restrict it to a Client Type and/or Service, then add the required documents (e.g. \"Articles of Organization,\" \"EIN Letter\").",
           "After that, it's automatic: open any client whose type/services match a template, go to their Documents tab, and a checklist card appears with checkboxes for each required item.",
@@ -667,6 +690,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Bulk client messages",
+        route: "/communications", routeLabel: "Communications",
         steps: [
           "Go to Communications → Bulk Client Message.",
           "Select clients (checked clients bubble to the top of the list), pick a Template and period dates if the template uses them, and review the per-client preview — placeholders like client name and period fill in automatically for each recipient.",
@@ -682,6 +706,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Templates",
+        route: "/templates", routeLabel: "Templates",
         steps: [
           "Go to Templates (Client Communication section) to manage the reusable message and contract templates used everywhere above.",
           "Message templates support placeholders (client name, period dates, etc.) that fill in automatically when used.",
@@ -710,6 +735,7 @@ const SECTIONS: Section[] = [
     topics: [
       {
         heading: "Users & Access",
+        route: "/users", routeLabel: "Users & Access",
         steps: [
           "Go to Users & Access. Click Add User to create a new Admin, Staff, Client, or Employee login.",
           "From an existing user's row: Edit their details, Deactivate their access (keeps the record, blocks login), Set Temporary Password (for when someone's locked out and can't use the self-service reset), or Delete permanently (requires typed confirmation).",
@@ -717,6 +743,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Security Center",
+        route: "/security", routeLabel: "Security",
         steps: [
           "Go to Security to review the firm-wide lockout policy, every portal user's password status (Not Set / Must Reset / Ready and Current / Legacy hash strength), and failed-login counts.",
           "Recent Login / Security Events shows a live audit trail of sign-ins and sensitive actions across the firm.",
@@ -725,6 +752,7 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Portal Credentials (the firm's own vault)",
+        route: "/firm-portals", routeLabel: "Portal Credentials",
         steps: [
           "Go to Portal Credentials. This stores the firm's own agency logins — EFTPS, MD Tax Connect, state unemployment portals, anything the office signs into — not client passwords.",
           "Click Add Portal to save a new one. Passwords are encrypted on the server and only decrypted when you click Reveal; every reveal is written to the access log.",
@@ -732,18 +760,21 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Firm Settings",
+        route: "/firm-settings", routeLabel: "Firm Settings",
         steps: [
           "Go to Firm Settings to edit the firm's name, address, phone, and logo — these feed every PDF, email, and the login screen automatically, so there's nothing else to update by hand when branding changes.",
         ],
       },
       {
         heading: "List Settings",
+        route: "/list-settings", routeLabel: "List Settings",
         steps: [
           "Go to List Settings to manage the option lists used in dropdowns across the app (task types, service categories, etc.) without needing a code change for every new option.",
         ],
       },
       {
         heading: "Fix Center",
+        route: "/fix-center", routeLabel: "Fix Center",
         steps: [
           "Go to Fix Center for system-health self-diagnostics: a database connectivity check, table row counts (useful when comparing before/after a data change), and tools to seed default setup data on a fresh environment.",
         ],
@@ -925,7 +956,14 @@ export function GuidePage() {
             <div style={{ display: "grid", gap: 18 }}>
               {section.topics.map((topic, i) => (
                 <div key={i}>
-                  <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 6 }}>{i + 1}. {topic.heading}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13.5 }}>{i + 1}. {topic.heading}</div>
+                    {topic.route && (
+                      <Link to={topic.route} style={{ fontSize: 12, fontWeight: 700, color: "var(--teal)", whiteSpace: "nowrap" }}>
+                        Go to {topic.routeLabel} →
+                      </Link>
+                    )}
+                  </div>
                   <ol style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 5, fontSize: 13, color: "var(--ink)" }}>
                     {topic.steps.map((line, j) => <li key={j}>{line}</li>)}
                   </ol>
