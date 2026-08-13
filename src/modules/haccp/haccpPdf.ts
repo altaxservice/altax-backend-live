@@ -144,35 +144,61 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const maxWidth = R - L;
 
   // ---- Cover sheet ----
+  // Same rhythm as the Word doc's cover (title banner → business/filing
+  // details → big gap → a plain contact block at the bottom) — only the
+  // layout moved to match; the teal accent stays, since that's the one
+  // piece of the PDF's look that's being kept as-is.
   let { page, c } = newPage(doc, font, bold, data.businessName);
   let y = 56;
 
-  c.text(PAGE_W / 2, y, "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN", { size: 18, bold: true, align: "center" });
-  y += 22;
-  c.text(PAGE_W / 2, y, `Prepared in accordance with Maryland COMAR 10.15.03 and ${data.jurisdiction} Health Department HACCP Guidelines`, { size: 9, color: MUTED, align: "center" });
-  y += 36;
+  c.rect(L, y, R - L, 64, TEAL_TINT);
+  c.text(PAGE_W / 2, y + 26, "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN", { size: 15, bold: true, align: "center" });
+  c.text(PAGE_W / 2, y + 46, `Prepared in accordance with Maryland COMAR 10.15.03 and ${data.jurisdiction} Health Department HACCP Guidelines`, { size: 9, color: MUTED, align: "center" });
+  y += 64;
+  y += 26;
 
-  c.rect(L, y, R - L, 132, TEAL_TINT);
-  const boxL = L + 16;
-  let by = y + 22;
-  c.text(boxL, by, data.businessName, { size: 16, bold: true });
-  by += 20;
-  c.text(boxL, by, data.businessTypeLabel, { size: 10.5, color: TEAL, bold: true });
-  by += 18;
+  // Business identity + filing metadata — no longer boxed with the title,
+  // just its own block; phone/email/contact-person moved down to the
+  // bottom contact block (mirroring Word) instead of appearing twice.
+  const blockTop = y;
+  let leftY = blockTop;
+  c.text(L, leftY, data.businessName, { size: 14, bold: true });
+  leftY += 18;
+  c.text(L, leftY, data.businessTypeLabel, { size: 10, color: TEAL, bold: true });
+  leftY += 16;
   const addressParts = [data.streetAddress, [data.city, data.state, data.zipCode].filter(Boolean).join(", ")].filter(Boolean);
-  if (addressParts.length) { c.text(boxL, by, addressParts.join(" — "), { size: 9.5 }); by += 14; }
-  const contactParts = [data.phone, data.email].filter(Boolean);
-  if (contactParts.length) { c.text(boxL, by, contactParts.join("   ·   "), { size: 9.5 }); by += 14; }
-  if (data.contactPerson) { c.text(boxL, by, `Contact: ${data.contactPerson}`, { size: 9.5 }); by += 14; }
-  if (data.licenseNumber) { c.text(boxL, by, `License/Permit #: ${data.licenseNumber}`, { size: 9.5 }); by += 14; }
+  if (addressParts.length) { c.text(L, leftY, addressParts.join(" — "), { size: 9.5 }); leftY += 14; }
+  if (data.licenseNumber) { c.text(L, leftY, `License/Permit #: ${data.licenseNumber}`, { size: 9.5 }); leftY += 14; }
 
-  c.text(R - 16, y + 22, `Risk Priority: ${data.riskPriority}`, { size: 9.5, bold: true, color: TEAL, align: "right" });
-  c.text(R - 16, y + 36, `Jurisdiction: ${data.jurisdiction}`, { size: 9.5, align: "right" });
-  c.text(R - 16, y + 50, `Prepared: ${fmtDate(data.createdAt)}`, { size: 9.5, align: "right" });
-  c.text(R - 16, y + 64, `Plan ID: ${data.planId}`, { size: 8, color: MUTED, align: "right" });
+  let rightY = blockTop + 4;
+  c.text(R, rightY, `Risk Priority: ${data.riskPriority}`, { size: 9.5, bold: true, color: TEAL, align: "right" });
+  rightY += 14;
+  c.text(R, rightY, `Jurisdiction: ${data.jurisdiction}`, { size: 9.5, align: "right" });
+  rightY += 14;
+  c.text(R, rightY, `Prepared: ${fmtDate(data.createdAt)}`, { size: 9.5, align: "right" });
+  rightY += 14;
+  c.text(R, rightY, `Plan ID: ${data.planId}`, { size: 8, color: MUTED, align: "right" });
+  rightY += 14;
 
+  y = Math.max(leftY, rightY) + 12;
+  c.line(L, y, R, y, LINE, 0.75);
+
+  // Big gap, then the contact block — same "CONTACT PERSON / PHONE NUMBER /
+  // EMAIL" centered layout the Word doc's cover already has.
   y += 150;
-  c.line(L, y, R, y, INK, 1.25);
+  function coverContactLine(label: string, value?: string | null) {
+    if (!value) return;
+    const labelText = `${label}: `;
+    const labelW = font.widthOfTextAtSize(labelText, 9.5);
+    const valueW = bold.widthOfTextAtSize(value, 9.5);
+    const startX = PAGE_W / 2 - (labelW + valueW) / 2;
+    c.text(startX, y, labelText, { size: 9.5, color: MUTED });
+    c.text(startX + labelW, y, value, { size: 9.5, bold: true });
+    y += 15;
+  }
+  coverContactLine("CONTACT PERSON", data.contactPerson);
+  coverContactLine("PHONE NUMBER", data.phone);
+  coverContactLine("EMAIL", data.email);
 
   drawFooter(c, font, data.businessName, data.jurisdiction, "Page 1");
   let pageNum = 1;

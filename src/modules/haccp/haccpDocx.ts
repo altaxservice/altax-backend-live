@@ -21,15 +21,16 @@ import {
 import type { HaccpPdfData, HaccpMenuGroup, HaccpEquipmentLine } from "./haccpPdf";
 
 const FONT = "Calibri";
-// Warm neutral palette — cream/tan banners with a terracotta accent, instead
-// of the real sample's flat gray, per explicit user request for something
-// "cozier." Still reads as an official document (same layout/structure),
-// just warmer than plain gray-on-white.
-const BANNER_FILL = "F2E3CC";
-const ACCENT = "A8582E";
-const MUTED = "8A7A68";
-const RULE_COLOR = "D9C4A3";
-const WATERMARK_COLOR = "D8C6AA";
+// Back to the real sample's flat neutral gray — the earlier "cozy" warm
+// palette was reverted per user request (they liked the PDF's teal as-is
+// and asked for the Word doc to stay colorless). ACCENT stays as a token
+// so headings/labels keep their own color slot rather than being hardcoded
+// black inline, but it currently resolves to near-black ink.
+const BANNER_FILL = "BFBFBF";
+const ACCENT = "1A1A1A";
+const MUTED = "6B6B6B";
+const RULE_COLOR = "999999";
+const WATERMARK_COLOR = "CCCCCC";
 
 const PAGE_WIDTH = 12240;
 const PAGE_HEIGHT = 15840;
@@ -123,7 +124,7 @@ function banner(text: string, opts: { subtitle?: string; centered?: boolean; siz
     paras.push(new Paragraph({
       alignment: align,
       spacing: { before: 60 },
-      children: [new TextRun({ text: opts.subtitle, italics: true, font: FONT, size: 18, color: "6B5B49" })],
+      children: [new TextRun({ text: opts.subtitle, italics: true, font: FONT, size: 18, color: "333333" })],
     }));
   }
   return new Table({
