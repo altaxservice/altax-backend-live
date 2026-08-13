@@ -8,6 +8,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
+import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 
@@ -21,52 +22,16 @@ interface Summary {
   documentsCount: number;
 }
 
-interface LastActivity {
+interface ActivityEntry {
   type: string;
   note: string | null;
   occurred_at: string;
   logged_by: string | null;
 }
 
-interface ClientFlag {
-  flagId: string | null;
-  flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
-  amount: number | null;
-  note: string | null;
-  color: "red" | "green" | "amber";
-  createdAt: string | null;
-  createdBy: string | null;
-  resolvable: boolean;
-  linkTaskId?: string;
-  linkUrl?: string;
-  category?: string | null;
-  details?: string | null;
-  dueDate?: string | null;
-  shareWithClient: boolean;
-}
-
-function fmtMoney(v: unknown): string {
-  const n = Number(v);
-  return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
-}
-
-function fmtDateOnly(v: string | null | undefined): string {
-  if (!v) return "";
-  const d = new Date(`${v}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
 function fmtDateTime(v: string): string {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function flagLabel(f: ClientFlag): string {
-  if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
-  if (f.flagType === "AgencyPastDue") return `${f.note} Past Due${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
-  if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
-  const label = f.category || f.note;
-  return `${label}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}${f.dueDate ? ` — ${fmtDateOnly(f.dueDate)}` : ""}`;
 }
 
 export function ClientContextPanel() {
@@ -93,11 +58,13 @@ export function ClientContextPanel() {
   const [optionsError, setOptionsError] = useState(false);
   const [clientTasks, setClientTasks] = useState<Task[]>([]);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
-  const [lastActivity, setLastActivity] = useState<LastActivity | null | undefined>(undefined);
+  const [recentActivity, setRecentActivity] = useState<ActivityEntry[] | null | undefined>(undefined);
   const [showAddNote, setShowAddNote] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [showFlagHistory, setShowFlagHistory] = useState(false);
+  const [flagHistory, setFlagHistory] = useState<ClientFlag[] | null>(null);
 
   function loadOptions() {
     setOptionsError(false);
@@ -109,10 +76,10 @@ export function ClientContextPanel() {
     api.get<{ flags: ClientFlag[] }>(`/clients/${id}/flags`).then((res) => setFlags(res.flags)).catch(() => setFlags([]));
   }
 
-  function loadLastActivity(id: string) {
-    api.get<{ activity: LastActivity[] }>(`/clients/${id}/activity`)
-      .then((res) => setLastActivity(res.activity[0] || null))
-      .catch(() => setLastActivity(null));
+  function loadRecentActivity(id: string) {
+    api.get<{ activity: ActivityEntry[] }>(`/clients/${id}/activity?limit=5`)
+      .then((res) => setRecentActivity(res.activity))
+      .catch(() => setRecentActivity([]));
   }
 
   useEffect(() => {
@@ -121,17 +88,21 @@ export function ClientContextPanel() {
       setSummary(null);
       setFlags(null);
       setClientTasks([]);
-      setLastActivity(undefined);
+      setRecentActivity(undefined);
+      setShowFlagHistory(false);
+      setFlagHistory(null);
       return;
     }
     let cancelled = false;
-    setLastActivity(undefined);
+    setRecentActivity(undefined);
+    setShowFlagHistory(false);
+    setFlagHistory(null);
     api.get<{ client: Client }>(`/clients/${clientId}`).then((res) => { if (!cancelled) setClient(res.client); }).catch(() => { if (!cancelled) setClient(null); });
     api.get<Summary>(`/clients/${clientId}/summary`).then((res) => { if (!cancelled) setSummary(res); }).catch(() => { if (!cancelled) setSummary(null); });
-    // "What/Who/When happened" at a glance — most recent row from the same
-    // Activity Timeline shown in full on the client's Notes tab (appointment
-    // lifecycle, flags, and manual notes all flow into it).
-    loadLastActivity(clientId);
+    // Fast-review feed — a handful of the most recent client-level Notes/flag/
+    // appointment events, same Activity Timeline shown in full on the Notes tab.
+    // Task notes are excluded server-side (they live only on their own task).
+    loadRecentActivity(clientId);
     // For the "link an existing task" picker on the flag form — this client's own
     // open tasks, so staff can point a flag at wherever it's actually being tracked
     // instead of typing a description with no connection to real work.
@@ -192,10 +163,10 @@ export function ClientContextPanel() {
     setNoteError(null);
     setSavingNote(true);
     try {
-      await api.post(`/clients/${clientId}/activity`, { activityType: "Staff Note", note });
+      await api.post(`/clients/${clientId}/activity`, { activityType: "Note", note });
       setShowAddNote(false);
       setNoteText("");
-      loadLastActivity(clientId);
+      loadRecentActivity(clientId);
       toast("Note added.");
     } catch (err) {
       setNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
@@ -222,6 +193,15 @@ export function ClientContextPanel() {
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not update this flag.");
     }
+  }
+
+  function toggleFlagHistory() {
+    if (!showFlagHistory && flagHistory === null && clientId) {
+      api.get<{ flags: ClientFlag[] }>(`/clients/${clientId}/flags/history`)
+        .then((res) => setFlagHistory(res.flags))
+        .catch(() => setFlagHistory([]));
+    }
+    setShowFlagHistory((v) => !v);
   }
 
   if (!clientId) return null;
@@ -262,32 +242,40 @@ export function ClientContextPanel() {
             <button type="button" onClick={() => navigate(`/clients/${client.client_id}`)} className="client-panel-name-link">{client.client_name}</button>
           </h2>
 
-          {/* What/who/when at a glance — the most recent entry from the same
-              Activity Timeline shown in full on the Notes tab. */}
-          {lastActivity !== undefined && (
-            <button
-              type="button"
-              onClick={() => navigate(`/clients/${client.client_id}?tab=Notes`)}
-              title="Open the full Activity Timeline"
-              style={{
-                display: "block", width: "100%", textAlign: "left", background: "var(--panel, rgba(127,127,127,0.06))",
-                border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", marginBottom: 10, cursor: "pointer", color: "inherit",
-              }}
-            >
-              <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>Last Activity</div>
-              {lastActivity ? (
-                <>
-                  <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {lastActivity.type}{lastActivity.note ? ` — ${lastActivity.note}` : ""}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11 }}>
-                    {lastActivity.logged_by ? `By ${lastActivity.logged_by} · ` : ""}{fmtDateTime(lastActivity.occurred_at)}
-                  </div>
-                </>
+          {/* Fast in-panel review of what's recently happened with this client —
+              Notes, flag events, appointments — without leaving the page.
+              Click-through to the full Activity Timeline for everything else. */}
+          {recentActivity !== undefined && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="muted" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Recent Notes</div>
+              {recentActivity === null || recentActivity.length === 0 ? (
+                <div className="muted" style={{ fontSize: 12, padding: "6px 0" }}>No activity logged yet</div>
               ) : (
-                <div className="muted" style={{ fontSize: 12 }}>No activity logged yet</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4 }}>
+                  {recentActivity.map((a) => (
+                    <div
+                      key={`${a.occurred_at}-${a.type}`}
+                      style={{ background: "var(--panel, rgba(127,127,127,0.06))", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}
+                    >
+                      <div style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {a.type}{a.note ? ` — ${a.note}` : ""}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11 }}>
+                        {a.logged_by ? `By ${a.logged_by} · ` : ""}{fmtDateTime(a.occurred_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: "none", border: "none", color: "var(--accent, inherit)", textDecoration: "underline", padding: 0, cursor: "pointer", fontSize: 11.5 }}
+                onClick={() => navigate(`/clients/${client.client_id}?tab=Notes`)}
+              >
+                View all →
+              </button>
+            </div>
           )}
 
           {/* Noticeable, colored account issues — separate from the freeform
@@ -346,9 +334,39 @@ export function ClientContextPanel() {
             </div>
           )}
 
+          {/* Resolved flags vanish from the stack above the moment they're
+              resolved — this is the only place to look back at them. */}
+          <div style={{ marginBottom: 10 }}>
+            <button type="button" className="btn btn-sm" onClick={toggleFlagHistory}>
+              {showFlagHistory ? "Hide History ▲" : "View History ▾"}
+            </button>
+            {showFlagHistory && (
+              flagHistory === null ? (
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Loading…</div>
+              ) : flagHistory.length === 0 ? (
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>No resolved flags yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                  {flagHistory.map((f) => (
+                    <div
+                      key={f.key}
+                      className="status-pill"
+                      style={{ flexDirection: "column", alignItems: "flex-start", width: "100%", padding: "6px 10px", fontSize: 12, opacity: 0.7 }}
+                    >
+                      <span style={{ textDecoration: "line-through" }}>{flagLabel(f)}</span>
+                      <span className="muted" style={{ fontSize: 10 }}>
+                        Resolved {f.resolvedAt ? fmtDateTime(f.resolvedAt) : ""}{f.resolvedBy ? ` by ${f.resolvedBy}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+
           {!showAddFlag && !showAddNote ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-              <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(true); setNoteError(null); }}>+ Note</button>
+              <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(true); setNoteError(null); }}>+ Client Note</button>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
               {flags && flags.length > 0 && (
                 <button type="button" className="btn btn-sm" onClick={() => setShowNotifyModal(true)}>
@@ -358,6 +376,11 @@ export function ClientContextPanel() {
             </div>
           ) : showAddNote ? (
             <form onSubmit={handleAddNote} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+              {/* This panel is shown globally across Tasks/Documents/Billing/etc,
+                  independent of whatever else is on screen — this note always
+                  attaches to the client, never to a task. Task notes live on
+                  the task's own "Notes & Messages" thread instead. */}
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600 }}>Note about {client.client_name}</div>
               {noteError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{noteError}</div>}
               <textarea
                 placeholder="Client note — general info, preferences, follow-up, anything worth remembering about this client"

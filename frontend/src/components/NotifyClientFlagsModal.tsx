@@ -3,12 +3,14 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { type ClientFlag, flagLabel } from "../utils/clientFlags";
 
 interface NotifyPreview {
   subject: string;
   messageEnglish: string;
   messageArabic: string;
   count: number;
+  flags: ClientFlag[];
 }
 
 /**
@@ -39,6 +41,11 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  // Every flag currently eligible to share (the "Share?" toggle on each flag
+  // controls this standing eligibility) — the checklist below lets staff pick
+  // a subset for THIS particular send, without changing that eligibility.
+  const [shareableFlags, setShareableFlags] = useState<ClientFlag[] | null>(null);
+  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api.get<NotifyPreview>(`/clients/${clientId}/flags/notify-preview`)
@@ -47,10 +54,44 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
         setMessageEnglish(r.messageEnglish);
         setMessageArabic(r.messageArabic);
         setCount(r.count);
+        setShareableFlags(r.flags);
+        setExcludedKeys(new Set());
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load the flags for this client."))
       .finally(() => setLoading(false));
   }, [clientId]);
+
+  async function refreshForSelection(nextExcluded: Set<string>) {
+    if (!shareableFlags) return;
+    const selectedKeys = shareableFlags.filter((f) => !nextExcluded.has(f.key)).map((f) => f.key);
+    if (selectedKeys.length === 0) {
+      // Guard client-side — an empty flagKeys= would 404 with a misleading
+      // "nothing is shared" message; this just means "select at least one."
+      setMessageEnglish("");
+      setMessageArabic("");
+      setCount(0);
+      return;
+    }
+    try {
+      const r = await api.get<NotifyPreview>(`/clients/${clientId}/flags/notify-preview?flagKeys=${encodeURIComponent(selectedKeys.join(","))}`);
+      // Deliberately not re-setting subject — leave any hand-edit staff made
+      // to it alone as the selection changes.
+      setMessageEnglish(r.messageEnglish);
+      setMessageArabic(r.messageArabic);
+      setCount(r.count);
+    } catch (err) {
+      setSendError(err instanceof ApiError ? err.message : "Could not update the preview for this selection.");
+    }
+  }
+
+  function toggleFlag(key: string) {
+    setExcludedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      refreshForSelection(next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     setSentTo(channel === "Email" ? (clientEmail || "") : (clientPhone || ""));
@@ -106,9 +147,23 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
           ) : (
             <>
               <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-                {count} item{count === 1 ? "" : "s"} marked "Share with client" will be included. Review and edit the text below before sending —
+                {count} of {shareableFlags?.length ?? count} item{(shareableFlags?.length ?? count) === 1 ? "" : "s"} selected below will be included. Review and edit the text before sending —
                 nothing sends automatically.
               </p>
+
+              {shareableFlags && shareableFlags.length > 0 && (
+                <div className="field">
+                  <label>Include in this message</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
+                    {shareableFlags.map((f) => (
+                      <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!excludedKeys.has(f.key)} onChange={() => toggleFlag(f.key)} />
+                        {flagLabel(f)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="field">
                 <label htmlFor="notify-flags-channel">Send via</label>

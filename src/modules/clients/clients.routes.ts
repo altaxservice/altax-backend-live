@@ -204,6 +204,10 @@ function nextFlagId(): string {
 
 interface ClientFlag {
   flagId: string | null;
+  /** Stable identity for per-send selection in the Notify Client modal — computed flag
+   * types (BalancePastDue/AgencyPastDue) have flagId: null, so flagId alone can't address
+   * one specific flag across a notify-preview call and the later filtered send. */
+  key: string;
   flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
@@ -221,6 +225,9 @@ interface ClientFlag {
   dueDate?: string | null;
   /** Whether this flag is allowed to appear in a client-facing notification (see POST :clientId/flags/notify-preview). Computed flags (Balance/Agency Past Due) are always eligible; manual flags default to false until staff opts them in. */
   shareWithClient: boolean;
+  /** Only populated by computeResolvedClientFlags — who/when a manual flag was resolved. */
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
 }
 
 /**
@@ -257,7 +264,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   );
   const overdueAmount = Number(overdue?.total || 0);
   if (overdueAmount > 0) {
-    flags.push({ flagId: null, flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false, shareWithClient: true });
+    flags.push({ flagId: null, key: "computed:BalancePastDue", flagType: "BalancePastDue", amount: overdueAmount, note: null, color: "red", createdAt: null, createdBy: null, resolvable: false, shareWithClient: true });
   }
 
   const agencyRows = await query<any>(
@@ -269,7 +276,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   );
   for (const row of agencyRows) {
     flags.push({
-      flagId: null, flagType: "AgencyPastDue", amount: row.payment_amount !== null ? Number(row.payment_amount) : null,
+      flagId: null, key: `computed:AgencyPastDue:task:${row.task_id}`, flagType: "AgencyPastDue", amount: row.payment_amount !== null ? Number(row.payment_amount) : null,
       note: row.service_line || row.task_name, color: "red", createdAt: null, createdBy: null, resolvable: false,
       linkTaskId: row.task_id, shareWithClient: true,
     });
@@ -294,7 +301,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
         // active past-due flag (see computeMdFilingForReport / v3_md_filing_payments).
         if (!p.markedPaidDate && !p.onTime && p.balanceDue > 0) {
           flags.push({
-            flagId: null, flagType: "AgencyPastDue", amount: p.balanceDue,
+            flagId: null, key: `computed:AgencyPastDue:md:${p.end}`, flagType: "AgencyPastDue", amount: p.balanceDue,
             note: `MD Sales & Use Tax (ending ${p.end})`, color: "red", createdAt: null, createdBy: null, resolvable: false,
             linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
           });
@@ -311,7 +318,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   );
   for (const row of manual) {
     flags.push({
-      flagId: row.flag_id, flagType: row.flag_type, amount: row.amount !== null ? Number(row.amount) : null,
+      flagId: row.flag_id, key: row.flag_id, flagType: row.flag_type, amount: row.amount !== null ? Number(row.amount) : null,
       note: row.note, color: row.flag_type === "Credit" ? "green" : "amber",
       createdAt: row.created_at, createdBy: row.created_by, resolvable: true,
       category: row.category, details: row.details, dueDate: row.due_date,
@@ -320,6 +327,34 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   }
 
   return flags;
+}
+
+/**
+ * Resolved manual flags — the counterpart to computeClientFlags' `status = 'Open'`
+ * filter, which otherwise makes a flag vanish permanently the moment it's resolved.
+ * Powers the panel's "View History" section. Computed flag types (BalancePastDue/
+ * AgencyPastDue) have no history to show: they self-clear from live data and were
+ * never a stored row to begin with.
+ */
+async function computeResolvedClientFlags(clientId: string, limit = 50): Promise<ClientFlag[]> {
+  const manual = await query<any>(
+    `SELECT flag_id, flag_type, amount, note, category, details, due_date, link_task_id,
+            created_at, created_by, resolved_by, resolved_at, share_with_client
+       FROM altax.v3_client_flags
+      WHERE client_id = $1 AND status = 'Resolved'
+      ORDER BY resolved_at DESC
+      LIMIT $2`,
+    [clientId, limit]
+  );
+  return manual.map((row: any) => ({
+    flagId: row.flag_id, key: row.flag_id, flagType: row.flag_type,
+    amount: row.amount !== null ? Number(row.amount) : null,
+    note: row.note, color: row.flag_type === "Credit" ? "green" : "amber",
+    createdAt: row.created_at, createdBy: row.created_by, resolvable: false,
+    category: row.category, details: row.details, dueDate: row.due_date,
+    linkTaskId: row.link_task_id || undefined, shareWithClient: row.share_with_client === true,
+    resolvedBy: row.resolved_by, resolvedAt: row.resolved_at,
+  }));
 }
 
 clientsRouter.get("/:clientId/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -468,6 +503,15 @@ clientsRouter.post("/:clientId/flags/:flagId/delete", requireAuth, requireRole("
   res.json({ ok: true });
 }));
 
+/** Resolved manual flags — read-only, powers the panel's "View History" section. */
+clientsRouter.get("/:clientId/flags/history", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  res.json({ flags: await computeResolvedClientFlags(clientId) });
+}));
+
 /** Flips whether a manual flag is allowed to appear in a client-facing notification — see POST :clientId/flags/notify-preview. */
 clientsRouter.post("/:clientId/flags/:flagId/toggle-share", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId, flagId } = req.params;
@@ -513,10 +557,16 @@ const FLAG_TYPE_LABELS_EN: Record<string, string> = {
  * nothing shareable, so the route can 404 with a clear reason instead of
  * sending an empty message.
  */
-async function buildClientFlagsNotification(clientId: string): Promise<{ subject: string; messageEnglish: string; messageArabic: string; count: number } | null> {
+async function buildClientFlagsNotification(clientId: string, selectedKeys?: string[]): Promise<{ subject: string; messageEnglish: string; messageArabic: string; count: number; flags: ClientFlag[] } | null> {
   const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return null;
-  const flags = (await computeClientFlags(clientId)).filter((f) => f.shareWithClient);
+  const shareable = (await computeClientFlags(clientId)).filter((f) => f.shareWithClient);
+  if (shareable.length === 0) return null;
+  // A one-time, per-send filter only — never touches share_with_client itself
+  // (that stays the separate standing toggle via POST .../toggle-share).
+  // Filtering happens server-side against the already-shareable set, so a
+  // tampered flagKeys list can never smuggle in a non-shareable flag.
+  const flags = selectedKeys ? shareable.filter((f) => selectedKeys.includes(f.key)) : shareable;
   if (flags.length === 0) return null;
 
   const enLines: string[] = [];
@@ -548,7 +598,7 @@ async function buildClientFlagsNotification(clientId: string): Promise<{ subject
     "إذا كانت لديك أي أسئلة أو تحتاج إلى مساعدة في حل هذه الأمور، يرجى التواصل مع مكتبنا.",
   ].join("\n");
 
-  return { subject, messageEnglish, messageArabic, count: flags.length };
+  return { subject, messageEnglish, messageArabic, count: flags.length, flags: shareable };
 }
 
 /**
@@ -588,7 +638,11 @@ clientsRouter.get("/:clientId/flags/notify-preview", requireAuth, requireRole("a
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  const content = await buildClientFlagsNotification(clientId);
+  const flagKeysParam = typeof req.query.flagKeys === "string" ? req.query.flagKeys : undefined;
+  const selectedKeys = flagKeysParam !== undefined
+    ? flagKeysParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const content = await buildClientFlagsNotification(clientId, selectedKeys);
   if (!content) return res.status(404).json({ error: "No flags are marked to share with the client yet. Check \"Share with client\" on a flag first." });
   res.json({ ok: true, ...content });
 }));
@@ -1276,17 +1330,27 @@ clientsRouter.get("/:clientId/activity", requireAuth, requireRole("admin", "staf
     return res.status(403).json({ error: "You do not have access to this client." });
   }
 
+  const limitParam = Number(req.query.limit);
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 200) : null;
+  const cap = limit ? limit : 500;
+
   const logged = await query<any>(
     `SELECT activity_id AS id, activity_type AS type, note, occurred_at, logged_by, 'log' AS source
-       FROM altax.v3_client_activity_log WHERE client_id = $1`,
-    [clientId]
+       FROM altax.v3_client_activity_log WHERE client_id = $1
+      ORDER BY occurred_at DESC LIMIT $2`,
+    [clientId, cap]
   );
+  // Task Note/Task Message are task-scoped (v3_communications.related_task_id) and have
+  // their own thread on the task itself (TaskDetailPage's "Notes & Messages") — excluded
+  // here so they don't leak into the client's Notes feed as an opaque, content-free line.
   const sent = await query<any>(
     `SELECT communication_id AS id, channel AS type, subject AS note, sent_at AS occurred_at, sent_by AS logged_by, 'communication' AS source
-       FROM altax.v3_communications WHERE client_id = $1 AND sent_at IS NOT NULL`,
-    [clientId]
+       FROM altax.v3_communications WHERE client_id = $1 AND sent_at IS NOT NULL AND channel NOT IN ('Task Note', 'Task Message')
+      ORDER BY sent_at DESC LIMIT $2`,
+    [clientId, cap]
   );
-  const combined = [...logged, ...sent].sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  let combined = [...logged, ...sent].sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  if (limit) combined = combined.slice(0, limit);
   res.json({ activity: combined });
 }));
 
