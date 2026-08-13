@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -35,8 +36,7 @@ function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const rand = Math.floor(100 + Math.random() * 900);
-  return `${ts}-${rand}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 export function isActiveFlag(value: unknown): boolean {
@@ -441,60 +441,69 @@ export async function runTaskRulesAgentSweep(actorEmail: string, opts: { runDate
   const errors: string[] = [];
   let skipped = 0;
 
+  // Per-rule try/catch — previously a single bad rule (a DB error, an unexpected
+  // shape) aborted every remaining rule's draft with no record of who got
+  // skipped, matching SWOT Sweep's per-client isolation pattern.
   for (const rule of rules) {
-    const period = computeDuePeriod(rule, runDate);
-    if (!period) { skipped++; continue; }
+    try {
+      const period = computeDuePeriod(rule, runDate);
+      if (!period) { skipped++; continue; }
 
-    // Never originate a brand-new draft for a period whose due date has
-    // already passed. Without this, the very first sweep for a rule (or a
-    // sweep that follows a long outage) would "discover" every historical
-    // period at once and draft all of them — most of which were already
-    // filed and completed by staff long before this feature existed. The
-    // duplicate-task guard in runRuleBatch deliberately excludes completed/
-    // closed tasks (so a straggler client can still get a fresh task for the
-    // *current* period even after everyone else's is done), which means it
-    // does NOT catch "this exact period was already finished" — so
-    // backfilling old periods reliably recreated already-done work. Once a
-    // period's due date has passed without ever being drafted, it's handled
-    // manually via the existing Create Batch Tasks flow, not by the agent.
-    if (dateOnly(period.dueDate).getTime() < runDate.getTime()) { skipped++; continue; }
+      // Never originate a brand-new draft for a period whose due date has
+      // already passed. Without this, the very first sweep for a rule (or a
+      // sweep that follows a long outage) would "discover" every historical
+      // period at once and draft all of them — most of which were already
+      // filed and completed by staff long before this feature existed. The
+      // duplicate-task guard in runRuleBatch deliberately excludes completed/
+      // closed tasks (so a straggler client can still get a fresh task for the
+      // *current* period even after everyone else's is done), which means it
+      // does NOT catch "this exact period was already finished" — so
+      // backfilling old periods reliably recreated already-done work. Once a
+      // period's due date has passed without ever being drafted, it's handled
+      // manually via the existing Create Batch Tasks flow, not by the agent.
+      if (dateOnly(period.dueDate).getTime() < runDate.getTime()) { skipped++; continue; }
 
-    const draftFrom = addDays(dateOnly(period.dueDate), -parseMaxWarningDays(rule));
-    if (draftFrom.getTime() > runDate.getTime()) { skipped++; continue; }
+      const draftFrom = addDays(dateOnly(period.dueDate), -parseMaxWarningDays(rule));
+      if (draftFrom.getTime() > runDate.getTime()) { skipped++; continue; }
 
-    const existingDraft = await queryOne<any>(
-      `SELECT task_batch_draft_id FROM altax.v3_task_batch_drafts WHERE rule_id = $1 AND period_label = $2`,
-      [rule.rule_id, period.periodLabel]
-    );
-    if (existingDraft) { skipped++; continue; }
-    const existingBatch = await queryOne<any>(
-      `SELECT batch_id FROM altax.v3_task_batches WHERE rule_id = $1 AND period_label = $2`,
-      [rule.rule_id, period.periodLabel]
-    );
-    if (existingBatch) { skipped++; continue; }
+      const existingDraft = await queryOne<any>(
+        `SELECT task_batch_draft_id FROM altax.v3_task_batch_drafts WHERE rule_id = $1 AND period_label = $2`,
+        [rule.rule_id, period.periodLabel]
+      );
+      if (existingDraft) { skipped++; continue; }
+      const existingBatch = await queryOne<any>(
+        `SELECT batch_id FROM altax.v3_task_batches WHERE rule_id = $1 AND period_label = $2`,
+        [rule.rule_id, period.periodLabel]
+      );
+      if (existingBatch) { skipped++; continue; }
 
-    // Dry-run first — a rule whose trigger currently matches no active client
-    // (a narrow trigger, or every matching client already archived) is a
-    // normal, quiet skip here, not an error to surface.
-    const preview = await runRuleBatch(rule, {
-      periodLabel: period.periodLabel, dueDate: period.dueDate,
-      periodStart: period.periodStart, periodEnd: period.periodEnd,
-      dryRun: true, actorEmail,
-    });
-    if (!preview.ok) { skipped++; continue; }
+      // Dry-run first — a rule whose trigger currently matches no active client
+      // (a narrow trigger, or every matching client already archived) is a
+      // normal, quiet skip here, not an error to surface.
+      const preview = await runRuleBatch(rule, {
+        periodLabel: period.periodLabel, dueDate: period.dueDate,
+        periodStart: period.periodStart, periodEnd: period.periodEnd,
+        dryRun: true, actorEmail,
+      });
+      if (!preview.ok) { skipped++; continue; }
 
-    const draftId = `TBDFT-${idSuffix()}`;
-    const sourceRecordId = `${rule.rule_id}:${period.periodLabel}`;
-    await query(
-      `INSERT INTO altax.v3_task_batch_drafts
-         (task_batch_draft_id, rule_id, task_type, frequency, period_label, period_start, period_end, due_date,
-          matched_client_count, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (rule_id, period_label) DO NOTHING`,
-      [draftId, rule.rule_id, rule.task_type, rule.frequency, period.periodLabel, period.periodStart, period.periodEnd, period.dueDate,
-        preview.wouldCreate + preview.wouldSkip, sourceRecordId]
-    );
-    created.push({ draftId, ruleId: rule.rule_id, taskType: rule.task_type, periodLabel: period.periodLabel, dueDate: period.dueDate });
+      const draftId = `TBDFT-${idSuffix()}`;
+      const sourceRecordId = `${rule.rule_id}:${period.periodLabel}`;
+      await query(
+        `INSERT INTO altax.v3_task_batch_drafts
+           (task_batch_draft_id, rule_id, task_type, frequency, period_label, period_start, period_end, due_date,
+            matched_client_count, source_record_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (rule_id, period_label) DO NOTHING`,
+        [draftId, rule.rule_id, rule.task_type, rule.frequency, period.periodLabel, period.periodStart, period.periodEnd, period.dueDate,
+          preview.wouldCreate + preview.wouldSkip, sourceRecordId]
+      );
+      created.push({ draftId, ruleId: rule.rule_id, taskType: rule.task_type, periodLabel: period.periodLabel, dueDate: period.dueDate });
+    } catch (err: any) {
+      errors.push(`${rule.task_type || rule.rule_id}: ${err?.message || "Unexpected error drafting this rule."}`);
+      // eslint-disable-next-line no-console
+      console.error(`[runTaskRulesAgentSweep] rule ${rule.rule_id} failed:`, err);
+    }
   }
 
   return { created, skipped, errors };

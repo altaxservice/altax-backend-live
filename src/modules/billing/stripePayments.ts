@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { query, queryOne, withTransaction } from "../../config/db";
 import { logAudit } from "../../common/audit";
+import { alertAdmins } from "../../common/adminAlerts";
 
 /**
  * Card payment on the public invoice link, via Stripe Checkout.
@@ -98,6 +99,7 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
   const paymentId = `PMT-STRIPE-${Date.now()}`;
   let recorded = false;
   let newPaid = 0, balance = 0, status = "";
+  let overpayBy = 0;
 
   await withTransaction(async (db) => {
     // Lock the invoice row and re-check idempotency under it — the public
@@ -116,6 +118,14 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
     newPaid = money(Number(locked[0].amount_paid || 0) + amount);
     balance = Math.max(0, money(total - newPaid));
     status = balance <= 0 ? "Paid" : "Partial";
+    // Unlike the manual payment path (which can simply refuse an over-cap amount
+    // before any money changes hands), Stripe has already charged the card by the
+    // time this runs — the checkout session was created for the balance due AT
+    // LINK-CREATION TIME, so it can now exceed the invoice's current balance if
+    // that balance dropped in the meantime (e.g. a manual payment landed first).
+    // The payment must still be recorded in full (refusing to log real collected
+    // cash would be worse), but an admin needs to know a refund may be owed.
+    if (newPaid > total) overpayBy = money(newPaid - total);
 
     await db.query(
       `INSERT INTO altax.v3_payments
@@ -136,5 +146,11 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
   await logAudit("Billing", "STRIPE_PAYMENT", paymentId, "Invoice", invoice.invoice_id, String(amount),
     `Card payment of $${amount.toFixed(2)} received via Stripe Checkout for invoice ${invoice.invoice_id} (${status}).`,
     "Stripe Checkout");
+  if (overpayBy > 0) {
+    await alertAdmins(
+      `Stripe overpayment on invoice ${invoice.invoice_id}`,
+      `A Stripe card payment of $${amount.toFixed(2)} for invoice ${invoice.invoice_id} exceeded the invoice total by $${overpayBy.toFixed(2)} — the balance had already dropped (likely a manual payment landed first) between when the checkout link was created and when the client paid. The full amount was recorded; a refund of the difference may be owed.`
+    );
+  }
   return true;
 }

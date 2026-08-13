@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -28,8 +29,7 @@ function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const rand = Math.floor(100 + Math.random() * 900);
-  return `${ts}-${rand}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 function dateOnly(value: unknown): Date {
@@ -247,57 +247,78 @@ export async function runPayrollAgentSweep(
   const errors: string[] = [];
   let skipped = 0;
 
+  // Per-schedule try/catch — previously a single bad schedule (a DB error, a
+  // malformed date) aborted every remaining employee's draft for the day with
+  // no record of who got skipped, matching SWOT Sweep's per-client isolation.
   for (const schedule of schedules) {
-    if (clientFilter && schedule.client_id !== clientFilter) { skipped++; continue; }
-    if (!(await canAccessClient(actor, schedule.client_id))) { skipped++; continue; }
+    try {
+      if (clientFilter && schedule.client_id !== clientFilter) { skipped++; continue; }
+      if (!(await canAccessClient(actor, schedule.client_id))) { skipped++; continue; }
 
-    const nextPayDate = dateOnly(schedule.next_pay_date);
-    const draftFrom = addDays(nextPayDate, -Math.max(0, Number(schedule.lead_days) || 0));
-    if (draftFrom.getTime() > runDate.getTime()) { skipped++; continue; }
+      const nextPayDate = dateOnly(schedule.next_pay_date);
+      const draftFrom = addDays(nextPayDate, -Math.max(0, Number(schedule.lead_days) || 0));
+      if (draftFrom.getTime() > runDate.getTime()) { skipped++; continue; }
 
-    // Re-validate eligibility at sweep time, not just at schedule creation —
-    // an employee could have gone inactive or lost their pay defaults since.
-    const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [schedule.employee_id]);
-    const ineligible = eligibilityError(employee);
-    if (ineligible) {
-      errors.push(`${schedule.employee_name || schedule.employee_id}: ${ineligible}`);
-      // Advance anyway — an employee that stays ineligible for weeks shouldn't
-      // pile up errors for every missed period, just the current one.
+      // Re-validate eligibility at sweep time, not just at schedule creation —
+      // an employee could have gone inactive or lost their pay defaults since.
+      const employee = await queryOne<any>(`SELECT * FROM altax.v3_employees WHERE employee_id = $1`, [schedule.employee_id]);
+      const ineligible = eligibilityError(employee);
+      if (ineligible) {
+        errors.push(`${schedule.employee_name || schedule.employee_id}: ${ineligible}`);
+        // Advance anyway — an employee that stays ineligible for weeks shouldn't
+        // pile up errors for every missed period, just the current one.
+        await query(
+          `UPDATE altax.v3_payroll_schedules SET next_pay_date=$2, updated_at=now() WHERE payroll_schedule_id=$1`,
+          [schedule.payroll_schedule_id, dateString(nextPayrollDate(nextPayDate, schedule.frequency))]
+        );
+        continue;
+      }
+
+      const payDateString = dateString(nextPayDate);
+      const existingDraft = await queryOne<any>(
+        `SELECT payroll_draft_id FROM altax.v3_payroll_drafts WHERE payroll_schedule_id = $1 AND pay_date = $2`,
+        [schedule.payroll_schedule_id, payDateString]
+      );
+      if (!existingDraft) {
+        const payrollDraftId = `PDFT-${idSuffix()}`;
+        const sourceRecordId = `${schedule.payroll_schedule_id}:${payDateString}`;
+        // ON CONFLICT DO NOTHING, not a bare INSERT — the SELECT above is only a
+        // fast-path skip for the common case; without this, a concurrent sweep
+        // that raced past the same pre-check throws a raw unique-violation on
+        // uq_v3_payroll_drafts_schedule_paydate that (combined with the missing
+        // try/catch this sweep used to have) killed the whole day's run,
+        // matching Task Rules Agent's proven pattern.
+        const inserted = await query<{ payroll_draft_id: string }>(
+          `INSERT INTO altax.v3_payroll_drafts
+             (payroll_draft_id, payroll_schedule_id, client_id, client_name, employee_id, employee_name, pay_date, source_record_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (payroll_schedule_id, pay_date) DO NOTHING
+           RETURNING payroll_draft_id`,
+          [payrollDraftId, schedule.payroll_schedule_id, schedule.client_id, schedule.client_name, schedule.employee_id, schedule.employee_name,
+            payDateString, sourceRecordId]
+        );
+        if (inserted.length > 0) {
+          await query(
+            `UPDATE altax.v3_payroll_schedules SET last_drafted_pay_date=$2, updated_at=now() WHERE payroll_schedule_id=$1`,
+            [schedule.payroll_schedule_id, payDateString]
+          );
+          created.push({ payrollDraftId, employeeId: schedule.employee_id, employeeName: schedule.employee_name, clientId: schedule.client_id, payDate: payDateString });
+        } else {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+
       await query(
         `UPDATE altax.v3_payroll_schedules SET next_pay_date=$2, updated_at=now() WHERE payroll_schedule_id=$1`,
         [schedule.payroll_schedule_id, dateString(nextPayrollDate(nextPayDate, schedule.frequency))]
       );
-      continue;
+    } catch (err: any) {
+      errors.push(`${schedule.employee_name || schedule.employee_id}: ${err?.message || "Unexpected error drafting this schedule."}`);
+      // eslint-disable-next-line no-console
+      console.error(`[runPayrollAgentSweep] schedule ${schedule.payroll_schedule_id} failed:`, err);
     }
-
-    const payDateString = dateString(nextPayDate);
-    const existingDraft = await queryOne<any>(
-      `SELECT payroll_draft_id FROM altax.v3_payroll_drafts WHERE payroll_schedule_id = $1 AND pay_date = $2`,
-      [schedule.payroll_schedule_id, payDateString]
-    );
-    if (!existingDraft) {
-      const payrollDraftId = `PDFT-${idSuffix()}`;
-      const sourceRecordId = `${schedule.payroll_schedule_id}:${payDateString}`;
-      await query(
-        `INSERT INTO altax.v3_payroll_drafts
-           (payroll_draft_id, payroll_schedule_id, client_id, client_name, employee_id, employee_name, pay_date, source_record_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [payrollDraftId, schedule.payroll_schedule_id, schedule.client_id, schedule.client_name, schedule.employee_id, schedule.employee_name,
-          payDateString, sourceRecordId]
-      );
-      await query(
-        `UPDATE altax.v3_payroll_schedules SET last_drafted_pay_date=$2, updated_at=now() WHERE payroll_schedule_id=$1`,
-        [schedule.payroll_schedule_id, payDateString]
-      );
-      created.push({ payrollDraftId, employeeId: schedule.employee_id, employeeName: schedule.employee_name, clientId: schedule.client_id, payDate: payDateString });
-    } else {
-      skipped++;
-    }
-
-    await query(
-      `UPDATE altax.v3_payroll_schedules SET next_pay_date=$2, updated_at=now() WHERE payroll_schedule_id=$1`,
-      [schedule.payroll_schedule_id, dateString(nextPayrollDate(nextPayDate, schedule.frequency))]
-    );
   }
 
   return { created, skipped, errors };

@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
@@ -52,8 +53,7 @@ function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const rand = Math.floor(100 + Math.random() * 900);
-  return `${ts}-${rand}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 function nextInvoiceId(): string {
   return `INV-${idSuffix()}`;
@@ -115,6 +115,21 @@ interface LineItemInput {
 // lookupSalesTaxRate (best-effort rate for the "Automatic Calculation" option on the
 // line-item invoice editor) now lives in ../../common/taxRates — shared with the
 // standalone sales tax calculator so both draw from the exact same v3_tax_rates lookup.
+
+/**
+ * Only the aggregate total was ever checked (total <= 0) — a negative quantity or
+ * rate could hide inside a positive-total invoice (e.g. two lines, one legitimate,
+ * one negative, netting to a plausible-looking total) since computeInvoiceTotals
+ * just sums whatever it's given. Called before computeInvoiceTotals at every
+ * caller that accepts caller-supplied line items.
+ */
+function validateLineItems(lineItems: LineItemInput[]): string | null {
+  for (const li of lineItems) {
+    if (Number(li.quantity ?? 1) < 0) return "Line item quantity cannot be negative.";
+    if (money(li.rate) < 0) return "Line item rate cannot be negative.";
+  }
+  return null;
+}
 
 /** Shared subtotal/tax/total math for both create and edit — one line-item invoice contract. */
 function computeInvoiceTotals(lineItems: LineItemInput[], opts: { discountPercent: number; discountAmount: number; salesTaxRate: number; shippingAmount: number }) {
@@ -181,6 +196,8 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
   let lineAmounts: number[] = [];
 
   if (lineItems.length > 0) {
+    const lineItemError = validateLineItems(lineItems);
+    if (lineItemError) return res.status(400).json({ error: lineItemError });
     salesTaxRate = body.autoTax ? await lookupSalesTaxRate(client.state) : money(body.salesTaxRate);
     const computed = computeInvoiceTotals(lineItems, {
       discountPercent: money(body.discountPercent), discountAmount: money(body.discountAmount),
@@ -656,56 +673,21 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
   }
 
   const body = req.body || {};
-  const oldTotal = money(invoice.total_amount);
-  const oldPaid = money(invoice.amount_paid);
   const lineItems: LineItemInput[] = Array.isArray(body.lineItems) ? body.lineItems : [];
   let subtotal: number | null = null, taxableSubtotal: number | null = null, discountAmount: number | null = null,
     salesTaxAmount: number | null = null, salesTaxRate: number | null = null, normalized: LineItemInput[] = [], lineAmounts: number[] = [];
-  let total: number;
+  let lineItemTotal: number | null = null;
 
   if (lineItems.length > 0) {
+    const lineItemError = validateLineItems(lineItems);
+    if (lineItemError) return res.status(400).json({ error: lineItemError });
     const client = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]);
     salesTaxRate = body.autoTax ? await lookupSalesTaxRate(client?.state || null) : money(body.salesTaxRate);
     const computed = computeInvoiceTotals(lineItems, {
       discountPercent: money(body.discountPercent), discountAmount: money(body.discountAmount),
       salesTaxRate, shippingAmount: money(body.shippingAmount),
     });
-    ({ subtotal, taxableSubtotal, discountAmount, salesTaxAmount, total, normalized, lineAmounts } = computed);
-  } else {
-    total = body.totalAmount !== undefined ? money(body.totalAmount) : money(invoice.total_amount);
-  }
-  if (total <= 0) return res.status(400).json({ error: "Invoice total must be greater than zero." });
-
-  let paid = body.amountPaid !== undefined ? money(body.amountPaid) : money(invoice.amount_paid);
-  const deposit = body.depositAmount !== undefined ? money(body.depositAmount) : money(invoice.deposit_amount);
-  let balance = body.balanceDue !== undefined ? money(body.balanceDue) : Math.max(0, total - paid - deposit);
-  const status = String(body.status || invoice.status || (balance <= 0 ? "Paid" : paid + deposit > 0 ? "Partial" : "Unpaid")).trim();
-
-  /**
-   * Status-transition guard — ported from v3UpdateInvoiceStatus, which the
-   * generic edit route previously skipped entirely (a caller could set
-   * status="Partial" with no actual partial payment on file, or set a
-   * status without the corresponding paid/balance amounts snapping to it).
-   * Only applies when the caller is explicitly changing status; a plain
-   * field edit that doesn't touch status is unaffected.
-   */
-  if (body.status !== undefined) {
-    const statusUpper = status.toUpperCase();
-    if (statusUpper === "PAID") {
-      paid = total;
-      balance = 0;
-    } else if (statusUpper === "UNPAID" || statusUpper === "OPEN") {
-      paid = 0;
-      balance = total;
-    } else if (statusUpper === "VOID") {
-      paid = 0;
-      balance = 0;
-    } else if (statusUpper === "PARTIAL") {
-      if (paid <= 0 || paid >= total) {
-        return res.status(400).json({ error: "Record a partial payment before setting this invoice to Partial." });
-      }
-      balance = total - paid;
-    }
+    ({ subtotal, taxableSubtotal, discountAmount, salesTaxAmount, total: lineItemTotal, normalized, lineAmounts } = computed);
   }
 
   const shipToStreet = Object.prototype.hasOwnProperty.call(body, "shipToStreet") ? String(body.shipToStreet || "").trim() || null : invoice.ship_to_street;
@@ -720,7 +702,63 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
     ? composeAddress({ street: shipToStreet, city: shipToCity, state: shipToState, zip: shipToZip })
     : (String(body.shipTo || "").trim() || null);
 
+  let total = 0, paid = 0, balance = 0, status = "";
+  let validationError: string | null = null;
+
   await withTransaction(async (db) => {
+    // Lock the invoice row and recompute against THIS read, not the one taken
+    // before the transaction started — a concurrent edit/payment/reversal landing
+    // between that first read and this write used to be silently lost (its GL
+    // delta computed against stale before/after numbers), the same lost-update
+    // race already closed on the payments/reversal routes.
+    const locked = (await db.query<any>(
+      `SELECT total_amount, amount_paid, deposit_amount, status FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`,
+      [req.params.invoiceId]
+    ))[0];
+    const oldTotal = money(locked.total_amount);
+    const oldPaid = money(locked.amount_paid);
+
+    total = lineItemTotal !== null ? lineItemTotal : (body.totalAmount !== undefined ? money(body.totalAmount) : oldTotal);
+    if (total <= 0) { validationError = "Invoice total must be greater than zero."; return; }
+
+    // amountPaid is deliberately no longer settable via this route (it used to
+    // accept any body.amountPaid with no matching v3_payments row, letting the
+    // "trusted" summary column desync from the payments ledger it's supposed to
+    // summarize) — the only two ways amount_paid can move now are a real payment/
+    // reversal recorded elsewhere, or the explicit status-transition guard below.
+    paid = oldPaid;
+    const deposit = body.depositAmount !== undefined ? money(body.depositAmount) : money(locked.deposit_amount);
+    balance = body.balanceDue !== undefined ? money(body.balanceDue) : Math.max(0, total - paid - deposit);
+    status = String(body.status || locked.status || (balance <= 0 ? "Paid" : paid + deposit > 0 ? "Partial" : "Unpaid")).trim();
+
+    /**
+     * Status-transition guard — ported from v3UpdateInvoiceStatus, which the
+     * generic edit route previously skipped entirely (a caller could set
+     * status="Partial" with no actual partial payment on file, or set a
+     * status without the corresponding paid/balance amounts snapping to it).
+     * Only applies when the caller is explicitly changing status; a plain
+     * field edit that doesn't touch status is unaffected.
+     */
+    if (body.status !== undefined) {
+      const statusUpper = status.toUpperCase();
+      if (statusUpper === "PAID") {
+        paid = total;
+        balance = 0;
+      } else if (statusUpper === "UNPAID" || statusUpper === "OPEN") {
+        paid = 0;
+        balance = total;
+      } else if (statusUpper === "VOID") {
+        paid = 0;
+        balance = 0;
+      } else if (statusUpper === "PARTIAL") {
+        if (paid <= 0 || paid >= total) {
+          validationError = "Record a partial payment before setting this invoice to Partial.";
+          return;
+        }
+        balance = total - paid;
+      }
+    }
+
     await db.query(
       `UPDATE altax.v3_invoices SET
          invoice_date = COALESCE($2, invoice_date), due_date = COALESCE($3, due_date),
@@ -768,6 +806,8 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
     }
   });
 
+  if (validationError) return res.status(400).json({ error: validationError });
+
   if (normalized.length > 0) await replaceLineItems(req.params.invoiceId, normalized, lineAmounts);
 
   await logAudit("Billing", "EDIT_INVOICE", req.params.invoiceId, "", "", status, "Invoice edited from web app.", req.user!.email);
@@ -787,8 +827,15 @@ billingRouter.post("/invoices/:invoiceId/void", requireAuth, requireRole("admin"
   }
 
   const reason = String((req.body || {}).reason || "Invoice voided from web app.");
-  const outstanding = money(invoice.balance_due);
   await withTransaction(async (db) => {
+    // Lock the row and read the balance from THIS query, not the one taken
+    // before the transaction started — a payment recorded concurrently between
+    // that first read and this write would otherwise not be reflected in the
+    // write-off amount, the same lost-update race already closed on payments/
+    // reversal/the invoice-edit route above.
+    const locked = (await db.query<any>(`SELECT balance_due FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`, [req.params.invoiceId]))[0];
+    const outstanding = money(locked.balance_due);
+
     await db.query(
       `UPDATE altax.v3_invoices SET status = 'Void', balance_due = 0, updated_at = now() WHERE invoice_id = $1`,
       [req.params.invoiceId]

@@ -299,7 +299,7 @@ reportsRouter.get("/pdf/client-value-report/:clientId", requireAuth, requireRole
     );
     const paymentTotals = await queryOne<any>(
       `SELECT COALESCE(SUM(actual_amount), 0) AS paid
-         FROM altax.v3_payments WHERE client_id = $1 AND payment_date BETWEEN $2 AND $3`,
+         FROM altax.v3_payments WHERE client_id = $1 AND payment_date BETWEEN $2 AND $3 AND status <> 'Reversed'`,
       [client.clientId, from, to]
     );
     billing = { totalBilled: Number(invoiceTotals?.billed || 0), totalPaid: Number(paymentTotals?.paid || 0), invoiceCount: Number(invoiceTotals?.count || 0) };

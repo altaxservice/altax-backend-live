@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne, withTransaction } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
@@ -47,8 +48,7 @@ function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const rand = Math.floor(100 + Math.random() * 900);
-  return `${ts}-${rand}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 function fmtDate(v: unknown): string {
@@ -183,20 +183,29 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     byAssignee.get(email)!.arabic.push(resolved.message_arabic);
   }
 
+  // Per-recipient try/catch — previously a DB error mid-loop (e.g. one bad row,
+  // a dropped connection) aborted every remaining recipient in this loop with no
+  // record of who got skipped, matching SWOT Sweep's per-client isolation pattern.
   for (const [email, items] of byAssignee) {
-    const sourceRecordId = `STAFFREM-${normalizeText(email)}-${today}`;
-    if (await alreadySent(sourceRecordId)) { staffSkipped++; continue; }
+    try {
+      const sourceRecordId = `STAFFREM-${normalizeText(email)}-${today}`;
+      if (await alreadySent(sourceRecordId)) { staffSkipped++; continue; }
 
-    const count = items.english.length;
-    const subject = `Your task digest — ${count} item${count === 1 ? "" : "s"} due or overdue`;
-    const bodyEnglish = `Here is your task summary for ${fmtDate(new Date())}. You have ${count} task${count === 1 ? "" : "s"} due or overdue:\n\n${items.english.join("\n\n")}`;
-    const bodyArabic = `فيما يلي ملخص مهامكم ليوم ${fmtDate(new Date())}. لديكم ${count} مهمة مستحقة أو متأخرة:\n\n${items.arabic.join("\n\n")}`;
+      const count = items.english.length;
+      const subject = `Your task digest — ${count} item${count === 1 ? "" : "s"} due or overdue`;
+      const bodyEnglish = `Here is your task summary for ${fmtDate(new Date())}. You have ${count} task${count === 1 ? "" : "s"} due or overdue:\n\n${items.english.join("\n\n")}`;
+      const bodyArabic = `فيما يلي ملخص مهامكم ليوم ${fmtDate(new Date())}. لديكم ${count} مهمة مستحقة أو متأخرة:\n\n${items.arabic.join("\n\n")}`;
 
-    const result = await sendAndLog({
-      clientId: null, clientName: null, relatedTaskId: null,
-      subject, bodyEnglish, bodyArabic, sentTo: email, sourceRecordId, actorEmail,
-    }, req);
-    if (result.sent) staffSent++; else if (result.alreadySent) staffSkipped++; else staffFailed++;
+      const result = await sendAndLog({
+        clientId: null, clientName: null, relatedTaskId: null,
+        subject, bodyEnglish, bodyArabic, sentTo: email, sourceRecordId, actorEmail,
+      }, req);
+      if (result.sent) staffSent++; else if (result.alreadySent) staffSkipped++; else staffFailed++;
+    } catch (err) {
+      staffFailed++;
+      // eslint-disable-next-line no-console
+      console.error(`[runReminders] staff digest failed for ${email}:`, err);
+    }
   }
 
   // --- Clients: one digest per client covering every open (Requested) document request ---
@@ -211,22 +220,28 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   }
 
   for (const [clientId, requests] of byClient) {
-    const sourceRecordId = `CLIENTREM-${clientId}-${today}`;
-    if (await alreadySent(sourceRecordId)) { clientSkipped++; continue; }
+    try {
+      const sourceRecordId = `CLIENTREM-${clientId}-${today}`;
+      if (await alreadySent(sourceRecordId)) { clientSkipped++; continue; }
 
-    const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-    if (!client?.email) { clientSkipped++; continue; }
+      const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+      if (!client?.email) { clientSkipped++; continue; }
 
-    const itemsList = requests.map((r) => `- ${r.requested_item || "Document"} (requested ${fmtDate(r.request_date)})`).join("\n");
-    const resolved = await resolveTemplate("Document Request", clientId, "", "", { itemsList });
-    if (!resolved) { clientSkipped++; continue; }
+      const itemsList = requests.map((r) => `- ${r.requested_item || "Document"} (requested ${fmtDate(r.request_date)})`).join("\n");
+      const resolved = await resolveTemplate("Document Request", clientId, "", "", { itemsList });
+      if (!resolved) { clientSkipped++; continue; }
 
-    const result = await sendAndLog({
-      clientId, clientName: client.client_name || null, relatedTaskId: null,
-      subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
-      sentTo: client.email, sourceRecordId, actorEmail,
-    }, req);
-    if (result.sent) clientSent++; else if (result.alreadySent) clientSkipped++; else clientFailed++;
+      const result = await sendAndLog({
+        clientId, clientName: client.client_name || null, relatedTaskId: null,
+        subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
+        sentTo: client.email, sourceRecordId, actorEmail,
+      }, req);
+      if (result.sent) clientSent++; else if (result.alreadySent) clientSkipped++; else clientFailed++;
+    } catch (err) {
+      clientFailed++;
+      // eslint-disable-next-line no-console
+      console.error(`[runReminders] client document-request digest failed for ${clientId}:`, err);
+    }
   }
 
   // --- Clients: one payment reminder per client with a positive unpaid invoice balance ---
@@ -240,21 +255,27 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   );
 
   for (const client of clientsOwing) {
-    const sourceRecordId = `PAYREM-${client.client_id}-${today}`;
-    if (await alreadySent(sourceRecordId)) { paymentSkipped++; continue; }
-    if (!client.email) { paymentSkipped++; continue; }
+    try {
+      const sourceRecordId = `PAYREM-${client.client_id}-${today}`;
+      if (await alreadySent(sourceRecordId)) { paymentSkipped++; continue; }
+      if (!client.email) { paymentSkipped++; continue; }
 
-    const resolved = await resolveTemplate("Payment Reminder", client.client_id, "", "", {
-      balanceDue: `$${Number(client.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    });
-    if (!resolved) { paymentSkipped++; continue; }
+      const resolved = await resolveTemplate("Payment Reminder", client.client_id, "", "", {
+        balanceDue: `$${Number(client.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      });
+      if (!resolved) { paymentSkipped++; continue; }
 
-    const result = await sendAndLog({
-      clientId: client.client_id, clientName: client.client_name || null, relatedTaskId: null,
-      subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
-      sentTo: client.email, sourceRecordId, actorEmail,
-    }, req);
-    if (result.sent) paymentSent++; else if (result.alreadySent) paymentSkipped++; else paymentFailed++;
+      const result = await sendAndLog({
+        clientId: client.client_id, clientName: client.client_name || null, relatedTaskId: null,
+        subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
+        sentTo: client.email, sourceRecordId, actorEmail,
+      }, req);
+      if (result.sent) paymentSent++; else if (result.alreadySent) paymentSkipped++; else paymentFailed++;
+    } catch (err) {
+      paymentFailed++;
+      // eslint-disable-next-line no-console
+      console.error(`[runReminders] payment reminder failed for ${client.client_id}:`, err);
+    }
   }
 
   // --- Firm: ONE daily digest per active admin, summarizing every open task's status
@@ -324,26 +345,32 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
 
   const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
   for (const admin of admins) {
-    const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
-    if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
+    try {
+      const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
+      if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
 
-    const subject = unbalancedClients.length
-      ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`
-      : `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
-    const bodyEnglish = [
-      `Firm-wide status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
-      booksHealthSection,
-      appointmentsSection,
-      `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
-      `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
-      `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
-    ].join("\n");
+      const subject = unbalancedClients.length
+        ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`
+        : `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
+      const bodyEnglish = [
+        `Firm-wide status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
+        booksHealthSection,
+        appointmentsSection,
+        `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
+        `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
+        `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
+      ].join("\n");
 
-    const result = await sendAndLog({
-      clientId: null, clientName: null, relatedTaskId: null,
-      subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
-    }, req);
-    if (result.sent) firmSent++; else if (result.alreadySent) firmSkipped++; else firmFailed++;
+      const result = await sendAndLog({
+        clientId: null, clientName: null, relatedTaskId: null,
+        subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
+      }, req);
+      if (result.sent) firmSent++; else if (result.alreadySent) firmSkipped++; else firmFailed++;
+    } catch (err) {
+      firmFailed++;
+      // eslint-disable-next-line no-console
+      console.error(`[runReminders] firm digest failed for ${admin.email}:`, err);
+    }
   }
 
   await logAudit("Reminders", "RUN", "Batch", "", "", today,

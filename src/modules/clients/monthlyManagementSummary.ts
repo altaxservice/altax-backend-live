@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, withTransaction } from "../../config/db";
 import { sendChannel } from "../../common/sendChannel";
 import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
@@ -69,52 +69,82 @@ export async function runMonthlyManagementSummary(actorEmail: string): Promise<{
   let sent = 0;
   let skipped = 0;
 
+  // Per-recipient try/catch — previously a DB error mid-loop aborted every
+  // remaining recipient with no record of who got skipped, matching SWOT
+  // Sweep's per-client isolation pattern.
   for (const [email, clients] of byRecipient) {
-    const sourceRecordId = `MGMTSUM-${email.toLowerCase()}-${monthKey}`;
-    if (await alreadySent(sourceRecordId)) { skipped++; continue; }
+    try {
+      const sourceRecordId = `MGMTSUM-${email.toLowerCase()}-${monthKey}`;
+      if (await alreadySent(sourceRecordId)) { skipped++; continue; }
 
-    const sections: string[] = [];
-    for (const c of clients) {
-      const findings = await query<any>(
-        `SELECT category, finding_text, priority, target_date FROM altax.v3_swot_findings
-          WHERE client_id = $1 AND status IN ('Open', 'In Progress') ORDER BY finding_text`,
-        [c.clientId]
-      );
-      if (findings.length === 0) continue;
-      const sorted = [...findings].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
-      const topFindings = sorted.slice(0, 5);
-      const topRisks = sorted.filter((f: any) => f.category === "Threat").slice(0, 5);
-      const topOpportunities = sorted.filter((f: any) => f.category === "Opportunity").slice(0, 5);
+      const sections: string[] = [];
+      for (const c of clients) {
+        const findings = await query<any>(
+          `SELECT category, finding_text, priority, target_date FROM altax.v3_swot_findings
+            WHERE client_id = $1 AND status IN ('Open', 'In Progress') ORDER BY finding_text`,
+          [c.clientId]
+        );
+        if (findings.length === 0) continue;
+        const sorted = [...findings].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
+        const topFindings = sorted.slice(0, 5);
+        const topRisks = sorted.filter((f: any) => f.category === "Threat").slice(0, 5);
+        const topOpportunities = sorted.filter((f: any) => f.category === "Opportunity").slice(0, 5);
 
-      const buckets: Record<string, string[]> = { Immediate: [], "30-Day": [], "60-Day": [], "90-Day": [], "No Target Date": [] };
-      for (const f of findings) {
-        const b = actionBucket(f.target_date ? new Date(f.target_date).toISOString().slice(0, 10) : null, f.priority);
-        buckets[b].push(f.finding_text);
+        const buckets: Record<string, string[]> = { Immediate: [], "30-Day": [], "60-Day": [], "90-Day": [], "No Target Date": [] };
+        for (const f of findings) {
+          const b = actionBucket(f.target_date ? new Date(f.target_date).toISOString().slice(0, 10) : null, f.priority);
+          buckets[b].push(f.finding_text);
+        }
+
+        const lines: string[] = [`=== ${c.clientName} ===`];
+        lines.push(`Top findings: ${topFindings.map((f: any) => `[${f.priority}] ${f.finding_text}`).join(" | ") || "none"}`);
+        if (topRisks.length) lines.push(`Top risks: ${topRisks.map((f: any) => f.finding_text).join(" | ")}`);
+        if (topOpportunities.length) lines.push(`Top opportunities: ${topOpportunities.map((f: any) => f.finding_text).join(" | ")}`);
+        for (const [label, items] of Object.entries(buckets)) {
+          if (items.length) lines.push(`${label}: ${items.join(" | ")}`);
+        }
+        sections.push(lines.join("\n"));
       }
+      if (sections.length === 0) { skipped++; continue; }
 
-      const lines: string[] = [`=== ${c.clientName} ===`];
-      lines.push(`Top findings: ${topFindings.map((f: any) => `[${f.priority}] ${f.finding_text}`).join(" | ") || "none"}`);
-      if (topRisks.length) lines.push(`Top risks: ${topRisks.map((f: any) => f.finding_text).join(" | ")}`);
-      if (topOpportunities.length) lines.push(`Top opportunities: ${topOpportunities.map((f: any) => f.finding_text).join(" | ")}`);
-      for (const [label, items] of Object.entries(buckets)) {
-        if (items.length) lines.push(`${label}: ${items.join(" | ")}`);
-      }
-      sections.push(lines.join("\n"));
+      const subject = `Monthly Client Advisory Summary — ${monthKey}`;
+      const body = `Monthly summary of open SWOT/advisory findings across your assigned clients.\n\n${sections.join("\n\n")}\n\nFull detail on each client's SWOT Analysis tab.`;
+
+      // Advisory lock + re-check inside one transaction — the plain alreadySent()
+      // pre-check above has the same unlocked check-then-act race AUTO-001 had on
+      // reminders.routes.ts's runReminders (two overlapping runs both pass the
+      // pre-check before either writes its v3_communications row, both send).
+      // Keyed by sourceRecordId so it only serializes the same recipient+month,
+      // matching runRecurringBillingSweep/sendAndLog's proven pattern.
+      let outcome: { sent: boolean; alreadySent?: boolean; sendError?: string } = { sent: false };
+      await withTransaction(async (db) => {
+        await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [sourceRecordId]);
+        const existing = await db.queryOne<any>(
+          `SELECT 1 FROM altax.v3_communications WHERE source_system = 'MonthlyManagementSummary' AND source_record_id = $1`,
+          [sourceRecordId]
+        );
+        if (existing) { outcome = { sent: false, alreadySent: true }; return; }
+
+        const result = await sendChannel("email", email, subject, body, { firmName });
+        await db.query(
+          `INSERT INTO altax.v3_communications
+             (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+              sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+           VALUES ($1,NULL,NULL,NULL,$2,$3,'',$4,$5,'Outbound','Email',now(),$6,'MonthlyManagementSummary',$7,$8)`,
+          [`COM-${idSuffix()}`, subject, body, email, actorEmail, result.sent ? "Sent" : "Failed", sourceRecordId, result.providerMessageId || null]
+        );
+        outcome = { sent: result.sent, sendError: result.error };
+      });
+
+      if (outcome.sent) sent++;
+      else if (outcome.alreadySent) skipped++;
+      else { skipped++; errors.push(`${email}: ${outcome.sendError || "send failed"}`); }
+    } catch (err: any) {
+      skipped++;
+      errors.push(`${email}: ${err?.message || "Unexpected error sending this recipient's summary."}`);
+      // eslint-disable-next-line no-console
+      console.error(`[runMonthlyManagementSummary] failed for ${email}:`, err);
     }
-    if (sections.length === 0) { skipped++; continue; }
-
-    const subject = `Monthly Client Advisory Summary — ${monthKey}`;
-    const body = `Monthly summary of open SWOT/advisory findings across your assigned clients.\n\n${sections.join("\n\n")}\n\nFull detail on each client's SWOT Analysis tab.`;
-    const result = await sendChannel("email", email, subject, body, { firmName });
-
-    await query(
-      `INSERT INTO altax.v3_communications
-         (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
-          sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
-       VALUES ($1,NULL,NULL,NULL,$2,$3,'',$4,$5,'Outbound','Email',now(),$6,'MonthlyManagementSummary',$7,$8)`,
-      [`COM-${idSuffix()}`, subject, body, email, actorEmail, result.sent ? "Sent" : "Failed", sourceRecordId, result.providerMessageId || null]
-    );
-    if (result.sent) sent++; else { skipped++; errors.push(`${email}: ${result.error || "send failed"}`); }
   }
 
   return { sent, skipped, errors };

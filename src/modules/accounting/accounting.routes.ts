@@ -1037,6 +1037,12 @@ export async function createSinglePaycheck(
       if (gross < 0) {
         throw new Error("Gross wages cannot be negative.");
       }
+      // Only the lower bound (net >= 0) was ever checked — a negative withholding
+      // or deduction value (however entered) can drive net pay above gross with
+      // no rejection, the mirror-image bug of the one just above.
+      if (netPay > gross + nonTaxableReimbursement) {
+        throw new Error(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
+      }
 
       const payType = String(body.payType || employee.pay_type || "").trim() || null;
       const paymentMethod = await resolvePaymentMethod(client.client_id, "payroll", body.paymentMethodId);
@@ -1420,6 +1426,9 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
     if (gross < 0) {
       throw new Error("Gross wages cannot be negative.");
     }
+    if (netPay > gross + nonTaxableReimbursement) {
+      throw new Error(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
+    }
 
     await db.query(
       `UPDATE altax.v3_paychecks SET pay_date=$2, gross_wages=$3, social_security_ee=$4, medicare_ee=$5,
@@ -1784,6 +1793,13 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
     .filter((line: any) => line.account && (line.debit || line.credit));
 
   if (lines.length < 2) return res.status(400).json({ error: "A journal entry needs at least two lines." });
+  // A negative debit/credit pair can still net to a balanced-looking entry (debits
+  // == credits to the cent) while silently decrementing both a debited and a
+  // credited account instead of incrementing them — the balance check alone can't
+  // catch this, only rejecting negative values outright can.
+  if (lines.some((l: any) => l.debit < 0 || l.credit < 0)) {
+    return res.status(400).json({ error: "Journal entry lines cannot have a negative debit or credit amount." });
+  }
 
   const totalDebit = money(lines.reduce((sum: number, l: any) => sum + l.debit, 0));
   const totalCredit = money(lines.reduce((sum: number, l: any) => sum + l.credit, 0));
