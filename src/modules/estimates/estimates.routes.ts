@@ -3,6 +3,7 @@ import { pool, query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
+import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { computeTotals, feeItemsFor, linesFromFeeItems, resolveLineAmounts, type EstimateLine } from "./estimates.service";
 import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
 
@@ -28,6 +29,18 @@ const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
+/**
+ * Estimates function as a firm-wide sales pipeline before conversion — every
+ * admin/staff account can work any prospect, matching how a shared sales
+ * queue normally works. Once converted (client_id set), the estimate IS that
+ * client's record, so from that point on it falls under the same
+ * canAccessClient rule as every other client-scoped module in this app.
+ */
+async function canAccessEstimate(user: { role: string; clientId?: string; email: string }, est: { client_id: string | null }): Promise<boolean> {
+  if (!est.client_id) return true;
+  return canAccessClient(user, est.client_id);
+}
 
 /* ------------------------------------------------------------------ */
 /* Fee catalog                                                         */
@@ -133,8 +146,19 @@ async function loadLines(estimateId: string): Promise<EstimateLine[]> {
   }));
 }
 
-estimatesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
-  const rows = await query<any>(`SELECT * FROM altax.v3_estimates ORDER BY created_at DESC`);
+estimatesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  // Unconverted prospects (client_id null) are visible to every staff member —
+  // the shared sales pipeline. A converted estimate is that client's record,
+  // so a staff member without access to that client shouldn't see it here either.
+  const rows = req.user!.role === "admin"
+    ? await query<any>(`SELECT * FROM altax.v3_estimates ORDER BY created_at DESC`)
+    : await query<any>(
+        `SELECT * FROM altax.v3_estimates
+          WHERE client_id IS NULL
+             OR client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))
+          ORDER BY created_at DESC`,
+        [Array.from(await getUserAliases(req.user!.email))]
+      );
   const withTotals = [];
   for (const est of rows) {
     const lines = await loadLines(est.estimate_id);
@@ -150,6 +174,7 @@ estimatesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandle
 estimatesRouter.get("/:estimateId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
   const lines = await loadLines(est.estimate_id);
   res.json({
     estimate: est,
@@ -205,6 +230,7 @@ async function buildEstimatePdfBytes(est: any, lines: EstimateLine[]) {
 estimatesRouter.get("/:estimateId/print", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
   const lines = await loadLines(est.estimate_id);
   const { bytes } = await buildEstimatePdfBytes(est, lines);
   res.setHeader("Content-Type", "application/pdf");
@@ -223,6 +249,7 @@ estimatesRouter.get("/:estimateId/print", requireAuth, requireRole("admin", "sta
 estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   const to = String(req.body?.email || "").trim();
   if (!to) return res.status(400).json({ error: "Enter the email address to send to." });
@@ -344,6 +371,7 @@ estimatesRouter.patch("/:estimateId", requireAuth, requireRole("admin", "staff")
   const b = req.body || {};
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   const map: Record<string, string> = {
     businessName: "business_name", contactName: "contact_name", email: "email", phone: "phone",
@@ -370,8 +398,9 @@ estimatesRouter.patch("/:estimateId", requireAuth, requireRole("admin", "staff")
 estimatesRouter.put("/:estimateId/lines", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { estimateId } = req.params;
   const lines: any[] = Array.isArray(req.body?.lines) ? req.body.lines : [];
-  const est = await queryOne<any>(`SELECT estimate_id FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
+  const est = await queryOne<any>(`SELECT estimate_id, client_id FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   const client = await pool.connect();
   try {
@@ -413,6 +442,7 @@ estimatesRouter.put("/:estimateId/lines", requireAuth, requireRole("admin", "sta
 estimatesRouter.post("/:estimateId/rebuild", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   const items = await feeItemsFor({
     entityType: est.entity_type, businessType: est.business_type,
@@ -453,6 +483,7 @@ estimatesRouter.post("/:estimateId/approve", requireAuth, requireRole("admin", "
   const method = String(req.body?.method || "").trim() || "Verbal";
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   await query(
     `UPDATE altax.v3_estimates SET status='Approved', approved_at=now(), approved_by=$2, approval_method=$3, updated_at=now()
@@ -466,6 +497,9 @@ estimatesRouter.post("/:estimateId/approve", requireAuth, requireRole("admin", "
 
 estimatesRouter.post("/:estimateId/decline", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { estimateId } = req.params;
+  const est = await queryOne<any>(`SELECT client_id FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
+  if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
   await query(
     `UPDATE altax.v3_estimates SET status='Declined', declined_reason=$2, updated_at=now() WHERE estimate_id=$1`,
     [estimateId, String(req.body?.reason || "").trim() || null]
@@ -495,6 +529,7 @@ estimatesRouter.post("/:estimateId/stage", requireAuth, requireRole("admin", "st
 
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [estimateId]);
   if (!est) return res.status(404).json({ error: "Estimate not found." });
+  if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   if (stage === "Won") {
     await query(

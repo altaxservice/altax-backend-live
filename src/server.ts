@@ -54,6 +54,7 @@ import { bankRecRouter } from "./modules/bankRec/bankRec.routes";
 import { webhooksRouter } from "./modules/webhooks/webhooks.routes";
 import cron from "node-cron";
 import { alertAdmins } from "./common/adminAlerts";
+import { recordJobRun } from "./common/jobRuns";
 
 dotenv.config();
 
@@ -315,6 +316,26 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(500).json({ error: "Internal server error." });
 });
 
+/**
+ * Wraps a cron job body so every job — not just the 3 that happened to add
+ * this themselves — writes a durable "did this actually run" record
+ * (v3_job_runs, see common/jobRuns.ts) alongside the existing best-effort
+ * admin-email alert. Previously the only trace of a failure was console
+ * output plus that email; neither is queryable after the fact, so a quietly
+ * broken job could go unnoticed indefinitely.
+ */
+function runScheduledJob(jobName: string, task: () => Promise<unknown>): () => void {
+  return () => {
+    task()
+      .then(() => recordJobRun(jobName, "success"))
+      .catch((err) => {
+        const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+        recordJobRun(jobName, "failure", detail);
+        alertAdmins(`${jobName} failed`, detail);
+      });
+  };
+}
+
 // Daily reminders — staff digest, firm digest, and client document/payment
 // reminders (see reminders.routes.ts's runReminders doc comment: one consolidated
 // email per recipient per day, never per-task). 6:30AM America/New_York, chosen to
@@ -322,21 +343,13 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 // timer specifically because this app now runs as a persistent server (Railway),
 // unlike the serverless/ephemeral hosting the original "no scheduler yet" decision
 // was made under.
-cron.schedule("30 6 * * *", () => {
-  runReminders("System (Daily Reminder Job)").catch((err) => {
-    alertAdmins("Daily reminders job failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("30 6 * * *", runScheduledJob("Daily Reminders", () => runReminders("System (Daily Reminder Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Daily reminders scheduled for 6:30AM America/New_York.");
 
 // Sundays 6:00AM ET, before the 6:30 digest — the week's encrypted backup
 // lands in the admin inbox without anyone remembering to click Download.
-cron.schedule("0 6 * * 0", () => {
-  runWeeklyBackupEmail("System (Weekly Backup Job)").catch((err) => {
-    alertAdmins("Weekly backup email failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("0 6 * * 0", runScheduledJob("Weekly Backup Email", () => runWeeklyBackupEmail("System (Weekly Backup Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/New_York.");
 
@@ -344,22 +357,14 @@ console.log("Weekly encrypted backup email scheduled for Sundays 6:00AM America/
 // configured lead time (Calendar Settings, see runAppointmentReminders's doc
 // comment), so an appointment gets each configured reminder once regardless
 // of which hourly tick catches it, without ever double-sending.
-cron.schedule("0 * * * *", () => {
-  runAppointmentReminders("System (Appointment Reminder Job)").catch((err) => {
-    alertAdmins("Appointment reminders job failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-});
+cron.schedule("0 * * * *", runScheduledJob("Appointment Reminders", () => runAppointmentReminders("System (Appointment Reminder Job)")));
 // eslint-disable-next-line no-console
 console.log("Appointment reminders scheduled hourly.");
 
 // Auto-completes past Scheduled appointments (see runAppointmentAutoComplete's
 // doc comment) — offset 5 minutes past the hour from the reminder sweep above
 // so the two don't hit the DB in the same instant.
-cron.schedule("5 * * * *", () => {
-  runAppointmentAutoComplete("System (Appointment Auto-Complete Job)").catch((err) => {
-    alertAdmins("Appointment auto-complete job failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-});
+cron.schedule("5 * * * *", runScheduledJob("Appointment Auto-Complete", () => runAppointmentAutoComplete("System (Appointment Auto-Complete Job)")));
 // eslint-disable-next-line no-console
 console.log("Appointment auto-complete scheduled hourly.");
 
@@ -367,11 +372,7 @@ console.log("Appointment auto-complete scheduled hourly.");
 // minutes past the hour so it doesn't hit the DB alongside the two sweeps
 // above. Not tied to Calendar Settings' reminderLeadMinutes (see
 // runAppointmentConfirmationRequests's doc comment) — always runs.
-cron.schedule("10 * * * *", () => {
-  runAppointmentConfirmationRequests("System (Appointment Confirmation Request Job)").catch((err) => {
-    alertAdmins("Appointment confirmation-request job failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-});
+cron.schedule("10 * * * *", runScheduledJob("Appointment Confirmation Requests", () => runAppointmentConfirmationRequests("System (Appointment Confirmation Request Job)")));
 // eslint-disable-next-line no-console
 console.log("Appointment confirmation requests scheduled hourly.");
 
@@ -381,11 +382,7 @@ console.log("Appointment confirmation requests scheduled hourly.");
 // can show up in it. The sweep itself is idempotent per schedule/period (see
 // runRecurringBillingSweep's doc comment), so a schedule already run today is a
 // no-op rather than a duplicate invoice — safe to also run manually the same day.
-cron.schedule("0 6 * * *", () => {
-  runRecurringBillingSweep({ email: "System (Recurring Billing Job)", role: "admin" }).catch((err) => {
-    alertAdmins("Recurring billing sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("0 6 * * *", runScheduledJob("Recurring Billing Sweep", () => runRecurringBillingSweep({ email: "System (Recurring Billing Job)", role: "admin" })), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
 
@@ -397,12 +394,19 @@ console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
 // real, GL-posted record on its own — only a Pending draft awaiting staff approval.
 // Gated on the "Auto Payroll" toggle (v3_payroll_agent_settings) — staff can turn
 // this automatic sweep off without touching the "Run Agent Now" manual trigger,
-// which always works regardless of this flag.
+// which always works regardless of this flag. Recorded as "skipped", not
+// "success", when the toggle is off — a real disabled-on-purpose state, not
+// silence, but distinct from an actual sweep having run.
 cron.schedule("15 6 * * *", () => {
   isPayrollAgentAutoRunEnabled()
-    .then((enabled) => { if (enabled) return runPayrollAgentSweep({ email: "System (Payroll Agent Job)", role: "admin" }); })
+    .then((enabled) => {
+      if (!enabled) return recordJobRun("Payroll Agent Sweep", "skipped", "Auto Payroll toggle is off.");
+      return runPayrollAgentSweep({ email: "System (Payroll Agent Job)", role: "admin" }).then(() => recordJobRun("Payroll Agent Sweep", "success"));
+    })
     .catch((err) => {
-      alertAdmins("Payroll agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+      const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+      recordJobRun("Payroll Agent Sweep", "failure", detail);
+      alertAdmins("Payroll agent sweep failed", detail);
     });
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
@@ -418,9 +422,14 @@ console.log("Payroll agent sweep scheduled for 6:15AM America/New_York.");
 // Create Batch Tasks flow both always work regardless of this flag.
 cron.schedule("20 6 * * *", () => {
   isTaskRulesAgentAutoRunEnabled()
-    .then((enabled) => { if (enabled) return runTaskRulesAgentSweep("System (Task Rules Agent Job)"); })
+    .then((enabled) => {
+      if (!enabled) return recordJobRun("Task Rules Agent Sweep", "skipped", "Auto-run toggle is off.");
+      return runTaskRulesAgentSweep("System (Task Rules Agent Job)").then(() => recordJobRun("Task Rules Agent Sweep", "success"));
+    })
     .catch((err) => {
-      alertAdmins("Task Rules Agent sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
+      const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+      recordJobRun("Task Rules Agent Sweep", "failure", detail);
+      alertAdmins("Task Rules Agent sweep failed", detail);
     });
 }, { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
@@ -432,22 +441,14 @@ console.log("Task Rules Agent sweep scheduled for 6:20AM America/New_York.");
 // Unlike the 3 Agents above, nothing here has a financial side effect (a
 // finding is advisory text, not a posted record), so there's no
 // Pending/Approve gate and no separate auto-run toggle — this always runs.
-cron.schedule("25 6 * * *", () => {
-  runSwotFindingsSweep("System (SWOT Findings Sweep)").catch((err) => {
-    alertAdmins("SWOT findings sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("25 6 * * *", runScheduledJob("SWOT Findings Sweep", () => runSwotFindingsSweep("System (SWOT Findings Sweep)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("SWOT findings sweep scheduled for 6:25AM America/New_York.");
 
 // Monthly client snapshot — 1st of each month, after the month it records
 // has fully closed. Feeds the At a Glance dashboard's "vs prior period" and
 // 12-month trend (see GET /reports/client-monthly-snapshots/:clientId).
-cron.schedule("0 7 1 * *", () => {
-  runMonthlySnapshotSweep("System (Monthly Snapshot Job)").catch((err) => {
-    alertAdmins("Monthly snapshot sweep failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("0 7 1 * *", runScheduledJob("Monthly Client Snapshot", () => runMonthlySnapshotSweep("System (Monthly Snapshot Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Monthly client snapshot sweep scheduled for 7:00AM America/New_York on the 1st of each month.");
 
@@ -455,11 +456,7 @@ console.log("Monthly client snapshot sweep scheduled for 7:00AM America/New_York
 // sweep so the figures it references (via each client's open SWOT
 // findings) are current. One email per staff member across their assigned
 // clients, idempotent per recipient per month.
-cron.schedule("15 7 1 * *", () => {
-  runMonthlyManagementSummary("System (Monthly Management Summary Job)").catch((err) => {
-    alertAdmins("Monthly management summary failed", err instanceof Error ? (err.stack || err.message) : String(err));
-  });
-}, { timezone: "America/New_York" });
+cron.schedule("15 7 1 * *", runScheduledJob("Monthly Management Summary", () => runMonthlyManagementSummary("System (Monthly Management Summary Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Monthly management summary scheduled for 7:15AM America/New_York on the 1st of each month.");
 

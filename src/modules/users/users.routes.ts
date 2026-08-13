@@ -1,12 +1,12 @@
 import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
-import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
+import { AuthedRequest, requireAuth, requireRole, invalidateActiveCache } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { normalizePortalRole } from "../auth/auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
 import { createPasswordHashFields } from "../auth/password";
-import { normalizeText, isAssignedToUser } from "../../common/assignment";
+import { normalizeText, isAssignedToUser, getUserAliases } from "../../common/assignment";
 
 export const usersRouter = Router();
 
@@ -257,10 +257,31 @@ usersRouter.post("/:userId/deactivate", requireAuth, requireRole("admin"), async
   if (!old) return res.status(404).json({ error: "Staff user not found." });
 
   await query(`UPDATE altax.v3_users SET active = false, updated_at = now() WHERE user_id = $1`, [userId]);
+  // Deactivating didn't previously reassign or even flag whatever this person
+  // still owned — an admin doing this from the Portal Access screen had no way
+  // to know they'd just left open tasks/clients with a now-locked-out assignee,
+  // visible only if someone happened to notice later. Surfaced here, at the
+  // one moment an admin would actually act on it, rather than silently.
+  invalidateActiveCache(userId);
+  const aliases = Array.from(await getUserAliases(old.email));
+  const openTasks = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
+      WHERE lower(assigned_to) = ANY($1::text[]) AND lower(status) NOT IN ('completed','closed','archived','void')`,
+    [aliases]
+  );
+  const assignedClients = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM altax.v3_clients WHERE lower(assigned_to) = ANY($1::text[]) AND status = 'Active'`,
+    [aliases]
+  );
+
   await logAudit("Staff", "DEACTIVATE", userId, "Active", String(old.active), "Inactive",
     `Staff user deactivated by ${req.user!.email}.`, req.user!.email);
 
-  res.json({ ok: true, userId });
+  res.json({
+    ok: true, userId,
+    openAssignedTasks: Number(openTasks?.count || 0),
+    assignedActiveClients: Number(assignedClients?.count || 0),
+  });
 }));
 
 /**

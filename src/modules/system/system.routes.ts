@@ -456,6 +456,17 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     ? { id: "zero-compliance-flags-any-client", label: "Every active client has at least one compliance obligation configured", status: "ok", detail: "No active client — regardless of Service Type label — has zero compliance flags set." }
     : { id: "zero-compliance-flags-any-client", label: "Every active client has at least one compliance obligation configured", status: "warning", detail: `${zeroComplianceFlags.length} active client(s) have absolutely no compliance obligation configured — no payroll, EFTPS, MD UI, MD Annual Report, W-2/1099, sales tax, business return type, or MD Withholding — so they'll never generate a single auto-flag or deadline: ${zeroComplianceFlags.slice(0, 5).map((c: any) => c.client_name).join(", ")}${zeroComplianceFlags.length > 5 ? "…" : ""}. Review each one and set what actually applies, even if that's genuinely nothing (e.g. a dormant or non-client record).` });
 
+  // Only 3 of the app's 11 cron jobs used to write any durable record of
+  // whether they actually ran — everything else lived only in console output
+  // and a best-effort admin email, neither queryable after the fact. Every
+  // job now upserts to v3_job_runs on every run (see common/jobRuns.ts); this
+  // is the "did last night's automation actually run" answer, at a glance.
+  const jobRuns = await query<any>(`SELECT job_name, last_run_at, last_status, last_detail FROM altax.v3_job_runs ORDER BY job_name ASC`);
+  const failedJobs = jobRuns.filter((j: any) => j.last_status === "failure");
+  checks.push(failedJobs.length === 0
+    ? { id: "cron-job-last-run-status", label: "Background jobs last-run status", status: "ok", detail: jobRuns.length > 0 ? `All ${jobRuns.length} tracked background job(s) succeeded (or were intentionally skipped) on their last run.` : "No background job has recorded a run yet." }
+    : { id: "cron-job-last-run-status", label: "Background jobs last-run status", status: "critical", detail: `${failedJobs.length} background job(s) failed on their last run: ${failedJobs.map((j: any) => `${j.job_name} (${new Date(j.last_run_at).toLocaleString()})`).join(", ")}. Check Railway logs for the full error — the admin alert email sent at the time has the detail too.` });
+
   // Compliance-config checks are relevant to whoever does client onboarding —
   // frequently staff, not just admin — so staff get this narrower slice of
   // the page rather than being blocked from it entirely (see the checks below,

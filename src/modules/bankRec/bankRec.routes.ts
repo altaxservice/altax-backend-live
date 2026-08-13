@@ -413,6 +413,10 @@ bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff")
     await db.query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   });
   if (hasApprovedDraft) return res.status(400).json({ error: "This line has an approved journal entry — reconcile it or reverse the GL entry manually before deleting." });
+
+  await logAudit("Accounting", "DELETE_BANK_REC_LINE", lineId, "", "", "",
+    `Bank statement line deleted by ${req.user!.email}.`, req.user!.email);
+
   res.json({ ok: true });
 }));
 
@@ -455,6 +459,10 @@ bankRecRouter.post("/:lineId/match", requireAuth, requireRole("admin", "staff"),
   });
   if (claimedByOther) return res.status(400).json({ error: "That GL entry is already matched to another bank line." });
   if (lineAlreadyMatched) return res.status(400).json({ error: "This line is already matched." });
+
+  await logAudit("Accounting", "MATCH_BANK_REC_LINE", lineId, "GLEntryID", "", glEntryId,
+    `Bank line manually matched to GL entry by ${req.user!.email}.`, req.user!.email);
+
   res.json({ ok: true });
 }));
 
@@ -465,6 +473,10 @@ bankRecRouter.post("/:lineId/unmatch", requireAuth, requireRole("admin", "staff"
   if (!line) return res.status(404).json({ error: "Bank statement line not found." });
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
   await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = NULL WHERE line_id = $1`, [lineId]);
+
+  await logAudit("Accounting", "UNMATCH_BANK_REC_LINE", lineId, "", "", "",
+    `Bank line unmatched by ${req.user!.email}.`, req.user!.email);
+
   res.json({ ok: true });
 }));
 
@@ -657,6 +669,10 @@ bankRecRouter.post("/je-drafts/:id/dismiss", requireAuth, requireRole("admin", "
     `UPDATE altax.v3_je_drafts SET status = 'Dismissed', dismissed_reason = $2, dismissed_by = $3, dismissed_at = now(), updated_at = now() WHERE je_draft_id = $1`,
     [req.params.id, reason || null, req.user!.email]
   );
+
+  await logAudit("Accounting", "DISMISS_JE_DRAFT", req.params.id, "", "", reason,
+    `JE draft dismissed by ${req.user!.email}.`, req.user!.email);
+
   res.json({ ok: true });
 }));
 

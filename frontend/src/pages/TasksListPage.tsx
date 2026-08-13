@@ -238,12 +238,20 @@ export function TasksListPage() {
 
   async function handleStatusChange(taskId: string, status: string) {
     setSavingStatusId(taskId);
+    const previousTasks = tasks;
+    // Optimistic local patch instead of an unbounded full-table refetch on
+    // every single inline status change — the API call already tells us
+    // exactly what changed. `load()` still runs after, but in the background
+    // (not awaited) to reconcile any server-side derived fields, rather than
+    // blocking the UI on re-fetching rows that didn't change.
+    setTasks((prev) => prev?.map((t) => (t.task_id === taskId ? { ...t, status } : t)) ?? prev);
     try {
       await api.patch(`/tasks/${taskId}`, { status });
       toast("Status updated.");
-      await load();
-      if (archivedTasks !== null) await loadArchived();
+      load();
+      if (archivedTasks !== null) loadArchived();
     } catch (err) {
+      setTasks(previousTasks);
       await notify(err instanceof ApiError ? err.message : "Could not update status.");
     } finally {
       setSavingStatusId(null);

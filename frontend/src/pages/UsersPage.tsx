@@ -124,8 +124,17 @@ export function UsersPage() {
     const ok = await confirmDialog({ title: "Deactivate user", message: "Deactivate this portal user?", confirmLabel: "Deactivate", danger: true });
     if (!ok) return;
     try {
-      await api.post(`/users/${userId}/deactivate`, {});
+      const result = await api.post<{ openAssignedTasks: number; assignedActiveClients: number }>(`/users/${userId}/deactivate`, {});
       load();
+      // Deactivating never reassigns their open work — this is the one moment
+      // an admin can actually act on it, so surface what's still theirs instead
+      // of leaving it invisible until someone notices later.
+      if (result.openAssignedTasks > 0 || result.assignedActiveClients > 0) {
+        const parts: string[] = [];
+        if (result.openAssignedTasks > 0) parts.push(`${result.openAssignedTasks} open task${result.openAssignedTasks === 1 ? "" : "s"}`);
+        if (result.assignedActiveClients > 0) parts.push(`${result.assignedActiveClients} active client${result.assignedActiveClients === 1 ? "" : "s"}`);
+        await notify(`This user still has ${parts.join(" and ")} assigned to them. Reassign these from the Tasks and Clients pages.`);
+      }
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not deactivate this user.");
     }

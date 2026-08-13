@@ -265,7 +265,11 @@ export function InvoicesListPage() {
     }
   }
 
-  const clientName = (id: string) => clients.find((c) => c.client_id === id)?.client_name || id;
+  // clientName() used to do a linear .find() per call — cost compounds with
+  // both invoice count and client count growing together, and it's called
+  // once per row on every render. Built once per `clients` change instead.
+  const clientsById = useMemo(() => new Map(clients.map((c) => [c.client_id, c.client_name])), [clients]);
+  const clientName = (id: string) => clientsById.get(id) || id;
 
   const filteredInvoices = useMemo(() => {
     if (!invoices) return [];
