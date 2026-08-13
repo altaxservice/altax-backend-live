@@ -6,7 +6,8 @@ import { logAudit, logClientActivity } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { encryptValue } from "../../common/encryption";
-import { generateHaccpPdf } from "./haccpPdf";
+import { generateHaccpPdf, type HaccpPdfData } from "./haccpPdf";
+import { generateHaccpDocx } from "./haccpDocx";
 import {
   generateFoodLicenseApplicationPdf, generatePlanReviewApplicationPdf,
   generateCountyFoodServicePermitApplicationPdf, generateCountyPlansReviewGuidePdf,
@@ -389,13 +390,10 @@ haccpRouter.post("/plans/:planId/delete", requireAuth, requireRole("admin"), asy
   res.json({ ok: true });
 }));
 
-haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const plan = await loadPlanForUser(req, req.params.planId);
-  if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
-  if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
-
+/** Shared input builder for both the PDF and DOCX HACCP-plan generators — one source of truth so they can never drift apart on what data a plan hands to its own document. */
+function toHaccpPdfInput(plan: any): HaccpPdfData {
   const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key);
-  const bytes = await generateHaccpPdf({
+  return {
     planId: plan.plan_id,
     businessName: plan.business_name,
     businessTypeLabel: HACCP_BUSINESS_TYPE_LABEL[plan.business_type_key] || plan.business_type_key,
@@ -407,10 +405,30 @@ haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff")
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
     equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
     createdAt: plan.created_at,
-  });
+  };
+}
+
+haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const plan = await loadPlanForUser(req, req.params.planId);
+  if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
+  if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
+
+  const bytes = await generateHaccpPdf(toHaccpPdfInput(plan));
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="HACCP_${plan.plan_id}.pdf"`);
   res.send(Buffer.from(bytes));
+}));
+
+/** Editable Word version of the same plan — see haccpDocx.ts's header comment for why this exists alongside the PDF. */
+haccpRouter.get("/plans/:planId/docx", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const plan = await loadPlanForUser(req, req.params.planId);
+  if (plan === null) return res.status(404).json({ error: "HACCP plan not found." });
+  if (plan === "forbidden") return res.status(403).json({ error: "You do not have access to this plan." });
+
+  const buffer = await generateHaccpDocx(toHaccpPdfInput(plan));
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", `attachment; filename="HACCP_${plan.plan_id}.docx"`);
+  res.send(buffer);
 }));
 
 function toLicensePdfInput(plan: any) {
@@ -469,8 +487,9 @@ function fileSafeName(name: string): string {
 }
 
 /**
- * Attaches the plan's generated PDFs to the linked client's Documents tab, so
- * staff don't have to separately download-then-manually-upload — reuses the
+ * Attaches the plan's generated PDFs and editable Word (.docx) copy to the
+ * linked client's Documents tab, so staff don't have to separately
+ * download-then-manually-upload — reuses the
  * same v3_document_uploads base64 storage every other Document already goes
  * through, direct-inserted (not via POST /documents/uploads) since that route
  * requires a requestId or taskId, neither of which naturally exists for a
@@ -490,23 +509,14 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
   const isCounty = plan.jurisdiction === "Baltimore County";
   const baseName = fileSafeName(plan.business_name);
 
-  const docs: { label: string; bytes: Uint8Array }[] = [
-    { label: `${baseName} - HACCP Plan.pdf`, bytes: await generateHaccpPdf({
-        planId: plan.plan_id, businessName: plan.business_name,
-        businessTypeLabel: HACCP_BUSINESS_TYPE_LABEL[plan.business_type_key] || plan.business_type_key,
-        jurisdiction: plan.jurisdiction,
-        streetAddress: plan.street_address, city: plan.city, state: plan.state, zipCode: plan.zip_code,
-        phone: plan.phone, email: plan.email, contactPerson: plan.contact_person, licenseNumber: plan.license_number,
-        riskPriority: HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key)?.riskPriority || "Moderate",
-        renderedBody: plan.rendered_body,
-        menuGroups: groupMenuItems(plan.selected_menu_items || []),
-        equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
-        createdAt: plan.created_at,
-      }) },
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const docs: { label: string; bytes: Uint8Array; mimeType: string }[] = [
+    { label: `${baseName} - HACCP Plan.pdf`, bytes: await generateHaccpPdf(toHaccpPdfInput(plan)), mimeType: "application/pdf" },
+    { label: `${baseName} - HACCP Plan (Editable).docx`, bytes: await generateHaccpDocx(toHaccpPdfInput(plan)), mimeType: DOCX_MIME },
     { label: `${baseName} - ${isCounty ? "Food Service Permit Application" : "Food License Application"}.pdf`,
-      bytes: isCounty ? await generateCountyFoodServicePermitApplicationPdf(toLicensePdfInput(plan)) : await generateFoodLicenseApplicationPdf(toLicensePdfInput(plan)) },
+      bytes: isCounty ? await generateCountyFoodServicePermitApplicationPdf(toLicensePdfInput(plan)) : await generateFoodLicenseApplicationPdf(toLicensePdfInput(plan)), mimeType: "application/pdf" },
     { label: `${baseName} - ${isCounty ? "Plans Review Guide" : "Plan Review Application"}.pdf`,
-      bytes: isCounty ? await generateCountyPlansReviewGuidePdf(toLicensePdfInput(plan)) : await generatePlanReviewApplicationPdf(toLicensePdfInput(plan)) },
+      bytes: isCounty ? await generateCountyPlansReviewGuidePdf(toLicensePdfInput(plan)) : await generatePlanReviewApplicationPdf(toLicensePdfInput(plan)), mimeType: "application/pdf" },
   ];
 
   const uploadIds: string[] = [];
@@ -518,16 +528,16 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
           uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,'application/pdf',$7,$8,now(),'Internal','Generated',$9,true,'Node Web App',$1,$10)`,
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Internal','Generated',$10,true,'Node Web App',$1,$11)`,
       [uploadId, plan.client_id, client?.client_name || plan.business_name, doc.label, `/documents/uploads/${uploadId}/download?t=${downloadToken}`,
-       fileData, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`, downloadToken]
+       fileData, doc.mimeType, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`, downloadToken]
     );
     uploadIds.push(uploadId);
   }
 
   await logAudit("Haccp", "SAVE_TO_DOCUMENTS", plan.plan_id, "client_id", "", plan.client_id,
-    `HACCP package (3 PDFs) saved to Documents for ${plan.business_name} by ${req.user!.email}.`, req.user!.email);
-  await logClientActivity(plan.client_id, "Health Permit Documents Generated", `HACCP plan package (3 PDFs) saved to Documents for "${plan.business_name}" by ${req.user!.email}.`, req.user!.email);
+    `HACCP package (${docs.length} files) saved to Documents for ${plan.business_name} by ${req.user!.email}.`, req.user!.email);
+  await logClientActivity(plan.client_id, "Health Permit Documents Generated", `HACCP plan package (${docs.length} files, incl. editable Word) saved to Documents for "${plan.business_name}" by ${req.user!.email}.`, req.user!.email);
 
   res.status(201).json({ ok: true, uploadIds });
 }));
