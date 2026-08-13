@@ -10,6 +10,7 @@ import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS, type StaffReminderChannel } from "../../common/appointmentSettings";
 import { escapeHtml } from "../../common/html";
+import { alertAdmins } from "../../common/adminAlerts";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -663,20 +664,47 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
       [windowStart.toISOString(), windowEnd.toISOString(), leadMinutes]
     );
     for (const appt of due) {
+      // Claim first, atomically: the UPDATE's own WHERE clause re-checks
+      // "not yet sent" against the row as it stands at UPDATE time, so a
+      // second concurrent sweep (an overlapping hourly tick, a manual trigger,
+      // or a second app instance) targeting the same appointment+leadMinutes
+      // blocks on the row lock, then matches zero rows once the first commits
+      // — closing the double-send race the old check-then-act shape left open.
+      const claimed = await query<any>(
+        `UPDATE altax.v3_appointments SET reminder_lead_minutes_sent = array_append(reminder_lead_minutes_sent, $2)
+           WHERE appointment_id = $1 AND NOT ($2 = ANY(reminder_lead_minutes_sent))
+           RETURNING appointment_id`,
+        [appt.appointment_id, leadMinutes]
+      );
+      if (!claimed.length) continue;
       try {
         if (appt.notify_client) {
           await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Reminder", actorEmail, req);
         }
         await notifyAppointmentStaff({ ...appt, client_name: appt.linked_client_name }, leadMinutes, settings.staffReminderChannel, req);
+        sent++;
+      } catch (err) {
+        // Previously a bare `catch { failed++ }` — no console output, no alert,
+        // no audit row, so a broken reminder was invisible everywhere. This job
+        // never throws (every failure is caught here), so server.ts's own
+        // .catch(alertAdmins) on the cron call never fired either.
+        failed++;
+        // eslint-disable-next-line no-console
+        console.error(`[runAppointmentReminders] failed for appointment ${appt.appointment_id} (lead ${leadMinutes}m):`, err);
+        // Undo the claim so a transient send failure is retried next sweep
+        // instead of being permanently marked "sent" despite never sending.
         await query(
-          `UPDATE altax.v3_appointments SET reminder_lead_minutes_sent = array_append(reminder_lead_minutes_sent, $2) WHERE appointment_id = $1`,
+          `UPDATE altax.v3_appointments SET reminder_lead_minutes_sent = array_remove(reminder_lead_minutes_sent, $2) WHERE appointment_id = $1`,
           [appt.appointment_id, leadMinutes]
         );
-        sent++;
-      } catch {
-        failed++;
       }
     }
+  }
+  if (failed > 0) {
+    await alertAdmins(
+      "Appointment reminders: some sends failed",
+      `${failed} of ${sent + failed} appointment reminder(s) failed to send this run. Check the server logs for per-appointment errors (search "[runAppointmentReminders] failed for appointment").`
+    );
   }
   return { sent, failed };
 }
@@ -708,18 +736,39 @@ export async function runAppointmentConfirmationRequests(actorEmail: string, req
     [windowStart.toISOString(), windowEnd.toISOString()]
   );
   for (const appt of due) {
+    // Same atomic claim-first pattern as runAppointmentReminders above —
+    // closes the identical check-then-act race on confirmation_request_sent_at.
+    const claimed = await query<any>(
+      `UPDATE altax.v3_appointments SET confirmation_request_sent_at = now()
+         WHERE appointment_id = $1 AND confirmation_request_sent_at IS NULL
+         RETURNING appointment_id`,
+      [appt.appointment_id]
+    );
+    if (!claimed.length) continue;
     try {
       if (appt.notify_client) {
         await notifyAppointment({ ...appt, client_name: appt.linked_client_name }, "Appointment Confirmation Request", actorEmail, req);
       }
+      sent++;
+    } catch (err) {
+      // Same visibility fix as runAppointmentReminders above — a bare
+      // `catch { failed++ }` left a broken confirmation-request sweep with
+      // zero trace anywhere (no console output, no alert, no audit row).
+      failed++;
+      // eslint-disable-next-line no-console
+      console.error(`[runAppointmentConfirmationRequests] failed for appointment ${appt.appointment_id}:`, err);
+      // Undo the claim so a transient failure is retried next sweep.
       await query(
-        `UPDATE altax.v3_appointments SET confirmation_request_sent_at = now() WHERE appointment_id = $1`,
+        `UPDATE altax.v3_appointments SET confirmation_request_sent_at = NULL WHERE appointment_id = $1`,
         [appt.appointment_id]
       );
-      sent++;
-    } catch {
-      failed++;
     }
+  }
+  if (failed > 0) {
+    await alertAdmins(
+      "Appointment confirmation requests: some sends failed",
+      `${failed} of ${sent + failed} appointment confirmation request(s) failed to send this run. Check the server logs for per-appointment errors (search "[runAppointmentConfirmationRequests] failed for appointment").`
+    );
   }
   return { sent, failed };
 }

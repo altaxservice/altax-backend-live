@@ -674,6 +674,7 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
   } else {
     total = body.totalAmount !== undefined ? money(body.totalAmount) : money(invoice.total_amount);
   }
+  if (total <= 0) return res.status(400).json({ error: "Invoice total must be greater than zero." });
 
   let paid = body.amountPaid !== undefined ? money(body.amountPaid) : money(invoice.amount_paid);
   const deposit = body.depositAmount !== undefined ? money(body.depositAmount) : money(invoice.deposit_amount);
@@ -1009,6 +1010,7 @@ billingRouter.post("/payments/:paymentId/reverse", requireAuth, requireRole("adm
   }
 
   const total = money(invoice.total_amount);
+  const isVoidInvoice = String(invoice.status || "").trim().toLowerCase() === "void";
   let newPaid = 0, balance = 0, status = "";
   let alreadyReversed = false;
   await withTransaction(async (db) => {
@@ -1028,11 +1030,23 @@ billingRouter.post("/payments/:paymentId/reverse", requireAuth, requireRole("adm
     const locked = await db.query<{ amount_paid: string }>(`SELECT amount_paid FROM altax.v3_invoices WHERE invoice_id = $1 FOR UPDATE`, [payment.invoice_id]);
     const existingPaid = money(locked[0]?.amount_paid);
     newPaid = Math.max(0, existingPaid - paymentAmount);
-    balance = Math.max(0, total - newPaid);
-    status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
 
-    await db.query(`UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
-      [payment.invoice_id, newPaid, balance, status]);
+    if (isVoidInvoice) {
+      // A Void invoice's balance was already written off to 0 at void time and
+      // must never be recomputed from payment history here — doing so is what
+      // previously let a reversal silently "un-void" a canceled invoice back to
+      // Paid/Partial/Unpaid while GL still carried the earlier write-off. Only
+      // amount_paid (a historical record) is corrected; status/balance stay Void/0.
+      balance = 0;
+      status = "Void";
+      await db.query(`UPDATE altax.v3_invoices SET amount_paid = $2, updated_at = now() WHERE invoice_id = $1`,
+        [payment.invoice_id, newPaid]);
+    } else {
+      balance = Math.max(0, total - newPaid);
+      status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
+      await db.query(`UPDATE altax.v3_invoices SET amount_paid = $2, balance_due = $3, status = $4, updated_at = now() WHERE invoice_id = $1`,
+        [payment.invoice_id, newPaid, balance, status]);
+    }
 
     const clientName = await getClientName(invoice.client_id);
     await postInvoicePaymentGl(invoice.client_id, clientName, req.params.paymentId, payment.payment_date || invoice.invoice_date, paymentAmount, true, db);

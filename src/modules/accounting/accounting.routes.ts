@@ -674,13 +674,6 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   const clientId = existing.client_id;
   const client = await queryOne<any>(`SELECT state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
 
-  let rawLines: SalesCategoryLineInput[];
-  if (Array.isArray(body.categoryLines)) {
-    rawLines = body.categoryLines;
-  } else {
-    const existingLines = await query<any>(`SELECT category_id, taxable_amount FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
-    rawLines = existingLines.map((l) => ({ categoryId: l.category_id, taxableAmount: l.taxable_amount }));
-  }
   const adjustments = body.adjustments !== undefined ? money(body.adjustments) : Number(existing.adjustments);
   const grossSales = body.grossSales !== undefined ? money(body.grossSales) : Number(existing.gross_sales);
   const saleDate = body.saleDate !== undefined ? (String(body.saleDate).trim() || null) : existing.sale_date;
@@ -688,10 +681,33 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
   const notes = body.notes !== undefined ? (String(body.notes).trim() || null) : existing.notes;
 
   let computed: Awaited<ReturnType<typeof computeCategoryLinesTax>>;
-  try {
-    computed = await computeCategoryLinesTax(rawLines, clientId, client?.state);
-  } catch (err) {
-    return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
+  if (Array.isArray(body.categoryLines)) {
+    try {
+      computed = await computeCategoryLinesTax(body.categoryLines, clientId, client?.state);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
+    }
+  } else {
+    // No categoryLines in this edit — the caller is only touching an unrelated
+    // field (payment date, notes, adjustments). Re-deriving tax from the
+    // CURRENT sales tax rate here (the old behavior) silently rewrote a closed
+    // sale's tax liability if the firm's rate changed since it was recorded —
+    // the exact tax_rate_used already stored per line is the correct value to
+    // preserve, not something to recompute from today's rate.
+    const existingLines = await query<any>(
+      `SELECT l.category_id, l.taxable_amount, l.tax_rate_used, l.tax_amount, c.category_name
+         FROM altax.v3_sales_input_lines l
+         JOIN altax.v3_sales_tax_categories c ON c.category_id = l.category_id
+        WHERE l.sale_id = $1`,
+      [saleId]
+    );
+    computed = {
+      lines: existingLines.map((l) => ({
+        categoryId: l.category_id, categoryName: l.category_name,
+        taxableAmount: Number(l.taxable_amount), rate: Number(l.tax_rate_used), taxAmount: Number(l.tax_amount),
+      })),
+      totalTax: money(existingLines.reduce((sum, l) => sum + Number(l.tax_amount), 0)),
+    };
   }
   const totalTax = money(computed.totalTax + adjustments);
 

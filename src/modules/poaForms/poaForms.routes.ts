@@ -4,7 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
-import { decryptClientPii } from "../../common/encryption";
+import { decryptClientPii, encryptValue, decryptValue } from "../../common/encryption";
 import {
   generatePoaForm, F2848_DESIGNATIONS, MD548_DESIGNATIONS,
   type PoaFilingData, type PoaRepresentative, type PoaTaxMatter,
@@ -89,6 +89,34 @@ function buildTaxpayerSnapshot(client: any) {
   };
 }
 
+/**
+ * taxpayer_snapshot carries the same category of PII as v3_clients' own
+ * individual_ssn/ein columns (already encrypted — see encryption.ts's
+ * decryptClientPii), but stayed plaintext JSONB because it's a snapshot object
+ * rather than a single column. Same envelope pattern already proven in
+ * govForms.routes.ts's encryptFormDataForStorage/decryptFormData: the whole
+ * object is serialized, encrypted, and wrapped back into valid JSON as
+ * { __enc: "<ciphertext>" } — a shape this module's own snapshot shape (flat
+ * name/address/ssn/ein/... fields) could never produce by accident, so it also
+ * doubles as the "is this row encrypted yet" check. decryptTaxpayerSnapshot
+ * falls back to the raw object unchanged when that key isn't present, so a row
+ * from before this migration still reads correctly.
+ */
+function encryptTaxpayerSnapshotForStorage(snapshot: any): string {
+  return JSON.stringify({ __enc: encryptValue(JSON.stringify(snapshot ?? {})) });
+}
+
+function decryptTaxpayerSnapshot(raw: any): any {
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.__enc === "string") {
+    try {
+      return JSON.parse(decryptValue(raw.__enc));
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
 function toFilingData(taxpayer: any, representatives: PoaRepresentative[], taxMatters: PoaTaxMatter[], retainPrior: boolean, notes: string | null): PoaFilingData {
   return {
     taxpayerName: taxpayer.name, taxpayerAddress: taxpayer.address,
@@ -137,7 +165,7 @@ poaFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
        (filing_id, client_id, form_type, taxpayer_snapshot, representatives, tax_matters, retain_prior, notes, status, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Draft',$9)`,
     [
-      filingId, clientId, formType, JSON.stringify(taxpayerSnapshot),
+      filingId, clientId, formType, encryptTaxpayerSnapshotForStorage(taxpayerSnapshot),
       JSON.stringify(representatives), JSON.stringify(taxMatters),
       Boolean(body.retainPrior), String(body.notes || "").trim() || null,
       req.user!.email,
@@ -160,7 +188,12 @@ poaFormsRouter.get("/:filingId", requireAuth, requireRole("admin", "staff"), asy
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
-  res.json({ filing });
+  // taxpayer_snapshot carries encrypted SSN/EIN and nothing on the frontend
+  // reads it (only PDF generation needs the decrypted form) — omit rather
+  // than send either the ciphertext envelope or plaintext PII over the wire
+  // for no reason.
+  const { taxpayer_snapshot, ...filingWithoutSnapshot } = filing;
+  res.json({ filing: filingWithoutSnapshot });
 }));
 
 poaFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -168,7 +201,7 @@ poaFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"),
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
 
-  const data = toFilingData(filing.taxpayer_snapshot, filing.representatives, filing.tax_matters, filing.retain_prior, filing.notes);
+  const data = toFilingData(decryptTaxpayerSnapshot(filing.taxpayer_snapshot), filing.representatives, filing.tax_matters, filing.retain_prior, filing.notes);
   const bytes = await generatePoaForm(filing.form_type, data);
 
   res.setHeader("Content-Type", "application/pdf");

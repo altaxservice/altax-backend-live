@@ -365,10 +365,15 @@ bankRecRouter.post("/:clientId/auto-match", requireAuth, requireRole("admin", "s
   // auto-match run) on the same line or GL entry get silently overwritten
   // (last write wins). Each UPDATE re-checks both sides are still unclaimed
   // at write time, inside one transaction, so a real conflict is skipped
-  // rather than clobbered.
+  // rather than clobbered. The GL-entry row lock (same pattern as the manual
+  // /match route) closes a race the WHERE-clause re-check alone didn't: two
+  // different bank lines both claiming the same GL entry, from two concurrent
+  // auto-match runs, could each pass the old unlocked NOT EXISTS check before
+  // either committed — locking the GL entry serializes that here too.
   let appliedCount = 0;
   await withTransaction(async (db) => {
     for (const m of matches) {
+      await db.query(`SELECT gl_entry_id FROM altax.v3_gl_entries WHERE gl_entry_id = $1 FOR UPDATE`, [m.glEntryId]);
       const updated = await db.query(
         `UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = $2
            WHERE line_id = $1 AND matched_gl_entry_id IS NULL

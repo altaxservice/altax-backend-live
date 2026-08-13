@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { query, queryOne } from "../../config/db";
+import { query, queryOne, withTransaction } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
@@ -80,29 +80,55 @@ export async function resolveAssigneeEmail(assignedTo: string): Promise<string |
   return row?.email || null;
 }
 
-/** Attempts a real email send, then always writes the communication log row regardless of send success — same pattern as sendChannel() in communications.routes.ts. */
+/**
+ * Attempts a real email send, then always writes the communication log row
+ * regardless of send success — same pattern as sendChannel() in
+ * communications.routes.ts.
+ *
+ * The advisory lock + re-check inside one transaction is the real fix for a
+ * production bug this exact function had: two overlapping runs of
+ * runReminders (a manual "Run Reminders" click landing during the daily 6:30AM
+ * cron, or any other overlap) could both pass the loop's own alreadySent()
+ * pre-check before either had written its v3_communications row, so both sent
+ * the same digest — confirmed by real duplicate rows already in production
+ * (e.g. 4 identical STAFFREM sends to the same person on the same day).
+ * pg_advisory_xact_lock, keyed by sourceRecordId, serializes any two callers
+ * targeting the same recipient+day: the second blocks until the first's
+ * transaction commits, then its own re-check inside the lock correctly sees
+ * "already sent" and skips — the same lock-then-recheck shape already proven
+ * in billing.routes.ts's runRecurringBillingSweep.
+ */
 async function sendAndLog(opts: {
   clientId: string | null; clientName: string | null; relatedTaskId: string | null;
   subject: string; bodyEnglish: string; bodyArabic: string; sentTo: string; sourceRecordId: string; actorEmail: string;
-}, req?: Request): Promise<{ sent: boolean; sendError?: string }> {
-  let sent = false;
-  let sendError: string | undefined;
-  try {
-    await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
-    sent = true;
-  } catch (err: any) {
-    sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
-  }
-  const status = sent ? "Saved + Sent" : sendError ? `Saved — ${sendError}` : "Saved";
-  await query(
-    `INSERT INTO altax.v3_communications
-       (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-     VALUES ($1,$2,$3,$4,'Outbound','Email',$5,$6,$7,$8,$9,now(),$10,'Reminders',$11)`,
-    [`COM-${idSuffix()}`, opts.clientId, opts.clientName, opts.relatedTaskId, opts.subject, opts.bodyEnglish, opts.bodyArabic,
-      opts.sentTo, opts.actorEmail, status, opts.sourceRecordId]
-  );
-  return { sent, sendError };
+}, req?: Request): Promise<{ sent: boolean; sendError?: string; alreadySent?: boolean }> {
+  return withTransaction(async (db) => {
+    await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [opts.sourceRecordId]);
+    const existing = await db.queryOne<any>(
+      `SELECT 1 FROM altax.v3_communications WHERE source_system = 'Reminders' AND source_record_id = $1`,
+      [opts.sourceRecordId]
+    );
+    if (existing) return { sent: false, alreadySent: true };
+
+    let sent = false;
+    let sendError: string | undefined;
+    try {
+      await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
+      sent = true;
+    } catch (err: any) {
+      sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
+    }
+    const status = sent ? "Saved + Sent" : sendError ? `Saved — ${sendError}` : "Saved";
+    await db.query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,'Outbound','Email',$5,$6,$7,$8,$9,now(),$10,'Reminders',$11)`,
+      [`COM-${idSuffix()}`, opts.clientId, opts.clientName, opts.relatedTaskId, opts.subject, opts.bodyEnglish, opts.bodyArabic,
+        opts.sentTo, opts.actorEmail, status, opts.sourceRecordId]
+    );
+    return { sent, sendError };
+  });
 }
 
 /**
@@ -168,7 +194,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       clientId: null, clientName: null, relatedTaskId: null,
       subject, bodyEnglish, bodyArabic, sentTo: email, sourceRecordId, actorEmail,
     }, req);
-    if (result.sent) staffSent++; else staffFailed++;
+    if (result.sent) staffSent++; else if (result.alreadySent) staffSkipped++; else staffFailed++;
   }
 
   // --- Clients: one digest per client covering every open (Requested) document request ---
@@ -198,7 +224,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
       sentTo: client.email, sourceRecordId, actorEmail,
     }, req);
-    if (result.sent) clientSent++; else clientFailed++;
+    if (result.sent) clientSent++; else if (result.alreadySent) clientSkipped++; else clientFailed++;
   }
 
   // --- Clients: one payment reminder per client with a positive unpaid invoice balance ---
@@ -226,7 +252,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
       sentTo: client.email, sourceRecordId, actorEmail,
     }, req);
-    if (result.sent) paymentSent++; else paymentFailed++;
+    if (result.sent) paymentSent++; else if (result.alreadySent) paymentSkipped++; else paymentFailed++;
   }
 
   // --- Firm: ONE daily digest per active admin, summarizing every open task's status
@@ -315,7 +341,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
       clientId: null, clientName: null, relatedTaskId: null,
       subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
     }, req);
-    if (result.sent) firmSent++; else firmFailed++;
+    if (result.sent) firmSent++; else if (result.alreadySent) firmSkipped++; else firmFailed++;
   }
 
   await logAudit("Reminders", "RUN", "Batch", "", "", today,

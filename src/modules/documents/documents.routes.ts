@@ -845,7 +845,7 @@ documentsRouter.get("/uploads/task/:taskId", requireAuth, asyncHandler(async (re
   if (!taskAllowed) return res.status(403).json({ error: "You do not have access to this task." });
 
   const rows = await query(
-    `SELECT * FROM altax.v3_document_uploads WHERE task_id = $1 AND request_id IS NULL ORDER BY uploaded_at DESC NULLS LAST`,
+    `SELECT ${UPLOAD_LIST_COLUMNS} FROM altax.v3_document_uploads WHERE task_id = $1 AND request_id IS NULL ORDER BY uploaded_at DESC NULLS LAST`,
     [taskId]
   );
   res.json({ uploads: rows });
@@ -855,6 +855,15 @@ documentsRouter.get("/uploads/task/:taskId", requireAuth, asyncHandler(async (re
 // for the admin/staff list views so "Files Shared Directly" can show who an
 // employee-targeted upload actually went to without a second round trip.
 const UPLOAD_EMPLOYEE_NAME_JOIN = `LEFT JOIN altax.v3_employees emp ON emp.employee_id = u.employee_id`;
+
+// Every list view below previously did SELECT * / SELECT u.*, which pulls file_data —
+// the file's entire base64 body — into every single row on every page load, for every
+// document ever uploaded. Downloads re-select file_data on their own, by upload_id
+// (see GET /uploads/:uploadId/download), so list views never need it.
+const UPLOAD_LIST_COLUMNS = `upload_id, request_id, task_id, client_id, client_name, file_name, file_url,
+  mime_type, file_size, uploaded_by, uploaded_at, direction, status, notes, hidden_from_client,
+  hidden_from_staff, employee_id, download_token, source_system, source_record_id, created_at, updated_at`;
+const UPLOAD_LIST_COLUMNS_ALIASED = UPLOAD_LIST_COLUMNS.split(",").map((c) => `u.${c.trim()}`).join(", ");
 
 /**
  * List document uploads — client gets only isClientVisibleUpload rows for their own
@@ -868,26 +877,26 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
   const scoped = (rows: any[]) => (requestIdFilter ? rows.filter((u) => u.request_id === requestIdFilter) : rows);
 
   if (role === "admin") {
-    const rows = await query(`SELECT u.*, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN} ORDER BY u.uploaded_at DESC NULLS LAST`);
+    const rows = await query(`SELECT ${UPLOAD_LIST_COLUMNS_ALIASED}, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN} ORDER BY u.uploaded_at DESC NULLS LAST`);
     return res.json({ uploads: scoped(rows) });
   }
 
   if (role === "client") {
     const requests = await query<any>(`SELECT request_id, status, direction, request_type, source_system FROM altax.v3_document_requests WHERE client_id = $1`, [req.user!.clientId]);
     const allowedRequestIds = new Set(requests.filter(isClientVisibleRequest).map((r) => String(r.request_id)));
-    const rows = await query<any>(`SELECT * FROM altax.v3_document_uploads WHERE client_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.clientId]);
+    const rows = await query<any>(`SELECT ${UPLOAD_LIST_COLUMNS} FROM altax.v3_document_uploads WHERE client_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.clientId]);
     return res.json({ uploads: scoped(rows.filter((u) => isClientVisibleUpload(u, allowedRequestIds))) });
   }
 
   if (role === "employee") {
     if (!req.user!.employeeId) return res.json({ uploads: [] });
-    const rows = await query<any>(`SELECT * FROM altax.v3_document_uploads WHERE employee_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.employeeId]);
+    const rows = await query<any>(`SELECT ${UPLOAD_LIST_COLUMNS} FROM altax.v3_document_uploads WHERE employee_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.employeeId]);
     return res.json({ uploads: scoped(rows.filter(isEmployeeVisibleUpload)) });
   }
 
   const aliases = await getUserAliases(req.user!.email);
   const rows = await query(
-    `SELECT u.*, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN}
+    `SELECT ${UPLOAD_LIST_COLUMNS_ALIASED}, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN}
       WHERE lower(u.uploaded_by) = ANY($1::text[])
          OR u.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))
          OR u.request_id IN (SELECT request_id FROM altax.v3_document_requests WHERE lower(assigned_to) = ANY($1::text[]))
