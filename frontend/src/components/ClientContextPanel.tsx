@@ -351,6 +351,15 @@ export function ClientContextPanel() {
             </div>
           )}
 
+          {/* Sits right under Recent Notes/Activities so both are visible
+              together at a glance — this used to be buried at the very
+              bottom of the panel, past Contact/Compliance/Account/Open,
+              which made it easy to miss entirely. */}
+          <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
+            {client.updated_at ? `Last updated ${new Date(client.updated_at).toLocaleDateString()}` : "Not yet updated"}
+            {client.updated_by && ` by ${client.updated_by}`}
+          </div>
+
           {/* Noticeable, colored account issues — separate from the freeform
               Activity Timeline because a note's "read" state says nothing
               about whether the underlying problem is actually fixed. Balance
@@ -602,13 +611,6 @@ export function ClientContextPanel() {
             </div>
           </div>
 
-          <div className="client-panel-section" style={{ borderBottom: "none" }}>
-            <div className="muted" style={{ fontSize: 11 }}>
-              {client.updated_at ? `Last updated ${new Date(client.updated_at).toLocaleDateString()}` : "Not yet updated"}
-              {client.updated_by && ` by ${client.updated_by}`}
-            </div>
-          </div>
-
           <div style={{ marginTop: 14 }}>
             <button type="button" className="btn btn-sm" style={{ width: "100%" }} onClick={() => navigate(`/billing?clientId=${client.client_id}`)}>View Billing</button>
           </div>
@@ -631,15 +633,10 @@ export function ClientContextPanel() {
 function ClientRow({ label, value, onClick, href, valueColor }: { label: string; value: string | null | undefined; onClick?: () => void; href?: string; valueColor?: string }) {
   const display = value || "—";
   const clickable = Boolean((onClick || href) && value);
-  // text-decoration is set directly on both spans (not just the flex
-  // container) because flex items don't reliably inherit an ancestor's
-  // underline across browsers — without this the underline can visually
-  // stop short of the number, which is exactly what looked "not tracking
-  // the right number" to the user.
   const rowInner = (
     <>
-      <span style={{ textDecoration: clickable ? "underline" : undefined }}>{label}</span>
-      <span style={{ textDecoration: clickable ? "underline" : undefined, ...(valueColor ? { color: valueColor, fontWeight: 800 } : undefined) }}>{display}</span>
+      <span>{label}</span>
+      <span style={valueColor ? { color: valueColor, fontWeight: 800 } : undefined}>{display}</span>
     </>
   );
   // The whole row is the link/button when clickable — not just the value —

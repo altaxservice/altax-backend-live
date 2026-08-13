@@ -882,11 +882,15 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .client-panel-value-link:hover { text-decoration: underline; }
 /* Whole-row hyperlink for the Account section — the entire row (label AND
-   value) is the link, always underlined, not just the number on the right. */
+   value) is the link, with one continuous underline running the full width,
+   through the gap between the label and the number too, not just under each
+   piece of text — border-bottom on the row itself, not text-decoration on the
+   spans, since text-decoration only draws under glyphs and leaves a visible
+   gap in a space-between flex row. */
 .client-panel-row-link {
   display: flex; justify-content: space-between; align-items: center; width: 100%;
-  background: none; border: none; padding: 4px 0; margin: 0; font: inherit; font-size: 12.5px;
-  color: var(--teal); cursor: pointer; text-decoration: underline; text-align: left;
+  background: none; border: none; border-bottom: 1px solid var(--teal); padding: 4px 0 3px; margin: 0;
+  font: inherit; font-size: 12.5px; color: var(--teal); cursor: pointer; text-align: left;
 }
 .client-panel-row-link:hover { opacity: 0.8; }
 
