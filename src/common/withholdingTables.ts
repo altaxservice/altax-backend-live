@@ -34,6 +34,16 @@
  * payroll processor) is untouched and always wins when set.
  */
 
+// Single source of truth for "which tax year are these brackets actually
+// verified for" — every bracket table below is only correct for this year;
+// the IRS and each state republish new brackets annually, usually Nov/Dec
+// for the following year. system.routes.ts's /diagnostics check reads this
+// to warn before it goes stale, instead of the tables silently producing
+// wrong withholding once the calendar rolls over. Bump this the same time
+// the bracket constants themselves are updated for a new tax year — not
+// before, so the warning stays honest about what's actually been verified.
+export const WITHHOLDING_TAX_YEAR = 2026;
+
 export type PayFrequency =
   | "Weekly" | "Bi-Weekly" | "Semi-Monthly" | "Monthly" | "Quarterly" | "Semi-Annually" | "Annually" | "Daily";
 

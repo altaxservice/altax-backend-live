@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
 import { buildBackupObject, runWeeklyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
+import { WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
 
 export const systemRouter = Router();
 
@@ -330,6 +331,29 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin"), asyncHandler
   checks.push(missingEin.length === 0
     ? { id: "client-ein", label: "Employer EINs on file", status: "ok", detail: "Every client running payroll has an EIN on file." }
     : { id: "client-ein", label: "Employer EINs on file", status: "warning", detail: `${missingEin.length} client(s) running payroll have no EIN on file, so their W-2/W-3/940/941 forms will print with a blank EIN box: ${missingEin.slice(0, 5).map((c: any) => c.client_name).join(", ")}${missingEin.length > 5 ? "…" : ""}. Fix from that client's profile.` });
+
+  // Federal/MD/VA/DC/DE payroll withholding uses hardcoded bracket tables (src/common/
+  // withholdingTables.ts) that are only correct for the tax year WITHHOLDING_TAX_YEAR was
+  // last bumped to — the IRS and each state republish brackets annually, usually Nov/Dec
+  // for the following year, and nothing else in the app would ever notice if they went
+  // stale. Unlike most of these checks, this one can't wait to be "warning" until it's
+  // already wrong — once the calendar rolls past WITHHOLDING_TAX_YEAR, every paycheck run
+  // that day is silently using the wrong brackets, so that state is "critical," not
+  // "warning." The "warning" state exists purely to give a head start: the IRS/state
+  // agencies typically publish next year's numbers in November/December, so a heads-up
+  // starting in November leaves time to source and verify before it becomes urgent.
+  const now = new Date();
+  const currentTaxYear = now.getFullYear();
+  const isAnnualPrepWindow = now.getMonth() >= 10; // November (10) or December (11)
+  const neededByTaxYear = isAnnualPrepWindow ? currentTaxYear + 1 : currentTaxYear;
+  const withholdingSourcesNote = "Sources: IRS Publication 15-T (federal), MD Comptroller's Central Payroll Bureau withholding memo (Maryland), Virginia Tax's Income Tax Withholding Guide for Employers, DC OTR's individual income tax bracket schedule, and Delaware Division of Revenue's Tax Computation Schedule (from the PIT-EST instructions). Update the bracket constants in src/common/withholdingTables.ts, then bump the WITHHOLDING_TAX_YEAR constant at the top of that file.";
+  if (WITHHOLDING_TAX_YEAR < currentTaxYear) {
+    checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "critical", detail: `The federal/MD/VA/DC/DE withholding tables are still marked verified for tax year ${WITHHOLDING_TAX_YEAR}, but it's now ${currentTaxYear} — every paycheck calculated right now is using the wrong year's tax brackets. ${withholdingSourcesNote}` });
+  } else if (WITHHOLDING_TAX_YEAR < neededByTaxYear) {
+    checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "warning", detail: `Withholding tables are verified through tax year ${WITHHOLDING_TAX_YEAR}. Agencies typically publish ${neededByTaxYear} brackets around this time of year — source and verify them before January 1 so payroll doesn't run on stale numbers. ${withholdingSourcesNote}` });
+  } else {
+    checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "ok", detail: `Federal, MD, VA, DC, and DE withholding bracket tables are verified current for tax year ${WITHHOLDING_TAX_YEAR}.` });
+  }
 
   // --- Service Type / Services Provided vs. the granular per-obligation flags ---
   // Confirmed by direct investigation (2026-08-09): "Service Type" (Full Service,
