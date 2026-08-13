@@ -7,12 +7,14 @@
  * every other generated PDF in this app.
  *
  * Page 1: cover sheet (business info + jurisdiction/COMAR citation).
- * Page 2: dedicated Menu & Equipment checklist (own page, business-info
- * banner at top, per explicit request that staff see the checklist first).
+ * Page 2: dedicated Menu checklist (own page, business-info banner at top,
+ * per explicit request that staff see the menu first).
  * Page 3+: the plan body (CCP sections, general handling/training) flowed
  * across however many pages it needs, with light bolding for section headers
  * and CCP field labels (CCP & EQUIPMENT / MONITORING / CORRECTIVE ACTION /
  * VERIFICATION) so the CCP tables read cleanly instead of as a wall of text.
+ * Final section: Equipment List, on its own fresh page — matches the Word
+ * doc's document order (Cover → Menu → Body → Equipment List).
  */
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, degrees } from "pdf-lib";
 import { pdfSafeText } from "../../common/pdfText";
@@ -243,30 +245,6 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     y += 6;
   }
 
-  // Equipment List always starts on its own fresh page rather than flowing
-  // wherever the Menu happened to end — a long Menu used to push Equipment's
-  // heading right up against the bottom margin, so the list itself split
-  // awkwardly mid-entry across a page break a few items in. Forcing a clean
-  // page here means the split (if any) only ever happens between later items,
-  // not immediately after the heading.
-  pageNum += 1;
-  ({ page, c } = newPage(doc, font, bold, data.businessName));
-  y = 56;
-  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
-  c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
-  y += 8;
-  c.line(L, y, R, y, LINE, 0.75);
-  y += 16;
-  if (!data.equipment.length) {
-    c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
-    y += 16;
-  }
-  for (const item of data.equipment) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
-    c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
-    y += 13;
-  }
-
   // ---- Body: CCP sections, general handling/training — starts on its own fresh page ----
   y = 60;
   ({ page, c } = newPage(doc, font, bold, data.businessName));
@@ -313,6 +291,27 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       }
     }
     y += 9;
+  }
+
+  // ---- Equipment List — true final section, matching the Word doc, always
+  // starting on its own fresh page rather than flowing wherever the Body
+  // happened to end. ----
+  pageNum += 1;
+  ({ page, c } = newPage(doc, font, bold, data.businessName));
+  y = 56;
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
+  c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
+  y += 8;
+  c.line(L, y, R, y, LINE, 0.75);
+  y += 16;
+  if (!data.equipment.length) {
+    c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
+    y += 16;
+  }
+  for (const item of data.equipment) {
+    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
+    y += 13;
   }
 
   return doc.save();
