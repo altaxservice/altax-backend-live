@@ -216,6 +216,111 @@ reportsRouter.get("/pdf/client-swot/:clientId", requireAuth, requireRole("admin"
   res.send(Buffer.from(pdfBytes));
 }));
 
+// Display labels kept local to this report — the FORM_LABELS maps in
+// govForms.routes.ts / poaForms.routes.ts are module-private and describe the
+// full legal form name (fine for a filing detail page); this report wants a
+// short line that fits one row in a list, so it's a deliberately separate,
+// shorter set of labels rather than importing and reusing those.
+const VALUE_REPORT_GOV_FORM_LABELS: Record<string, string> = {
+  SS4: "IRS Form SS-4 (EIN Application)", "2553": "IRS Form 2553 (S-Corp Election)", W9: "IRS Form W-9",
+  "8832": "IRS Form 8832 (Entity Classification)", W4: "IRS Form W-4", CRA: "MD Form CRA (Combined Registration)",
+  "8822B": "IRS Form 8822-B (Change of Address)",
+};
+const VALUE_REPORT_POA_FORM_LABELS: Record<string, string> = {
+  "2848": "IRS Form 2848 (Power of Attorney)", "8821": "IRS Form 8821 (Tax Information Authorization)", "548": "MD Form 548 (Power of Attorney)",
+};
+
+/**
+ * "What we did for you this year" — a client-relationship deliverable
+ * (see generateClientValueReportPdf) built from data the app already tracks:
+ * completed tasks, gov-form/POA filings, HACCP packages, documents delivered,
+ * and (admin only) billing. Defaults to the trailing 12 months when no
+ * from/to query params are given.
+ */
+reportsRouter.get("/pdf/client-value-report/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const to = String(req.query.to || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const fromDefault = (() => { const d = new Date(`${to}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() - 1); return d.toISOString().slice(0, 10); })();
+  const from = String(req.query.from || "").slice(0, 10) || fromDefault;
+
+  const tasksRows = await query<any>(
+    `SELECT task_name, service_line, archived_at FROM altax.v3_archived_tasks
+      WHERE client_id = $1 AND lower(status) = 'completed' AND archived_at BETWEEN $2 AND $3
+      ORDER BY archived_at`,
+    [client.clientId, from, to]
+  );
+  const govFormRows = await query<any>(
+    `SELECT form_type, created_at FROM altax.v3_gov_form_filings
+      WHERE client_id = $1 AND status <> 'Void' AND created_at BETWEEN $2 AND $3
+      ORDER BY created_at`,
+    [client.clientId, from, to]
+  );
+  const poaRows = await query<any>(
+    `SELECT form_type, created_at FROM altax.v3_poa_filings
+      WHERE client_id = $1 AND status <> 'Void' AND created_at BETWEEN $2 AND $3
+      ORDER BY created_at`,
+    [client.clientId, from, to]
+  );
+  const haccpRows = await query<any>(
+    `SELECT business_name, created_at FROM altax.v3_haccp_plans
+      WHERE client_id = $1 AND created_at BETWEEN $2 AND $3
+      ORDER BY created_at`,
+    [client.clientId, from, to]
+  );
+  // status='Generated' catches firm-produced files (HACCP packages, signed
+  // gov forms); direction='Firm to Client' catches everything else staff
+  // explicitly sent — together these exclude plain client/employee uploads,
+  // which aren't something the firm "did for" the client. See haccp.routes.ts
+  // save-to-documents and documents.routes.ts/communications.routes.ts sends.
+  const docRows = await query<any>(
+    `SELECT file_name, uploaded_at FROM altax.v3_document_uploads
+      WHERE client_id = $1 AND uploaded_at BETWEEN $2 AND $3
+        AND (status = 'Generated' OR direction = 'Firm to Client')
+      ORDER BY uploaded_at`,
+    [client.clientId, from, to]
+  );
+
+  const isAdmin = req.user!.role === "admin";
+  let billing: { totalBilled: number; totalPaid: number; invoiceCount: number } | null = null;
+  if (isAdmin) {
+    const invoiceTotals = await queryOne<any>(
+      `SELECT COALESCE(SUM(total_amount), 0) AS billed, COUNT(*)::int AS count
+         FROM altax.v3_invoices WHERE client_id = $1 AND status <> 'Void' AND invoice_date BETWEEN $2 AND $3`,
+      [client.clientId, from, to]
+    );
+    const paymentTotals = await queryOne<any>(
+      `SELECT COALESCE(SUM(actual_amount), 0) AS paid
+         FROM altax.v3_payments WHERE client_id = $1 AND payment_date BETWEEN $2 AND $3`,
+      [client.clientId, from, to]
+    );
+    billing = { totalBilled: Number(invoiceTotals?.billed || 0), totalPaid: Number(paymentTotals?.paid || 0), invoiceCount: Number(invoiceTotals?.count || 0) };
+  }
+
+  const filingsAndForms = [
+    ...govFormRows.map((f: any) => ({ label: VALUE_REPORT_GOV_FORM_LABELS[f.form_type] || `Form ${f.form_type}`, date: new Date(f.created_at).toISOString() })),
+    ...poaRows.map((f: any) => ({ label: VALUE_REPORT_POA_FORM_LABELS[f.form_type] || `Form ${f.form_type}`, date: new Date(f.created_at).toISOString() })),
+    ...haccpRows.map((h: any) => ({ label: `HACCP / Food Safety Plan — ${h.business_name}`, date: new Date(h.created_at).toISOString() })),
+  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const { generateClientValueReportPdf } = await import("../accounting/reportsPdf");
+  const pdfBytes = await generateClientValueReportPdf({
+    client,
+    periodLabel: `${new Date(`${from}T00:00:00Z`).toLocaleDateString()} – ${new Date(`${to}T00:00:00Z`).toLocaleDateString()}`,
+    preparedBy: req.user!.email,
+    tasksCompleted: tasksRows.map((t: any) => ({ label: `${t.task_name}${t.service_line ? ` (${t.service_line})` : ""}`, date: new Date(t.archived_at).toISOString() })),
+    filingsAndForms,
+    documentsDelivered: docRows.map((d: any) => ({ label: d.file_name, date: new Date(d.uploaded_at).toISOString() })),
+    billing,
+  });
+
+  await logAudit("Reports", "GENERATE_CLIENT_VALUE_REPORT_PDF", client.clientId, "", "", "", `Annual value report generated by ${req.user!.email}.`, req.user!.email);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="AnnualValueReport_${client.clientId}_${from}_${to}.pdf"`);
+  res.send(Buffer.from(pdfBytes));
+}));
+
 reportsRouter.get("/pdf/firm-overview", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { from, to } = defaultFirmSummaryRange();
   const rangeFrom = String(req.query.from || "").slice(0, 10) || from;

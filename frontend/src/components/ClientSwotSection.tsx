@@ -390,6 +390,61 @@ function FindingsPanel({ clientId }: { clientId: string }) {
 }
 
 /**
+ * "What we did for you this year" — a client-relationship deliverable built
+ * entirely from records the app already has (completed tasks, gov-form/POA
+ * filings, HACCP packages, documents delivered, and admin-only billing);
+ * something concrete to hand a client at renewal time. Deliberately separate
+ * from the SWOT/advisory report below — that one is analysis and
+ * recommendations, this one is just a factual summary of completed work.
+ * Defaults to the trailing 12 months, same as the backend route's own
+ * default when no from/to is given.
+ */
+function ClientValueReportCard({ clientId, clientName }: { clientId: string; clientName?: string }) {
+  const notify = useNotify();
+  const [busy, setBusy] = useState<"view" | "download" | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const oneYearAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
+  const [from, setFrom] = useState(oneYearAgo);
+  const [to, setTo] = useState(today);
+
+  async function handle(mode: "view" | "download") {
+    setBusy(mode);
+    const qs = `?from=${from}&to=${to}`;
+    try {
+      if (mode === "view") await viewFile(`/reports/pdf/client-value-report/${clientId}${qs}`);
+      else await downloadFile(`/reports/pdf/client-value-report/${clientId}${qs}`, buildFilename([clientName, "Annual Value Report", from, to], "pdf"));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not generate the report.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 15, margin: 0 }}>Annual Value Report</h2>
+          <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>A summary of completed work for this client — tasks closed, forms/filings generated, documents delivered — something to hand them directly.</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <label style={{ fontSize: 11 }}>
+            <div className="muted" style={{ marginBottom: 2 }}>From</div>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: 12 }} />
+          </label>
+          <label style={{ fontSize: 11 }}>
+            <div className="muted" style={{ marginBottom: 2 }}>To</div>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ fontSize: 12 }} />
+          </label>
+          <button type="button" className="btn btn-sm" onClick={() => handle("view")} disabled={busy !== null}>{busy === "view" ? "Opening…" : "View Report"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => handle("download")} disabled={busy !== null}>{busy === "download" ? "Downloading…" : "Download PDF"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Per-client business advisory analysis — a living document staff write and
  * revisit over time, not a dated log. Broader than a classic 4-box SWOT by
  * explicit ask: alongside Strengths/Weaknesses/Opportunities/Threats, staff
@@ -504,6 +559,7 @@ export function ClientSwotSection({ clientId, clientName }: { clientId: string; 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <ClientValueReportCard clientId={clientId} clientName={clientName} />
       <FindingsPanel clientId={clientId} />
       <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>

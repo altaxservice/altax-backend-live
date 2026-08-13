@@ -1051,6 +1051,112 @@ export async function generateClientSwotPdf(data: ClientSwotReportData): Promise
   return doc.save();
 }
 
+export interface ClientValueReportItem { label: string; date: string; detail?: string }
+
+export interface ClientValueReportData {
+  client: ReportClientInfo;
+  periodLabel: string;
+  preparedBy: string | null;
+  tasksCompleted: ClientValueReportItem[];
+  filingsAndForms: ClientValueReportItem[];
+  documentsDelivered: ClientValueReportItem[];
+  // Same admin-only restriction as ClientSwotReportData.financials — omitted
+  // entirely (not zeroed) for a staff requester.
+  billing: { totalBilled: number; totalPaid: number; invoiceCount: number } | null;
+}
+
+/**
+ * "What we did for you this year" — a client-facing deliverable summarizing
+ * completed work over a date range (tasks closed, government/authorization
+ * forms and HACCP packages generated, documents delivered, and — admin only
+ * — billing activity), built entirely from records the app already has. A
+ * relationship/retention tool for renewal conversations, not an advisory
+ * memo (see generateClientSwotPdf for that) — so it stays terse: what was
+ * done and when, not analysis or recommendations.
+ */
+export async function generateClientValueReportPdf(data: ClientValueReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Annual Value Report", data.periodLabel]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  const footerNote = `Prepared exclusively for ${data.client.clientName}${data.preparedBy ? ` by ${data.preparedBy}` : ""} — a summary of completed work, not a substitute for tax advice or filed returns.`;
+  let y = drawFirmHeader(page, c, "ANNUAL VALUE REPORT", data.periodLabel, profile, logo);
+
+  c.text(48, y, data.client.clientName.toUpperCase(), { size: 13, bold: true, color: TEAL });
+  y += 22;
+
+  async function ensureRoom(needed: number) {
+    if (y + needed > PAGE_H - 60) {
+      drawFooter(c, profile.firmName, footerNote);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+  }
+
+  const tiles: [string, string][] = [
+    ["Tasks Completed", String(data.tasksCompleted.length)],
+    ["Filings & Forms", String(data.filingsAndForms.length)],
+    ["Documents Delivered", String(data.documentsDelivered.length)],
+  ];
+  await ensureRoom(70);
+  const tileW3 = (PAGE_W - 96 - 2 * 10) / 3;
+  tiles.forEach(([label, value], i) => {
+    const x = 48 + i * (tileW3 + 10);
+    c.rect(x, y, tileW3, 44, TEAL_TINT);
+    c.text(x + 10, y + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+    c.text(x + 10, y + 34, value, { size: 16, bold: true });
+  });
+  y += 58;
+
+  if (data.billing) {
+    await ensureRoom(58);
+    const tileW2 = (PAGE_W - 96 - 10) / 2;
+    const billingTiles: [string, string][] = [
+      ["Total Billed", money(data.billing.totalBilled)],
+      ["Total Collected", money(data.billing.totalPaid)],
+    ];
+    billingTiles.forEach(([label, value], i) => {
+      const x = 48 + i * (tileW2 + 10);
+      c.rect(x, y, tileW2, 44, TEAL_TINT);
+      c.text(x + 10, y + 16, label.toUpperCase(), { size: 7, bold: true, color: MUTED });
+      c.text(x + 10, y + 34, value, { size: 12, bold: true });
+    });
+    y += 58;
+  }
+
+  async function listSection(title: string, items: ClientValueReportItem[]) {
+    await ensureRoom(30);
+    y = sectionLabel(c, y, title);
+    if (items.length === 0) {
+      y = emptyNote(c, y);
+      y += 10;
+      return;
+    }
+    for (const item of items) {
+      await ensureRoom(16);
+      c.text(48, y, item.label, { size: 10 });
+      c.text(PAGE_W - 48, y, fmtDate(item.date), { size: 9, color: MUTED, align: "right" });
+      y += 14;
+      if (item.detail) {
+        await ensureRoom(14);
+        c.text(60, y, item.detail, { size: 8.5, color: MUTED });
+        y += 12;
+      }
+    }
+    y += 10;
+  }
+
+  await listSection("Filings & Forms Completed", data.filingsAndForms);
+  await listSection("Tasks Completed", data.tasksCompleted);
+  await listSection("Documents Delivered", data.documentsDelivered);
+
+  drawFooter(c, profile.firmName, footerNote);
+  return doc.save();
+}
+
 export interface CalculatorSalesTaxLine { categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
 export interface CalculatorSalesTaxMdFiling {
   dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string; onTime: boolean;
