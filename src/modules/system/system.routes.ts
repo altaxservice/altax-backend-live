@@ -504,7 +504,7 @@ systemRouter.get("/activity-since-login", requireAuth, requireRole("admin", "sta
   }
 
   const events = await query<any>(
-    `SELECT logged_at, user_email, module, action, note
+    `SELECT logged_at, user_email, module, action, note, record_id
        FROM altax.v3_audit_log
       WHERE logged_at > $1 AND module = ANY($2::text[])
       ORDER BY logged_at DESC
@@ -525,6 +525,7 @@ systemRouter.get("/activity-since-login", requireAuth, requireRole("admin", "sta
       userEmail: e.user_email,
       module: e.module,
       action: e.action,
+      recordId: e.record_id,
       note: e.note,
     })),
   });

@@ -370,6 +370,28 @@ select.action-menu { color: var(--muted); font-weight: 600; }
   font-weight: 700;
 }
 .alert-strip strong { font-family: var(--serif); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Same shape as .alert-strip but teal, not red — for "worth knowing" rather
+   than "something's wrong" (e.g. the since-last-login activity digest). A
+   whole clickable strip, not a bare inline link, so it actually gets noticed
+   next to a page full of KPI tiles and tables. */
+.info-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+.info-strip:hover { opacity: 0.85; }
+.info-strip strong { font-family: var(--serif); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .metric-label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .metric-value { margin-top: 8px; font-size: 32px; font-weight: 850; font-family: var(--serif); font-variant-numeric: tabular-nums; }
 .metric-note { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
