@@ -312,6 +312,69 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
   res.json({ clients });
 }));
 
+/**
+ * UX-005 (Hard Audit, 2026-08-13) — the "push" counterpart to UX-001's at-risk
+ * dashboard panel (a "pull" mechanism: someone has to go look). Nightly,
+ * firm-wide (same two bulk GROUP BY queries as GET /flags above, just without
+ * the staff-scope filter), diffs against v3_flag_alerts_sent to find clients
+ * newly crossing into BalancePastDue or AgencyPastDue, logs one audit event
+ * each (which is all that's needed — "Clients" is already in the since-login
+ * digest's module allowlist, system.routes.ts's ACTIVITY_DIGEST_MODULES), and
+ * records the flag as seen. When a client's flag has since cleared, the
+ * tracking row is deleted so the NEXT occurrence alerts again — same
+ * self-clearing behavior as the flags themselves.
+ */
+export async function runClientRiskFlagSweep(actorEmail: string): Promise<{ newlyFlagged: number }> {
+  const [balanceRows, agencyRows, alreadySent] = await Promise.all([
+    query<any>(
+      `SELECT c.client_id, c.client_name FROM altax.v3_clients c
+         JOIN altax.v3_invoices i ON i.client_id = c.client_id
+        WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0
+          AND i.due_date IS NOT NULL AND i.due_date::date < CURRENT_DATE
+        GROUP BY c.client_id, c.client_name`
+    ),
+    query<any>(
+      `SELECT c.client_id, c.client_name FROM altax.v3_clients c
+         JOIN altax.v3_tasks t ON t.client_id = c.client_id
+        WHERE t.payment_required = true AND t.paid_date IS NULL
+          AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE
+        GROUP BY c.client_id, c.client_name`
+    ),
+    query<any>(`SELECT client_id, flag_type FROM altax.v3_flag_alerts_sent`),
+  ]);
+  const sentSet = new Set(alreadySent.map((r: any) => `${r.client_id}|${r.flag_type}`));
+  const currentlyFlagged: { clientId: string; clientName: string; flagType: "BalancePastDue" | "AgencyPastDue" }[] = [
+    ...balanceRows.map((r: any) => ({ clientId: r.client_id, clientName: r.client_name, flagType: "BalancePastDue" as const })),
+    ...agencyRows.map((r: any) => ({ clientId: r.client_id, clientName: r.client_name, flagType: "AgencyPastDue" as const })),
+  ];
+  const active = new Set(currentlyFlagged.map((f) => `${f.clientId}|${f.flagType}`));
+
+  let newlyFlagged = 0;
+  for (const { clientId, clientName, flagType } of currentlyFlagged) {
+    if (sentSet.has(`${clientId}|${flagType}`)) continue;
+    await query(
+      `INSERT INTO altax.v3_flag_alerts_sent (client_id, flag_type) VALUES ($1, $2) ON CONFLICT (client_id, flag_type) DO NOTHING`,
+      [clientId, flagType]
+    );
+    await logAudit(
+      "Clients", "CLIENT_BECAME_AT_RISK", clientId, "flag", "", flagType,
+      flagType === "BalancePastDue"
+        ? `${clientName} has an overdue balance owed to the firm.`
+        : `${clientName} has an overdue agency obligation (tax/EFTPS/etc).`,
+      actorEmail
+    );
+    newlyFlagged++;
+  }
+  // Self-clear: any tracking row whose flag is no longer active gets removed
+  // so a future recurrence alerts again instead of staying silently suppressed.
+  const stale = [...sentSet].filter((key) => !active.has(key));
+  for (const key of stale) {
+    const [clientId, flagType] = key.split("|");
+    await query(`DELETE FROM altax.v3_flag_alerts_sent WHERE client_id = $1 AND flag_type = $2`, [clientId, flagType]);
+  }
+  return { newlyFlagged };
+}
+
 function nextFlagId(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");

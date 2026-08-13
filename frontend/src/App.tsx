@@ -29,6 +29,7 @@ import { HaccpGeneratorPage } from "./pages/HaccpGeneratorPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
+import { MaintenanceManualPage } from "./pages/MaintenanceManualPage";
 import { FirmSettingsPage } from "./pages/FirmSettingsPage";
 import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { ListSettingsPage } from "./pages/ListSettingsPage";
@@ -50,6 +51,7 @@ import { PublicContractPage } from "./pages/PublicContractPage";
 import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 import { MyBusinessPage } from "./pages/MyBusinessPage";
+import { AgreementsPage } from "./pages/AgreementsPage";
 
 function App() {
   return (
@@ -83,6 +85,7 @@ function App() {
               </Route>
               <Route element={<ProtectedRoute roles={["client"]} />}>
                 <Route path="/my-business" element={<MyBusinessPage />} />
+                <Route path="/agreements" element={<AgreementsPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/users" element={<UsersPage />} />
@@ -102,6 +105,9 @@ function App() {
                   portal-user lockout) never reach a staff response. */}
               <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
                 <Route path="/fix-center" element={<FixCenterPage />} />
+              </Route>
+              <Route element={<ProtectedRoute roles={["admin"]} />}>
+                <Route path="/maintenance-manual" element={<MaintenanceManualPage />} />
               </Route>
               {/* Employees have no billing relationship with the firm — only their employer
                   (the client) does. Employees are paid via payroll, not invoiced. */}

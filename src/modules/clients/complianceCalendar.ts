@@ -26,7 +26,7 @@ import { computeDuePeriod } from "../rules/rules.routes";
 export interface ComplianceDeadline {
   label: string;
   date: string; // YYYY-MM-DD
-  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election" | "EFTPS" | "MD Withholding" | "MD UI" | "Business Tax Return" | "Individual Tax Return" | "Estimated Tax";
+  source: "MD Sales Tax" | "Payroll" | "Federal Payroll Tax" | "MD Annual Report" | "S-Corp Election" | "EFTPS" | "MD Withholding" | "MD UI" | "Business Tax Return" | "Individual Tax Return" | "Estimated Tax" | "1099/W-2";
 }
 
 /** Next occurrence of a fixed month/day from `asOf` — rolls to next year if this year's date has already passed. */
@@ -158,6 +158,8 @@ export function computeUpcomingDeadlines(params: {
   businessReturnType?: string | null;
   /** v3_clients.client_type — "Individual" surfaces the Form 1040/4868/1040-ES deadlines below; any other value (or unset) surfaces none of them. */
   clientType?: string | null;
+  /** v3_clients.w21099_enabled — TAX-003: surfaces the 1099-NEC/MISC and W-2/W-3 Jan 31 deadlines below. */
+  w21099Enabled?: boolean;
   /** `${source}|${date}` keys already marked done via v3_obligation_completions — see clients.routes.ts's /obligations/mark-done. */
   completedKeys?: Set<string>;
   withinDays?: number;
@@ -209,6 +211,17 @@ export function computeUpcomingDeadlines(params: {
   }
 
   deadlines.push(...computeIndividualDeadlines(params.clientType, withinDays, asOf));
+
+  // TAX-003: mirrors TR-023/TR-024 (sql/072) — same computeDuePeriod engine
+  // the Task Rules Agent uses, so this preview and the real drafted task
+  // never disagree on the date.
+  if (params.w21099Enabled) {
+    const period = computeDuePeriod({ frequency: "Annual", due_day: "31", due_month: "1" }, asOf);
+    if (period) {
+      deadlines.push({ label: "1099-NEC/MISC Filing", date: period.dueDate, source: "1099/W-2" });
+      deadlines.push({ label: "W-2/W-3 Filing", date: period.dueDate, source: "1099/W-2" });
+    }
+  }
 
   const scorp = computeScorpElectionStatus(params.entityType ?? null, params.dateOfFormation ?? null, params.has2553Filing ?? false, asOf);
   // Only surfaced while there's still something to actually do about it —

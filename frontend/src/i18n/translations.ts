@@ -16,6 +16,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "nav.guide": { en: "Guide", ar: "الدليل" },
   "nav.myTaxForms": { en: "My Tax Forms", ar: "نماذجي الضريبية" },
   "nav.myBusiness": { en: "My Business", ar: "نشاطي التجاري" },
+  "nav.agreements": { en: "Agreements", ar: "الاتفاقيات" },
   "brand.by": { en: "by", ar: "من" },
 
   // Mobile bottom tab bar — deliberately shorter than the sidebar labels

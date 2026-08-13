@@ -154,3 +154,44 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
   }
   return true;
 }
+
+/**
+ * ACC-012 (Hard Audit, 2026-08-13): settleStripePaymentIfPaid only ever ran
+ * when the specific public share link was reloaded — a client who paid, then
+ * closed the tab without ever bouncing back through the success_url (network
+ * hiccup, closed the tab a beat early, cleared cookies before the redirect
+ * landed), left their invoice "Unpaid" forever with the firm having no way to
+ * find out short of manually reconciling the Stripe dashboard against the
+ * invoice list. Periodic sweep closes that gap without a webhook — same
+ * self-healing pull-based design as the per-request settle, just triggered on
+ * a timer instead of a page load. Every invoice checked here reuses
+ * settleStripePaymentIfPaid's own idempotency/locking, so running this
+ * alongside a real page-load settle (or two overlapping sweeps) can't
+ * double-record.
+ */
+export async function runStripeReconciliation(): Promise<{ checked: number; settled: number; failed: number }> {
+  if (!isStripeConfigured()) return { checked: 0, settled: 0, failed: 0 };
+  const invoices = await query<any>(
+    `SELECT invoice_id, client_id, stripe_session_id, balance_due, total_amount FROM altax.v3_invoices
+      WHERE stripe_session_id IS NOT NULL AND lower(status) NOT IN ('paid','void') AND balance_due > 0`
+  );
+  let settled = 0, failed = 0;
+  const failedIds: string[] = [];
+  for (const invoice of invoices) {
+    try {
+      if (await settleStripePaymentIfPaid(invoice)) settled++;
+    } catch (err) {
+      failed++;
+      failedIds.push(invoice.invoice_id);
+      // eslint-disable-next-line no-console
+      console.error(`[runStripeReconciliation] failed for invoice ${invoice.invoice_id}:`, err);
+    }
+  }
+  if (failed > 0) {
+    await alertAdmins(
+      "Stripe reconciliation: some invoices failed to check",
+      `${failed} of ${invoices.length} invoice(s) with a pending Stripe checkout session failed to reconcile this run: ${failedIds.join(", ")}. Check the server logs for per-invoice errors (search "[runStripeReconciliation] failed for invoice").`
+    );
+  }
+  return { checked: invoices.length, settled, failed };
+}

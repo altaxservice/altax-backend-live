@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -133,8 +134,12 @@ export function FixCenterPage() {
         <h2>System Health &amp; Self-Diagnostics</h2>
         <p>
           Plain-English checks of whether anything in the app is misconfigured or the data has drifted into a bad state —
-          no technical knowledge needed to read this page. For anything not fixable here, see the Maintenance Manual
-          (docs/MAINTENANCE_MANUAL.md in the project) or ask {user?.role === "admin" ? "your developer" : "an admin"} to look into it.
+          no technical knowledge needed to read this page. For anything not fixable here,
+          {user?.role === "admin" ? (
+            <> see the <Link to="/maintenance-manual">Maintenance Manual</Link> or ask your developer to look into it.</>
+          ) : (
+            <> see the Maintenance Manual or ask an admin to look into it.</>
+          )}
         </p>
       </div>
 

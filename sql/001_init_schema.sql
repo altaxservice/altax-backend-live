@@ -121,8 +121,7 @@ CREATE TABLE IF NOT EXISTS v3_users (
     pending_email_sync_contact BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT fk_v3_users_assigned_client_id FOREIGN KEY (assigned_client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL,
-    CONSTRAINT fk_v3_users_assigned_employee_id FOREIGN KEY (assigned_employee_id) REFERENCES v3_employees(employee_id) ON DELETE SET NULL
+    CONSTRAINT fk_v3_users_assigned_client_id FOREIGN KEY (assigned_client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL
 );
 
 -- ---- v3_Employees ----
@@ -180,6 +179,12 @@ CREATE TABLE IF NOT EXISTS v3_employees (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_v3_employees_client_id FOREIGN KEY (client_id) REFERENCES v3_clients(client_id) ON DELETE SET NULL
 );
+
+-- v3_users.assigned_employee_id -> v3_employees is added here (not inline on
+-- v3_users above) because v3_employees is only defined at this point in the
+-- file — a forward-referencing inline FK aborts a from-scratch `psql -f` of
+-- this file (discovered via the 2026-08-13 restore-drill audit, BC-005).
+ALTER TABLE v3_users ADD CONSTRAINT fk_v3_users_assigned_employee_id FOREIGN KEY (assigned_employee_id) REFERENCES v3_employees(employee_id) ON DELETE SET NULL;
 
 -- ---- v3_Payment_Methods ----
 CREATE TABLE IF NOT EXISTS v3_payment_methods (

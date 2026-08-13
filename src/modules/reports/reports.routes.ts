@@ -996,6 +996,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     mduiEnabled: Boolean(clientRow.mdui_enabled),
     businessReturnType: clientRow.business_return_type || null,
     clientType: clientRow.client_type || null,
+    w21099Enabled: Boolean(clientRow.w21099_enabled),
     completedKeys,
   });
 

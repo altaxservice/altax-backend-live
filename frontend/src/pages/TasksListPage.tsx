@@ -53,7 +53,10 @@ export function TasksListPage() {
   // same filtered, sorted list — with the task you were working on still in it.
   const [search, setSearch] = useStickyState("tasks.search", "");
   const [quickTab, setQuickTab] = useStickyState<QuickTab>("tasks.tab", "Active");
-  const [staffFilter, setStaffFilter] = useStickyState("tasks.staff", "all");
+  // UX-003: seeded from ?staff= the same way statusFilter seeds from ?status=
+  // below — lets the new admin-dashboard Staff Load panel deep-link straight
+  // into a filtered pipeline instead of dumping the admin on the unfiltered one.
+  const [staffFilter, setStaffFilter] = useStickyState("tasks.staff", searchParams.get("staff") || "all");
   const [serviceFilter, setServiceFilter] = useStickyState("tasks.service", "all");
   const [statusFilter, setStatusFilter] = useStickyState("tasks.status", searchParams.get("status") || "all");
   const [labelFilter, setLabelFilter] = useStickyState("tasks.label", "all");

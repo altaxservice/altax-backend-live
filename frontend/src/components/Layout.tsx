@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft,
+  PanelLeftClose, PanelLeft, FileSignature,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -47,6 +47,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator },
   { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
+  { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature },
   { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen },
   { to: "/payroll-agent", label: "Payroll Agent", roles: ["admin", "staff"], group: "Money", icon: Zap },
   { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money", icon: BarChart3 },
@@ -99,6 +100,7 @@ const TITLES: Record<string, string> = {
   "/firm-portals": "Portal Credentials",
   "/guide": "Guide",
   "/my-business": "My Business",
+  "/agreements": "Agreements",
 };
 
 // Mirrors NAV_ITEMS' navKey — only the pages client/employee can actually reach
@@ -111,6 +113,7 @@ const TITLE_KEYS: Record<string, string> = {
   "/guide": "nav.guide",
   "/my-tax-forms": "nav.myTaxForms",
   "/my-business": "nav.myBusiness",
+  "/agreements": "nav.agreements",
 };
 
 function titleForPath(pathname: string): string {

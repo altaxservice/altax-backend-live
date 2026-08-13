@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import express, { Router, Response } from "express";
 import { pool, query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
@@ -174,10 +176,19 @@ systemRouter.post("/backup/restore", requireAuth, requireRole("admin"), restoreB
       if (rows.length === 0) continue;
       // Only columns that still exist — an old backup may carry dropped columns,
       // and columns added since simply take their defaults.
-      const liveCols = (await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'altax' AND table_name = $1`,
+      const liveColRows = (await client.query(
+        `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'altax' AND table_name = $1`,
         [table]
-      )).rows.map((r: any) => String(r.column_name));
+      )).rows as { column_name: string; data_type: string }[];
+      const liveCols = liveColRows.map((r) => String(r.column_name));
+      // json/jsonb columns need JSON.stringify even when the value is an array
+      // (e.g. v3_fee_items.business_types) — the pg driver returns both a jsonb
+      // array and a native `text[]`/`int[]` array as an indistinguishable plain
+      // JS array, so the column's declared type (not the JS value's shape) is
+      // the only reliable signal for which encoding it needs. Restore-drill
+      // finding, 2026-08-13 (BC-005): a backup containing any jsonb-array row
+      // previously aborted the entire restore transaction.
+      const jsonCols = new Set(liveColRows.filter((r) => r.data_type === "json" || r.data_type === "jsonb").map((r) => r.column_name));
       const cols = Object.keys(rows[0]).filter((c) => liveCols.includes(c));
       if (cols.length === 0) continue;
       const colSql = cols.map((c) => `"${c}"`).join(", ");
@@ -187,9 +198,8 @@ systemRouter.post("/backup/restore", requireAuth, requireRole("admin"), restoreB
         const params: any[] = [];
         const tuples = chunk.map((row) => {
           const placeholders = cols.map((c) => {
-            // Objects that aren't arrays are JSONB payloads; pg needs them as text.
             const v = row[c];
-            params.push(v !== null && typeof v === "object" && !Array.isArray(v) ? JSON.stringify(v) : v);
+            params.push(v !== null && typeof v === "object" && jsonCols.has(c) ? JSON.stringify(v) : v);
             return `$${params.length}`;
           });
           return `(${placeholders.join(", ")})`;
@@ -245,6 +255,29 @@ systemRouter.get("/table-counts", requireAuth, requireRole("admin"), asyncHandle
     results.push({ table, count: Number(rows[0]?.count || 0) });
   }
   res.json({ tables: results });
+}));
+
+/**
+ * UX-015 (Hard Audit, 2026-08-13) — Fix Center's own text pointed staff at
+ * "docs/MAINTENANCE_MANUAL.md in the project," which meant nothing to anyone
+ * without a code editor open — the exact non-technical audience the manual
+ * says it's written for. Serves the same file's raw markdown for the
+ * frontend to render; kept read-only and admin-only (the manual covers
+ * things like .env secrets and JWT rotation) rather than becoming an editable
+ * CMS page, since it's still meant to be edited by a developer in the repo.
+ * Path resolves from __dirname (dist/modules/system at runtime) up to the
+ * project root, matching server.ts's identical pattern for marketing-site/
+ * and frontend/dist — docs/ ships as part of the deployed repo tree, not
+ * something the build step copies into dist/.
+ */
+systemRouter.get("/maintenance-manual", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const manualPath = path.join(__dirname, "..", "..", "..", "docs", "MAINTENANCE_MANUAL.md");
+  try {
+    const content = fs.readFileSync(manualPath, "utf8");
+    res.json({ content });
+  } catch {
+    res.status(404).json({ error: "The maintenance manual file could not be found on this server." });
+  }
 }));
 
 interface DiagnosticCheck {

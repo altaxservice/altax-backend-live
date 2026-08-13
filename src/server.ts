@@ -6,7 +6,7 @@ import path from "path";
 import { rateLimit } from "./common/rateLimit";
 import { pool } from "./config/db";
 import { authRouter } from "./modules/auth/auth.routes";
-import { clientsRouter, runSwotFindingsSweep } from "./modules/clients/clients.routes";
+import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep } from "./modules/clients/clients.routes";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
@@ -18,6 +18,7 @@ import { calculatorsRouter } from "./modules/calculators/calculators.routes";
 import { tasksRouter } from "./modules/tasks/tasks.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { billingRouter, runRecurringBillingSweep } from "./modules/billing/billing.routes";
+import { runStripeReconciliation } from "./modules/billing/stripePayments";
 import { communicationsRouter } from "./modules/communications/communications.routes";
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled } from "./modules/accounting/payrollAgent.routes";
@@ -389,6 +390,16 @@ cron.schedule("0 6 * * *", runScheduledJob("Recurring Billing Sweep", () => runR
 // eslint-disable-next-line no-console
 console.log("Recurring billing sweep scheduled for 6:00AM America/New_York.");
 
+// Stripe reconciliation sweep (ACC-012) — settleStripePaymentIfPaid previously
+// only ran when the specific public invoice share link was reloaded; a client
+// who paid and never bounced back through the success_url left their invoice
+// "Unpaid" forever with no way for the firm to find out. Every 4 hours,
+// idempotent (same locking/dedup as the page-load path), so this can't
+// double-record even if it overlaps a live settle.
+cron.schedule("20 */4 * * *", runScheduledJob("Stripe Reconciliation", () => runStripeReconciliation()));
+// eslint-disable-next-line no-console
+console.log("Stripe reconciliation sweep scheduled every 4 hours.");
+
 // Payroll Agent sweep — staggered 15 minutes after the recurring-billing sweep
 // to avoid both jobs hitting the DB in the same instant. Idempotent per
 // schedule/pay-date (see runPayrollAgentSweep's doc comment) via the same
@@ -447,6 +458,16 @@ console.log("Task Rules Agent sweep scheduled for 6:20AM America/New_York.");
 cron.schedule("25 6 * * *", runScheduledJob("SWOT Findings Sweep", () => runSwotFindingsSweep("System (SWOT Findings Sweep)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("SWOT findings sweep scheduled for 6:25AM America/New_York.");
+
+// Client risk-flag sweep (UX-005) — the "push" counterpart to the At-Risk
+// Clients dashboard panel (UX-001): logs one audit event per client newly
+// crossing into BalancePastDue/AgencyPastDue, which the 6:30 since-login
+// digest below then picks up automatically ("Clients" is already in its
+// module allowlist) — staff who weren't specifically looking at that panel
+// still see it the next time they log in.
+cron.schedule("22 6 * * *", runScheduledJob("Client Risk Flag Sweep", () => runClientRiskFlagSweep("System (Client Risk Flag Sweep)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Client risk flag sweep scheduled for 6:22AM America/New_York.");
 
 // Monthly client snapshot — 1st of each month, after the month it records
 // has fully closed. Feeds the At a Glance dashboard's "vs prior period" and

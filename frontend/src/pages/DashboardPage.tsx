@@ -509,6 +509,21 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // only role that can actually see it firm-wide, so surfacing it here is the
   // only way it doesn't just silently sit unclaimed.
   const unassigned = openTasks.filter((t) => !t.assigned_to || !t.assigned_to.trim());
+  // UX-003: the only staff workload view before this was a single "Active Staff"
+  // metric buried on TasksListPage, with the busiest person as a footnote — an
+  // admin had no way to see the whole team's load at a glance. Built from the
+  // full unfiltered open-task set (tasks.filter(isOpenTask)), not this page's own
+  // search/service/status filters, so it reads as the real firm-wide picture
+  // regardless of what the admin happens to be searching for right now.
+  const staffLoad = (() => {
+    const counts = new Map<string, number>();
+    for (const t of tasks.filter(isOpenTask)) {
+      const key = t.assigned_to || "Unassigned";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  })();
+  const staffLoadMax = staffLoad.length ? staffLoad[0][1] : 0;
 
   return (
     <div>
@@ -565,6 +580,27 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />
           </CommandPanel>
+          {staffLoad.length > 0 && (
+            <CommandPanel title="Staff Load" note={`${staffLoad.length} people carrying open work`}>
+              <div style={{ padding: "4px 16px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {staffLoad.slice(0, 8).map(([name, count]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className="link-button"
+                    style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: 0 }}
+                    onClick={() => navigate(`/tasks?staff=${encodeURIComponent(name)}`)}
+                  >
+                    <span style={{ flex: "0 0 110px", fontSize: 12.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                    <span style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--paper-2)", overflow: "hidden" }}>
+                      <span style={{ display: "block", height: "100%", borderRadius: 3, background: "var(--teal)", width: `${staffLoadMax ? Math.max(6, (count / staffLoadMax) * 100) : 0}%` }} />
+                    </span>
+                    <span className="muted" style={{ flex: "0 0 auto", fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{count}</span>
+                  </button>
+                ))}
+              </div>
+            </CommandPanel>
+          )}
           {unassigned.length > 0 && (
             <CommandPanel title="Unassigned Work" note={`${unassigned.length} open task${unassigned.length === 1 ? "" : "s"} with no one on it`}>
               <AttentionRows tasks={unassigned.slice(0, 6)} empty="No unassigned tasks." />
