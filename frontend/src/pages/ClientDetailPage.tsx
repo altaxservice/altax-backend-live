@@ -20,7 +20,7 @@ import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, FIRM_SERVICES, servicesForClien
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -1162,7 +1162,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       <tr style={archived ? { opacity: 0.6 } : undefined}>
         <td data-label="File">{u.file_name}{archived && <span className="muted" style={{ fontSize: 11 }}> (archived)</span>}</td>
         <td className="muted" data-label="Direction">{u.direction || "—"}</td>
-        <td className="muted" data-label="Uploaded">{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+        <td className="muted" data-label="Uploaded">{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</td>
         <td className="muted" data-label="By">{String((u as any).uploaded_by || "—")}</td>
         <td data-label="Action" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
@@ -1632,10 +1632,10 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                 <tr>
                   <td>{c.title}</td>
                   <td><span style={{ color: CONTRACT_STATUS_COLOR[c.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{c.status}</span></td>
-                  <td className="muted">{c.effective_date ? new Date(c.effective_date).toLocaleDateString() : "—"}</td>
+                  <td className="muted">{c.effective_date ? fmtDateTime(c.effective_date) : "—"}</td>
                   <td className="muted">
                     {c.signer_name
-                      ? `${c.signer_name}${c.signed_at ? ` · ${new Date(c.signed_at).toLocaleDateString()}` : ""}${c.signature_method === "In-Person" ? " · In Person" : ""}`
+                      ? `${c.signer_name}${c.signed_at ? ` · ${fmtDateTime(c.signed_at)}` : ""}${c.signature_method === "In-Person" ? " · In Person" : ""}`
                       : "—"}
                   </td>
                   <td>
@@ -1901,10 +1901,10 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
                   <td className="muted">{f.representatives.map((r) => r.name).join(", ") || "—"}</td>
                   <td><span style={{ color: STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span></td>
                   <td className="muted">
-                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${fmtDateTime(f.signed_at)}` : ""}` : "—"}
                   </td>
                   <td className="muted">
-                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${fmtDateTime(f.submitted_at)}` : ""}` : "—"}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -2348,10 +2348,10 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
                     )}
                   </td>
                   <td className="muted">
-                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${fmtDateTime(f.signed_at)}` : ""}` : "—"}
                   </td>
                   <td className="muted">
-                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${fmtDateTime(f.submitted_at)}` : ""}` : "—"}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

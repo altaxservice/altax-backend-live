@@ -11,7 +11,7 @@ import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 
 const DOCUMENT_STATUSES = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
@@ -380,7 +380,7 @@ export function DocumentsListPage() {
                     <tr key={u.upload_id}>
                       <td><button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button></td>
                       <td className="muted" data-label={t("documents.client.colNote")}>{u.notes || "—"}</td>
-                      <td className="muted" data-label={t("documents.client.colShared")}>{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}</td>
+                      <td className="muted" data-label={t("documents.client.colShared")}>{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</td>
                       <td data-label={t("documents.client.colAction")}>
                         <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>{t("documents.client.download")}</button>
                         {" "}

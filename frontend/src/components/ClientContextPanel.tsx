@@ -9,6 +9,7 @@ import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
+import { fmtDateTime } from "../utils/date";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 const PANEL_WIDTH_MIN = 260;
@@ -47,11 +48,6 @@ function whereForActivity(a: ActivityEntry): string {
   if (a.type.startsWith("Flag")) return "Flags";
   if (a.type.startsWith("Health Permit")) return "Health Permits";
   return "Notes";
-}
-
-function fmtDateTime(v: string): string {
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function ClientContextPanel() {

@@ -11,7 +11,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import type { DocumentRequest } from "../api/types2";
 import type { GovFormFiling } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../api/govForms";
@@ -800,14 +800,14 @@ function EmployeeGovFormSection({ employeeId, employeeName, formType, title }: {
                   <td>
                     <span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span>
                     {f.status === "Draft" && f.sent_to_employee_at && (
-                      <div className="muted" style={{ fontSize: 11 }}>Sent {new Date(f.sent_to_employee_at).toLocaleDateString()} — awaiting their signature</div>
+                      <div className="muted" style={{ fontSize: 11 }}>Sent {fmtDateTime(f.sent_to_employee_at)} — awaiting their signature</div>
                     )}
                   </td>
                   <td className="muted">
-                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${new Date(f.signed_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.signer_name ? `${f.signer_name}${f.signed_at ? ` · ${fmtDateTime(f.signed_at)}` : ""}` : "—"}
                   </td>
                   <td className="muted">
-                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${new Date(f.submitted_at).toLocaleDateString()}` : ""}` : "—"}
+                    {f.submitted_via ? `${f.submitted_via}${f.submitted_at ? ` · ${fmtDateTime(f.submitted_at)}` : ""}` : "—"}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1004,7 +1004,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
             <div key={u.upload_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
               <div>
                 <button type="button" className="link-button" style={{ fontWeight: 600 }} onClick={() => openAnyFile(u.file_url)}>{u.file_name}</button>
-                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"} · {u.uploaded_by || "—"}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"} · {u.uploaded_by || "—"}</div>
                 {u.notes && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{u.notes}</div>}
               </div>
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>

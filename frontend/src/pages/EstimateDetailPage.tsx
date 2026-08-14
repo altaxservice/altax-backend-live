@@ -9,6 +9,7 @@ import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
 import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { fmtDateTime } from "../utils/date";
 
 /**
  * The estimate builder.
@@ -296,7 +297,7 @@ export function EstimateDetailPage() {
 
       {estimate.approved_at && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--teal)" }}>
-          Approved {new Date(estimate.approved_at).toLocaleDateString()} by {estimate.approved_by}
+          Approved {fmtDateTime(estimate.approved_at)} by {estimate.approved_by}
           {estimate.approval_method ? ` — ${estimate.approval_method}` : ""}.
           {estimate.client_id && ` Converted to client ${estimate.client_id}.`}
         </div>
@@ -542,7 +543,7 @@ export function EstimateDetailPage() {
               <Row label="Email" value={estimate.email || "—"} />
               <Row label="Phone" value={estimate.phone || "—"} />
               <Row label="Address" value={[estimate.street, [estimate.city, estimate.state, estimate.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ") || "—"} />
-              <Row label="Valid until" value={estimate.valid_until ? new Date(estimate.valid_until).toLocaleDateString() : "—"} />
+              <Row label="Valid until" value={estimate.valid_until ? fmtDateTime(estimate.valid_until) : "—"} />
             </>
           )}
 

@@ -9,7 +9,7 @@ import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
 import { TASK_STATUSES } from "../components/TaskCells";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
@@ -377,7 +377,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
                 <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "attachment")}>Download</button>
-                <span className="muted" style={{ fontSize: 12 }}>{u.uploaded_at ? new Date(u.uploaded_at).toLocaleDateString() : "—"}</span>
+                <span className="muted" style={{ fontSize: 12 }}>{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</span>
               </div>
             </div>
           ))}

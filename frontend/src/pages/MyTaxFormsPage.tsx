@@ -6,6 +6,7 @@ import { useNotify } from "../components/ConfirmProvider";
 import { useLanguage } from "../context/LanguageContext";
 import type { GovFormFiling, GovFormsMeta } from "../api/govForms";
 import { GOV_FORM_LABELS, GOV_STATUS_COLOR } from "../api/govForms";
+import { fmtDateTime } from "../utils/date";
 
 /**
  * Employee/contractor self-service: fill in and electronically sign a W-4 or
@@ -64,7 +65,7 @@ export function MyTaxFormsPage() {
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                     <span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700 }}>{f.status}</span>
                     {f.status === "Draft" && ` — ${t("myTaxForms.needsSignature")}`}
-                    {f.signed_at && ` · ${t("myTaxForms.signed")} ${new Date(f.signed_at).toLocaleDateString()}`}
+                    {f.signed_at && ` · ${t("myTaxForms.signed")} ${fmtDateTime(f.signed_at)}`}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>

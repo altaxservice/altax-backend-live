@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { fmtDateTime } from "../utils/date";
 
 interface ActivityEvent {
   loggedAt: string;
@@ -18,11 +19,6 @@ interface ActivitySinceLogin {
   count: number;
   truncated: boolean;
   events: ActivityEvent[];
-}
-
-function fmtDateTime(v: string): string {
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 /** Turns a logAudit() action code like "CREATE_TASK" into "Create task". */

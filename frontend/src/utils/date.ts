@@ -35,3 +35,17 @@ export function daysUntil(value: unknown): number | null {
   today.setHours(0, 0, 0, 0);
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
+
+/**
+ * Formats a real lifecycle timestamp (signed_at, submitted_at, uploaded_at,
+ * logged_at, etc.) with both date and time — unlike fmtDateOnly, the
+ * time-of-day here is meaningful and stored, so it should be shown, not
+ * dropped. Local timezone (toLocaleString's default), since these are real
+ * moments, not calendar dates.
+ */
+export function fmtDateTime(value: unknown): string {
+  if (!value) return "—";
+  const d = new Date(value as string);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
+}

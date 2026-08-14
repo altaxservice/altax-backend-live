@@ -7,7 +7,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { useToast } from "../components/Toast";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateTime } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
@@ -305,7 +305,7 @@ export function DocumentDetailPage() {
                 <span>{u.file_name}</span>
               )}
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                {u.direction || "—"} · {(u as any).uploaded_by || "—"} · {u.uploaded_at ? fmtDateOnly(u.uploaded_at) : "—"}
+                {u.direction || "—"} · {(u as any).uploaded_by || "—"} · {u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}
               </div>
               {(u as any).notes && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{(u as any).notes}</div>}
             </div>
