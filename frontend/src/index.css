@@ -205,6 +205,14 @@ textarea:focus-visible, [tabindex]:focus-visible {
 }
 .command-grid-even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .command-stack { display: grid; gap: 14px; }
+/* Full-width row for the highest-urgency "something is wrong" panels
+   (Missing Sales Tax Filings, At-Risk Clients) — pulled out of the narrow
+   sidebar stack so they read as alerts, not just another status widget. */
+.command-grid-alerts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.command-panel-critical { border-left: 4px solid var(--red); }
+@media (max-width: 860px) {
+  .command-grid-alerts { grid-template-columns: 1fr; }
+}
 
 /* ---- Work cards (Command Center task/document/invoice rows, mirrors legacy) ---- */
 .work-card-list { display: flex; flex-direction: column; }

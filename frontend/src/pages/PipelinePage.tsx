@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download, Plus } from "lucide-react";
+import { RefreshCw, Download, Plus, ArrowRight, PartyPopper, Undo2 } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { money, STAGE_LABELS, stageForEstimate, type Estimate, type StageLabel } from "../api/estimates";
+import { money, stageForEstimate, type Estimate, type StageLabel } from "../api/estimates";
 import { useStickyState } from "../utils/listState";
 import { exportCsv } from "../components/FilterBar";
 import { FIRM_SERVICES } from "../utils/clientOptions";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 /**
  * Pipeline — the same Estimates data as the Estimates list, viewed as a sales
@@ -16,11 +17,21 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
  * writes; Won/Lost reuse the same approve/decline fields the Estimate detail
  * page already stamps, so a card moved here and an estimate approved there
  * are the exact same action.
+ *
+ * Redesigned 2026-08-14 (owner feedback: "should be 1-2-3 steps to become a
+ * client") — moving a card to Won already auto-approves the estimate
+ * server-side (see /:estimateId/stage), so the only step that used to be
+ * missing from this board was Convert to Client itself, previously reachable
+ * only from the separate Estimate detail page. It now lives directly on the
+ * Won card. Cards also show a single "move forward" action instead of every
+ * other stage at once, so the board reads as a straight line: New → Contacted
+ * → Proposal Sent → Won → Client.
  */
-const COLUMNS: { stage: StageLabel; label: string }[] = [
-  { stage: "New", label: "New" },
-  { stage: "Contacted", label: "Contacted" },
-  { stage: "Proposal Sent", label: "Proposal Sent" },
+const STAGE_ORDER: StageLabel[] = ["New", "Contacted", "Proposal Sent", "Won"];
+const COLUMNS: { stage: StageLabel; label: string; step: number }[] = [
+  { stage: "New", label: "New", step: 1 },
+  { stage: "Contacted", label: "Contacted", step: 2 },
+  { stage: "Proposal Sent", label: "Proposal Sent", step: 3 },
 ];
 
 const PERIODS = ["This Month", "This Quarter", "All Time"] as const;
@@ -40,6 +51,8 @@ function withinPeriod(dateStr: string | null, period: Period): boolean {
 
 export function PipelinePage() {
   const navigate = useNavigate();
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [estimates, setEstimates] = useState<Estimate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
@@ -108,6 +121,20 @@ export function PipelinePage() {
     }
   }
 
+  async function handleConvert(estimateId: string) {
+    const ok = await confirmDialog({ title: "Convert to Client", message: "This creates the client record, an invoice for the quoted work, and a task for each filing sold. Continue?" });
+    if (!ok) return;
+    setMoving(estimateId);
+    try {
+      const res = await api.post<{ clientId: string }>(`/estimates/${estimateId}/convert`, {});
+      navigate(`/clients/${res.clientId}`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not convert this estimate.");
+    } finally {
+      setMoving(null);
+    }
+  }
+
   if (error) return <ErrorBanner error={error} />;
   if (!estimates) return <div className="spinner-wrap">Loading…</div>;
 
@@ -165,26 +192,71 @@ export function PipelinePage() {
         <input placeholder="Search pipeline — client, description, amount…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 280 }} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+      <PipelineSteps />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
         {COLUMNS.map((col) => (
-          <PipelineColumn key={col.stage} title={col.label} stage={col.stage} cards={byStage[col.stage]} moving={moving} onMove={moveTo} onOpen={(id) => navigate(`/estimates/${id}`)} />
+          <PipelineColumn
+            key={col.stage}
+            title={col.label}
+            step={col.step}
+            stage={col.stage}
+            cards={byStage[col.stage]}
+            moving={moving}
+            onMove={moveTo}
+            onOpen={(id) => navigate(`/estimates/${id}`)}
+          />
         ))}
-        <div className="card" style={{ padding: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, display: "flex", justifyContent: "space-between" }}>
-            <span>Won / Lost</span>
-            <span className="muted">{byStage.Won.length + byStage.Lost.length}</span>
+        <WonColumn cards={byStage.Won} moving={moving} onConvert={handleConvert} onMoveBack={(id) => moveTo(id, "Proposal Sent")} onOpen={(id) => navigate(`/estimates/${id}`)} />
+      </div>
+
+      {byStage.Lost.length > 0 && (
+        <div className="card" style={{ marginTop: 12, padding: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+            <span>Lost</span>
+            <span className="muted">{byStage.Lost.length}</span>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
-            {byStage.Won.map((e) => (
-              <PipelineCard key={e.estimate_id} est={e} stage="Won" moving={moving} onMove={moveTo} onOpen={() => navigate(`/estimates/${e.estimate_id}`)} />
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {byStage.Lost.map((e) => (
-              <PipelineCard key={e.estimate_id} est={e} stage="Lost" moving={moving} onMove={moveTo} onOpen={() => navigate(`/estimates/${e.estimate_id}`)} />
+              <div key={e.estimate_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", borderRadius: 6, background: "var(--surface-2, #f8fafc)" }}>
+                <button type="button" className="link-button" style={{ padding: 0, fontSize: 13 }} onClick={() => navigate(`/estimates/${e.estimate_id}`)}>{e.business_name}</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="muted" style={{ fontSize: 12 }}>{money(e.totals?.total)}</span>
+                  <button type="button" className="btn btn-sm" disabled={moving === e.estimate_id} onClick={() => moveTo(e.estimate_id, "New")} title="Reopen this prospect">
+                    <Undo2 size={12} strokeWidth={2} aria-hidden="true" /> Reopen
+                  </button>
+                </div>
+              </div>
             ))}
-            {!byStage.Won.length && !byStage.Lost.length && <div className="muted" style={{ fontSize: 12, textAlign: "center", padding: 12 }}>Nothing closed yet.</div>}
           </div>
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+/** The owner asked for the pipeline to spell out "1-2-3 step to be client" — this is that, rendered once at the top of the board rather than repeated on every card. */
+function PipelineSteps() {
+  const steps: { n: number; label: string; desc: string }[] = [
+    { n: 1, label: "Add Prospect", desc: "Name + contact info" },
+    { n: 2, label: "Work the Deal", desc: "Contacted → Proposal Sent" },
+    { n: 3, label: "Mark Won", desc: "They said yes" },
+    { n: 4, label: "Convert to Client", desc: "One click — client, invoice & tasks" },
+  ];
+  return (
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, marginBottom: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2, #f8fafc)" }}>
+      {steps.map((s, i) => (
+        <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: "50%", background: s.n === 4 ? "var(--teal)" : "var(--line)", color: s.n === 4 ? "#fff" : "var(--ink)", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{s.n}</span>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.2 }}>{s.label}</div>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.2 }}>{s.desc}</div>
+            </div>
+          </div>
+          {i < steps.length - 1 && <ArrowRight size={14} strokeWidth={2} aria-hidden="true" className="muted" style={{ margin: "0 4px" }} />}
+        </div>
+      ))}
     </div>
   );
 }
@@ -198,15 +270,15 @@ const STAGE_TO_STATUS_LOCAL: Record<StageLabel, string> = {
 };
 
 function PipelineColumn({
-  title, stage, cards, moving, onMove, onOpen,
+  title, step, stage, cards, moving, onMove, onOpen,
 }: {
-  title: string; stage: StageLabel; cards: Estimate[]; moving: string | null;
+  title: string; step: number; stage: StageLabel; cards: Estimate[]; moving: string | null;
   onMove: (id: string, stage: StageLabel) => void; onOpen: (id: string) => void;
 }) {
   return (
     <div className="card" style={{ padding: 12 }}>
       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, display: "flex", justifyContent: "space-between" }}>
-        <span>{title}</span>
+        <span>{step}. {title}</span>
         <span className="muted">{cards.length}</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
@@ -219,13 +291,16 @@ function PipelineColumn({
   );
 }
 
+/** One primary "move forward" action per card instead of every other stage at once — the board is a line (New → Contacted → Proposal Sent → Won), not a grid of equally-valid moves. */
 function PipelineCard({
   est, stage, moving, onMove, onOpen,
 }: {
   est: Estimate; stage: StageLabel; moving: string | null;
   onMove: (id: string, stage: StageLabel) => void; onOpen: () => void;
 }) {
-  const next = STAGE_LABELS.filter((s) => s !== stage);
+  const stageIndex = STAGE_ORDER.indexOf(stage);
+  const next = stageIndex >= 0 && stageIndex < STAGE_ORDER.length - 1 ? STAGE_ORDER[stageIndex + 1] : null;
+  const busy = moving === est.estimate_id;
   return (
     <div className="card" style={{ padding: 10, background: "var(--surface-2, #f8fafc)" }}>
       <div style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}>
@@ -233,18 +308,55 @@ function PipelineCard({
         <div className="muted" style={{ fontSize: 11 }}>{est.estimate_number}</div>
         <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{money(est.totals?.total)}</div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
-        {next.map((s) => (
-          <button
-            key={s}
-            className="btn btn-sm"
-            disabled={moving === est.estimate_id}
-            onClick={() => onMove(est.estimate_id, s)}
-            title={`Move to ${s}`}
-          >
-            {s}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 8 }}>
+        {next && (
+          <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => onMove(est.estimate_id, next)} title={`Move to ${next}`}>
+            {next === "Won" ? <><PartyPopper size={12} strokeWidth={2} aria-hidden="true" /> Mark Won</> : <>{next} <ArrowRight size={12} strokeWidth={2} aria-hidden="true" /></>}
           </button>
-        ))}
+        )}
+        <button type="button" className="link-button" style={{ padding: 0, fontSize: 11.5 }} disabled={busy} onClick={() => onMove(est.estimate_id, "Lost")}>
+          Mark Lost
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The board's real endpoint: a Won card is one click from a client. Kept as its own column (not folded into the same Won/Lost list Lost sits in) since Convert deserves the same visual weight as the other 3 steps, not to be buried below a stage-move button list. */
+function WonColumn({
+  cards, moving, onConvert, onMoveBack, onOpen,
+}: {
+  cards: Estimate[]; moving: string | null;
+  onConvert: (id: string) => void; onMoveBack: (id: string) => void; onOpen: (id: string) => void;
+}) {
+  return (
+    <div className="card" style={{ padding: 12, borderColor: "var(--teal)" }}>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, display: "flex", justifyContent: "space-between" }}>
+        <span>4. Won — Ready to Convert</span>
+        <span className="muted">{cards.length}</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
+        {cards.map((e) => {
+          const busy = moving === e.estimate_id;
+          return (
+            <div className="card" key={e.estimate_id} style={{ padding: 10, background: "var(--surface-2, #f8fafc)" }}>
+              <div style={{ cursor: "pointer" }} tabIndex={0} role="button" onClick={() => onOpen(e.estimate_id)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onOpen(e.estimate_id); } }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{e.business_name}</div>
+                <div className="muted" style={{ fontSize: 11 }}>{e.estimate_number}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{money(e.totals?.total)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 8 }}>
+                <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => onConvert(e.estimate_id)}>
+                  {busy ? "Converting…" : "Convert to Client →"}
+                </button>
+                <button type="button" className="link-button" style={{ padding: 0, fontSize: 11.5 }} disabled={busy} onClick={() => onMoveBack(e.estimate_id)} title="Move back to Proposal Sent">
+                  <Undo2 size={11} strokeWidth={2} aria-hidden="true" /> Undo
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {!cards.length && <div className="muted" style={{ fontSize: 12, textAlign: "center", padding: 12 }}>Nothing won yet.</div>}
       </div>
     </div>
   );

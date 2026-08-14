@@ -49,9 +49,9 @@ function fmtApptWhen(iso: string): string {
   return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function CommandPanel({ title, note, action, children }: { title: React.ReactNode; note: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+function CommandPanel({ title, note, action, children, critical = false }: { title: React.ReactNode; note: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; critical?: boolean }) {
   return (
-    <div className="command-panel">
+    <div className={`command-panel${critical ? " command-panel-critical" : ""}`}>
       <div className="command-panel-header">
         <div>
           <h2 className="command-panel-title">{title}</h2>
@@ -291,6 +291,7 @@ function AtRiskClientsPanel() {
 
   return (
     <CommandPanel
+      critical
       title="At-Risk Clients"
       note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, unfiled MD sales tax, or flag past due${salesTaxUnfiledCount > 0 ? ` — ${salesTaxUnfiledCount} missing a sales tax filing` : ""}`}
     >
@@ -344,6 +345,7 @@ function MissingSalesTaxFilingsPanel() {
 
   return (
     <CommandPanel
+      critical
       title="Missing Sales Tax Filings"
       note={`${clients.length} client${clients.length === 1 ? "" : "s"} whose most recent MD Sales & Use Tax period hasn't been filed, verified against real filing records`}
     >
@@ -730,6 +732,11 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         </button>
       </div>
 
+      <div className="command-grid-alerts" style={{ marginBottom: 14 }}>
+        <MissingSalesTaxFilingsPanel />
+        <AtRiskClientsPanel />
+      </div>
+
       <div className="command-grid">
         <CommandPanel
           title="Priority Work Queue"
@@ -739,8 +746,6 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <TaskRows tasks={priorityQueueVisible} empty="No priority tasks." onChanged={onChanged} />
         </CommandPanel>
         <div className="command-stack">
-          <MissingSalesTaxFilingsPanel />
-          <AtRiskClientsPanel />
           <PendingFilingReviewsPanel />
           <CommandPanel title="Today Snapshot" note="Open work by condition">
             <MiniKpis items={[["Overdue", String(overdue.length)], ["Due Soon", String(dueSoon.length)], ["Waiting", String(waiting.length)], ["Open Tasks", String(openTasks.length)]]} />

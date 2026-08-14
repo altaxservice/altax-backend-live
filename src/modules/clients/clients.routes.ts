@@ -96,6 +96,108 @@ clientsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(
 }));
 
 /**
+ * Firm-wide at-risk-clients view (hard audit 2026-08-13, UX-001). The flags
+ * computeClientFlags() already tracks per client — balance past due, agency
+ * (tax/EFTPS/etc) obligations past due, and staff-entered manual flags — had
+ * no aggregate anywhere in the app: an owner could only discover a client had
+ * crossed into risk by opening that specific client's own panel. This runs
+ * the same underlying signals as three bulk GROUP BY queries instead of
+ * calling computeClientFlags() once per client (which would mean N+1 queries
+ * per page load, including a computeMdFilingForReport call for every MD
+ * client) — cost stays flat regardless of how many clients exist.
+ *
+ * Originally excluded the MD-sales-tax-filing-period flag computeClientFlags()
+ * also carries, since it wasn't cheaply bulk-queryable without a larger
+ * refactor to computeMdFilingForReport itself — computeFirmWideMdSalesTaxMissedFilings
+ * (reports.routes.ts) is that refactor, added 2026-08-13 per a direct owner
+ * request for a real firm-wide "did I miss filing for anyone" check that
+ * isn't tied to whether a task happens to exist for it. This view now covers
+ * unpaid balances, tracked-obligation (agency) past-due tasks, staff-entered
+ * flags, AND MD Sales & Use Tax periods that are overdue and unfiled per the
+ * actual filed/paid record — not literally every flag type the per-client
+ * panel shows (Credit/Custom manual flags with no "past due" meaning are
+ * still per-client only), but everything that represents real risk.
+ *
+ * Registered here, before GET /:clientId — a literal path segment like
+ * "flags" is otherwise swallowed by :clientId's wildcard match (Express
+ * matches route registration order), which silently 404'd this entire
+ * endpoint as "client not found" for a client literally named "flags". Found
+ * live 2026-08-14 verifying the dashboard: both AtRiskClientsPanel and
+ * MissingSalesTaxFilingsPanel had been failing silently since they were
+ * built, since each just swallows the fetch error into an empty list.
+ */
+clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const aliases = isAdmin ? null : Array.from(await getUserAliases(req.user!.email));
+  const staffScope = isAdmin ? "" : `AND c.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
+  const params = isAdmin ? [] : [aliases];
+
+  const [balanceRows, agencyRows, manualRows, mdSalesTaxMissed] = await Promise.all([
+    query<any>(
+      `SELECT c.client_id, c.client_name, COALESCE(SUM(i.balance_due), 0) AS amount
+         FROM altax.v3_clients c
+         JOIN altax.v3_invoices i ON i.client_id = c.client_id
+        WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0
+          AND i.due_date IS NOT NULL AND i.due_date::date < CURRENT_DATE
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+    query<any>(
+      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count, COALESCE(SUM(t.payment_amount), 0) AS amount
+         FROM altax.v3_clients c
+         JOIN altax.v3_tasks t ON t.client_id = c.client_id
+        WHERE t.payment_required = true AND t.paid_date IS NULL
+          AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+    query<any>(
+      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count
+         FROM altax.v3_clients c
+         JOIN altax.v3_client_flags f ON f.client_id = c.client_id
+        WHERE f.status = 'Open'
+          ${staffScope}
+        GROUP BY c.client_id, c.client_name`,
+      params
+    ),
+    computeFirmWideMdSalesTaxMissedFilings(),
+  ]);
+
+  // computeFirmWideMdSalesTaxMissedFilings() has no per-client filter of its own
+  // (it scans every MD client) — for a scoped staff view, restrict its results
+  // to the same assigned-client set the other three queries already use.
+  const staffAllowedClientIds = isAdmin
+    ? null
+    : new Set((await query<any>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])`, [aliases])).map((r: any) => r.client_id));
+
+  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number; mdSalesTaxUnfiledPeriodEnd: string | null; mdSalesTaxUnfiledAmount: number }>();
+  const get = (clientId: string, clientName: string) => {
+    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0, mdSalesTaxUnfiledPeriodEnd: null, mdSalesTaxUnfiledAmount: 0 });
+    return byClient.get(clientId)!;
+  };
+  for (const r of balanceRows) get(r.client_id, r.client_name).balancePastDue = Number(r.amount || 0);
+  for (const r of agencyRows) {
+    const c = get(r.client_id, r.client_name);
+    c.agencyPastDueCount = r.count || 0;
+    c.agencyPastDueAmount = Number(r.amount || 0);
+  }
+  for (const r of manualRows) get(r.client_id, r.client_name).manualFlagCount = r.count || 0;
+  for (const m of mdSalesTaxMissed) {
+    if (staffAllowedClientIds && !staffAllowedClientIds.has(m.clientId)) continue;
+    const c = get(m.clientId, m.clientName);
+    c.mdSalesTaxUnfiledPeriodEnd = m.periodEnd;
+    c.mdSalesTaxUnfiledAmount = m.balanceDue;
+  }
+
+  // Ranked by dollars owed first (the most consequential kind of risk), then
+  // by how many distinct agency obligations are overdue.
+  const clients = Array.from(byClient.values()).sort((a, b) => (b.balancePastDue - a.balancePastDue) || (b.agencyPastDueCount - a.agencyPastDueCount));
+  res.json({ clients });
+}));
+
+/**
  * Client profile — masks SSN/EIN/State Tax ID for everyone except Admin, matching the Sheets UI rule.
  * Access scoping ported from alTaxV3PortalClientAllowed_ via the shared canAccessClient helper:
  * admin sees any client; client role is locked to their own assigned clientId; staff need a
@@ -235,100 +337,6 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
   }
   const viewerAliases = req.user!.role === "staff" ? Array.from(await getUserAliases(req.user!.email)) : null;
   res.json(await computeClientOpsSummary(clientId, viewerAliases));
-}));
-
-/**
- * Firm-wide at-risk-clients view (hard audit 2026-08-13, UX-001). The flags
- * computeClientFlags() already tracks per client — balance past due, agency
- * (tax/EFTPS/etc) obligations past due, and staff-entered manual flags — had
- * no aggregate anywhere in the app: an owner could only discover a client had
- * crossed into risk by opening that specific client's own panel. This runs
- * the same underlying signals as three bulk GROUP BY queries instead of
- * calling computeClientFlags() once per client (which would mean N+1 queries
- * per page load, including a computeMdFilingForReport call for every MD
- * client) — cost stays flat regardless of how many clients exist.
- *
- * Originally excluded the MD-sales-tax-filing-period flag computeClientFlags()
- * also carries, since it wasn't cheaply bulk-queryable without a larger
- * refactor to computeMdFilingForReport itself — computeFirmWideMdSalesTaxMissedFilings
- * (reports.routes.ts) is that refactor, added 2026-08-13 per a direct owner
- * request for a real firm-wide "did I miss filing for anyone" check that
- * isn't tied to whether a task happens to exist for it. This view now covers
- * unpaid balances, tracked-obligation (agency) past-due tasks, staff-entered
- * flags, AND MD Sales & Use Tax periods that are overdue and unfiled per the
- * actual filed/paid record — not literally every flag type the per-client
- * panel shows (Credit/Custom manual flags with no "past due" meaning are
- * still per-client only), but everything that represents real risk.
- */
-clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const isAdmin = req.user!.role === "admin";
-  const aliases = isAdmin ? null : Array.from(await getUserAliases(req.user!.email));
-  const staffScope = isAdmin ? "" : `AND c.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
-  const params = isAdmin ? [] : [aliases];
-
-  const [balanceRows, agencyRows, manualRows, mdSalesTaxMissed] = await Promise.all([
-    query<any>(
-      `SELECT c.client_id, c.client_name, COALESCE(SUM(i.balance_due), 0) AS amount
-         FROM altax.v3_clients c
-         JOIN altax.v3_invoices i ON i.client_id = c.client_id
-        WHERE i.status NOT IN ('Paid', 'Void') AND i.balance_due > 0
-          AND i.due_date IS NOT NULL AND i.due_date::date < CURRENT_DATE
-          ${staffScope}
-        GROUP BY c.client_id, c.client_name`,
-      params
-    ),
-    query<any>(
-      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count, COALESCE(SUM(t.payment_amount), 0) AS amount
-         FROM altax.v3_clients c
-         JOIN altax.v3_tasks t ON t.client_id = c.client_id
-        WHERE t.payment_required = true AND t.paid_date IS NULL
-          AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE
-          ${staffScope}
-        GROUP BY c.client_id, c.client_name`,
-      params
-    ),
-    query<any>(
-      `SELECT c.client_id, c.client_name, COUNT(*)::int AS count
-         FROM altax.v3_clients c
-         JOIN altax.v3_client_flags f ON f.client_id = c.client_id
-        WHERE f.status = 'Open'
-          ${staffScope}
-        GROUP BY c.client_id, c.client_name`,
-      params
-    ),
-    computeFirmWideMdSalesTaxMissedFilings(),
-  ]);
-
-  // computeFirmWideMdSalesTaxMissedFilings() has no per-client filter of its own
-  // (it scans every MD client) — for a scoped staff view, restrict its results
-  // to the same assigned-client set the other three queries already use.
-  const staffAllowedClientIds = isAdmin
-    ? null
-    : new Set((await query<any>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])`, [aliases])).map((r: any) => r.client_id));
-
-  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number; mdSalesTaxUnfiledPeriodEnd: string | null; mdSalesTaxUnfiledAmount: number }>();
-  const get = (clientId: string, clientName: string) => {
-    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0, mdSalesTaxUnfiledPeriodEnd: null, mdSalesTaxUnfiledAmount: 0 });
-    return byClient.get(clientId)!;
-  };
-  for (const r of balanceRows) get(r.client_id, r.client_name).balancePastDue = Number(r.amount || 0);
-  for (const r of agencyRows) {
-    const c = get(r.client_id, r.client_name);
-    c.agencyPastDueCount = r.count || 0;
-    c.agencyPastDueAmount = Number(r.amount || 0);
-  }
-  for (const r of manualRows) get(r.client_id, r.client_name).manualFlagCount = r.count || 0;
-  for (const m of mdSalesTaxMissed) {
-    if (staffAllowedClientIds && !staffAllowedClientIds.has(m.clientId)) continue;
-    const c = get(m.clientId, m.clientName);
-    c.mdSalesTaxUnfiledPeriodEnd = m.periodEnd;
-    c.mdSalesTaxUnfiledAmount = m.balanceDue;
-  }
-
-  // Ranked by dollars owed first (the most consequential kind of risk), then
-  // by how many distinct agency obligations are overdue.
-  const clients = Array.from(byClient.values()).sort((a, b) => (b.balancePastDue - a.balancePastDue) || (b.agencyPastDueCount - a.agencyPastDueCount));
-  res.json({ clients });
 }));
 
 /**
