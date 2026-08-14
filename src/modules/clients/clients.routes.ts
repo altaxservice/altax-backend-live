@@ -9,7 +9,7 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod } from "../reports/reports.routes";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings } from "../reports/reports.routes";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
@@ -248,12 +248,17 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
  * per page load, including a computeMdFilingForReport call for every MD
  * client) — cost stays flat regardless of how many clients exist.
  *
- * Deliberately excludes the MD-sales-tax-filing-period flag computeClientFlags()
- * also carries — that one isn't cheaply bulk-queryable without a larger
- * refactor to computeMdFilingForReport itself. This view covers unpaid
- * balances, tracked-obligation (agency) past-due tasks, and staff-entered
- * flags, which is the majority of what "at risk" means day to day — not
- * literally every flag type the per-client panel shows.
+ * Originally excluded the MD-sales-tax-filing-period flag computeClientFlags()
+ * also carries, since it wasn't cheaply bulk-queryable without a larger
+ * refactor to computeMdFilingForReport itself — computeFirmWideMdSalesTaxMissedFilings
+ * (reports.routes.ts) is that refactor, added 2026-08-13 per a direct owner
+ * request for a real firm-wide "did I miss filing for anyone" check that
+ * isn't tied to whether a task happens to exist for it. This view now covers
+ * unpaid balances, tracked-obligation (agency) past-due tasks, staff-entered
+ * flags, AND MD Sales & Use Tax periods that are overdue and unfiled per the
+ * actual filed/paid record — not literally every flag type the per-client
+ * panel shows (Credit/Custom manual flags with no "past due" meaning are
+ * still per-client only), but everything that represents real risk.
  */
 clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const isAdmin = req.user!.role === "admin";
@@ -261,7 +266,7 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
   const staffScope = isAdmin ? "" : `AND c.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
   const params = isAdmin ? [] : [aliases];
 
-  const [balanceRows, agencyRows, manualRows] = await Promise.all([
+  const [balanceRows, agencyRows, manualRows, mdSalesTaxMissed] = await Promise.all([
     query<any>(
       `SELECT c.client_id, c.client_name, COALESCE(SUM(i.balance_due), 0) AS amount
          FROM altax.v3_clients c
@@ -291,11 +296,19 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
         GROUP BY c.client_id, c.client_name`,
       params
     ),
+    computeFirmWideMdSalesTaxMissedFilings(),
   ]);
 
-  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number }>();
+  // computeFirmWideMdSalesTaxMissedFilings() has no per-client filter of its own
+  // (it scans every MD client) — for a scoped staff view, restrict its results
+  // to the same assigned-client set the other three queries already use.
+  const staffAllowedClientIds = isAdmin
+    ? null
+    : new Set((await query<any>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])`, [aliases])).map((r: any) => r.client_id));
+
+  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number; mdSalesTaxUnfiledPeriodEnd: string | null; mdSalesTaxUnfiledAmount: number }>();
   const get = (clientId: string, clientName: string) => {
-    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0 });
+    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0, mdSalesTaxUnfiledPeriodEnd: null, mdSalesTaxUnfiledAmount: 0 });
     return byClient.get(clientId)!;
   };
   for (const r of balanceRows) get(r.client_id, r.client_name).balancePastDue = Number(r.amount || 0);
@@ -305,6 +318,12 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
     c.agencyPastDueAmount = Number(r.amount || 0);
   }
   for (const r of manualRows) get(r.client_id, r.client_name).manualFlagCount = r.count || 0;
+  for (const m of mdSalesTaxMissed) {
+    if (staffAllowedClientIds && !staffAllowedClientIds.has(m.clientId)) continue;
+    const c = get(m.clientId, m.clientName);
+    c.mdSalesTaxUnfiledPeriodEnd = m.periodEnd;
+    c.mdSalesTaxUnfiledAmount = m.balanceDue;
+  }
 
   // Ranked by dollars owed first (the most consequential kind of risk), then
   // by how many distinct agency obligations are overdue.

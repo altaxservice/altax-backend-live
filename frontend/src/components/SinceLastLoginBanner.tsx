@@ -92,7 +92,15 @@ export function SinceLastLoginBanner() {
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
-    api.get<ActivitySinceLogin>("/system/activity-since-login").then(setData).catch(() => setData(null));
+    let cancelled = false;
+    const load = () => api.get<ActivitySinceLogin>("/system/activity-since-login").then((d) => { if (!cancelled) setData(d); }).catch(() => { if (!cancelled) setData(null); });
+    load();
+    // Fetched once on mount only used to mean staff who logged in before any
+    // new activity existed yet would never see this banner appear later in
+    // the same session — it only ever recomputed on a full page reload or
+    // SPA navigation away-and-back. Poll so it catches up within a session.
+    const interval = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   if (!data || !data.since || data.count === 0) return null;

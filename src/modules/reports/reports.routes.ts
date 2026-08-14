@@ -8,6 +8,7 @@ import { logAudit } from "../../common/audit";
 import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 import { NON_TAXABLE_CATEGORY_ID } from "../../common/taxRates";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
+import type { MdFilingPeriod } from "../../common/mdFiling";
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
@@ -807,6 +808,101 @@ export async function computeMdFilingForReport(
   const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings);
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, filedDate, paidDate };
+}
+
+export interface MdSalesTaxMissedFiling {
+  clientId: string;
+  clientName: string;
+  periodEnd: string;
+  dueDate: string;
+  balanceDue: number;
+}
+
+/**
+ * Firm-wide, bulk-queryable counterpart to computeMdFilingForReport — used by
+ * GET /clients/flags (UX-001's at-risk panel) so "has this client's most
+ * recent MD Sales Tax period actually been filed" shows up as one real
+ * cross-client list, instead of only appearing when someone opens that one
+ * client's own page (that gap was called out explicitly in this function's
+ * own history — see the "Deliberately excludes" doc comment on GET /flags in
+ * clients.routes.ts — this closes it per a direct owner request, 2026-08-13:
+ * "I need to see a flag telling me this client [is] missing something...
+ * auto not just by task").
+ *
+ * Stays flat-cost regardless of client count: two bulk queries cover every
+ * MD client's sales data and recorded filings in one round trip each, and
+ * the period math itself needs no DB call (splitIntoMdFilingPeriods is pure
+ * date arithmetic). Only the small subset of clients that actually turn out
+ * unfiled-and-overdue get the one extra call for penalty/interest math
+ * (computeMdFiling, which does its own rate lookups) — that cost scales with
+ * real problems found, not with total client count.
+ *
+ * Deliberately checks only each client's single most-recently-due period,
+ * not every historical gap — this answers "did I miss filing for anyone
+ * this cycle," the exact workflow described, not a full compliance-history
+ * audit back to whenever Mark Period Filed started being used.
+ */
+export async function computeFirmWideMdSalesTaxMissedFilings(): Promise<MdSalesTaxMissedFiling[]> {
+  const clients = await query<any>(
+    `SELECT client_id, client_name, sales_tax_frequency FROM altax.v3_clients
+      WHERE state = 'MD' AND sales_tax_frequency IS NOT NULL AND sales_tax_frequency <> ''`
+  );
+  if (clients.length === 0) return [];
+
+  const today = new Date();
+  const windowFrom = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 13, 1)).toISOString().slice(0, 10);
+  const windowTo = today.toISOString().slice(0, 10);
+  const clientIds = clients.map((c: any) => c.client_id);
+
+  const [salesRows, filingRows] = await Promise.all([
+    query<any>(
+      `SELECT client_id, sale_date, total_tax_due FROM altax.v3_sales_input
+        WHERE client_id = ANY($1::text[]) AND sale_date::date >= $2::date AND sale_date::date <= $3::date`,
+      [clientIds, windowFrom, windowTo]
+    ),
+    query<any>(
+      `SELECT client_id, period_end::date::text AS period_end FROM altax.v3_md_filing_payments WHERE client_id = ANY($1::text[])`,
+      [clientIds]
+    ),
+  ]);
+
+  const isoDateOnly = (v: unknown): string | null => (v ? (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)) : null);
+
+  const salesByClient = new Map<string, { date: string; taxDue: number }[]>();
+  for (const r of salesRows) {
+    const d = isoDateOnly(r.sale_date);
+    if (!d) continue;
+    if (!salesByClient.has(r.client_id)) salesByClient.set(r.client_id, []);
+    salesByClient.get(r.client_id)!.push({ date: d, taxDue: Number(r.total_tax_due || 0) });
+  }
+  const recordedByClient = new Map<string, Set<string>>();
+  for (const r of filingRows) {
+    if (!recordedByClient.has(r.client_id)) recordedByClient.set(r.client_id, new Set());
+    recordedByClient.get(r.client_id)!.add(r.period_end);
+  }
+
+  const { splitIntoMdFilingPeriods, computeMdFiling } = await import("../../common/mdFiling");
+  const candidates: { clientId: string; clientName: string; period: MdFilingPeriod; taxDue: number }[] = [];
+  for (const c of clients) {
+    const { periods } = splitIntoMdFilingPeriods(windowFrom, windowTo, c.sales_tax_frequency);
+    const mostRecentPastDue = periods.filter((p) => p.dueDate < windowTo).sort((a, b) => b.end.localeCompare(a.end))[0];
+    if (!mostRecentPastDue) continue;
+    const recorded = recordedByClient.get(c.client_id);
+    if (recorded?.has(mostRecentPastDue.end)) continue; // already marked filed — settled
+    const sales = salesByClient.get(c.client_id) || [];
+    const taxDue = sales
+      .filter((s) => s.date >= mostRecentPastDue.start && s.date <= mostRecentPastDue.end)
+      .reduce((sum, s) => sum + s.taxDue, 0);
+    if (taxDue > 0) candidates.push({ clientId: c.client_id, clientName: c.client_name, period: mostRecentPastDue, taxDue: Math.round(taxDue * 100) / 100 });
+  }
+  if (candidates.length === 0) return [];
+
+  const results: MdSalesTaxMissedFiling[] = [];
+  for (const { clientId, clientName, period, taxDue } of candidates) {
+    const filing = await computeMdFiling(taxDue, period.dueDate, windowTo, windowTo);
+    if (!filing.onTime) results.push({ clientId, clientName, periodEnd: period.end, dueDate: period.dueDate, balanceDue: filing.balanceDue });
+  }
+  return results;
 }
 
 /**

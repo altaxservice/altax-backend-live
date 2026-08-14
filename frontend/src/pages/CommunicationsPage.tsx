@@ -665,6 +665,12 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
   const [messageArabic, setMessageArabic] = useState("");
   const [channels, setChannels] = useState<string[]>(["Email"]);
   const [phone, setPhone] = useState(client.phone || "");
+  // Businesses with more than one owner/contact carry a second email/phone
+  // (company_contact_email/phone, shown as "Owner Email/Phone" on the client
+  // profile) — previously only used by a few PDF/tax-form flows, never by an
+  // actual send. This lets staff pick it as the send target instead of only
+  // ever reaching the primary contact on file.
+  const [sendToEmail, setSendToEmail] = useState(client.email || "");
   const [sendNow, setSendNow] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
@@ -683,6 +689,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     api.get<{ templates: TemplateRow[] }>("/templates").then((r) => setTemplates(r.templates)).catch(() => {});
   }, []);
   useEffect(() => { setPhone(client.phone || ""); }, [client.phone]);
+  useEffect(() => { setSendToEmail(client.email || ""); }, [client.email]);
 
   // One-time hand-off from Reports' Client Message tab ("Open Communications to Send"):
   // it stashes the already-computed period message here before navigating, keyed to
@@ -735,7 +742,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
       const attachmentPayload = attachment ? await fileToAttachment(attachment) : undefined;
       const outcomes: { channel: string; sent?: boolean; sendError?: string }[] = [];
       for (const channel of targetChannels) {
-        const sentTo = ["SMS", "WhatsApp", "Phone"].includes(channel) ? (phone || undefined) : (client.email || undefined);
+        const sentTo = ["SMS", "WhatsApp", "Phone"].includes(channel) ? (phone || undefined) : (sendToEmail || undefined);
         const res = await api.post<{ sent?: boolean; sendError?: string }>("/communications", {
           clientId: client.client_id, subject, channel, messageEnglish, messageArabic, sentTo, sendNow: channel === "Portal Note" ? false : sendNow, attachment: attachmentPayload,
           // Lets the backend auto-generate and attach the real PDF for the three
@@ -766,7 +773,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
 
   return (
     <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-      <Panel title="Send / Save Client Message" note={client.email || undefined}>
+      <Panel title="Send / Save Client Message" note={sendToEmail || undefined}>
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
           {error && <ErrorBanner error={error} />}
           <SendResults results={results} />
@@ -788,8 +795,26 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
             </div>
           </div>
           <div className="form-grid">
-            <div className="field"><label htmlFor="cm-send-to">Send To</label><input id="cm-send-to" value={client.email || ""} readOnly /></div>
-            <div className="field"><label htmlFor="cm-phone">Phone Number <span className="muted">(for the Phone channel's log entry)</span></label><input id="cm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" /></div>
+            <div className="field">
+              <label htmlFor="cm-send-to">Send To (Email)</label>
+              {client.company_contact_email ? (
+                <select id="cm-send-to" value={sendToEmail} onChange={(e) => setSendToEmail(e.target.value)}>
+                  {client.email && <option value={client.email}>{client.email} (primary)</option>}
+                  <option value={client.company_contact_email}>{client.company_contact_email} ({client.company_contact_name || "Owner"})</option>
+                </select>
+              ) : (
+                <input id="cm-send-to" value={sendToEmail} readOnly />
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="cm-phone">Phone Number <span className="muted">(for SMS/WhatsApp/Phone)</span></label>
+              <input id="cm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" />
+              {client.company_contact_phone && client.company_contact_phone !== phone && (
+                <button type="button" className="link-button" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setPhone(client.company_contact_phone || "")}>
+                  Use {client.company_contact_name || "owner"}'s phone ({client.company_contact_phone})
+                </button>
+              )}
+            </div>
           </div>
           <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
           <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>

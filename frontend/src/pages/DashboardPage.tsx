@@ -261,6 +261,8 @@ interface AtRiskClient {
   agencyPastDueCount: number;
   agencyPastDueAmount: number;
   manualFlagCount: number;
+  mdSalesTaxUnfiledPeriodEnd: string | null;
+  mdSalesTaxUnfiledAmount: number;
 }
 
 /**
@@ -285,8 +287,13 @@ function AtRiskClientsPanel() {
 
   const go = (c: AtRiskClient) => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); };
 
+  const salesTaxUnfiledCount = clients.filter((c) => c.mdSalesTaxUnfiledPeriodEnd).length;
+
   return (
-    <CommandPanel title="At-Risk Clients" note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, or flag past due`}>
+    <CommandPanel
+      title="At-Risk Clients"
+      note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, unfiled MD sales tax, or flag past due${salesTaxUnfiledCount > 0 ? ` — ${salesTaxUnfiledCount} missing a sales tax filing` : ""}`}
+    >
       <div className="attention-list">
         {clients.slice(0, 8).map((c) => (
           <div className="attention-item" key={c.clientId} onClick={() => go(c)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(c); } }}>
@@ -295,6 +302,7 @@ function AtRiskClientsPanel() {
               <div className="attention-meta">
                 {c.balancePastDue > 0 && <span>{fmtMoney(c.balancePastDue)} overdue balance</span>}
                 {c.agencyPastDueCount > 0 && <span>{c.agencyPastDueCount} agency obligation{c.agencyPastDueCount === 1 ? "" : "s"} past due{c.agencyPastDueAmount > 0 ? ` (${fmtMoney(c.agencyPastDueAmount)})` : ""}</span>}
+                {c.mdSalesTaxUnfiledPeriodEnd && <span className="status-pill status-red" style={{ fontSize: 11 }}>Sales tax not filed (period ending {fmtDate(c.mdSalesTaxUnfiledPeriodEnd)})</span>}
                 {c.manualFlagCount > 0 && <span>{c.manualFlagCount} open flag{c.manualFlagCount === 1 ? "" : "s"}</span>}
               </div>
             </div>
@@ -302,6 +310,57 @@ function AtRiskClientsPanel() {
         ))}
       </div>
       {clients.length > 8 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{clients.length - 8} more at-risk client{clients.length - 8 === 1 ? "" : "s"} not shown.</p>}
+    </CommandPanel>
+  );
+}
+
+/**
+ * The direct answer to "tell me if I missed a client who was supposed to
+ * file and I didn't — not by task, an actual flag" (owner request,
+ * 2026-08-13). Separate panel from AtRiskClientsPanel (rather than folded
+ * into it) because that panel caps at 8 rows ranked by dollars owed — a
+ * client whose ONLY problem is an unfiled sales tax period, with no overdue
+ * balance, would rank at the bottom and could get hidden behind "+N more."
+ * This is verified against the real filed/paid record
+ * (v3_md_filing_payments + actual sales data), not whether a Task Rules
+ * Agent-generated "Sales Tax Filing" task happens to still be open — a task
+ * can go unresolved, or get marked Completed without anyone actually having
+ * filed, and neither would move this panel.
+ */
+function MissingSalesTaxFilingsPanel() {
+  const navigate = useNavigate();
+  const [clients, setClients] = useState<AtRiskClient[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ clients: AtRiskClient[] }>("/clients/flags")
+      .then((res) => { if (!cancelled) setClients(res.clients.filter((c) => c.mdSalesTaxUnfiledPeriodEnd)); })
+      .catch(() => { if (!cancelled) setClients([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!clients || clients.length === 0) return null;
+  const go = (c: AtRiskClient) => navigate(`/accounting?client=${c.clientId}&tab=Sales`);
+
+  return (
+    <CommandPanel
+      title="Missing Sales Tax Filings"
+      note={`${clients.length} client${clients.length === 1 ? "" : "s"} whose most recent MD Sales & Use Tax period hasn't been filed, verified against real filing records`}
+    >
+      <div className="attention-list">
+        {clients.slice(0, 10).map((c) => (
+          <div className="attention-item" key={c.clientId} onClick={() => go(c)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(c); } }}>
+            <div className="attention-main">
+              <div className="attention-title">{c.clientName}</div>
+              <div className="attention-meta">
+                <span>Period ending {fmtDate(c.mdSalesTaxUnfiledPeriodEnd!)}</span>
+                {c.mdSalesTaxUnfiledAmount > 0 && <span>{fmtMoney(c.mdSalesTaxUnfiledAmount)} balance due</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {clients.length > 10 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{clients.length - 10} more not shown — see the Sales &amp; Tax report for the full list.</p>}
     </CommandPanel>
   );
 }
@@ -580,6 +639,27 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // everything else — isOverdue/isDueSoon are mutually exclusive day-ranges, so this
   // never duplicates a task.
   const priorityTasks = [...overdue, ...dueSoon, ...openTasks.filter((t) => !isOverdue(t) && !isDueWeek(t))];
+  // A firm with many clients on the same recurring compliance task (e.g. a
+  // batch of "Sales Tax Filing" tasks all due the same day) otherwise fills
+  // every one of this panel's slots with one task type, burying anything
+  // else that's just as urgent. Cap how many of the same task name can
+  // occupy the visible slice so the queue stays a mix, not a monoculture —
+  // the true count is always still visible via "View all" / the alert strip
+  // above, this only shapes what's SHOWN here.
+  const MAX_SAME_NAME_IN_QUEUE = 3;
+  const priorityQueueVisible: Task[] = [];
+  let priorityQueueHiddenByCap = 0;
+  {
+    const nameCounts = new Map<string, number>();
+    for (const t of priorityTasks) {
+      if (priorityQueueVisible.length >= 12) { priorityQueueHiddenByCap++; continue; }
+      const name = t.task_name || "Task";
+      const count = nameCounts.get(name) || 0;
+      if (count >= MAX_SAME_NAME_IN_QUEUE) { priorityQueueHiddenByCap++; continue; }
+      priorityQueueVisible.push(t);
+      nameCounts.set(name, count + 1);
+    }
+  }
   // Unassigned work has no one whose queue it shows up in — an admin is the
   // only role that can actually see it firm-wide, so surfacing it here is the
   // only way it doesn't just silently sit unclaimed.
@@ -651,10 +731,15 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       </div>
 
       <div className="command-grid">
-        <CommandPanel title="Priority Work Queue" note={`${openTasks.length} visible, ranked by urgency`} action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}>
-          <TaskRows tasks={priorityTasks.slice(0, 12)} empty="No priority tasks." onChanged={onChanged} />
+        <CommandPanel
+          title="Priority Work Queue"
+          note={`${openTasks.length} open, ranked by urgency${priorityQueueHiddenByCap > 0 ? ` — showing a mix; ${priorityQueueHiddenByCap} more of the same task types below` : ""}`}
+          action={<Link to="/tasks" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View all →</Link>}
+        >
+          <TaskRows tasks={priorityQueueVisible} empty="No priority tasks." onChanged={onChanged} />
         </CommandPanel>
         <div className="command-stack">
+          <MissingSalesTaxFilingsPanel />
           <AtRiskClientsPanel />
           <PendingFilingReviewsPanel />
           <CommandPanel title="Today Snapshot" note="Open work by condition">

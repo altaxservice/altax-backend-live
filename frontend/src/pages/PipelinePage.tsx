@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download } from "lucide-react";
+import { RefreshCw, Download, Plus } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { money, STAGE_LABELS, stageForEstimate, type Estimate, type StageLabel } from "../api/estimates";
 import { useStickyState } from "../utils/listState";
 import { exportCsv } from "../components/FilterBar";
+import { FIRM_SERVICES } from "../utils/clientOptions";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 /**
  * Pipeline — the same Estimates data as the Estimates list, viewed as a sales
@@ -43,6 +46,7 @@ export function PipelinePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useStickyState<Period>("pipeline.period", "This Quarter");
   const [search, setSearch] = useState("");
+  const [showNewProspect, setShowNewProspect] = useState(false);
 
   function load(): Promise<void> {
     return api.get<{ estimates: Estimate[] }>("/estimates")
@@ -119,8 +123,16 @@ export function PipelinePage() {
           <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
           <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
           <button className="btn" onClick={() => navigate("/estimates")}>View as List</button>
+          <button type="button" className="btn btn-primary" onClick={() => setShowNewProspect(true)}><Plus size={13} strokeWidth={2} aria-hidden="true" />New Prospect</button>
         </div>
       </div>
+
+      {showNewProspect && (
+        <NewProspectModal
+          onClose={() => setShowNewProspect(false)}
+          onCreated={(estimateId) => { setShowNewProspect(false); load(); navigate(`/estimates/${estimateId}`); }}
+        />
+      )}
 
       <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>
         <div className="metric">
@@ -220,6 +232,13 @@ function PipelineCard({
         <div style={{ fontWeight: 600, fontSize: 13 }}>{est.business_name}</div>
         <div className="muted" style={{ fontSize: 11 }}>{est.estimate_number}</div>
         <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{money(est.totals?.total)}</div>
+        {est.service_interest?.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            {est.service_interest.map((key) => (
+              <span key={key} className="badge" style={{ fontSize: 10 }}>{FIRM_SERVICES.find((s) => s.key === key)?.label || key}</span>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
         {next.map((s) => (
@@ -233,6 +252,86 @@ function PipelineCard({
             {s}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The Pipeline page's own entry point for adding a prospect — previously the
+ * only way in was a separate "New Estimate" action on the Estimates list,
+ * with no visible link between it and Pipeline (hard audit follow-up,
+ * 2026-08-13). Deliberately lightweight: just the fields a first contact
+ * actually has (name/contact info) plus what they might be interested in —
+ * entity type/business type/full fee-catalog quoting stays on the Estimate
+ * detail page for when there's enough to actually price it out.
+ */
+function NewProspectModal({ onClose, onCreated }: { onClose: () => void; onCreated: (estimateId: string) => void }) {
+  useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
+
+  const [businessName, setBusinessName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [serviceInterest, setServiceInterest] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleService(key: string) {
+    setServiceInterest((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!businessName.trim()) { setError("Business name is required."); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.post<{ estimateId: string }>("/estimates", {
+        businessName: businessName.trim(), contactName: contactName.trim() || undefined,
+        email: email.trim() || undefined, phone: phone.trim() || undefined, serviceInterest,
+      });
+      onCreated(res.estimateId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not create this prospect.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-prospect-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+        <h3 id="new-prospect-title" style={{ marginTop: 0 }}>New Prospect</h3>
+        <p className="muted" style={{ fontSize: 12.5, marginTop: -6 }}>
+          Not a client yet — this just adds a card to the pipeline. Full quoting/entity details can be filled in later on the estimate itself.
+        </p>
+        <form onSubmit={handleSubmit}>
+          {error && <ErrorBanner error={error} style={{ marginBottom: 12 }} />}
+          <div className="field"><label htmlFor="np-business">Business / Prospect Name *</label><input id="np-business" required value={businessName} onChange={(e) => setBusinessName(e.target.value)} autoFocus /></div>
+          <div className="form-grid">
+            <div className="field"><label htmlFor="np-contact">Contact Name</label><input id="np-contact" value={contactName} onChange={(e) => setContactName(e.target.value)} /></div>
+            <div className="field"><label htmlFor="np-email">Email</label><input id="np-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          </div>
+          <div className="field"><label htmlFor="np-phone">Phone</label><input id="np-phone" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+          <div className="field">
+            <label>What are they interested in?</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px" }}>
+              {FIRM_SERVICES.filter((s) => !s.legacy).map((s) => (
+                <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                  <input type="checkbox" checked={serviceInterest.includes(s.key)} onChange={() => toggleService(s.key)} />
+                  {s.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Prospect"}</button>
+            <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
       </div>
     </div>
   );

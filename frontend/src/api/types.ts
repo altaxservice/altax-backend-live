@@ -33,6 +33,9 @@ export interface Client {
   state: string | null;
   email: string | null;
   phone: string | null;
+  company_contact_name: string | null;
+  company_contact_email: string | null;
+  company_contact_phone: string | null;
   assigned_to: string | null;
   portal_enabled: boolean;
   client_type: string | null;
