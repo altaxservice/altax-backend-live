@@ -1,8 +1,9 @@
 /**
  * Business Ownership Transfer package — one intake on an EXISTING client's
- * profile (old owner -> new owner, effective date, sale terms) that fans
- * out to the documents a real transfer needs, instead of five disconnected
- * manual steps:
+ * profile (old owner -> new owner, effective date, sale terms), driven by
+ * the step-by-step wizard in frontend/src/components/OwnershipTransferSection.tsx,
+ * that fans out to the documents a real transfer needs, instead of several
+ * disconnected manual steps:
  *   1. Bill of Sale — generated fresh from the stored terms (billOfSale.ts),
  *      not a government form, so it isn't a v3_gov_form_filings row.
  *   2. IRS Form 8822-B (Change of Responsible Party) — inserted directly
@@ -11,20 +12,27 @@
  *      Forms section with zero new UI (same GET /gov-forms/client/:id the
  *      section already calls, same GET /gov-forms/:filingId/pdf download).
  *   3. Maryland Form CRA (Combined Registration Application), reason
- *      "Change of entity" — same reuse-the-existing-section approach.
- *   4. A Task reminding staff to file the actual Maryland Articles of
- *      Amendment with SDAT — that form's own real fillable PDF hasn't been
- *      sourced yet (unlike the other 6 forms this app generates), so this
- *      stays a tracked checklist item rather than an auto-generated PDF,
- *      by explicit decision — see the "hard evaluation" round this shipped
- *      alongside.
+ *      "Change of entity" — same reuse-the-existing-section approach, and
+ *      existing-number-aware: a client that already has a CRA registration
+ *      number on file gets `registrationAction: "update"` prefilled instead
+ *      of silently drafting a brand-new-registration form.
+ *   4. MD Articles of Amendment — a REAL generated Draft filing via the
+ *      Phase 4 generators (mdAmendLlc.ts / mdAmendCorp.ts), auto-picked from
+ *      the client's entity_type (see ENTITY_TYPE_TO_AMENDMENT_KIND below).
+ *      Falls back to the old plain reminder Task when entity_type isn't
+ *      LLC or corp-like (no MD SDAT amendment form applies).
+ *   5. MD Articles of Dissolution (mdDissolution.ts) — only drafted when
+ *      the wizard's step-3 "is the old entity being dissolved?" toggle was
+ *      on; director/officer data comes entirely from what staff typed on
+ *      that step, since there's no client-profile column to source it from.
  *
- * Each of the four outputs is generated independently and wrapped in its
- * own try/catch: a client missing a street address (say) shouldn't block
- * the Bill of Sale and task from being created just because CRA's address
- * requirement can't be met yet. The response reports exactly what was
- * created and what wasn't, so staff always knows what still needs doing by
- * hand — same disclosure discipline as every other feature in this app.
+ * Each output is generated independently and wrapped in its own try/catch:
+ * a client missing a street address (say) shouldn't block the Bill of Sale
+ * from being created just because CRA's address requirement can't be met
+ * yet. The response reports exactly what was created and what wasn't (plus
+ * every created filing_id, for the wizard's Step 4 deep links), so staff
+ * always know what still needs doing by hand — same disclosure discipline
+ * as every other feature in this app.
  */
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
@@ -35,7 +43,10 @@ import { canAccessClient } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
 import { generateBillOfSalePdf } from "../govForms/billOfSale";
 import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
-import { generateGovForm, type CraData, type Form8822bData } from "../govForms/govForms.service";
+import {
+  generateGovForm, type CraData, type Form8822bData,
+  type MdAmendLlcData, type MdAmendCorpData, type MdDissolutionData, type MdDissolutionPerson,
+} from "../govForms/govForms.service";
 
 export const ownershipTransferRouter = Router();
 
@@ -69,6 +80,23 @@ const ENTITY_TYPE_TO_CRA_OWNERSHIP: Record<string, string> = {
   Partnership: "Partnership",
   "Sole Proprietorship": "Sole proprietorship",
   Nonprofit: "Nonprofit organization",
+};
+
+/**
+ * Which real MD Articles of Amendment generator (Phase 4) applies to a
+ * given `v3_clients.entity_type` value, if any. Same vocabulary-mismatch
+ * guard as ENTITY_TYPE_TO_CRA_OWNERSHIP above — entity_type's own values
+ * (ENTITY_TYPES in frontend/src/utils/clientOptions.ts) never assumed to
+ * line up with a form's own option list. Partnership/Sole Proprietorship/
+ * Individual (and anything unrecognized) have no matching MD corporate-
+ * charter amendment form — those fall back to the old reminder-task
+ * behavior rather than guessing wrong.
+ */
+const ENTITY_TYPE_TO_AMENDMENT_KIND: Record<string, "LLC" | "CORP"> = {
+  LLC: "LLC",
+  "C-Corp": "CORP",
+  "S-Corp": "CORP",
+  Nonprofit: "CORP",
 };
 
 async function encryptFormDataForStorage(formData: any): Promise<string> {
@@ -117,7 +145,8 @@ ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requi
     `SELECT transfer_id, client_id, seller_name, seller_title, buyer_name, buyer_title, buyer_ssn, buyer_email, buyer_phone,
             buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
             assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations,
-            gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id, created_by, created_at
+            gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id,
+            gov_form_amendment_filing_id, gov_form_dissolution_filing_id, created_by, created_at
        FROM altax.v3_ownership_transfers WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
@@ -139,11 +168,16 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
 
   const client = await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, dba_name, street_address, city, state, zip_code,
-            payroll_enabled, sales_tax_frequency, assigned_to
+            payroll_enabled, sales_tax_frequency, assigned_to, secretary_of_state_id, cra_registration_number
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
   if (!client) return res.status(404).json({ error: "Client not found." });
+  // cra_registration_number is encrypted at rest (UPDATABLE_FIELDS in
+  // clients.routes.ts) — decrypt before using it to decide new-vs-update
+  // below, same as every other encrypted client column read outside the
+  // masked list/detail responses.
+  const clientCraRegistrationNumber = client.cra_registration_number ? decryptTolerant(client.cra_registration_number) : null;
 
   const transferId = `XFER-${idSuffix()}`;
   const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
@@ -164,7 +198,20 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   const includeBillOfSale = body.includeBillOfSale !== false;
   const include8822b = body.include8822b !== false;
   const includeCra = body.includeCra !== false;
-  const includeMdAmendmentTask = body.includeMdAmendmentTask !== false;
+  // includeAmendment replaces the old includeMdAmendmentTask flag now that a
+  // real Amendment PDF can usually be generated instead of just a reminder
+  // task — still accepts the old field name too, in case anything upstream
+  // hasn't moved to the new wizard yet.
+  const includeAmendment = body.includeAmendment !== false && body.includeMdAmendmentTask !== false;
+  // Dissolution is only ever attempted when staff explicitly flagged this
+  // transfer as the old entity closing (not just amending) on the wizard's
+  // step 3 toggle — a missing/false isDissolving means the dissolution
+  // block below is skipped entirely, no skippedReasons noise either, since
+  // it was never something this transfer was trying to do.
+  const isDissolving = body.isDissolving === true;
+  const includeDissolution = isDissolving && body.includeDissolution !== false;
+  const amendmentInput = body.amendment || {};
+  const dissolutionInput = body.dissolution || {};
 
   await query(
     `INSERT INTO altax.v3_ownership_transfers
@@ -186,9 +233,14 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
     ]
   );
 
-  const created: { billOfSale: boolean; form8822b: boolean; craUpdate: boolean; mdAmendmentTask: boolean } = {
-    billOfSale: includeBillOfSale, form8822b: false, craUpdate: false, mdAmendmentTask: false,
+  const created: { billOfSale: boolean; form8822b: boolean; craUpdate: boolean; mdAmendmentTask: boolean; amendment: boolean; dissolution: boolean } = {
+    billOfSale: includeBillOfSale, form8822b: false, craUpdate: false, mdAmendmentTask: false, amendment: false, dissolution: false,
   };
+  // Every filing_id this create actually generated — reported back so the
+  // frontend wizard's Step 4 can deep-link straight into each one's own
+  // existing view/sign/submit flow in the Government Forms section, instead
+  // of leaving staff to hunt for what just got created.
+  const createdFilingIds: string[] = [];
   const skippedReasons: string[] = [];
 
   // 8822-B — new responsible party is the buyer. affectsEmploymentReturns is
@@ -216,6 +268,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       );
       await query(`UPDATE altax.v3_ownership_transfers SET gov_form_8822b_filing_id = $1 WHERE transfer_id = $2`, [filingId8822b, transferId]);
       created.form8822b = true;
+      createdFilingIds.push(filingId8822b);
     } catch (err: any) {
       skippedReasons.push(`Form 8822-B was not generated: ${err?.message || "missing data."}`);
     }
@@ -256,6 +309,13 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
         officerState: String(body.buyerState || "").trim() || undefined,
         officerZip: String(body.buyerZipCode || "").trim() || undefined,
         officerPhone: String(body.buyerPhone || "").trim() || undefined,
+        // Existing-number-aware, same as the Phase 1 fix to
+        // GenerateGovFormModal.tsx's own CRA prefill: a CRA number already
+        // on the client profile means Maryland already assigned one, so
+        // this auto-draft defaults to "update" instead of silently filing
+        // as a brand-new registration.
+        existingCraNumber: clientCraRegistrationNumber || undefined,
+        registrationAction: clientCraRegistrationNumber ? "update" : "new",
       };
       await generateGovForm("CRA", craData);
       const filingIdCra = `GOV-${idSuffix()}`;
@@ -266,40 +326,183 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       );
       await query(`UPDATE altax.v3_ownership_transfers SET gov_form_cra_filing_id = $1 WHERE transfer_id = $2`, [filingIdCra, transferId]);
       created.craUpdate = true;
+      createdFilingIds.push(filingIdCra);
     } catch (err: any) {
       skippedReasons.push(`Maryland CRA update was not generated: ${err?.message || "missing data."}`);
     }
   }
 
-  // MD Amendment — tracked as a Task since the real SDAT form isn't built yet.
-  if (!includeMdAmendmentTask) {
-    skippedReasons.push("MD Amendment task was not requested.");
+  // MD Articles of Amendment — a real generated Draft filing (Phase 4) for
+  // clients whose entity_type is LLC or corp-like; a plain reminder task
+  // (the pre-Phase-4 behavior) for anything else, since no MD SDAT
+  // amendment generator applies to a Partnership/Sole Proprietorship/etc.
+  if (!includeAmendment) {
+    skippedReasons.push("MD Articles of Amendment was not requested.");
   } else {
+    const amendmentKind = client.entity_type ? ENTITY_TYPE_TO_AMENDMENT_KIND[client.entity_type] : undefined;
+    if (amendmentKind === "LLC") {
+      try {
+        const amendmentText = String(amendmentInput.amendmentText || "").trim();
+        if (!amendmentText) throw new Error("amendment text is required");
+        const mdAmendLlcData: MdAmendLlcData = {
+          llcName: client.client_name,
+          amendmentText,
+          newResidentAgentName: String(amendmentInput.newResidentAgentName || "").trim() || undefined,
+        };
+        await generateGovForm("MD_AMEND_LLC", mdAmendLlcData);
+        const filingIdAmendment = `GOV-${idSuffix()}`;
+        await query(
+          `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
+           VALUES ($1,$2,'MD_AMEND_LLC',$3,'Draft',$4)`,
+          [filingIdAmendment, clientId, await encryptFormDataForStorage(mdAmendLlcData), req.user!.email]
+        );
+        await query(`UPDATE altax.v3_ownership_transfers SET gov_form_amendment_filing_id = $1 WHERE transfer_id = $2`, [filingIdAmendment, transferId]);
+        created.amendment = true;
+        createdFilingIds.push(filingIdAmendment);
+      } catch (err: any) {
+        skippedReasons.push(`MD Articles of Amendment (LLC) was not generated: ${err?.message || "missing data."}`);
+      }
+    } else if (amendmentKind === "CORP") {
+      try {
+        const amendmentText = String(amendmentInput.amendmentText || "").trim();
+        const approvalMethod = String(amendmentInput.approvalMethod || "").trim();
+        if (!amendmentText) throw new Error("amendment text is required");
+        if (!approvalMethod) throw new Error("approval method (how this amendment was approved) is required");
+        const corpTypeBefore = (String(amendmentInput.corpTypeBefore || "").trim() ||
+          (client.entity_type === "Nonprofit" ? "Nonstock" : "Stock")) as MdAmendCorpData["corpTypeBefore"];
+        const mdAmendCorpData: MdAmendCorpData = {
+          corpTypeBefore,
+          corpName: client.client_name,
+          amendmentText,
+          approvalMethod: approvalMethod as MdAmendCorpData["approvalMethod"],
+          attestedByName: String(amendmentInput.attestedByName || "").trim() || undefined,
+          attestedByTitle: String(amendmentInput.attestedByTitle || "").trim() || undefined,
+          signedByName: String(amendmentInput.signedByName || "").trim() || undefined,
+          signedByTitle: String(amendmentInput.signedByTitle || "").trim() || undefined,
+          returnAddressLine1: String(amendmentInput.returnAddressLine1 || "").trim() || undefined,
+          returnAddressLine2: String(amendmentInput.returnAddressLine2 || "").trim() || undefined,
+          returnAddressLine3: String(amendmentInput.returnAddressLine3 || "").trim() || undefined,
+        };
+        await generateGovForm("MD_AMEND_CORP", mdAmendCorpData);
+        const filingIdAmendment = `GOV-${idSuffix()}`;
+        await query(
+          `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
+           VALUES ($1,$2,'MD_AMEND_CORP',$3,'Draft',$4)`,
+          [filingIdAmendment, clientId, await encryptFormDataForStorage(mdAmendCorpData), req.user!.email]
+        );
+        await query(`UPDATE altax.v3_ownership_transfers SET gov_form_amendment_filing_id = $1 WHERE transfer_id = $2`, [filingIdAmendment, transferId]);
+        created.amendment = true;
+        createdFilingIds.push(filingIdAmendment);
+      } catch (err: any) {
+        skippedReasons.push(`MD Articles of Amendment (Corporation) was not generated: ${err?.message || "missing data."}`);
+      }
+    } else {
+      // Fallback — pre-Phase-4 behavior. No MD SDAT amendment generator
+      // covers this client's entity_type (Partnership, Sole Proprietorship,
+      // Individual, or unset), so a task keeps the requirement tracked
+      // instead of silently dropping it.
+      try {
+        const taskId = `TASK-${idSuffix()}`;
+        await query(
+          `INSERT INTO altax.v3_tasks
+             (task_id, client_id, client_name, service_line, task_name, period, status, assigned_to, notes, source_system, source_record_id)
+           VALUES ($1,$2,$3,'Compliance','File MD Amendment (Articles of Amendment) with SDAT','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer',$6)`,
+          [
+            taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
+            `Business ownership transferred from ${sellerName} to ${buyerName}` +
+              (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
+              `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — no MD SDAT Amendment generator applies to this client's entity type ("${client.entity_type || "not set"}"), so this is tracked as a manual task instead (see transfer ${transferId}).`,
+            transferId,
+          ]
+        );
+        await query(`UPDATE altax.v3_ownership_transfers SET md_amendment_task_id = $1 WHERE transfer_id = $2`, [taskId, transferId]);
+        created.mdAmendmentTask = true;
+        skippedReasons.push(`MD Articles of Amendment isn't auto-generated for entity type "${client.entity_type || "not set"}" — a reminder task was created instead.`);
+      } catch (err: any) {
+        skippedReasons.push(`MD Amendment task was not created: ${err?.message || "unknown error."}`);
+      }
+    }
+  }
+
+  // MD Articles of Dissolution — only attempted when the wizard's step-3
+  // "is the old entity being dissolved?" toggle was on. Director/officer
+  // data comes entirely from what staff typed on that same step (there's no
+  // client-profile column to prefill a director list from), except sdatId/
+  // principalOfficeAddress which the wizard itself already prefills from the
+  // client's own secretary_of_state_id / address before it ever reaches here.
+  if (isDissolving && includeDissolution) {
     try {
-      const taskId = `TASK-${idSuffix()}`;
+      const principalOfficeAddress = String(dissolutionInput.principalOfficeAddress || "").trim();
+      const residentAgentName = String(dissolutionInput.residentAgentName || "").trim();
+      const residentAgentAddress = String(dissolutionInput.residentAgentAddress || "").trim();
+      if (!principalOfficeAddress) throw new Error("principal office address is required");
+      if (!residentAgentName || !residentAgentAddress) throw new Error("resident agent name and address are required");
+      const directors: MdDissolutionPerson[] = Array.isArray(dissolutionInput.directors)
+        ? dissolutionInput.directors
+          .map((d: any) => ({ name: String(d?.name || "").trim(), address: String(d?.address || "").trim() }))
+          .filter((d: MdDissolutionPerson) => d.name)
+        : [];
+      if (!directors.length) throw new Error("add at least one director or trustee");
+      const approvalManner = String(dissolutionInput.approvalManner || "").trim();
+      if (!approvalManner) throw new Error("manner of approval (SEVENTH) is required");
+      const creditorNotice = dissolutionInput.creditorNotice === "Mailed to known creditors" ? "Mailed to known creditors" : "No known creditors";
+      const effectiveDate = dissolutionInput.effectiveDate === "immediate" || !dissolutionInput.effectiveDate
+        ? "immediate"
+        : String(dissolutionInput.effectiveDate).trim();
+
+      const officersInput = dissolutionInput.officers || {};
+      const officers: MdDissolutionData["officers"] = {};
+      (["president", "treasurer", "secretary", "other"] as const).forEach((role) => {
+        const person = officersInput[role];
+        if (person && String(person.name || "").trim()) {
+          officers[role] = { name: String(person.name).trim(), address: String(person.address || "").trim() };
+        }
+      });
+
+      const mdDissolutionData: MdDissolutionData = {
+        corpName: client.client_name,
+        sdatId: String(dissolutionInput.sdatId || "").trim() || undefined,
+        principalOfficeAddress, residentAgentName, residentAgentAddress,
+        directors, officers,
+        approvalManner: approvalManner as MdDissolutionData["approvalManner"],
+        otherMannerText: String(dissolutionInput.otherMannerText || "").trim() || undefined,
+        creditorNotice,
+        creditorNoticeMailedDate: creditorNotice === "Mailed to known creditors" ? String(dissolutionInput.creditorNoticeMailedDate || "").trim() || undefined : undefined,
+        effectiveDate,
+        additionalProvisions: String(dissolutionInput.additionalProvisions || "").trim() || undefined,
+        attestedByName: String(dissolutionInput.attestedByName || "").trim() || undefined,
+        attestedByTitle: String(dissolutionInput.attestedByTitle || "").trim() || undefined,
+        signedByName: String(dissolutionInput.signedByName || "").trim() || undefined,
+        signedByTitle: String(dissolutionInput.signedByTitle || "").trim() || undefined,
+        residentAgentConsentSignerName: String(dissolutionInput.residentAgentConsentSignerName || "").trim() || undefined,
+      };
+      await generateGovForm("MD_DISSOLUTION", mdDissolutionData);
+      const filingIdDissolution = `GOV-${idSuffix()}`;
       await query(
-        `INSERT INTO altax.v3_tasks
-           (task_id, client_id, client_name, service_line, task_name, period, status, assigned_to, notes, source_system, source_record_id)
-         VALUES ($1,$2,$3,'Compliance','File MD Amendment (Articles of Amendment) with SDAT','Ownership Transfer','Not Started',$4,$5,'Ownership Transfer',$6)`,
-        [
-          taskId, clientId, client.client_name, client.assigned_to || req.user!.email,
-          `Business ownership transferred from ${sellerName} to ${buyerName}` +
-            (body.effectiveDate ? ` effective ${body.effectiveDate}` : "") +
-            `. File Maryland Articles of Amendment reflecting the new principal/resident agent as needed — this app doesn't yet generate that form (see transfer ${transferId}).`,
-          transferId,
-        ]
+        `INSERT INTO altax.v3_gov_form_filings (filing_id, client_id, form_type, form_data, status, created_by)
+         VALUES ($1,$2,'MD_DISSOLUTION',$3,'Draft',$4)`,
+        [filingIdDissolution, clientId, await encryptFormDataForStorage(mdDissolutionData), req.user!.email]
       );
-      await query(`UPDATE altax.v3_ownership_transfers SET md_amendment_task_id = $1 WHERE transfer_id = $2`, [taskId, transferId]);
-      created.mdAmendmentTask = true;
+      await query(`UPDATE altax.v3_ownership_transfers SET gov_form_dissolution_filing_id = $1 WHERE transfer_id = $2`, [filingIdDissolution, transferId]);
+      created.dissolution = true;
+      createdFilingIds.push(filingIdDissolution);
+
+      // Closes the same "capture missing data while you're in the process"
+      // loop as the CRA number save action in GovFormsSection — a SDAT ID
+      // typed in on the wizard's step 3, when the client profile doesn't
+      // have one yet, is worth keeping for next time.
+      if (dissolutionInput.saveSdatIdToProfile && mdDissolutionData.sdatId && !client.secretary_of_state_id) {
+        await query(`UPDATE altax.v3_clients SET secretary_of_state_id = $1 WHERE client_id = $2`, [mdDissolutionData.sdatId, clientId]);
+      }
     } catch (err: any) {
-      skippedReasons.push(`MD Amendment task was not created: ${err?.message || "unknown error."}`);
+      skippedReasons.push(`MD Articles of Dissolution was not generated: ${err?.message || "missing data."}`);
     }
   }
 
   await logAudit("Clients", "OWNERSHIP_TRANSFER_CREATED", transferId, "buyer_name", "", buyerName,
     `Ownership transfer package started for ${client.client_name}: ${sellerName} -> ${buyerName}, by ${req.user!.email}.`, req.user!.email);
 
-  res.status(201).json({ ok: true, transferId, created, skippedReasons });
+  res.status(201).json({ ok: true, transferId, created, skippedReasons, createdFilingIds });
 }));
 
 /**
@@ -401,6 +604,16 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/delete"
     const t = await queryOne<any>(`SELECT status FROM altax.v3_tasks WHERE task_id = $1`, [transfer.md_amendment_task_id]);
     if (t && t.status === "Not Started") await query(`DELETE FROM altax.v3_tasks WHERE task_id = $1`, [transfer.md_amendment_task_id]);
     else if (t) left.push(`The MD Amendment task is already ${t.status} — left in place.`);
+  }
+  if (transfer.gov_form_amendment_filing_id) {
+    const f = await queryOne<any>(`SELECT status FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_amendment_filing_id]);
+    if (f && f.status === "Draft") await query(`DELETE FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_amendment_filing_id]);
+    else if (f) left.push(`The MD Articles of Amendment is already ${f.status} — left in place.`);
+  }
+  if (transfer.gov_form_dissolution_filing_id) {
+    const f = await queryOne<any>(`SELECT status FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_dissolution_filing_id]);
+    if (f && f.status === "Draft") await query(`DELETE FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [transfer.gov_form_dissolution_filing_id]);
+    else if (f) left.push(`The MD Articles of Dissolution is already ${f.status} — left in place.`);
   }
 
   await query(`DELETE FROM altax.v3_ownership_transfers WHERE transfer_id = $1`, [transferId]);

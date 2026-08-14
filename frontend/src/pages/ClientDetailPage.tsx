@@ -276,6 +276,13 @@ export function ClientDetailPage() {
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("At a Glance");
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
+  // Ownership Transfer wizard's Step 4 "Generate All" drafts new gov-form
+  // filings (8822-B/CRA/Amendment/Dissolution) that GovFormsSection below
+  // already loaded before they existed — bumping reloadKey forces a re-fetch,
+  // and highlightFilingIds lets it visually flag exactly the rows the wizard
+  // just created, so "Jump to Government Forms" lands somewhere obviously new.
+  const [ownershipReloadKey, setOwnershipReloadKey] = useState(0);
+  const [ownershipHighlightFilingIds, setOwnershipHighlightFilingIds] = useState<string[]>([]);
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
@@ -1003,8 +1010,11 @@ export function ClientDetailPage() {
           {tab === "Gov Forms" && canSeeStaffTabs && (
             <Fragment>
               <PoaFilingsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openAuthFormParams} />
-              <div style={{ marginTop: 16 }}>
-                <GovFormsSection clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openGovFormParams} />
+              <div id="gov-forms-section" style={{ marginTop: 16 }}>
+                <GovFormsSection
+                  clientId={client.client_id} clientName={client.client_name} autoOpenFormTypes={openGovFormParams}
+                  reloadKey={ownershipReloadKey} highlightFilingIds={ownershipHighlightFilingIds}
+                />
               </div>
               <div style={{ marginTop: 16 }}>
                 <OwnershipTransferSection
@@ -1012,6 +1022,7 @@ export function ClientDetailPage() {
                   clientName={client.client_name}
                   sellerNameDefault={(client.company_contact_name as string | null) || undefined}
                   sellerTitleDefault={(client.company_contact_title as string | null) || undefined}
+                  onFilingsGenerated={(filingIds) => { setOwnershipHighlightFilingIds(filingIds); setOwnershipReloadKey((k) => k + 1); }}
                 />
               </div>
             </Fragment>
@@ -2136,7 +2147,13 @@ function HealthPermitsSection({ clientId }: { clientId: string }) {
  * shape with each other or with the POA forms, so they get their own section
  * and their own filing table rather than being folded into PoaFilingsSection.
  */
-function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId: string; clientName: string; autoOpenFormTypes?: string[] }) {
+function GovFormsSection({ clientId, clientName, autoOpenFormTypes, reloadKey, highlightFilingIds }: {
+  clientId: string; clientName: string; autoOpenFormTypes?: string[];
+  /** Bump to force a re-fetch even though clientId hasn't changed — used by the Ownership Transfer wizard's Step 4 after it drafts new filings this section already loaded before they existed. */
+  reloadKey?: number;
+  /** filing_ids to visually flag (and scroll to) as "just generated" — same use case as reloadKey, see OwnershipTransferSection.tsx's onFilingsGenerated. */
+  highlightFilingIds?: string[];
+}) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const promptFor = usePrompt();
@@ -2181,7 +2198,19 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
       .then((res) => setFilings(res.filings))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load government forms."));
   }
-  useEffect(load, [clientId]);
+  useEffect(load, [clientId, reloadKey]);
+
+  const highlightSet = new Set(highlightFilingIds || []);
+  useEffect(() => {
+    if (!highlightFilingIds || !highlightFilingIds.length) return;
+    // Wait a tick for the reloadKey-triggered fetch above to land the new
+    // rows before trying to scroll to one of them.
+    const t = setTimeout(() => {
+      document.getElementById(`gov-filing-row-${highlightFilingIds[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightFilingIds]);
 
   async function handlePdf(filingId: string, mode: "view" | "download" | "print", formType: string) {
     setBusy(`pdf-${filingId}`);
@@ -2341,8 +2370,11 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
           <tbody>
             {filteredFilings.map((f) => (
               <Fragment key={f.filing_id}>
-                <tr>
-                  <td>{GOV_FORM_LABELS[f.form_type] || f.form_type}</td>
+                <tr id={`gov-filing-row-${f.filing_id}`} style={highlightSet.has(f.filing_id) ? { background: "var(--surface-2, #f8fafc)", boxShadow: "inset 3px 0 0 var(--teal)" } : undefined}>
+                  <td>
+                    {GOV_FORM_LABELS[f.form_type] || f.form_type}
+                    {highlightSet.has(f.filing_id) && <span className="status-pill status-green" style={{ marginLeft: 6, fontSize: 10 }}>New</span>}
+                  </td>
                   <td>
                     <span style={{ color: GOV_STATUS_COLOR[f.status] || "inherit", fontWeight: 700, fontSize: 12 }}>{f.status}</span>
                     {f.review_status === "pending_review" && (
