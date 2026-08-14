@@ -112,13 +112,28 @@ function computeDiscount(taxDue: number, params: MdFilingParams): number {
  * "Per month or fraction of a month" past the due date: full calendar
  * months elapsed, plus 1 more if any time remains past that exact
  * N-month mark. Returns 0 if paid on or before the due date.
+ *
+ * ACC-015 (hard audit, 2026-08-13) flagged the previous version of this
+ * function as overcounting when dueDate falls on day 29-31, since it built
+ * the N-month mark via `Date.setUTCMonth`, which silently rolls a day-31
+ * date into the *following* month when the target month is shorter (e.g.
+ * Jan 31 + 1 month lands on Mar 3, not Feb 28). Exhaustively brute-force
+ * tested that version against an independent ground truth (every due-day
+ * 1-31, every month, 2024-2028, paid dates up to 800 days late) and found
+ * it was in fact already correct everywhere — the rollover, while an odd
+ * thing to lean on, happened to land in a way that never changed the
+ * outcome. Rewritten anyway to compare day-of-month explicitly (clamped to
+ * the paid month's real length) so the correctness doesn't depend on an
+ * easy-to-misjudge Date quirk — verified behaviorally identical to the old
+ * version across that same exhaustive sweep before swapping it in.
  */
 function monthsLateInclusive(dueDate: Date, paidDate: Date): number {
   if (paidDate <= dueDate) return 0;
   let months = (paidDate.getUTCFullYear() - dueDate.getUTCFullYear()) * 12 + (paidDate.getUTCMonth() - dueDate.getUTCMonth());
-  const monthMark = new Date(dueDate);
-  monthMark.setUTCMonth(monthMark.getUTCMonth() + months);
-  if (paidDate > monthMark) months += 1;
+  const dueDay = dueDate.getUTCDate();
+  const daysInPaidMonth = new Date(Date.UTC(paidDate.getUTCFullYear(), paidDate.getUTCMonth() + 1, 0)).getUTCDate();
+  const effectiveDueDay = Math.min(dueDay, daysInPaidMonth);
+  if (paidDate.getUTCDate() > effectiveDueDay) months += 1;
   return Math.max(months, 1);
 }
 
@@ -127,6 +142,7 @@ export interface MdFilingResult {
   onTime: boolean;
   discount: number;
   penalty: number;
+  penaltyRate: number;
   interest: number;
   interestRateMonthly: number;
   monthsLate: number;
@@ -182,7 +198,7 @@ export async function computeMdFiling(taxDue: number, dueDateStr: string, filedD
   if (effectiveDate <= dueDate) {
     const discount = computeDiscount(taxDue, params);
     return {
-      taxDue, onTime: true, discount, penalty: 0, interest: 0, interestRateMonthly: params.interestMonthly, monthsLate: 0,
+      taxDue, onTime: true, discount, penalty: 0, penaltyRate: params.penaltyRate, interest: 0, interestRateMonthly: params.interestMonthly, monthsLate: 0,
       balanceDue: round2(taxDue - discount),
     };
   }
@@ -191,7 +207,7 @@ export async function computeMdFiling(taxDue: number, dueDateStr: string, filedD
   const penalty = round2(taxDue * params.penaltyRate);
   const interest = round2(taxDue * params.interestMonthly * monthsLate);
   return {
-    taxDue, onTime: false, discount: 0, penalty, interest, interestRateMonthly: params.interestMonthly, monthsLate,
+    taxDue, onTime: false, discount: 0, penalty, penaltyRate: params.penaltyRate, interest, interestRateMonthly: params.interestMonthly, monthsLate,
     balanceDue: round2(taxDue + penalty + interest),
   };
 }

@@ -117,7 +117,12 @@ export async function capWagesToAnnualLimit(
   wageColumn: "federal_taxable_wages" | "social_security_wages" = "federal_taxable_wages"
 ): Promise<number> {
   if (wageCap === null || !payDate) return wagesThisCheck;
-  const year = new Date(payDate).getFullYear();
+  // getUTCFullYear(), not getFullYear() — `new Date("YYYY-MM-DD")` parses as
+  // UTC midnight, so reading it back with a local-timezone getter can shift a
+  // Dec 31/Jan 1 pay date into the wrong year in any timezone behind UTC.
+  // Currently masked (no TZ is set anywhere in this deployment), but matches
+  // the same fix already applied in mdFiling.ts (ACC-016, hard audit 2026-08-13).
+  const year = new Date(payDate).getUTCFullYear();
   if (!Number.isFinite(year)) return wagesThisCheck;
 
   const row = await queryOne<any>(

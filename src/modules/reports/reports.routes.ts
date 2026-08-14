@@ -1588,7 +1588,7 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
         rows.push(["Timely discount", "", "", "", (-p.discount).toFixed(2)]);
         rows.push(["Balance due", "", "", "", p.balanceDue.toFixed(2)]);
       } else {
-        rows.push(["Late penalty (10%)", "", "", "", p.penalty.toFixed(2)]);
+        rows.push([`Late penalty (${(p.penaltyRate * 100).toFixed(0)}%)`, "", "", "", p.penalty.toFixed(2)]);
         rows.push([`Interest (${p.monthsLate} mo)`, "", "", "", p.interest.toFixed(2)]);
         rows.push(["Balance due", "", "", "", p.balanceDue.toFixed(2)]);
       }

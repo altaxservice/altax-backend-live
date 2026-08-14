@@ -30,11 +30,11 @@ export function isOverdue(t: Task): boolean {
 export function isDueToday(t: Task): boolean {
   return dueDays(t) === 0;
 }
+// UX-017 (hard audit, 2026-08-13): isDueSoon used to be a byte-for-byte
+// duplicate of this under a second name — a future edit to one threshold
+// without the other would have silently desynced "due soon." Consolidated
+// to this single name; every former isDueSoon call site now imports isDueWeek.
 export function isDueWeek(t: Task): boolean {
-  const d = dueDays(t);
-  return d !== null && d >= 0 && d <= 7;
-}
-export function isDueSoon(t: Task): boolean {
   const d = dueDays(t);
   return d !== null && d >= 0 && d <= 7;
 }

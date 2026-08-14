@@ -10,7 +10,7 @@ import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
-import { TASK_STATUSES, isOpenTask, isOverdue, isDueSoon, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { TASK_STATUSES, isOpenTask, isOverdue, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -544,7 +544,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
   const openTasks = filteredTasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
-  const dueSoon = openTasks.filter(isDueSoon);
+  const dueSoon = openTasks.filter(isDueWeek);
   const waiting = openTasks.filter(isWaiting);
   const openDocs = docs.filter((d) => !["closed", "completed", "void", "archived"].includes(String(d.status || "").toLowerCase()));
   const unpaidInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
@@ -557,7 +557,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // in a since-removed "Needs Attention" panel): overdue first, then due-soon, then
   // everything else — isOverdue/isDueSoon are mutually exclusive day-ranges, so this
   // never duplicates a task.
-  const priorityTasks = [...overdue, ...dueSoon, ...openTasks.filter((t) => !isOverdue(t) && !isDueSoon(t))];
+  const priorityTasks = [...overdue, ...dueSoon, ...openTasks.filter((t) => !isOverdue(t) && !isDueWeek(t))];
   // Unassigned work has no one whose queue it shows up in — an admin is the
   // only role that can actually see it firm-wide, so surfacing it here is the
   // only way it doesn't just silently sit unclaimed.
@@ -773,7 +773,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   const navigate = useNavigate();
   const openTasks = tasks.filter(isOpenTask);
   const overdue = openTasks.filter(isOverdue);
-  const dueSoon = openTasks.filter(isDueSoon);
+  const dueSoon = openTasks.filter(isDueWeek);
   const waiting = openTasks.filter(isWaiting);
   // clients/docs/invoices are already scoped server-side to this staff member's
   // assigned clients (same query the Clients/Documents/Billing pages use) —

@@ -391,7 +391,10 @@ bankRecRouter.post("/:clientId/auto-match", requireAuth, requireRole("admin", "s
   res.json({ ok: true, matched: appliedCount, remaining: bankLines.length - appliedCount });
 }));
 
-/** Delete a bank statement line — a bad upload, a duplicate, or a footer/total row that got parsed as a transaction. Leaves any matched GL entry untouched; it just becomes unmatched again. */
+/**
+ * Delete a bank statement line — a bad upload, a duplicate, or a footer/total
+ * row that got parsed as a transaction.
+ */
 bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { lineId } = req.params;
   const line = await queryOne<any>(`SELECT client_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
@@ -401,8 +404,16 @@ bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff")
   // An Approved draft already posted a real GL entry from this line — deleting
   // the line would silently orphan that entry (nothing left to reconcile it
   // through). A Pending draft hasn't posted anything, so it's safe to let the
-  // schema's ON DELETE CASCADE remove it along with the line.
+  // schema's ON DELETE CASCADE remove it along with the line. A manually-matched
+  // line (matched_gl_entry_id set via /match, no draft involved) gets the same
+  // guard — deleting it either way drops the record of what that GL entry was
+  // reconciled against with no warning (ACC-022, hard audit 2026-08-13). Both
+  // checks run inside the transaction, against a fresh locked read, so a match
+  // or draft-approval landing in the instant between the request and this query
+  // can't race past a stale read the way the old code (unlocked/pre-transaction)
+  // could.
   let hasApprovedDraft = false;
+  let isMatched = false;
   await withTransaction(async (db) => {
     // FOR UPDATE here contends with approveJeDraft's own atomic claim UPDATE
     // on this same je_drafts row — a draft approved in the same instant a
@@ -410,9 +421,12 @@ bankRecRouter.post("/:lineId/delete", requireAuth, requireRole("admin", "staff")
     // read; whichever gets here first blocks the other until it commits.
     const drafts = await db.query<any>(`SELECT status FROM altax.v3_je_drafts WHERE bank_line_id = $1 FOR UPDATE`, [lineId]);
     if (drafts.some((d) => d.status === "Approved")) { hasApprovedDraft = true; return; }
+    const [freshLine] = await db.query<any>(`SELECT matched_gl_entry_id FROM altax.v3_bank_statement_lines WHERE line_id = $1 FOR UPDATE`, [lineId]);
+    if (freshLine?.matched_gl_entry_id) { isMatched = true; return; }
     await db.query(`DELETE FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   });
   if (hasApprovedDraft) return res.status(400).json({ error: "This line has an approved journal entry — reconcile it or reverse the GL entry manually before deleting." });
+  if (isMatched) return res.status(400).json({ error: "This line is matched to a GL entry — unmatch it first before deleting." });
 
   await logAudit("Accounting", "DELETE_BANK_REC_LINE", lineId, "", "", "",
     `Bank statement line deleted by ${req.user!.email}.`, req.user!.email);
@@ -466,12 +480,36 @@ bankRecRouter.post("/:lineId/match", requireAuth, requireRole("admin", "staff"),
   res.json({ ok: true });
 }));
 
-/** Unmatch a previously-matched bank line. */
+/**
+ * Unmatch a previously-matched bank line. Same guard shape as the delete
+ * route above: if the matched GL entry was manufactured specifically for
+ * this line (an approved JE draft's resulting_gl_entry_id — see
+ * approveJeDraft below), a plain unmatch would leave that entry live and
+ * un-attached, where it silently re-enters the pool of unmatched entries
+ * available to match some OTHER, unrelated bank line — effectively a
+ * phantom transaction with no independent business justification (ACC-021,
+ * hard audit 2026-08-13). A manually-matched PRE-EXISTING entry (from a real
+ * sale, payroll, etc.) has its own independent existence and is fine to
+ * simply unmatch, same as before.
+ */
 bankRecRouter.post("/:lineId/unmatch", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { lineId } = req.params;
-  const line = await queryOne<any>(`SELECT client_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
+  const line = await queryOne<any>(`SELECT client_id, matched_gl_entry_id FROM altax.v3_bank_statement_lines WHERE line_id = $1`, [lineId]);
   if (!line) return res.status(404).json({ error: "Bank statement line not found." });
   if (!(await canAccessClient(req.user!, line.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  if (line.matched_gl_entry_id) {
+    const manufacturedDraft = await queryOne<any>(
+      `SELECT je_draft_id FROM altax.v3_je_drafts WHERE bank_line_id = $1 AND status = 'Approved' AND resulting_gl_entry_id = $2`,
+      [lineId, line.matched_gl_entry_id]
+    );
+    if (manufacturedDraft) {
+      return res.status(400).json({
+        error: "This bank line's GL entry was created specifically to reconcile it (from an approved Suggested JE) — unmatching would leave it as a live, unattached duplicate. Reverse the GL entry manually first if this match was wrong.",
+      });
+    }
+  }
+
   await query(`UPDATE altax.v3_bank_statement_lines SET matched_gl_entry_id = NULL WHERE line_id = $1`, [lineId]);
 
   await logAudit("Accounting", "UNMATCH_BANK_REC_LINE", lineId, "", "", "",

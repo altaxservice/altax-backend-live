@@ -20,7 +20,9 @@ interface FirmProfile {
   updatedAt: string | null;
 }
 
-const ALLOWED_LOGO_TYPES = ["image/png", "image/jpeg", "image/svg+xml"];
+// SVG dropped (SEC-004, hard audit 2026-08-13) — see the matching backend
+// note in firmSettings.routes.ts for why.
+const ALLOWED_LOGO_TYPES = ["image/png", "image/jpeg"];
 const MAX_LOGO_BYTES = 1_500_000;
 const ALLOWED_QR_TYPES = ["image/png", "image/jpeg"];
 const MAX_QR_BYTES = 1_500_000;
@@ -53,7 +55,7 @@ export function FirmSettingsPage() {
   function handleLogoFile(file: File | null) {
     if (!file) return;
     if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
-      setError("Logo must be a PNG, JPEG, or SVG image.");
+      setError("Logo must be a PNG or JPEG image.");
       return;
     }
     if (file.size > MAX_LOGO_BYTES) {
@@ -145,7 +147,7 @@ export function FirmSettingsPage() {
               )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-              <FileDropInput file={null} onChange={handleLogoFile} accept="image/png,image/jpeg,image/svg+xml" hint="PNG, JPEG, or SVG" />
+              <FileDropInput file={null} onChange={handleLogoFile} accept="image/png,image/jpeg" hint="PNG or JPEG" />
               {logoPreview && <button type="button" className="btn btn-sm" onClick={handleRemoveLogo} style={{ alignSelf: "flex-start" }}>Remove Logo</button>}
             </div>
           </div>

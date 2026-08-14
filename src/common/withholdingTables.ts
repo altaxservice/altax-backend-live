@@ -397,7 +397,7 @@ const DE_BRACKETS: Bracket[] = [
   { atLeast: 10000, baseTax: 261, rate: 0.048 },
   { atLeast: 20000, baseTax: 741, rate: 0.052 },
   { atLeast: 25000, baseTax: 1001, rate: 0.0555 },
-  { atLeast: 60000, baseTax: 2943, rate: 0.066 },
+  { atLeast: 60000, baseTax: 2943.5, rate: 0.066 },
 ];
 
 // Delaware is structurally different from MD/VA/federal: instead of subtracting
