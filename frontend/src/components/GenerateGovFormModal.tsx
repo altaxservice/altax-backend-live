@@ -14,8 +14,12 @@ interface ClientIdentity {
   street_address: string | null; city: string | null; state: string | null; zip_code: string | null;
   company_contact_name: string | null; company_contact_title: string | null; company_contact_ssn: string | null;
   company_contact_email: string | null; company_contact_phone: string | null;
+  company_contact_street_address: string | null; company_contact_city: string | null;
+  company_contact_state: string | null; company_contact_zip_code: string | null;
   secretary_of_state_id: string | null; phone: string | null; email: string | null;
   date_of_formation: string | null; dba_name: string | null; industry_category: string | null; payroll_enabled: boolean;
+  cra_registration_number: string | null; md_ui_employer_id: string | null; md_ui_tax_rate: number | null;
+  referral_source: string | null; sales_tax_frequency: string | null;
 }
 
 /** "ABDULSAMAD ALMABARI" -> ["ABDULSAMAD", "ALMABARI"] — first word is the first name, everything else is the last name. Same heuristic used elsewhere in this app for splitting a single stored contact-name field into a form's separate first/last boxes; staff can always correct it before generating. */
@@ -144,6 +148,12 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     officerLastName: "", officerFirstName: "", officerSsn: "", officerTitle: "",
     officerStreet: "", officerCity: "", officerState: "", officerZip: "", officerPhone: "",
     preparerName: "AL TAX SERVICE",
+    // Informational only — not a field on the real CRA PDF (which is
+    // inherently a new-registration form). Tracked here so staff can see
+    // an existing Maryland Central Registration Number on file before
+    // deciding whether this filing is a fresh registration or an update,
+    // and so that choice is recorded on the filing itself.
+    existingCraNumber: "", registrationAction: "new" as "new" | "update",
   });
   function toggleCraTaxType(t: string) {
     setCra((f) => ({ ...f, taxTypes: f.taxTypes.includes(t) ? f.taxTypes.filter((x) => x !== t) : [...f.taxTypes, t] }));
@@ -287,7 +297,14 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           phone: res.client.phone || "", email: res.client.email || "",
           officerFirstName: officer.first, officerLastName: officer.last, officerSsn: res.client.company_contact_ssn || "",
           officerTitle: res.client.company_contact_title || "",
-          officerStreet: res.client.street_address || "", officerCity: res.client.city || "", officerState: res.client.state || "MD", officerZip: res.client.zip_code || "",
+          // The officer/responsible-party's own address, not the business
+          // address — these are genuinely different people/places on most
+          // filings. Falls back to the business address only when the
+          // contact's own address isn't on file.
+          officerStreet: res.client.company_contact_street_address || res.client.street_address || "",
+          officerCity: res.client.company_contact_city || res.client.city || "",
+          officerState: res.client.company_contact_state || res.client.state || "MD",
+          officerZip: res.client.company_contact_zip_code || res.client.zip_code || "",
           officerPhone: res.client.company_contact_phone || res.client.phone || "",
           // Business activity prefilled from the client's own on-file
           // industry description — still just a starting point, staff can
@@ -297,6 +314,11 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           // Employer Withholding tax account registered — pre-checked, but
           // every other tax type stays unchecked for staff to add.
           taxTypes: res.client.payroll_enabled ? ["Employer withholding tax"] : [],
+          // A CRA number already on the client profile means Maryland has
+          // already assigned one — default to "update" so staff don't
+          // accidentally file this as a brand-new registration.
+          existingCraNumber: res.client.cra_registration_number || "",
+          registrationAction: res.client.cra_registration_number ? "update" : "new",
         }));
         setF8822b((f) => ({
           ...f,
@@ -740,6 +762,37 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   tobacco, motor fuel, successor-employer history) are left for the preparer to complete by hand from the
                   form's own printed instructions, since they depend on facts this app doesn't track.
                 </p>
+
+                <div className="field" style={{ margin: "0 0 14px" }}>
+                  <label>Registration type</label>
+                  <div style={{ display: "flex", gap: 16, fontSize: 13, alignItems: "center" }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-cra-reg-action" checked={cra.registrationAction === "new"} onChange={() => setCra({ ...cra, registrationAction: "new" })} />
+                      New registration
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-cra-reg-action" checked={cra.registrationAction === "update"} onChange={() => setCra({ ...cra, registrationAction: "update" })} />
+                      Update existing registration
+                    </label>
+                  </div>
+                  {cra.registrationAction === "update" && (
+                    <div className="field" style={{ margin: "8px 0 0" }}>
+                      <label htmlFor="gf-cra-existing-number">Existing Maryland Central Registration Number</label>
+                      <input
+                        id="gf-cra-existing-number"
+                        value={cra.existingCraNumber}
+                        onChange={(e) => setCra({ ...cra, existingCraNumber: e.target.value })}
+                        placeholder="Not yet on file — enter it here if you have it"
+                      />
+                      <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                        The real CRA form is a new-registration document and has no field for this — it's tracked here for
+                        our own records only. Once Maryland responds with a number, save it to the client's profile from
+                        the filing's status once this is Submitted.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, margin: "0 0 14px", padding: "10px 12px", background: "var(--surface)", borderRadius: 8 }}>
                   <input
                     type="checkbox"

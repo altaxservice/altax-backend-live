@@ -2273,6 +2273,28 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
     }
   }
 
+  /** Maryland only sends back a CRA/Central Registration Number after the state
+      approves the filing — there's no webhook or lookup for it, so this is how
+      staff record it once it arrives, closing the loop the CRA form's own
+      "existing registration number" field started (see cra_registration_number
+      on the client profile, read by every future CRA/tax filing that needs it). */
+  async function handleSaveCraNumber(f: GovFormFiling) {
+    const current = f.form_data?.existingCraNumber || "";
+    const value = await promptFor({ title: "Save CRA registration number", message: "Maryland Central Registration Number, as returned by the state:", defaultValue: current });
+    if (value === null) return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setBusy(`cra-number-${f.filing_id}`);
+    try {
+      await api.patch(`/clients/${clientId}`, { craRegistrationNumber: trimmed });
+      toast("Saved to the client's profile.");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this to the client profile.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleDelete(f: GovFormFiling) {
     const ok = await confirmDialog({ title: "Delete draft filing", message: `Delete this draft ${GOV_FORM_LABELS[f.form_type]}? This can't be undone.`, confirmLabel: "Delete", danger: true });
     if (!ok) return;
@@ -2355,6 +2377,11 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
                           <button type="button" className="btn btn-sm btn-primary" disabled={busy === `review-${f.filing_id}`} onClick={() => handleReviewDecision(f, "approved")}>Approve</button>
                           <button type="button" className="btn btn-sm" disabled={busy === `review-${f.filing_id}`} onClick={() => handleReviewDecision(f, "rejected")}>Reject</button>
                         </>
+                      )}
+                      {f.form_type === "CRA" && f.status === "Submitted" && (
+                        <button type="button" className="btn btn-sm" disabled={busy === `cra-number-${f.filing_id}`} onClick={() => handleSaveCraNumber(f)} title="Once Maryland responds with a Central Registration Number, save it here to the client's profile">
+                          Save Reg. Number
+                        </button>
                       )}
                       {isAdmin && f.status !== "Void" && (
                         <button type="button" className="btn btn-sm btn-danger" disabled={busy === `void-${f.filing_id}`} onClick={() => handleVoid(f)}>Void</button>

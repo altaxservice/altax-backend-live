@@ -128,6 +128,18 @@ export interface CraData {
   officerZip?: string;
   officerPhone?: string;
   preparerName?: string;
+  /**
+   * Informational only — NOT rendered onto the PDF. The real CRA is
+   * inherently a new-registration form with no AcroForm field for a prior
+   * registration number, so writing one in would mean drawing onto a
+   * field that doesn't exist on the government's own template (see this
+   * file's header comment on filling only real, confirmed fields). Staff
+   * see this in the app to decide whether a filing is a fresh registration
+   * or an update to one already on file (`v3_clients.cra_registration_number`),
+   * and it's recorded on the filing's own form_data for that context.
+   */
+  existingCraNumber?: string;
+  registrationAction?: "new" | "update";
 }
 
 const REASON_CHECKBOX: Record<(typeof CRA_REASONS)[number], string> = {
