@@ -10,6 +10,7 @@ import { FIRM_SERVICES } from "../utils/clientOptions";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
+import type { ClientFormPrefill } from "./ClientsListPage";
 
 /**
  * Pipeline — the same Estimates data as the Estimates list, viewed as a sales
@@ -151,6 +152,15 @@ export function PipelinePage() {
         <NewProspectModal
           onClose={() => setShowNewProspect(false)}
           onCreated={(estimateId) => { setShowNewProspect(false); load(); navigate(`/estimates/${estimateId}`); }}
+          onSkipToClient={(prefill) => {
+            // Genuine bypass, not a fast-forward — no estimate/pipeline card
+            // is ever created for this path, so there's nothing here to load()
+            // or clean up. `new=1` (no PII) opens the form; the prefill itself
+            // travels via router state, not the URL, since it can carry a
+            // contact's name/email/phone.
+            setShowNewProspect(false);
+            navigate("/clients?new=1", { state: { prefill } });
+          }}
         />
       )}
 
@@ -364,7 +374,7 @@ function WonColumn({
  * entity type/business type/full fee-catalog quoting stays on the Estimate
  * detail page for when there's enough to actually price it out.
  */
-function NewProspectModal({ onClose, onCreated }: { onClose: () => void; onCreated: (estimateId: string) => void }) {
+function NewProspectModal({ onClose, onCreated, onSkipToClient }: { onClose: () => void; onCreated: (estimateId: string) => void; onSkipToClient: (prefill: ClientFormPrefill) => void }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
@@ -400,6 +410,30 @@ function NewProspectModal({ onClose, onCreated }: { onClose: () => void; onCreat
     }
   }
 
+  /**
+   * The genuine bypass: skips creating an Estimate/Pipeline card entirely and
+   * hands whatever's already been typed here straight to the same rich Add
+   * Client flow ClientsListPage's own "Add Client" button opens — full
+   * profile capture, dedupe/EIN checks, and auto-generated contracts, exactly
+   * like a normal Add Client. No invoice, no starter tasks (that's the
+   * Convert-to-Client path from a Won estimate, left untouched). Contact
+   * Name has no equivalent field on the prospect-only side of Add Client, so
+   * it maps to Owner / Responsible Party's name — the only "a person's name"
+   * field the form has — and stays fully editable there.
+   */
+  function handleSkipToClient() {
+    if (!businessName.trim()) { setError("Business name is required."); return; }
+    setError(null);
+    onSkipToClient({
+      clientName: businessName.trim(),
+      companyContactName: contactName.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      services: serviceInterest,
+      payrollEnabled: serviceInterest.includes("payroll"),
+    });
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-prospect-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
@@ -426,8 +460,11 @@ function NewProspectModal({ onClose, onCreated }: { onClose: () => void; onCreat
               ))}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Creating…" : "Create Prospect"}</button>
+            <button type="button" className="btn" disabled={saving} onClick={handleSkipToClient} title="Already know they're a client? Skip the pipeline and open the full Add Client form with this pre-filled.">
+              Skip Pipeline — Add as Client
+            </button>
             <button type="button" className="btn" onClick={onClose}>Cancel</button>
           </div>
         </form>

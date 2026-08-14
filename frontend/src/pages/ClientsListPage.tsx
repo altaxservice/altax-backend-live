@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
@@ -32,6 +32,14 @@ const EMPTY_CLIENT_FORM = {
   companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "", referralSource: "",
   companyContactStreetAddress: "", companyContactCity: "", companyContactState: "", companyContactZipCode: "",
 };
+
+// Shape accepted from an external entry point that wants to open this page's
+// Add Client form pre-seeded — currently only Pipeline's "Skip Pipeline — Add
+// as Client" shortcut (PipelinePage.tsx's NewProspectModal), passed via
+// router navigation state (not the URL — keeps contact PII out of the query
+// string/history) alongside the existing `?new=1` param that already opens
+// this form for any external caller.
+export type ClientFormPrefill = Partial<typeof EMPTY_CLIENT_FORM>;
 
 const QUICK_TABS: { key: string; label: string; test: (c: Client) => boolean }[] = [
   { key: "all", label: "All", test: () => true },
@@ -85,12 +93,18 @@ function complianceInfo(c: Client): { lead: string | null; detail: string } {
 
 export function ClientsListPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { setSelectedClient } = useSelectedClient();
   const toast = useToast();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Read once at mount — a prospect handed off from Pipeline's skip-Estimate
+  // shortcut. Consumed only to seed initial state below; not re-read on
+  // later renders, so toggling the form closed/open again afterward doesn't
+  // keep re-applying it.
+  const prospectPrefillRef = useRef<ClientFormPrefill | undefined>((location.state as { prefill?: ClientFormPrefill } | null)?.prefill);
   const [clients, setClients] = useState<Client[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,8 +126,8 @@ export function ClientsListPage() {
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
-  const [showForm, setShowForm] = useState(searchParams.get("new") === "1");
-  const [form, setForm] = useState(EMPTY_CLIENT_FORM);
+  const [showForm, setShowForm] = useState(searchParams.get("new") === "1" || Boolean(prospectPrefillRef.current));
+  const [form, setForm] = useState(() => (prospectPrefillRef.current ? { ...EMPTY_CLIENT_FORM, ...prospectPrefillRef.current } : EMPTY_CLIENT_FORM));
   const [createPortalNow, setCreatePortalNow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
