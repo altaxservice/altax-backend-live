@@ -232,13 +232,6 @@ function PipelineCard({
         <div style={{ fontWeight: 600, fontSize: 13 }}>{est.business_name}</div>
         <div className="muted" style={{ fontSize: 11 }}>{est.estimate_number}</div>
         <div style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>{money(est.totals?.total)}</div>
-        {est.service_interest?.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-            {est.service_interest.map((key) => (
-              <span key={key} className="badge" style={{ fontSize: 10 }}>{FIRM_SERVICES.find((s) => s.key === key)?.label || key}</span>
-            ))}
-          </div>
-        )}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
         {next.map((s) => (
@@ -291,7 +284,8 @@ function NewProspectModal({ onClose, onCreated }: { onClose: () => void; onCreat
     try {
       const res = await api.post<{ estimateId: string }>("/estimates", {
         businessName: businessName.trim(), contactName: contactName.trim() || undefined,
-        email: email.trim() || undefined, phone: phone.trim() || undefined, serviceInterest,
+        email: email.trim() || undefined, phone: phone.trim() || undefined,
+        serviceInterest: serviceInterest.map((key) => FIRM_SERVICES.find((s) => s.key === key)?.label || key),
       });
       onCreated(res.estimateId);
     } catch (err) {

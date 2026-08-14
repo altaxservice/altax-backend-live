@@ -74,7 +74,6 @@ export interface Estimate {
   entity_type: string | null;
   business_type: string | null;
   jurisdiction: string | null;
-  service_interest: string[];
   speed: string;
   estimate_date: string;
   valid_until: string | null;

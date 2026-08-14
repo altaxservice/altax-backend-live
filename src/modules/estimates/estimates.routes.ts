@@ -322,14 +322,21 @@ estimatesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandl
     ? String(b.validUntil)
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // Folded into the existing free-text internal_note column rather than a new
+  // service_interest column — a prospect's "what are they interested in"
+  // checklist doesn't need its own schema, and this keeps New Prospect from
+  // depending on a migration landing in production before it works.
   const serviceInterest = Array.isArray(b.serviceInterest) ? b.serviceInterest.map((s: unknown) => String(s).trim()).filter(Boolean) : [];
+  const noteParts = [String(b.internalNote || "").trim()];
+  if (serviceInterest.length) noteParts.push(`Interested in: ${serviceInterest.join(", ")}`);
+  const internalNote = noteParts.filter(Boolean).join("\n") || null;
 
   await query(
     `INSERT INTO altax.v3_estimates
        (estimate_id, estimate_number, status, business_name, contact_name, email, phone, street, city, state, zip,
         entity_type, business_type, jurisdiction, speed, estimate_date, valid_until, prepared_by,
-        discount_amount, tax_rate, deposit_amount, terms, internal_note, created_by, service_interest)
-     VALUES ($1,$2,'Draft',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::date, CURRENT_DATE),$16::date,$17,$18,$19,$20,$21,$22,$23,$24::text[])`,
+        discount_amount, tax_rate, deposit_amount, terms, internal_note, created_by)
+     VALUES ($1,$2,'Draft',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::date, CURRENT_DATE),$16::date,$17,$18,$19,$20,$21,$22,$23)`,
     [
       estimateId, estimateNumber, businessName,
       String(b.contactName || "").trim() || null, String(b.email || "").trim() || null, String(b.phone || "").trim() || null,
@@ -340,8 +347,8 @@ estimatesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandl
       b.estimateDate || null, validUntil,
       String(b.preparedBy || req.user!.email),
       num(b.discountAmount), num(b.taxRate), num(b.depositAmount),
-      String(b.terms || "").trim() || null, String(b.internalNote || "").trim() || null,
-      req.user!.email, serviceInterest,
+      String(b.terms || "").trim() || null, internalNote,
+      req.user!.email,
     ]
   );
 
@@ -389,10 +396,6 @@ estimatesRouter.patch("/:estimateId", requireAuth, requireRole("admin", "staff")
     if (b[key] === undefined) continue;
     params.push(b[key] === "" ? null : b[key]);
     sets.push(`${col} = $${params.length}`);
-  }
-  if (Array.isArray(b.serviceInterest)) {
-    params.push(b.serviceInterest.map((s: unknown) => String(s).trim()).filter(Boolean));
-    sets.push(`service_interest = $${params.length}::text[]`);
   }
   if (!sets.length) return res.json({ ok: true });
 
@@ -593,20 +596,15 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
   try {
     await db.query("BEGIN");
 
-    // Carries over whatever the pipeline card recorded staff were pitching
-    // (Bookkeeping, Payroll, etc., not just the Formation/Permit fee-catalog
-    // items) so the new client doesn't start with an empty Services list.
-    const services: string[] = Array.isArray(est.service_interest) ? est.service_interest : [];
-
     await db.query(
       `INSERT INTO altax.v3_clients
          (client_id, client_name, client_type, entity_type, status, email, phone,
-          street_address, city, state, zip_code, assigned_to, portal_enabled, services,
+          street_address, city, state, zip_code, assigned_to, portal_enabled,
           source_system, source_record_id, created_at, updated_at)
-       VALUES ($1,$2,'Business',$3,'Active',$4,$5,$6,$7,$8,$9,$10,FALSE,$11::text[],'Estimate',$12, now(), now())`,
+       VALUES ($1,$2,'Business',$3,'Active',$4,$5,$6,$7,$8,$9,$10,FALSE,'Estimate',$11, now(), now())`,
       [clientId, est.business_name, est.entity_type || null, est.email || null, est.phone || null,
        est.street || null, est.city || null, est.state || null, est.zip || null,
-       req.user!.email, services, estimateId]
+       req.user!.email, estimateId]
     );
 
     if (createInvoice && invoiceId) {
