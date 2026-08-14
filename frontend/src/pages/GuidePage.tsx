@@ -405,19 +405,22 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        heading: "Approving and converting",
+        heading: "Approving and converting from the Estimate page",
         steps: [
           "When the client says yes, open the estimate and click Mark Approved.",
           "Approving does not create a client by itself — click Convert to Client to actually turn it into a real client + invoice + starter task list in one step.",
         ],
+        useWhen: "Use this when you're already on a specific estimate. Working a prospect from the board instead? The Pipeline topic below does the same two steps in one click.",
       },
       {
-        heading: "Pipeline — tracking prospects as a funnel",
+        heading: "Pipeline — four steps from prospect to client",
         route: "/pipeline", routeLabel: "Pipeline",
         steps: [
-          "Go to Pipeline in the sidebar. Every estimate shows up as a card in one of four columns: New → Contacted → Proposal Sent → Won/Lost.",
-          "When you send a quote, move the card to Proposal Sent. When they say yes, click Won (this mirrors clicking Mark Approved on the estimate — you still convert it separately when ready). When they say no, click Lost.",
-          "The top of the page shows your conversion rate (Won ÷ Won+Lost) for the selected period.",
+          "Step 1 — Add Prospect: click New Prospect on the Pipeline board and fill in just the business name, contact info, and what they're interested in. No entity type or pricing needed yet — that's added later on the estimate itself.",
+          "Step 2 — Work the Deal: each card shows one button for its next stage. Click it to move New → Contacted once you've reached out, then Contacted → Proposal Sent once you've sent them a quote. If they say no at any point, click the small \"Mark Lost\" link instead.",
+          "Step 3 — Mark Won: once they accept, click Mark Won on the card. This is the same as clicking Mark Approved on the estimate — the card moves into the \"Won — Ready to Convert\" column.",
+          "Step 4 — Convert to Client: on the Won card, click Convert to Client and confirm. One click creates the real client record, an invoice for the quoted work, and a task for each government filing sold — and takes you straight to the new client's page.",
+          "The top of the page shows your conversion rate (Won ÷ Won+Lost) for the selected period, and a Lost list at the bottom lets you Reopen a card if it was marked lost by mistake.",
         ],
         useWhen: "Use the conversion-rate number to see whether you're closing more or fewer prospects over time — check it monthly alongside Referral Source to see which lead sources actually convert.",
       },
