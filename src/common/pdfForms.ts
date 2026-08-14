@@ -1,4 +1,4 @@
-import { PDFDocument, PDFTextField, PDFCheckBox } from "pdf-lib";
+import { PDFDocument, PDFTextField, PDFCheckBox, PDFRadioGroup } from "pdf-lib";
 import fs from "fs";
 import path from "path";
 
@@ -49,6 +49,16 @@ export function checkBox(doc: PDFDocument, fieldName: string) {
   try {
     const field = doc.getForm().getField(fieldName);
     if (field instanceof PDFCheckBox) field.check();
+  } catch {
+    // Field not present on this revision of the form — skip rather than fail the whole document.
+  }
+}
+
+/** Selects one option of a PDFRadioGroup by its exact AcroForm path, skipping silently if absent (form revision changed), not a radio group, or the option value doesn't exist on this revision. */
+export function selectRadio(doc: PDFDocument, fieldName: string, optionValue: string) {
+  try {
+    const field = doc.getForm().getField(fieldName);
+    if (field instanceof PDFRadioGroup && field.getOptions().includes(optionValue)) field.select(optionValue);
   } catch {
     // Field not present on this revision of the form — skip rather than fail the whole document.
   }

@@ -14,6 +14,7 @@ import {
   SS4_ENTITY_TYPES, SS4_REASONS, SS4_ACTIVITIES,
   CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES,
   FORM8832_TYPE_OF_ELECTION, FORM8832_ENTITY_TYPES,
+  MD_AMEND_CORP_TYPES, MD_AMEND_CORP_APPROVAL_METHODS, MD_DISSOLUTION_APPROVAL_MANNERS,
 } from "./govForms.service";
 
 /**
@@ -61,6 +62,9 @@ const FORM_LABELS: Record<string, string> = {
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
   CRA: "Maryland Form CRA — Combined Registration Application",
   "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",
+  MD_AMEND_LLC: "Maryland Articles of Amendment — Limited Liability Company",
+  MD_AMEND_CORP: "Maryland Articles of Amendment — Corporation",
+  MD_DISSOLUTION: "Maryland Articles of Dissolution",
 };
 
 /**
@@ -134,6 +138,22 @@ function validateGovFormRequiredFields(formType: string, formData: any): string 
     }
   } else if (formType === "W4") {
     if (!s(formData.firstName) || !s(formData.lastName)) return "First and last name are required.";
+  } else if (formType === "MD_AMEND_LLC") {
+    if (!s(formData.llcName)) return "LLC name is required.";
+    if (!s(formData.amendmentText)) return "The amendment text is required.";
+  } else if (formType === "MD_AMEND_CORP") {
+    if (!s(formData.corpTypeBefore)) return "Corporation type is required.";
+    if (!s(formData.corpName)) return "Corporation name is required.";
+    if (!s(formData.amendmentText)) return "The amendment text is required.";
+    if (!s(formData.approvalMethod)) return "Select how this amendment was approved.";
+  } else if (formType === "MD_DISSOLUTION") {
+    if (!s(formData.corpName)) return "Corporation name is required.";
+    if (!s(formData.principalOfficeAddress)) return "Principal office address is required.";
+    if (!s(formData.residentAgentName) || !s(formData.residentAgentAddress)) return "Resident agent name and address are required.";
+    if (!Array.isArray(formData.directors) || !formData.directors.some((d: any) => s(d?.name))) return "Add at least one director or trustee.";
+    if (!s(formData.approvalManner)) return "Select the manner of approval (SEVENTH).";
+    if (!s(formData.creditorNotice)) return "Select the creditor notice option (EIGHTH).";
+    if (!s(formData.effectiveDate)) return "Select an effective date (NINTH).";
   }
   return null;
 }
@@ -153,6 +173,9 @@ govFormsRouter.get("/meta", requireAuth, requireRole("admin", "staff"), asyncHan
     craOwnershipTypes: CRA_OWNERSHIP_TYPES,
     form8832TypeOfElection: FORM8832_TYPE_OF_ELECTION,
     form8832EntityTypes: FORM8832_ENTITY_TYPES,
+    mdAmendCorpTypes: MD_AMEND_CORP_TYPES,
+    mdAmendCorpApprovalMethods: MD_AMEND_CORP_APPROVAL_METHODS,
+    mdDissolutionApprovalManners: MD_DISSOLUTION_APPROVAL_MANNERS,
   });
 }));
 

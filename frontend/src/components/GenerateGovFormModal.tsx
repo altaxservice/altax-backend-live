@@ -53,6 +53,10 @@ function combinedAddress(identity: ClientIdentity | null): string {
 interface Shareholder { name: string; address: string; idNumber: string; sharesOwned: string; dateAcquired: string; taxYearEnd: string }
 const EMPTY_SHAREHOLDER: Shareholder = { name: "", address: "", idNumber: "", sharesOwned: "", dateAcquired: "", taxYearEnd: "" };
 
+/** MD Articles of Dissolution's "FIFTH" director/trustee rows — same single-address-line shape as the real PDF's own fields, up to 4 rows. */
+interface DirectorOrTrustee { name: string; address: string }
+const EMPTY_DIRECTOR: DirectorOrTrustee = { name: "", address: "" };
+
 /**
  * Generates one of the client-level government forms (SS-4, 2553, W-9,
  * 8832, CRA, 8822-B). Unlike the POA forms modal (one shared taxpayer/
@@ -186,6 +190,43 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     lateReliefExplanation: "", lateReliefSignerTitle: "",
   });
 
+  // Maryland Articles of Amendment (LLC) state
+  const [mdAmendLlc, setMdAmendLlc] = useState({
+    llcName: "", amendmentText: "", newResidentAgentName: "",
+  });
+
+  // Maryland Articles of Amendment (Corporation) state
+  const [mdAmendCorp, setMdAmendCorp] = useState({
+    corpTypeBefore: "", corpName: "", amendmentText: "", approvalMethod: "",
+    attestedByName: "", attestedByTitle: "", signedByName: "", signedByTitle: "",
+    returnAddressLine1: "", returnAddressLine2: "", returnAddressLine3: "",
+  });
+
+  // Maryland Articles of Dissolution state
+  const [mdDissolution, setMdDissolution] = useState({
+    corpName: "", sdatId: "",
+    principalOfficeAddress: "", residentAgentName: "", residentAgentAddress: "",
+    approvalManner: "", otherMannerText: "",
+    creditorNotice: "No known creditors" as "Mailed to known creditors" | "No known creditors",
+    creditorNoticeMailedDate: "",
+    effectiveDateType: "immediate" as "immediate" | "future",
+    futureEffectiveDate: "",
+    additionalProvisions: "",
+    attestedByName: "", attestedByTitle: "", signedByName: "", signedByTitle: "",
+    residentAgentConsentSignerName: "",
+    presidentName: "", presidentAddress: "",
+    treasurerName: "", treasurerAddress: "",
+    secretaryName: "", secretaryAddress: "",
+    otherOfficerName: "", otherOfficerAddress: "",
+  });
+  const [directors, setDirectors] = useState<DirectorOrTrustee[]>([{ ...EMPTY_DIRECTOR }]);
+  function addDirector() {
+    setDirectors((prev) => (prev.length >= 4 ? prev : [...prev, { ...EMPTY_DIRECTOR }]));
+  }
+  function patchDirector(i: number, patch: Partial<DirectorOrTrustee>) {
+    setDirectors((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  }
+
   // Autosave — this modal has 140+ possible fields across the 6 form types,
   // the single biggest place in the app where an accidental tab close/reload
   // used to mean retyping everything. Keyed so editing an existing Draft has
@@ -197,6 +238,8 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     formType: ClientGovFormType; craGeneratePoa: boolean;
     ss4: typeof ss4; f2553: typeof f2553; shareholders: Shareholder[]; w9: typeof w9;
     cra: typeof cra; f8822b: typeof f8822b; f8832: typeof f8832;
+    mdAmendLlc: typeof mdAmendLlc; mdAmendCorp: typeof mdAmendCorp;
+    mdDissolution: typeof mdDissolution; directors: DirectorOrTrustee[];
   }>(draftFormKey);
 
   function restoreDraft() {
@@ -211,6 +254,10 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
     setCra(d.cra);
     setF8822b(d.f8822b);
     setF8832(d.f8832);
+    setMdAmendLlc(d.mdAmendLlc);
+    setMdAmendCorp(d.mdAmendCorp);
+    setMdDissolution(d.mdDissolution);
+    setDirectors(d.directors);
     dismissPendingDraft();
   }
 
@@ -220,10 +267,10 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   // draft this effect exists to protect, before the user ever saw it.
   useEffect(() => {
     if (!draftChecked || pendingDraft) return;
-    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832 });
+    saveDraft({ formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors });
     hasSavedDraftRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832]);
+  }, [draftChecked, pendingDraft, formType, craGeneratePoa, ss4, f2553, shareholders, w9, cra, f8822b, f8832, mdAmendLlc, mdAmendCorp, mdDissolution, directors]);
 
   useEffect(() => {
     Promise.all([
@@ -251,6 +298,25 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           if (editingFiling.form_type === "CRA") setCra((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "8822B") setF8822b((f) => ({ ...f, ...d }));
           if (editingFiling.form_type === "8832") setF8832((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "MD_AMEND_LLC") setMdAmendLlc((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "MD_AMEND_CORP") setMdAmendCorp((f) => ({ ...f, ...d }));
+          if (editingFiling.form_type === "MD_DISSOLUTION") {
+            // form_data stores officers as a nested { president?, treasurer?, secretary?, other? }
+            // object (see mdDissolution.ts's MdDissolutionData) — this modal's own state keeps
+            // them as flat presidentName/presidentAddress-style fields instead, so unpack rather
+            // than spread, or a saved Draft's officers would silently vanish on reopen.
+            const o = d.officers || {};
+            setMdDissolution((f) => ({
+              ...f, ...d,
+              presidentName: o.president?.name || "", presidentAddress: o.president?.address || "",
+              treasurerName: o.treasurer?.name || "", treasurerAddress: o.treasurer?.address || "",
+              secretaryName: o.secretary?.name || "", secretaryAddress: o.secretary?.address || "",
+              otherOfficerName: o.other?.name || "", otherOfficerAddress: o.other?.address || "",
+              effectiveDateType: d.effectiveDate === "immediate" ? "immediate" : "future",
+              futureEffectiveDate: d.effectiveDate && d.effectiveDate !== "immediate" ? d.effectiveDate : "",
+            }));
+            if (Array.isArray(d.directors) && d.directors.length) setDirectors(d.directors);
+          }
           return;
         }
 
@@ -339,6 +405,21 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
           street: res.client.street_address || "",
           cityStateZip: [res.client.city, [res.client.state, res.client.zip_code].filter(Boolean).join(" ")].filter(Boolean).join(", "),
         }));
+        setMdAmendLlc((f) => ({ ...f, llcName: res.client.client_name }));
+        // "Return address of filing party" (6) is this firm's own address, not
+        // the client's — SDAT mails the stamped/approved copy back to whoever
+        // filed it, which is this firm when we're preparing the amendment.
+        setMdAmendCorp((f) => ({
+          ...f, corpName: res.client.client_name,
+          returnAddressLine1: firm.firmName || "",
+          returnAddressLine2: firm.street || "",
+          returnAddressLine3: [firm.city, [firm.state, firm.zipCode].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+        }));
+        setMdDissolution((f) => ({
+          ...f, corpName: res.client.client_name,
+          sdatId: res.client.secretary_of_state_id || "",
+          principalOfficeAddress: addr,
+        }));
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load form options."));
   }, [clientId]);
@@ -380,18 +461,56 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
       }
       return { ...f8822b };
     }
-    // 8832
-    if (!f8832.legalName.trim()) { setSaveError("Name of the eligible entity is required."); return null; }
-    if (!f8832.street.trim() || !f8832.cityStateZip.trim()) { setSaveError("Mailing address is required."); return null; }
-    if (f8832.moreThanOneOwner && (f8832.entityType.includes("single owner"))) {
-      setSaveError("Line 6's entity type says single owner, but line 3 says more than one owner — pick one.");
+    if (formType === "8832") {
+      if (!f8832.legalName.trim()) { setSaveError("Name of the eligible entity is required."); return null; }
+      if (!f8832.street.trim() || !f8832.cityStateZip.trim()) { setSaveError("Mailing address is required."); return null; }
+      if (f8832.moreThanOneOwner && (f8832.entityType.includes("single owner"))) {
+        setSaveError("Line 6's entity type says single owner, but line 3 says more than one owner — pick one.");
+        return null;
+      }
+      if (f8832.lateReliefUnder200941 && !f8832.lateReliefExplanation.trim()) {
+        setSaveError("Explain why the election wasn't filed on time (Part II, line 11) — required when late relief is checked.");
+        return null;
+      }
+      return { ...f8832 };
+    }
+    if (formType === "MD_AMEND_LLC") {
+      if (!mdAmendLlc.llcName.trim()) { setSaveError("LLC name is required."); return null; }
+      if (!mdAmendLlc.amendmentText.trim()) { setSaveError("The amendment text is required."); return null; }
+      return { ...mdAmendLlc };
+    }
+    if (formType === "MD_AMEND_CORP") {
+      if (!mdAmendCorp.corpTypeBefore) { setSaveError("Corporation type is required."); return null; }
+      if (!mdAmendCorp.corpName.trim()) { setSaveError("Corporation name is required."); return null; }
+      if (!mdAmendCorp.amendmentText.trim()) { setSaveError("The amendment text is required."); return null; }
+      if (!mdAmendCorp.approvalMethod) { setSaveError("Select how this amendment was approved."); return null; }
+      return { ...mdAmendCorp };
+    }
+    // MD_DISSOLUTION
+    if (!mdDissolution.corpName.trim()) { setSaveError("Corporation name is required."); return null; }
+    if (!mdDissolution.principalOfficeAddress.trim()) { setSaveError("Principal office address is required."); return null; }
+    if (!mdDissolution.residentAgentName.trim() || !mdDissolution.residentAgentAddress.trim()) {
+      setSaveError("Resident agent name and address are required.");
       return null;
     }
-    if (f8832.lateReliefUnder200941 && !f8832.lateReliefExplanation.trim()) {
-      setSaveError("Explain why the election wasn't filed on time (Part II, line 11) — required when late relief is checked.");
+    const cleanDirectors = directors.filter((d) => d.name.trim());
+    if (!cleanDirectors.length) { setSaveError("Add at least one director or trustee."); return null; }
+    if (!mdDissolution.approvalManner) { setSaveError("Select the manner of approval (SEVENTH)."); return null; }
+    if (mdDissolution.effectiveDateType === "future" && !mdDissolution.futureEffectiveDate.trim()) {
+      setSaveError("Enter the future effective date (NINTH), or switch back to immediate.");
       return null;
     }
-    return { ...f8832 };
+    const officers: Record<string, { name: string; address: string }> = {};
+    if (mdDissolution.presidentName.trim()) officers.president = { name: mdDissolution.presidentName, address: mdDissolution.presidentAddress };
+    if (mdDissolution.treasurerName.trim()) officers.treasurer = { name: mdDissolution.treasurerName, address: mdDissolution.treasurerAddress };
+    if (mdDissolution.secretaryName.trim()) officers.secretary = { name: mdDissolution.secretaryName, address: mdDissolution.secretaryAddress };
+    if (mdDissolution.otherOfficerName.trim()) officers.other = { name: mdDissolution.otherOfficerName, address: mdDissolution.otherOfficerAddress };
+    return {
+      ...mdDissolution,
+      directors: cleanDirectors,
+      officers,
+      effectiveDate: mdDissolution.effectiveDateType === "immediate" ? "immediate" : mdDissolution.futureEffectiveDate,
+    };
   }
 
   async function handleSubmit() {
@@ -1170,6 +1289,238 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {formType === "MD_AMEND_LLC" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Maryland SDAT's Articles of Amendment for a Limited Liability Company — must be approved by unanimous
+                  consent of the members. Both signature lines are physical-signature-only and are not filled in by this app.
+                </p>
+                <div className="field">
+                  <label htmlFor="gf-mdallc-name">Full name of the LLC</label>
+                  <input id="gf-mdallc-name" value={mdAmendLlc.llcName} onChange={(e) => setMdAmendLlc({ ...mdAmendLlc, llcName: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdallc-text">The Charter of the LLC is hereby amended as follows</label>
+                  <textarea id="gf-mdallc-text" rows={5} value={mdAmendLlc.amendmentText} onChange={(e) => setMdAmendLlc({ ...mdAmendLlc, amendmentText: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdallc-new-agent">New resident agent's name <span className="muted">(only if this amendment appoints a NEW resident agent — leave blank if the current one continues to serve)</span></label>
+                  <input id="gf-mdallc-new-agent" value={mdAmendLlc.newResidentAgentName} onChange={(e) => setMdAmendLlc({ ...mdAmendLlc, newResidentAgentName: e.target.value })} />
+                  {mdAmendLlc.newResidentAgentName.trim() && (
+                    <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                      A physical signature is required on the "Signature required only for new resident agents" line before
+                      filing — this app records the name for context only, it can't fill that line in.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {formType === "MD_AMEND_CORP" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Maryland SDAT's Articles of Amendment for a Corporation. Two different officers must sign (Attested by /
+                  Signed by) unless this is a close or professional services corporation — both lines are
+                  physical-signature-only and are not filled in by this app.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-type">Corporation type <span className="muted">(prior to this amendment)</span></label>
+                    <select id="gf-mdacorp-type" value={mdAmendCorp.corpTypeBefore} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, corpTypeBefore: e.target.value })}>
+                      <option value="">Select…</option>
+                      {meta.mdAmendCorpTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-name">Exact name of the corporation <span className="muted">(as on file with SDAT)</span></label>
+                    <input id="gf-mdacorp-name" value={mdAmendCorp.corpName} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, corpName: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdacorp-text">The charter of the corporation shall be and hereby is amended as follows</label>
+                  <textarea id="gf-mdacorp-text" rows={5} value={mdAmendCorp.amendmentText} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, amendmentText: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mdacorp-approval">This amendment has been approved by</label>
+                  <select id="gf-mdacorp-approval" value={mdAmendCorp.approvalMethod} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, approvalMethod: e.target.value })}>
+                    <option value="">Select…</option>
+                    {meta.mdAmendCorpApprovalMethods.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-attested-name">Attested to by <span className="muted">(name — informational only, wet-signed by hand)</span></label>
+                    <input id="gf-mdacorp-attested-name" value={mdAmendCorp.attestedByName} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, attestedByName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-attested-title">Title</label>
+                    <input id="gf-mdacorp-attested-title" value={mdAmendCorp.attestedByTitle} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, attestedByTitle: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-signed-name">Signed by <span className="muted">(different person unless close/professional corp)</span></label>
+                    <input id="gf-mdacorp-signed-name" value={mdAmendCorp.signedByName} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, signedByName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mdacorp-signed-title">Title</label>
+                    <input id="gf-mdacorp-signed-title" value={mdAmendCorp.signedByTitle} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, signedByTitle: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label htmlFor="gf-mdacorp-return1">Return address of filing party</label>
+                  <input id="gf-mdacorp-return1" placeholder="Line 1" value={mdAmendCorp.returnAddressLine1} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, returnAddressLine1: e.target.value })} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <input aria-label="Return address — Line 2" placeholder="Line 2" value={mdAmendCorp.returnAddressLine2} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, returnAddressLine2: e.target.value })} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <input aria-label="Return address — Line 3" placeholder="Line 3" value={mdAmendCorp.returnAddressLine3} onChange={(e) => setMdAmendCorp({ ...mdAmendCorp, returnAddressLine3: e.target.value })} />
+                </div>
+              </div>
+            )}
+
+            {formType === "MD_DISSOLUTION" && (
+              <div>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Maryland SDAT's Articles of Dissolution — ends the existence of a Maryland domestic corporation. Both
+                  certification signature blocks and the resident agent's consent are physical-signature-only and are not
+                  filled in by this app.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-name">FIRST — Full name of the corporation <span className="muted">(as listed in SDAT's record)</span></label>
+                    <input id="gf-mddis-name" value={mdDissolution.corpName} onChange={(e) => setMdDissolution({ ...mdDissolution, corpName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-sdat-id">SDAT ID <span className="muted">(if available)</span></label>
+                    <input id="gf-mddis-sdat-id" value={mdDissolution.sdatId} onChange={(e) => setMdDissolution({ ...mdDissolution, sdatId: e.target.value })} />
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="gf-mddis-principal-office">SECOND — Principal office address <span className="muted">(including city, state &amp; zip code)</span></label>
+                  <input id="gf-mddis-principal-office" value={mdDissolution.principalOfficeAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, principalOfficeAddress: e.target.value })} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-agent-name">THIRD — Resident agent's full name <span className="muted">(serving 1 year after dissolution)</span></label>
+                    <input id="gf-mddis-agent-name" value={mdDissolution.residentAgentName} onChange={(e) => setMdDissolution({ ...mdDissolution, residentAgentName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-agent-address">FOURTH — Resident agent's Maryland address</label>
+                    <input id="gf-mddis-agent-address" value={mdDissolution.residentAgentAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, residentAgentAddress: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>FIFTH — Directors or trustees <span className="muted">(up to 4; at least 1 required — 4 required if a religious corporation)</span></label>
+                  {directors.map((d, i) => (
+                    <div key={i} className="card" style={{ marginBottom: 8, padding: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <strong style={{ fontSize: 12.5 }}>Director/Trustee {i + 1}</strong>
+                        {directors.length > 1 && (
+                          <button type="button" className="link-button" style={{ color: "var(--red)" }}
+                            onClick={() => setDirectors((prev) => prev.filter((_, j) => j !== i))}>Remove</button>
+                        )}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <input placeholder="Name" value={d.name} onChange={(e) => patchDirector(i, { name: e.target.value })} />
+                        <input placeholder="Address (including city, state & zip)" value={d.address} onChange={(e) => patchDirector(i, { address: e.target.value })} />
+                      </div>
+                    </div>
+                  ))}
+                  {directors.length < 4 && <button type="button" className="btn btn-sm" onClick={addDirector}>+ Add Director/Trustee</button>}
+                </div>
+
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label>SIXTH — Officers <span className="muted">(President, Treasurer, and Secretary requested to avoid rejection, even if the same person holds more than one role)</span></label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <input placeholder="President — Name" value={mdDissolution.presidentName} onChange={(e) => setMdDissolution({ ...mdDissolution, presidentName: e.target.value })} />
+                    <input placeholder="President — Address" value={mdDissolution.presidentAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, presidentAddress: e.target.value })} />
+                    <input placeholder="Treasurer — Name" value={mdDissolution.treasurerName} onChange={(e) => setMdDissolution({ ...mdDissolution, treasurerName: e.target.value })} />
+                    <input placeholder="Treasurer — Address" value={mdDissolution.treasurerAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, treasurerAddress: e.target.value })} />
+                    <input placeholder="Secretary — Name" value={mdDissolution.secretaryName} onChange={(e) => setMdDissolution({ ...mdDissolution, secretaryName: e.target.value })} />
+                    <input placeholder="Secretary — Address" value={mdDissolution.secretaryAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, secretaryAddress: e.target.value })} />
+                    <input placeholder="Other Officer — Name (optional)" value={mdDissolution.otherOfficerName} onChange={(e) => setMdDissolution({ ...mdDissolution, otherOfficerName: e.target.value })} />
+                    <input placeholder="Other Officer — Address" value={mdDissolution.otherOfficerAddress} onChange={(e) => setMdDissolution({ ...mdDissolution, otherOfficerAddress: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field" style={{ marginTop: 12 }}>
+                  <label htmlFor="gf-mddis-approval-manner">SEVENTH — Manner of approval <span className="muted">(check one)</span></label>
+                  <select id="gf-mddis-approval-manner" value={mdDissolution.approvalManner} onChange={(e) => setMdDissolution({ ...mdDissolution, approvalManner: e.target.value })}>
+                    <option value="">Select…</option>
+                    {meta.mdDissolutionApprovalManners.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  {mdDissolution.approvalManner === meta.mdDissolutionApprovalManners[meta.mdDissolutionApprovalManners.length - 1] && (
+                    <input aria-label="Other manner not specified above — describe" placeholder="Describe the other manner of approval" style={{ marginTop: 6 }}
+                      value={mdDissolution.otherMannerText} onChange={(e) => setMdDissolution({ ...mdDissolution, otherMannerText: e.target.value })} />
+                  )}
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>EIGHTH — Creditor notice <span className="muted">(check one)</span></label>
+                  <div style={{ display: "flex", gap: 16, fontSize: 13, alignItems: "center" }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-mddis-creditor" checked={mdDissolution.creditorNotice === "Mailed to known creditors"} onChange={() => setMdDissolution({ ...mdDissolution, creditorNotice: "Mailed to known creditors" })} />
+                      Notice mailed to all known creditors
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-mddis-creditor" checked={mdDissolution.creditorNotice === "No known creditors"} onChange={() => setMdDissolution({ ...mdDissolution, creditorNotice: "No known creditors" })} />
+                      No known creditors
+                    </label>
+                  </div>
+                  {mdDissolution.creditorNotice === "Mailed to known creditors" && (
+                    <input type="date" style={{ marginTop: 6, maxWidth: 200 }} aria-label="Date notice was mailed" value={mdDissolution.creditorNoticeMailedDate} onChange={(e) => setMdDissolution({ ...mdDissolution, creditorNoticeMailedDate: e.target.value })} />
+                  )}
+                </div>
+
+                <div className="field" style={{ marginTop: 6 }}>
+                  <label>NINTH — Effective date</label>
+                  <div style={{ display: "flex", gap: 16, fontSize: 13, alignItems: "center" }}>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-mddis-effective" checked={mdDissolution.effectiveDateType === "immediate"} onChange={() => setMdDissolution({ ...mdDissolution, effectiveDateType: "immediate" })} />
+                      Effective upon the filing date <span className="muted">(the form's own default)</span>
+                    </label>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="gf-mddis-effective" checked={mdDissolution.effectiveDateType === "future"} onChange={() => setMdDissolution({ ...mdDissolution, effectiveDateType: "future" })} />
+                      A future date <span className="muted">(≤30 days after filing)</span>
+                    </label>
+                  </div>
+                  {mdDissolution.effectiveDateType === "future" && (
+                    <input type="date" style={{ marginTop: 6, maxWidth: 200 }} aria-label="Future effective date" value={mdDissolution.futureEffectiveDate} onChange={(e) => setMdDissolution({ ...mdDissolution, futureEffectiveDate: e.target.value })} />
+                  )}
+                </div>
+
+                <div className="field">
+                  <label htmlFor="gf-mddis-tenth">TENTH — Additional provisions <span className="muted">(optional)</span></label>
+                  <input id="gf-mddis-tenth" value={mdDissolution.additionalProvisions} onChange={(e) => setMdDissolution({ ...mdDissolution, additionalProvisions: e.target.value })} />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-attested-name">Attested by <span className="muted">(name — informational only, wet-signed by hand)</span></label>
+                    <input id="gf-mddis-attested-name" value={mdDissolution.attestedByName} onChange={(e) => setMdDissolution({ ...mdDissolution, attestedByName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-attested-title">Title</label>
+                    <input id="gf-mddis-attested-title" value={mdDissolution.attestedByTitle} onChange={(e) => setMdDissolution({ ...mdDissolution, attestedByTitle: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-signed-name">Signed by <span className="muted">(different person unless close/professional corp)</span></label>
+                    <input id="gf-mddis-signed-name" value={mdDissolution.signedByName} onChange={(e) => setMdDissolution({ ...mdDissolution, signedByName: e.target.value })} />
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label htmlFor="gf-mddis-signed-title">Title</label>
+                    <input id="gf-mddis-signed-title" value={mdDissolution.signedByTitle} onChange={(e) => setMdDissolution({ ...mdDissolution, signedByTitle: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="gf-mddis-agent-consent">Resident agent's consent — full name &amp; title of person signing <span className="muted">(only if the resident agent is itself an MD LLC or corporation, not an individual)</span></label>
+                  <input id="gf-mddis-agent-consent" value={mdDissolution.residentAgentConsentSignerName} onChange={(e) => setMdDissolution({ ...mdDissolution, residentAgentConsentSignerName: e.target.value })} />
+                </div>
               </div>
             )}
 

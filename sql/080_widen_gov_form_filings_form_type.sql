@@ -1,0 +1,13 @@
+-- ---------------------------------------------------------------------------
+-- v3_gov_form_filings.form_type was VARCHAR(8) (sql/006_gov_form_filings.sql),
+-- which fit every existing form_type code ('SS4','2553','W9','8832','CRA',
+-- '8822B' — all <= 6 chars) but is too narrow for the 3 new Maryland SDAT
+-- form types added in src/modules/govForms/mdAmendLlc.ts, mdAmendCorp.ts,
+-- mdDissolution.ts: 'MD_AMEND_LLC' (12), 'MD_AMEND_CORP' (13), and
+-- 'MD_DISSOLUTION' (14) all exceed 8 characters. Discovered live: inserting
+-- one of these threw "value too long for type character varying(8)" (Postgres
+-- error 22001) at govForms.routes.ts's INSERT. Widened to 32 — comfortably
+-- covers every current and reasonably-foreseeable form_type code without
+-- needing another migration for the next one.
+-- ---------------------------------------------------------------------------
+ALTER TABLE altax.v3_gov_form_filings ALTER COLUMN form_type TYPE VARCHAR(32);

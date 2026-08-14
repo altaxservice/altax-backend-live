@@ -1,6 +1,6 @@
 /** Shared types for Tools → Government Forms (2553, W-9, 8832 on a client; W-4 on an employee). */
 
-export type ClientGovFormType = "SS4" | "2553" | "W9" | "8832" | "CRA" | "8822B";
+export type ClientGovFormType = "SS4" | "2553" | "W9" | "8832" | "CRA" | "8822B" | "MD_AMEND_LLC" | "MD_AMEND_CORP" | "MD_DISSOLUTION";
 export type EmployeeGovFormType = "W4" | "W9";
 export type GovFormType = ClientGovFormType | EmployeeGovFormType;
 
@@ -45,6 +45,9 @@ export interface GovFormsMeta {
   craOwnershipTypes: string[];
   form8832TypeOfElection: string[];
   form8832EntityTypes: string[];
+  mdAmendCorpTypes: string[];
+  mdAmendCorpApprovalMethods: string[];
+  mdDissolutionApprovalManners: string[];
 }
 
 export const GOV_FORM_LABELS: Record<GovFormType, string> = {
@@ -55,6 +58,9 @@ export const GOV_FORM_LABELS: Record<GovFormType, string> = {
   W4: "IRS Form W-4 — Employee's Withholding Certificate",
   CRA: "Maryland Form CRA — Combined Registration Application",
   "8822B": "IRS Form 8822-B — Change of Address or Responsible Party — Business",
+  MD_AMEND_LLC: "Maryland Articles of Amendment — Limited Liability Company",
+  MD_AMEND_CORP: "Maryland Articles of Amendment — Corporation",
+  MD_DISSOLUTION: "Maryland Articles of Dissolution",
 };
 
 export const GOV_SUBMIT_VIA_OPTIONS = ["Mail", "Fax", "IRS Online Portal", "Hand-Delivered", "Kept on File"];

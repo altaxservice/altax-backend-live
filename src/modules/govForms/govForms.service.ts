@@ -15,6 +15,9 @@ import { generateW4, type W4Data } from "./w4";
 import { generateSs4, type Ss4Data } from "./ss4";
 import { generateCra, type CraData } from "./cra";
 import { generateForm8822b, type Form8822bData } from "./form8822b";
+import { generateMdAmendLlc, type MdAmendLlcData } from "./mdAmendLlc";
+import { generateMdAmendCorp, type MdAmendCorpData } from "./mdAmendCorp";
+import { generateMdDissolution, type MdDissolutionData } from "./mdDissolution";
 
 export type { Form2553Data, Form2553Shareholder } from "./form2553";
 export { FORM2553_TAX_YEAR_TYPES } from "./form2553";
@@ -29,9 +32,14 @@ export { SS4_ENTITY_TYPES, SS4_REASONS, SS4_ACTIVITIES } from "./ss4";
 export type { CraData } from "./cra";
 export { CRA_REASONS, CRA_TAX_TYPES, CRA_OWNERSHIP_TYPES } from "./cra";
 export type { Form8822bData } from "./form8822b";
+export type { MdAmendLlcData } from "./mdAmendLlc";
+export type { MdAmendCorpData } from "./mdAmendCorp";
+export { MD_AMEND_CORP_TYPES, MD_AMEND_CORP_APPROVAL_METHODS } from "./mdAmendCorp";
+export type { MdDissolutionData, MdDissolutionPerson } from "./mdDissolution";
+export { MD_DISSOLUTION_APPROVAL_MANNERS } from "./mdDissolution";
 
 /** Client-level forms — attached to v3_gov_form_filings.client_id. */
-export const CLIENT_GOV_FORM_TYPES = ["SS4", "2553", "W9", "8832", "CRA", "8822B"] as const;
+export const CLIENT_GOV_FORM_TYPES = ["SS4", "2553", "W9", "8832", "CRA", "8822B", "MD_AMEND_LLC", "MD_AMEND_CORP", "MD_DISSOLUTION"] as const;
 /** Employee-level forms — attached to v3_gov_form_filings.employee_id. W-4 (withholding election) and W-9 (TIN certification for a contractor) are both kept on file with the employer/payer, never sent to the IRS. */
 export const EMPLOYEE_GOV_FORM_TYPES = ["W4", "W9"] as const;
 
@@ -46,6 +54,9 @@ export async function generateGovForm(formType: string, formData: any): Promise<
     case "W4": return generateW4(formData as W4Data);
     case "CRA": return generateCra(formData as CraData);
     case "8822B": return generateForm8822b(formData as Form8822bData);
+    case "MD_AMEND_LLC": return generateMdAmendLlc(formData as MdAmendLlcData);
+    case "MD_AMEND_CORP": return generateMdAmendCorp(formData as MdAmendCorpData);
+    case "MD_DISSOLUTION": return generateMdDissolution(formData as MdDissolutionData);
     default: throw new Error(`Unknown government form type: ${formType}`);
   }
 }
