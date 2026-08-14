@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, viewFile, downloadFile, fetchAuthedBlob, buildFilename } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
@@ -418,7 +418,7 @@ export function ReportsPage() {
   // rather than silently recomputing against "today" a second time.
   const mdPaidDateQuery = tab === "Sales & Tax" || tab === "Sales, Tax & Payroll Report" ? `&mdFiledDate=${mdFiledDate}&mdPaidDate=${mdPaidDate}` : "";
 
-  async function handlePrintReport(mode: "view" | "download") {
+  async function handlePrintReport(mode: "view" | "download" | "print") {
     const segment = REPORT_PDF_SEGMENT[tab];
     if (!segment || !clientId) return;
     const key = `${segment}-${mode}`;
@@ -427,6 +427,7 @@ export function ReportsPage() {
       const employeeQuery = tab === "Employee" && employeeFilter ? `&employee=${encodeURIComponent(employeeFilter)}` : "";
       const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`;
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, buildFilename([client?.client_name, tab, `${from} to ${to}`], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
@@ -449,7 +450,7 @@ export function ReportsPage() {
     }
   }
 
-  async function handleFirmOverviewPrint(mode: "view" | "download") {
+  async function handleFirmOverviewPrint(mode: "view" | "download" | "print") {
     if (!clientId) return;
     const key = `firm-${mode}`;
     setReportBusy(key);
@@ -457,6 +458,7 @@ export function ReportsPage() {
       const clientQuery = isFirmWide ? "" : `&clientId=${encodeURIComponent(clientId)}`;
       const path = `/reports/pdf/firm-overview?from=${from}&to=${to}${clientQuery}`;
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, buildFilename([isFirmWide ? "Firm" : client?.client_name, "Firm Overview", `${from} to ${to}`], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
@@ -621,6 +623,9 @@ export function ReportsPage() {
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("download")}>
                         {reportBusy === "firm-download" ? "Generating…" : "Download PDF"}
                       </button>
+                      <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewPrint("print")}>
+                        {reportBusy === "firm-print" ? "Printing…" : "Print PDF"}
+                      </button>
                       <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmOverviewCsv("csv")}>
                         {reportBusy === "firm-csv" ? "Exporting…" : "Export CSV"}
                       </button>
@@ -653,6 +658,9 @@ export function ReportsPage() {
                           </button>
                           <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("download")}>
                             {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-download` ? "Generating…" : "Download PDF (English)"}
+                          </button>
+                          <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handlePrintReport("print")}>
+                            {reportBusy === `${REPORT_PDF_SEGMENT[tab]}-print` ? "Printing…" : "Print PDF (English)"}
                           </button>
                         </>
                       )}
@@ -1251,10 +1259,11 @@ function ArAgingTab() {
   }
   useEffect(load, []);
 
-  async function handlePrint(mode: "view" | "download") {
+  async function handlePrint(mode: "view" | "download" | "print") {
     setBusy(mode);
     try {
       if (mode === "view") await viewFile("/reports/pdf/ar-aging");
+      else if (mode === "print") await printFile("/reports/pdf/ar-aging");
       else await downloadFile("/reports/pdf/ar-aging", buildFilename(["AR Aging", data?.asOf], "pdf"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not generate the PDF.");
@@ -1291,6 +1300,9 @@ function ArAgingTab() {
             </button>
             <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("download")}>
               {busy === "download" ? "Generating…" : "Download PDF"}
+            </button>
+            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("print")}>
+              {busy === "print" ? "Printing…" : "Print PDF"}
             </button>
             <button type="button" className="btn" disabled={busy !== null} onClick={() => handleCsv("csv")}>
               {busy === "csv" ? "Exporting…" : "Export CSV"}

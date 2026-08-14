@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
 import { BackLink } from "../components/BackLink";
@@ -1167,6 +1167,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
         <td data-label="Action" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
           <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "document")}>Download</button>
+          <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url)}>Print</button>
           {archived ? (
             <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleUnarchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Unarchive"}</button>
           ) : (
@@ -1511,10 +1512,11 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
     }
   }
 
-  async function handlePdf(contractId: string, mode: "view" | "download", title: string) {
+  async function handlePdf(contractId: string, mode: "view" | "download" | "print", title: string) {
     setBusy(`pdf-${contractId}`);
     try {
       if (mode === "view") await viewFile(`/contracts/${contractId}/pdf`);
+      else if (mode === "print") await printFile(`/contracts/${contractId}/pdf`);
       else await downloadFile(`/contracts/${contractId}/pdf`, buildFilename([clientName, title], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this contract PDF.");
@@ -1530,10 +1532,11 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
    * print or hand over one file instead of chasing the client through
    * separate documents across separate visits.
    */
-  async function handlePacket(mode: "view" | "download") {
+  async function handlePacket(mode: "view" | "download" | "print") {
     setBusy("packet");
     try {
       if (mode === "view") await viewFile(`/contracts/client/${clientId}/packet`);
+      else if (mode === "print") await printFile(`/contracts/client/${clientId}/packet`);
       else await downloadFile(`/contracts/client/${clientId}/packet`, buildFilename([clientName, "Signing Packet"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not combine these documents.");
@@ -1619,6 +1622,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
           <div style={{ display: "flex", gap: 6 }}>
             <button type="button" className="btn btn-sm" disabled={busy === "packet"} onClick={() => handlePacket("view")}>Preview Packet</button>
             <button type="button" className="btn btn-sm" disabled={busy === "packet"} onClick={() => handlePacket("download")}>Download Packet</button>
+            <button type="button" className="btn btn-sm" disabled={busy === "packet"} onClick={() => handlePacket("print")}>Print Packet</button>
           </div>
         </div>
       )}
@@ -1643,6 +1647,7 @@ function ContractsSection({ clientId, clientName, clientServices }: { clientId: 
                       <button type="button" className="btn btn-sm" onClick={() => handlePreview(c.contract_id)}>{previewId === c.contract_id ? "Hide Text" : "Preview"}</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "view", c.title)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "download", c.title)}>Download</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${c.contract_id}`} onClick={() => handlePdf(c.contract_id, "print", c.title)}>Print</button>
                       {/* poa_release must be signed by hand (several of the agencies it covers
                           don't accept an e-signed version — see contractContent.ts) — no
                           electronic send/link option is offered for it, only Preview/PDF/
@@ -1793,10 +1798,11 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
   }
   useEffect(load, [clientId]);
 
-  async function handlePdf(filingId: string, mode: "view" | "download", formType: string) {
+  async function handlePdf(filingId: string, mode: "view" | "download" | "print", formType: string) {
     setBusy(`pdf-${filingId}`);
     try {
       if (mode === "view") await viewFile(`/poa-forms/${filingId}/pdf`);
+      else if (mode === "print") await printFile(`/poa-forms/${filingId}/pdf`);
       else await downloadFile(`/poa-forms/${filingId}/pdf`, buildFilename([clientName, FORM_LABELS[formType] || formType], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
@@ -1910,6 +1916,7 @@ function PoaFilingsSection({ clientId, clientName, autoOpenFormTypes }: { client
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "print", f.form_type)}>Print</button>
                       {f.status === "Draft" && (
                         <button type="button" className="btn btn-sm" onClick={() => setEditingFiling(f)}>Edit</button>
                       )}
@@ -2176,10 +2183,11 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
   }
   useEffect(load, [clientId]);
 
-  async function handlePdf(filingId: string, mode: "view" | "download", formType: string) {
+  async function handlePdf(filingId: string, mode: "view" | "download" | "print", formType: string) {
     setBusy(`pdf-${filingId}`);
     try {
       if (mode === "view") await viewFile(`/gov-forms/${filingId}/pdf`);
+      else if (mode === "print") await printFile(`/gov-forms/${filingId}/pdf`);
       else await downloadFile(`/gov-forms/${filingId}/pdf`, buildFilename([clientName, GOV_FORM_LABELS[formType as ClientGovFormType] || formType], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
@@ -2357,6 +2365,7 @@ function GovFormsSection({ clientId, clientName, autoOpenFormTypes }: { clientId
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "view", f.form_type)}>View PDF</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "download", f.form_type)}>Download</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f.filing_id, "print", f.form_type)}>Print</button>
                       {f.status === "Draft" && (
                         <button type="button" className="btn btn-sm" onClick={() => setEditingFiling(f)}>Edit</button>
                       )}
@@ -2490,7 +2499,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
   const [quarter, setQuarter] = useState<1 | 2 | 3 | 4>(currentQuarter);
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function run(form: "w3" | "1096" | "940" | "941", mode: "view" | "download") {
+  async function run(form: "w3" | "1096" | "940" | "941", mode: "view" | "download" | "print") {
     const key = `${form}-${mode}`;
     setBusy(key);
     try {
@@ -2498,6 +2507,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
       const path = `/accounting/tax-forms/${form}/${clientId}?year=${encodeURIComponent(year)}${q}`;
       const filename = form === "941" ? buildFilename([clientName, "Form 941", `${year} Q${quarter}`], "pdf") : buildFilename([clientName, `Form ${form.toUpperCase()}`, year], "pdf");
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, filename);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : `Could not generate this form.`);
@@ -2536,6 +2546,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" disabled={busy !== null} onClick={() => run("w3", "view")}>{busy === "w3-view" ? "Opening…" : "View W-3"}</button>
             <button className="btn" disabled={busy !== null} onClick={() => run("w3", "download")}>{busy === "w3-download" ? "Generating…" : "Download W-3"}</button>
+            <button className="btn" disabled={busy !== null} onClick={() => run("w3", "print")}>{busy === "w3-print" ? "Printing…" : "Print W-3"}</button>
           </div>
         </div>
         <div>
@@ -2543,6 +2554,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" disabled={busy !== null} onClick={() => run("1096", "view")}>{busy === "1096-view" ? "Opening…" : "View 1096"}</button>
             <button className="btn" disabled={busy !== null} onClick={() => run("1096", "download")}>{busy === "1096-download" ? "Generating…" : "Download 1096"}</button>
+            <button className="btn" disabled={busy !== null} onClick={() => run("1096", "print")}>{busy === "1096-print" ? "Printing…" : "Print 1096"}</button>
           </div>
         </div>
         <div>
@@ -2550,6 +2562,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" disabled={busy !== null} onClick={() => run("940", "view")}>{busy === "940-view" ? "Opening…" : "View 940"}</button>
             <button className="btn" disabled={busy !== null} onClick={() => run("940", "download")}>{busy === "940-download" ? "Generating…" : "Download 940"}</button>
+            <button className="btn" disabled={busy !== null} onClick={() => run("940", "print")}>{busy === "940-print" ? "Printing…" : "Print 940"}</button>
           </div>
         </div>
         <div>
@@ -2557,6 +2570,7 @@ function EmployerTaxFormsSection({ clientId, clientName }: { clientId: string; c
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn" disabled={busy !== null} onClick={() => run("941", "view")}>{busy === "941-view" ? "Opening…" : "View 941"}</button>
             <button className="btn" disabled={busy !== null} onClick={() => run("941", "download")}>{busy === "941-download" ? "Generating…" : "Download 941"}</button>
+            <button className="btn" disabled={busy !== null} onClick={() => run("941", "print")}>{busy === "941-print" ? "Printing…" : "Print 941"}</button>
           </div>
         </div>
       </div>
@@ -2974,7 +2988,7 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
-  const [statementBusy, setStatementBusy] = useState<"view" | "download" | null>(null);
+  const [statementBusy, setStatementBusy] = useState<"view" | "download" | "print" | null>(null);
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
   const [creatingFromTime, setCreatingFromTime] = useState(false);
   const [invoiceSearch, setInvoiceSearch] = useState("");
@@ -3006,10 +3020,11 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
     }
   }
 
-  async function handleStatement(mode: "view" | "download") {
+  async function handleStatement(mode: "view" | "download" | "print") {
     setStatementBusy(mode);
     try {
       if (mode === "view") await viewFile(`/billing/clients/${clientId}/statement`);
+      else if (mode === "print") await printFile(`/billing/clients/${clientId}/statement`);
       else await downloadFile(`/billing/clients/${clientId}/statement`, buildFilename([clientName, "Statement"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
@@ -3039,7 +3054,8 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
             </button>
           )}
           <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("view")}>{statementBusy === "view" ? "Opening…" : "View Statement"}</button>
-          <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("download")}>{statementBusy === "download" ? "Generating…" : "Print / Download PDF"}</button>
+          <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("download")}>{statementBusy === "download" ? "Generating…" : "Download PDF"}</button>
+          <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("print")}>{statementBusy === "print" ? "Printing…" : "Print Statement"}</button>
         </div>
       </div>
       {!invoices ? (

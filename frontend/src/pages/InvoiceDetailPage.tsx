@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import type { Invoice, Payment } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -49,6 +49,8 @@ export function InvoiceDetailPage() {
   const [viewingInvoice, setViewingInvoice] = useState(false);
   const [statementing, setStatementing] = useState(false);
   const [viewingStatement, setViewingStatement] = useState(false);
+  const [printingInvoice, setPrintingInvoice] = useState(false);
+  const [printingStatement, setPrintingStatement] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -83,6 +85,18 @@ export function InvoiceDetailPage() {
     }
   }
 
+  async function handlePrintInvoice() {
+    if (!invoiceId) return;
+    setPrintingInvoice(true);
+    try {
+      await printFile(`/billing/invoices/${invoiceId}/print`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this invoice.");
+    } finally {
+      setPrintingInvoice(false);
+    }
+  }
+
   async function handleViewStatement() {
     if (!invoice) return;
     setViewingStatement(true);
@@ -104,6 +118,18 @@ export function InvoiceDetailPage() {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setStatementing(false);
+    }
+  }
+
+  async function handlePrintStatement() {
+    if (!invoice) return;
+    setPrintingStatement(true);
+    try {
+      await printFile(`/billing/clients/${invoice.client_id}/statement`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this statement.");
+    } finally {
+      setPrintingStatement(false);
     }
   }
 
@@ -200,8 +226,10 @@ export function InvoiceDetailPage() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn" disabled={viewingInvoice} onClick={handleViewInvoice}>{viewingInvoice ? "Generating…" : "View Invoice"}</button>
           <button className="btn" disabled={printing} onClick={handlePrint}>{printing ? "Generating…" : "Download Invoice"}</button>
+          <button className="btn" disabled={printingInvoice} onClick={handlePrintInvoice}>{printingInvoice ? "Printing…" : "Print Invoice"}</button>
           <button className="btn" disabled={viewingStatement} onClick={handleViewStatement}>{viewingStatement ? "Generating…" : "View Statement"}</button>
           <button className="btn" disabled={statementing} onClick={handleStatement}>{statementing ? "Generating…" : "Download Statement"}</button>
+          <button className="btn" disabled={printingStatement} onClick={handlePrintStatement}>{printingStatement ? "Printing…" : "Print Statement"}</button>
           {canManage && invoice.status !== "Void" && (
             <>
               <button className="btn" onClick={() => setEditing(true)}>Edit</button>

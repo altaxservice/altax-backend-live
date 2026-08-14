@@ -1,6 +1,6 @@
 import { MessageSquare, StickyNote } from "lucide-react";
 import type { Task } from "../api/types";
-import { openAnyFile, downloadAnyFile } from "../api/client";
+import { openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import { daysUntil } from "../utils/date";
 import { StatusBadge } from "./StatusBadge";
 import type { ActionMenuOption } from "./ActionMenu";
@@ -70,6 +70,7 @@ export function TaskFileCell({ task }: { task: Task }) {
     <div className="task-file-cell" onClick={(e) => e.stopPropagation()}>
       <button type="button" className="ghost-button btn-sm" onClick={() => openAnyFile(url)}>Open</button>
       <button type="button" className="ghost-button btn-sm" onClick={() => downloadAnyFile(url, name || "attachment")}>Download</button>
+      <button type="button" className="ghost-button btn-sm" onClick={() => printAnyFile(url)}>Print</button>
       <div className="task-file-name muted" style={{ fontSize: 11 }}>{name || "Attachment"}</div>
     </div>
   );

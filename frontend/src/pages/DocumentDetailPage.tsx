@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -300,6 +300,8 @@ export function DocumentDetailPage() {
                   <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url!)}>{u.file_name}</button>
                   {" "}
                   <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url!, u.file_name || "attachment")}>Download</button>
+                  {" "}
+                  <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url!)}>Print</button>
                 </>
               ) : (
                 <span>{u.file_name}</span>

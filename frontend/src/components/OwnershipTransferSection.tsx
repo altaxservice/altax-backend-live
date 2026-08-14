@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, ApiError, downloadFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "./Toast";
 import { useConfirm, useNotify } from "./ConfirmProvider";
@@ -197,11 +197,27 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
     }
   }
 
+  async function handleViewBillOfSale(t: OwnershipTransfer) {
+    try {
+      await viewFile(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/bill-of-sale.pdf`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not open the Bill of Sale.");
+    }
+  }
+
   async function handleDownloadBillOfSale(t: OwnershipTransfer) {
     await downloadFile(
       `/clients/${clientId}/ownership-transfers/${t.transfer_id}/bill-of-sale.pdf`,
       buildFilename([clientName, "Bill of Sale", t.buyer_name], "pdf")
     );
+  }
+
+  async function handlePrintBillOfSale(t: OwnershipTransfer) {
+    try {
+      await printFile(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/bill-of-sale.pdf`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print the Bill of Sale.");
+    }
   }
 
   async function handleDownloadBillOfSaleDocx(t: OwnershipTransfer) {
@@ -407,7 +423,9 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                   <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {t.include_bill_of_sale && (
                       <>
-                        <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>PDF</button>
+                        <button className="btn-secondary" onClick={() => handleViewBillOfSale(t)}>View PDF</button>
+                        <button className="btn-secondary" onClick={() => handleDownloadBillOfSale(t)}>Download PDF</button>
+                        <button className="btn-secondary" onClick={() => handlePrintBillOfSale(t)}>Print PDF</button>
                         <button className="btn-secondary" onClick={() => handleDownloadBillOfSaleDocx(t)}>Word (.docx)</button>
                       </>
                     )}

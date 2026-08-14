@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, ApiError, viewFile, downloadFile } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
@@ -333,9 +333,12 @@ export function HaccpGeneratorPage() {
                       <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
+                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print HACCP</button>
                         <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - HACCP Plan (Editable).docx`)}>HACCP (Word)</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
+                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
                         <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
+                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
                         {p.client_id && (
                           <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments}>Save to Documents</button>
                         )}
@@ -635,6 +638,9 @@ export function HaccpGeneratorPage() {
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - HACCP Plan (Editable).docx`)}>Download HACCP (Word)</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf`)}>Print HACCP</button>
+                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
                 {form.clientId && (
                   <button type="button" className="btn btn-sm" onClick={() => saveToDocuments()} disabled={savingToDocuments}>{savingToDocuments ? "Saving…" : "Save to Documents"}</button>
                 )}

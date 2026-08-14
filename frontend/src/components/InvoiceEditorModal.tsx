@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import type { Invoice, ProductService } from "../api/types2";
 import { AddRecurringModal } from "./AddRecurringModal";
@@ -68,6 +68,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
   const [showRecurring, setShowRecurring] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [realPrinting, setRealPrinting] = useState(false);
 
   // Disabled while AddRecurringModal is open on top of this one, so Escape closes
   // just the nested modal instead of both at once.
@@ -387,11 +388,15 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
                 <button
                   type="button" className="btn btn-sm" disabled={printing}
                   onClick={() => { setPrinting(true); viewFile(`/billing/invoices/${editing!.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this invoice.")).finally(() => setPrinting(false)); }}
-                >{printing ? "Opening…" : "View / Print"}</button>
+                >{printing ? "Opening…" : "View"}</button>
                 <button
                   type="button" className="btn btn-sm" disabled={downloading}
                   onClick={() => { setDownloading(true); downloadFile(`/billing/invoices/${editing!.invoice_id}/print`, buildFilename([selectedClient?.client_name, "Invoice", editing!.invoice_id], "pdf")).catch((err) => notify(err instanceof ApiError ? err.message : "Could not download this invoice.")).finally(() => setDownloading(false)); }}
                 >{downloading ? "Generating…" : "Download"}</button>
+                <button
+                  type="button" className="btn btn-sm" disabled={realPrinting}
+                  onClick={() => { setRealPrinting(true); printFile(`/billing/invoices/${editing!.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice.")).finally(() => setRealPrinting(false)); }}
+                >{realPrinting ? "Printing…" : "Print"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => setShowRecurring(true)}>Make Recurring</button>
               </>
             )}

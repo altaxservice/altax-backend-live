@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile, downloadAnyFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Employee, DocumentUpload } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { AddressFields } from "../components/AddressFields";
@@ -602,6 +602,16 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
       setBusyYear(null);
     }
   }
+  async function handlePrint(year: number) {
+    setBusyYear(`print-${year}`);
+    try {
+      await printFile(formPath(year));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not generate this tax form.");
+    } finally {
+      setBusyYear(null);
+    }
+  }
 
   return (
     <div className="card" style={{ maxWidth: 560, padding: 0, overflow: "hidden" }}>
@@ -628,6 +638,9 @@ function TaxDocumentsSection({ employeeId, employeeName, isContractor }: { emplo
                     </button>
                     <button type="button" className="link-button" disabled={busyYear === `download-${year}`} onClick={() => handleDownload(year)}>
                       {busyYear === `download-${year}` ? "Generating…" : "Download"}
+                    </button>
+                    <button type="button" className="link-button" disabled={busyYear === `print-${year}`} onClick={() => handlePrint(year)}>
+                      {busyYear === `print-${year}` ? "Printing…" : "Print"}
                     </button>
                   </td>
                 </tr>
@@ -682,11 +695,12 @@ function EmployeeGovFormSection({ employeeId, employeeName, formType, title }: {
   // it's wrong for those. A filing signed the old in-person way has no stored
   // document at all (nothing to overlay a signature onto), so it still uses the
   // regenerate route.
-  async function handlePdf(f: GovFormFiling, mode: "view" | "download") {
+  async function handlePdf(f: GovFormFiling, mode: "view" | "download" | "print") {
     setBusy(`pdf-${f.filing_id}`);
     try {
       const path = f.attached_upload_id ? `/documents/uploads/${f.attached_upload_id}/download` : `/gov-forms/${f.filing_id}/pdf`;
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, buildFilename([employeeName, formType === "W4" ? "Form W-4" : "Form W-9"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form's PDF.");
@@ -815,6 +829,7 @@ function EmployeeGovFormSection({ employeeId, employeeName, formType, title }: {
                         <>
                           <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "view")}>View PDF</button>
                           <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "download")}>Download</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "print")}>Print</button>
                         </>
                       )}
                       {f.status === "Draft" && !f.sent_to_employee_at && (
@@ -824,6 +839,7 @@ function EmployeeGovFormSection({ employeeId, employeeName, formType, title }: {
                         <>
                           <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "view")}>View PDF</button>
                           <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "download")}>Download</button>
+                          <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handlePdf(f, "print")}>Print</button>
                           <button type="button" className="btn btn-sm" disabled={busy === `submit-${f.filing_id}`} onClick={() => openSubmit(f)}>Mark Filed</button>
                         </>
                       )}
@@ -1009,6 +1025,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
               </div>
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url)}>Print</button>
                 <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleArchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Archive"}</button>
                 <button type="button" className="link-button" style={{ color: "var(--red)" }} disabled={removingId === u.upload_id} onClick={() => handleRevoke(u.upload_id)}>{removingId === u.upload_id ? "…" : "Revoke"}</button>
               </div>
@@ -1022,6 +1039,7 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
               </div>
               <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                 <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>Download</button>
+                <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url)}>Print</button>
                 <button type="button" className="link-button" disabled={archivingId === u.upload_id} onClick={() => handleUnarchive(u.upload_id)}>{archivingId === u.upload_id ? "…" : "Unarchive"}</button>
               </div>
             </div>

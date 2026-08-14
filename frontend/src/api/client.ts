@@ -177,6 +177,44 @@ export async function viewFilePost(path: string, body: unknown): Promise<void> {
 }
 
 /**
+ * Prints a file (PDF, etc.) that requires auth without forcing a download or
+ * a visible new tab — fetches an authenticated blob (same mechanism as
+ * viewFile/downloadFile), loads it into a hidden off-screen iframe, and
+ * triggers the browser's native print dialog once the PDF has actually
+ * rendered inside it. `display:none` doesn't reliably fire print in every
+ * browser, so the iframe is sized to 0 and pinned off-screen instead of
+ * hidden outright. Cleanup (removing the iframe, revoking the object URL) is
+ * deferred a few seconds rather than done synchronously after calling
+ * print() — revoking immediately can leave the print dialog's preview blank,
+ * since print() returns before the browser is done reading the blob.
+ */
+export async function printFile(path: string): Promise<void> {
+  const blob = await fetchAuthedBlob(path);
+  printBlob(blob);
+}
+
+/** Same as printFile, but for a PDF built from a POSTed body (see fetchAuthedBlobPost) rather than a GET route. */
+export async function printFilePost(path: string, body: unknown): Promise<void> {
+  const blob = await fetchAuthedBlobPost(path, body);
+  printBlob(blob);
+}
+
+function printBlob(blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = "position:fixed; right:0; bottom:0; width:0; height:0; border:0;";
+  iframe.onload = () => {
+    iframe.contentWindow?.print();
+  };
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  setTimeout(() => {
+    iframe.remove();
+    URL.revokeObjectURL(url);
+  }, 60000);
+}
+
+/**
  * Opens/downloads a stored file URL, which is either this app's own internal
  * route (relative, e.g. "/documents/uploads/xyz/download" — needs the JWT
  * viewFile/downloadFile attach) or a client-pasted external link (Google
@@ -192,5 +230,10 @@ export async function openAnyFile(url: string): Promise<void> {
 }
 export async function downloadAnyFile(url: string, filename: string): Promise<void> {
   if (url.startsWith("/")) return downloadFile(url, filename);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+/** Same split as openAnyFile/downloadAnyFile above — an external link can't be fetched as an authenticated blob for the hidden-iframe print trick, so it just opens in a new tab where the visitor can print it themselves. */
+export async function printAnyFile(url: string): Promise<void> {
+  if (url.startsWith("/")) return printFile(url);
   window.open(url, "_blank", "noopener,noreferrer");
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, openAnyFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
 import type { DocumentRequest, Invoice } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -484,8 +484,10 @@ function invoiceActionOptions(role: string | undefined) {
     { value: "view-invoice", label: "View Invoice" },
     { value: "view-invoice-pdf", label: "View Invoice PDF" },
     { value: "print-invoice", label: "Download Invoice PDF" },
+    { value: "print-invoice-real", label: "Print Invoice PDF" },
     { value: "view-statement", label: "View Statement" },
     { value: "download-statement", label: "Download Statement" },
+    { value: "print-statement", label: "Print Statement" },
   ];
   if (role === "admin") {
     actions.push({ value: "record-payment", label: "Record Payment" }, { value: "edit-invoice", label: "Edit Invoice" });
@@ -512,6 +514,11 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
       catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this invoice PDF."); }
       return;
     }
+    if (action === "print-invoice-real") {
+      try { await printFile(`/billing/invoices/${i.invoice_id}/print`); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not print this invoice."); }
+      return;
+    }
     if (action === "view-statement") {
       try { await viewFile(`/billing/clients/${i.client_id}/statement`); }
       catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this statement."); }
@@ -520,6 +527,11 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
     if (action === "download-statement") {
       try { await downloadFile(`/billing/clients/${i.client_id}/statement`, buildFilename([clientNames.get(i.client_id), "Statement"], "pdf")); }
       catch (err) { await notify(err instanceof ApiError ? err.message : "Could not generate this statement."); }
+      return;
+    }
+    if (action === "print-statement") {
+      try { await printFile(`/billing/clients/${i.client_id}/statement`); }
+      catch (err) { await notify(err instanceof ApiError ? err.message : "Could not print this statement."); }
     }
   }
 
@@ -1220,6 +1232,17 @@ function EmployeeCommand() {
     }
   }
 
+  async function handlePrint(p: MyPaycheck) {
+    setBusy(`print:${p.paycheck_id}`);
+    try {
+      await printFile(`/accounting/paychecks/${p.paycheck_id}/print`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this paystub.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div dir={dir}>
       <div className="portal-banner">
@@ -1293,6 +1316,9 @@ function EmployeeCommand() {
                     </button>
                     <button type="button" className="btn btn-sm" disabled={busy === `download:${p.paycheck_id}`} onClick={() => handleDownload(p)}>
                       {busy === `download:${p.paycheck_id}` ? t("dashboard.employee.downloading") : t("dashboard.employee.download")}
+                    </button>
+                    <button type="button" className="btn btn-sm" disabled={busy === `print:${p.paycheck_id}`} onClick={() => handlePrint(p)}>
+                      {busy === `print:${p.paycheck_id}` ? t("dashboard.employee.printing") : t("dashboard.employee.print")}
                     </button>
                   </td>
                 </tr>

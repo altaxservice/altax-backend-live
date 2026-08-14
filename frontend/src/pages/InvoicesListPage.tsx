@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -72,6 +72,7 @@ export function InvoicesListPage() {
   const [statementEnd, setStatementEnd] = useState("");
   const [printingStatement, setPrintingStatement] = useState(false);
   const [viewingStatement, setViewingStatement] = useState(false);
+  const [realPrintingStatement, setRealPrintingStatement] = useState(false);
 
   const canManage = user?.role === "admin" || user?.role === "staff";
   const isAdmin = user?.role === "admin";
@@ -141,6 +142,18 @@ export function InvoicesListPage() {
       await notify(err instanceof ApiError ? err.message : "Could not generate this statement.");
     } finally {
       setPrintingStatement(false);
+    }
+  }
+
+  async function handleRealPrintStatement() {
+    if (!statementClientId) return;
+    setRealPrintingStatement(true);
+    try {
+      await printFile(statementPath());
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this statement.");
+    } finally {
+      setRealPrintingStatement(false);
     }
   }
 
@@ -420,6 +433,9 @@ export function InvoicesListPage() {
           <button className="btn" disabled={!statementClientId || printingStatement} onClick={handlePrintStatement}>
             {printingStatement ? "Generating…" : "Download Statement"}
           </button>
+          <button className="btn" disabled={!statementClientId || realPrintingStatement} onClick={handleRealPrintStatement}>
+            {realPrintingStatement ? "Printing…" : "Print Statement"}
+          </button>
         </div>
       )}
 
@@ -455,6 +471,7 @@ export function InvoicesListPage() {
                           { value: "view", label: "View Invoice" },
                           { value: "view-pdf", label: "View PDF" },
                           { value: "print", label: "Download PDF" },
+                          { value: "print-pdf", label: "Print PDF" },
                           ...(inv.status !== "Void" ? [{ value: "void", label: "Void Invoice" }] : []),
                           ...(isAdmin ? [{ value: "delete", label: "Delete Invoice" }] : []),
                         ]}
@@ -462,6 +479,7 @@ export function InvoicesListPage() {
                           if (action === "view") navigate(`/billing/${inv.invoice_id}`);
                           if (action === "view-pdf") viewFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not open this invoice."));
                           if (action === "print") downloadFile(`/billing/invoices/${inv.invoice_id}/print`, buildFilename([clientName(inv.client_id), "Invoice", inv.invoice_id], "pdf")).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice."));
+                          if (action === "print-pdf") printFile(`/billing/invoices/${inv.invoice_id}/print`).catch((err) => notify(err instanceof ApiError ? err.message : "Could not print this invoice."));
                           if (action === "void") handleVoid(inv.invoice_id);
                           if (action === "delete") handleDelete(inv.invoice_id);
                         }}

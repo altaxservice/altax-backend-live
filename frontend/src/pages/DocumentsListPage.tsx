@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
@@ -49,6 +49,8 @@ function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?:
       <button type="button" className="link-button" onClick={() => openAnyFile(url)}>{name}</button>
       {" "}
       <button type="button" className="link-button" onClick={() => downloadAnyFile(url, name)}>{t("documents.client.download")}</button>
+      {" "}
+      <button type="button" className="link-button" onClick={() => printAnyFile(url)}>{t("documents.client.print")}</button>
       {onRemove && uploadId && (
         <>
           {" "}
@@ -383,6 +385,8 @@ export function DocumentsListPage() {
                       <td className="muted" data-label={t("documents.client.colShared")}>{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</td>
                       <td data-label={t("documents.client.colAction")}>
                         <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name)}>{t("documents.client.download")}</button>
+                        {" "}
+                        <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url)}>{t("documents.client.print")}</button>
                         {" "}
                         <button type="button" className="link-button" style={{ color: "var(--red)" }} disabled={removingId === u.upload_id} onClick={() => handleRemoveUpload(u.upload_id)}>
                           {removingId === u.upload_id ? t("documents.client.removing") : t("documents.client.remove")}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, viewFilePost } from "../api/client";
+import { api, ApiError, viewFilePost, printFilePost } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import type { MdFilingResult, SalesTaxCategory, SalesTaxPreviewResult } from "../api/calculators";
 import type { Client } from "../api/types";
@@ -92,6 +92,7 @@ function SalesTaxCalculator() {
   const [mdFilingLoading, setMdFilingLoading] = useState(false);
 
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfPrintBusy, setPdfPrintBusy] = useState(false);
   const [emailTo, setEmailTo] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
@@ -200,6 +201,17 @@ function SalesTaxCalculator() {
     }
   }
 
+  async function handlePrintPdf() {
+    setPdfPrintBusy(true);
+    try {
+      await printFilePost("/calculators/sales-tax-pdf", buildPayload());
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this PDF.");
+    } finally {
+      setPdfPrintBusy(false);
+    }
+  }
+
   async function handleEmail() {
     if (!emailTo.trim()) return;
     setEmailBusy(true);
@@ -298,6 +310,9 @@ function SalesTaxCalculator() {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
             <button type="button" className="btn btn-sm" disabled={pdfBusy} onClick={handlePreviewPdf}>
               {pdfBusy ? "Opening…" : "Preview PDF"}
+            </button>
+            <button type="button" className="btn btn-sm" disabled={pdfPrintBusy} onClick={handlePrintPdf}>
+              {pdfPrintBusy ? "Printing…" : "Print PDF"}
             </button>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>

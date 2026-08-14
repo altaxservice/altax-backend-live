@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { RefreshCw, Download } from "lucide-react";
-import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
 import { useSelectedClient } from "../context/SelectedClientContext";
@@ -2301,6 +2301,17 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
     }
   }
 
+  async function handleRealPrintForm(emp: Employee) {
+    setPrinting(emp.employee_id);
+    try {
+      await printFile(taxFormPath(emp));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : `Could not print this ${formLabel}.`);
+    } finally {
+      setPrinting(null);
+    }
+  }
+
   async function handleArchive(emp: Employee) {
     const ok = await confirmDialog({ title: "Archive worker", message: `Archive ${emp.employee_name}? Past payroll/1099 history is kept, but they'll drop off active lists.`, confirmLabel: "Archive", danger: true });
     if (!ok) return;
@@ -2334,6 +2345,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
       { value: "edit", label: "Edit" },
       { value: "view-form", label: `View ${formLabel}` },
       { value: "download-form", label: `Download ${formLabel}` },
+      { value: "print-form", label: `Print ${formLabel}` },
     ];
     if (String(emp.status || "").toLowerCase() !== "archived") opts.push({ value: "archive", label: "Archive" });
     if (isAdmin) opts.push({ value: "delete", label: "Delete" });
@@ -2344,6 +2356,7 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
     if (action === "edit") return navigate(`/employees/${emp.employee_id}?edit=1`);
     if (action === "view-form") return handleViewForm(emp);
     if (action === "download-form") return handlePrintForm(emp);
+    if (action === "print-form") return handleRealPrintForm(emp);
     if (action === "archive") return handleArchive(emp);
     if (action === "delete") return handleDelete(emp);
   }
@@ -2523,6 +2536,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
   const [necYear, setNecYear] = useState(String(new Date().getFullYear()));
   const [printingNec, setPrintingNec] = useState(false);
   const [viewingNec, setViewingNec] = useState(false);
+  const [realPrintingNec, setRealPrintingNec] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState(EMPTY_CONTRACTOR_PAYMENT_FORM);
   const [editSaving, setEditSaving] = useState(false);
@@ -2539,6 +2553,18 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
       await notify(err instanceof ApiError ? err.message : "Could not generate this 1099-NEC.");
     } finally {
       setViewingNec(false);
+    }
+  }
+
+  async function handleRealPrintNec() {
+    if (!necContractorId) return;
+    setRealPrintingNec(true);
+    try {
+      await printFile(`/accounting/tax-forms/1099nec/${necContractorId}?year=${necYear}`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this 1099-NEC.");
+    } finally {
+      setRealPrintingNec(false);
     }
   }
 
@@ -2766,6 +2792,7 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
             </div>
             <button type="button" className="btn" disabled={viewingNec || !necContractorId} onClick={handleViewNec}>{viewingNec ? "Generating…" : "View 1099-NEC"}</button>
             <button type="submit" className="btn btn-primary" disabled={printingNec || !necContractorId}>{printingNec ? "Generating…" : "Download 1099-NEC"}</button>
+            <button type="button" className="btn" disabled={realPrintingNec || !necContractorId} onClick={handleRealPrintNec}>{realPrintingNec ? "Printing…" : "Print 1099-NEC"}</button>
           </form>
         </Panel>
       </div>
@@ -3264,6 +3291,7 @@ function PaychecksTab({ clientId }: { clientId: string }) {
   const [paychecks, setPaychecks] = useState<any[]>([]);
   const [printing, setPrinting] = useState<string | null>(null);
   const [viewing, setViewing] = useState<string | null>(null);
+  const [realPrinting, setRealPrinting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ payDate: "", regularHours: "", regularRate: "", grossWages: "" });
@@ -3307,6 +3335,17 @@ function PaychecksTab({ clientId }: { clientId: string }) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this paycheck.");
     } finally {
       setPrinting(null);
+    }
+  }
+
+  async function handleRealPrint(p: any) {
+    setRealPrinting(p.paycheck_id);
+    try {
+      await printFile(`/accounting/paychecks/${p.paycheck_id}/print`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print this paycheck.");
+    } finally {
+      setRealPrinting(null);
     }
   }
 
@@ -3489,6 +3528,9 @@ function PaychecksTab({ clientId }: { clientId: string }) {
                   </button>
                   <button type="button" className="btn btn-sm" disabled={printing === p.paycheck_id} onClick={() => handlePrint(p)}>
                     {printing === p.paycheck_id ? "Generating…" : "Download"}
+                  </button>
+                  <button type="button" className="btn btn-sm" disabled={realPrinting === p.paycheck_id} onClick={() => handleRealPrint(p)}>
+                    {realPrinting === p.paycheck_id ? "Printing…" : "Print"}
                   </button>
                   <button type="button" className="btn btn-sm" onClick={() => startEdit(p)}>Edit</button>
                   {isAdmin && (
@@ -3708,12 +3750,13 @@ function CheckSettingsTab({ clientId, clientName }: { clientId: string; clientNa
   const [saved, setSaved] = useState(false);
   const [calibrationBusy, setCalibrationBusy] = useState<string | null>(null);
 
-  async function handleCalibrationSheet(mode: "view" | "download") {
+  async function handleCalibrationSheet(mode: "view" | "download" | "print") {
     const key = mode;
     setCalibrationBusy(key);
     try {
       const path = `/accounting/check-settings/${clientId}/calibration-sheet`;
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, buildFilename([clientName, "MICR Calibration Sheet"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate the calibration sheet.");
@@ -3814,6 +3857,9 @@ function CheckSettingsTab({ clientId, clientName }: { clientId: string; clientNa
               <button type="button" className="btn" disabled={calibrationBusy !== null} onClick={() => handleCalibrationSheet("download")}>
                 {calibrationBusy === "download" ? "Generating…" : "Download Calibration Sheet"}
               </button>
+              <button type="button" className="btn" disabled={calibrationBusy !== null} onClick={() => handleCalibrationSheet("print")}>
+                {calibrationBusy === "print" ? "Printing…" : "Print Calibration Sheet"}
+              </button>
             </div>
           </div>
         </Panel>
@@ -3845,10 +3891,12 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
   }
   useEffect(load, [clientId, year]);
 
-  async function handlePrintForm(path: string, filename: string, key: string) {
-    setBusy(key);
+  async function handlePrintForm(path: string, filename: string, key: string, mode: "view" | "download" | "print" = "download") {
+    setBusy(`${key}-${mode}`);
     try {
-      await downloadFile(path, filename);
+      if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
+      else await downloadFile(path, filename);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this form.");
     } finally {
@@ -3888,19 +3936,41 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-              <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/w3/${clientId}?year=${year}`, buildFilename([clientName, "Form W-3", year], "pdf"), "w3")}>
-                {busy === "w3" ? "Generating…" : "Print W-3 Summary"}
+              <span className="muted" style={{ fontSize: 12, width: "100%" }}>W-3 Summary:</span>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/w3/${clientId}?year=${year}`, buildFilename([clientName, "Form W-3", year], "pdf"), "w3", "view")}>
+                {busy === "w3-view" ? "Opening…" : "View W-3"}
               </button>
-              <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/1096/${clientId}?year=${year}`, buildFilename([clientName, "Form 1096", year], "pdf"), "1096")}>
-                {busy === "1096" ? "Generating…" : "Print 1096 Summary"}
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/w3/${clientId}?year=${year}`, buildFilename([clientName, "Form W-3", year], "pdf"), "w3", "download")}>
+                {busy === "w3-download" ? "Generating…" : "Download W-3"}
               </button>
-              <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/940/${clientId}?year=${year}`, buildFilename([clientName, "Form 940", year], "pdf"), "940")} title="Annual FUTA return">
-                {busy === "940" ? "Generating…" : "Print Form 940"}
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/w3/${clientId}?year=${year}`, buildFilename([clientName, "Form W-3", year], "pdf"), "w3", "print")}>
+                {busy === "w3-print" ? "Printing…" : "Print W-3"}
               </button>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/941/${clientId}?year=${year}&quarter=${form941Quarter}`, buildFilename([clientName, "Form 941", `${year} Q${form941Quarter}`], "pdf"), "941")} title="Quarterly federal tax return">
-                  {busy === "941" ? "Generating…" : `Print Form 941 (Q${form941Quarter})`}
-                </button>
+
+              <span className="muted" style={{ fontSize: 12, width: "100%" }}>Form 1096 Summary:</span>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/1096/${clientId}?year=${year}`, buildFilename([clientName, "Form 1096", year], "pdf"), "1096", "view")}>
+                {busy === "1096-view" ? "Opening…" : "View 1096"}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/1096/${clientId}?year=${year}`, buildFilename([clientName, "Form 1096", year], "pdf"), "1096", "download")}>
+                {busy === "1096-download" ? "Generating…" : "Download 1096"}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/1096/${clientId}?year=${year}`, buildFilename([clientName, "Form 1096", year], "pdf"), "1096", "print")}>
+                {busy === "1096-print" ? "Printing…" : "Print 1096"}
+              </button>
+
+              <span className="muted" style={{ fontSize: 12, width: "100%" }}>Form 940 (Annual FUTA return):</span>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/940/${clientId}?year=${year}`, buildFilename([clientName, "Form 940", year], "pdf"), "940", "view")}>
+                {busy === "940-view" ? "Opening…" : "View 940"}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/940/${clientId}?year=${year}`, buildFilename([clientName, "Form 940", year], "pdf"), "940", "download")}>
+                {busy === "940-download" ? "Generating…" : "Download 940"}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/940/${clientId}?year=${year}`, buildFilename([clientName, "Form 940", year], "pdf"), "940", "print")}>
+                {busy === "940-print" ? "Printing…" : "Print 940"}
+              </button>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                <span className="muted" style={{ fontSize: 12 }}>Form 941 (Quarterly federal tax return):</span>
                 <select aria-label="Form 941 quarter" value={form941Quarter} onChange={(e) => setForm941Quarter(e.target.value)} style={{ width: 70 }}>
                   <option value="1">Q1</option>
                   <option value="2">Q2</option>
@@ -3908,6 +3978,15 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                   <option value="4">Q4</option>
                 </select>
               </div>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/941/${clientId}?year=${year}&quarter=${form941Quarter}`, buildFilename([clientName, "Form 941", `${year} Q${form941Quarter}`], "pdf"), "941", "view")}>
+                {busy === "941-view" ? "Opening…" : `View 941 (Q${form941Quarter})`}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/941/${clientId}?year=${year}&quarter=${form941Quarter}`, buildFilename([clientName, "Form 941", `${year} Q${form941Quarter}`], "pdf"), "941", "download")}>
+                {busy === "941-download" ? "Generating…" : `Download 941 (Q${form941Quarter})`}
+              </button>
+              <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => handlePrintForm(`/accounting/tax-forms/941/${clientId}?year=${year}&quarter=${form941Quarter}`, buildFilename([clientName, "Form 941", `${year} Q${form941Quarter}`], "pdf"), "941", "print")}>
+                {busy === "941-print" ? "Printing…" : `Print 941 (Q${form941Quarter})`}
+              </button>
             </div>
 
             <div className="command-panel-header" style={{ padding: 0, marginBottom: 8 }}>
@@ -3927,9 +4006,15 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                       <td className="muted">{fmtMoney(e.mdTax)}</td>
                       <td><StatusBadge status={e.status} /></td>
                       <td className="muted" style={{ fontSize: 11 }}>{e.issues.length > 0 ? e.issues.join("; ") : "—"}</td>
-                      <td>
-                        <button type="button" className="btn btn-sm" disabled={busy !== null || e.status !== "Ready"} title={e.status !== "Ready" ? "Resolve the review issues listed for this employee before printing their W-2." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, buildFilename([e.employeeName, "Form W-2", year], "pdf"), e.employeeId)}>
-                          {busy === e.employeeId ? "Generating…" : "Print W-2"}
+                      <td style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || e.status !== "Ready"} title={e.status !== "Ready" ? "Resolve the review issues listed for this employee before viewing their W-2." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, buildFilename([e.employeeName, "Form W-2", year], "pdf"), e.employeeId, "view")}>
+                          {busy === `${e.employeeId}-view` ? "Opening…" : "View"}
+                        </button>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || e.status !== "Ready"} title={e.status !== "Ready" ? "Resolve the review issues listed for this employee before downloading their W-2." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, buildFilename([e.employeeName, "Form W-2", year], "pdf"), e.employeeId, "download")}>
+                          {busy === `${e.employeeId}-download` ? "Generating…" : "Download"}
+                        </button>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || e.status !== "Ready"} title={e.status !== "Ready" ? "Resolve the review issues listed for this employee before printing their W-2." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/w2/${e.employeeId}?year=${year}`, buildFilename([e.employeeName, "Form W-2", year], "pdf"), e.employeeId, "print")}>
+                          {busy === `${e.employeeId}-print` ? "Printing…" : "Print"}
                         </button>
                       </td>
                     </tr>
@@ -3955,9 +4040,15 @@ function YearEndTab({ clientId, clientName, clientState }: { clientId: string; c
                       <td>{fmtMoney(c.nec)}</td>
                       <td><StatusBadge status={c.status} /></td>
                       <td className="muted" style={{ fontSize: 11 }}>{c.issues.length > 0 ? c.issues.join("; ") : "—"}</td>
-                      <td>
-                        <button type="button" className="btn btn-sm" disabled={busy !== null || c.status !== "Ready"} title={c.status !== "Ready" ? "Resolve the review issues listed for this contractor before printing their 1099-NEC." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, buildFilename([c.contractorName, "Form 1099-NEC", year], "pdf"), c.contractorId)}>
-                          {busy === c.contractorId ? "Generating…" : "Print 1099-NEC"}
+                      <td style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || c.status !== "Ready"} title={c.status !== "Ready" ? "Resolve the review issues listed for this contractor before viewing their 1099-NEC." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, buildFilename([c.contractorName, "Form 1099-NEC", year], "pdf"), c.contractorId, "view")}>
+                          {busy === `${c.contractorId}-view` ? "Opening…" : "View"}
+                        </button>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || c.status !== "Ready"} title={c.status !== "Ready" ? "Resolve the review issues listed for this contractor before downloading their 1099-NEC." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, buildFilename([c.contractorName, "Form 1099-NEC", year], "pdf"), c.contractorId, "download")}>
+                          {busy === `${c.contractorId}-download` ? "Generating…" : "Download"}
+                        </button>
+                        <button type="button" className="btn btn-sm" disabled={busy !== null || c.status !== "Ready"} title={c.status !== "Ready" ? "Resolve the review issues listed for this contractor before printing their 1099-NEC." : undefined} onClick={() => handlePrintForm(`/accounting/tax-forms/1099nec/${c.contractorId}?year=${year}`, buildFilename([c.contractorName, "Form 1099-NEC", year], "pdf"), c.contractorId, "print")}>
+                          {busy === `${c.contractorId}-print` ? "Printing…" : "Print"}
                         </button>
                       </td>
                     </tr>

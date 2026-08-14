@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useNotify } from "../components/ConfirmProvider";
@@ -31,12 +31,13 @@ export function MyTaxFormsPage() {
   }
   useEffect(load, []);
 
-  async function handleView(f: GovFormFiling, mode: "view" | "download") {
+  async function handleView(f: GovFormFiling, mode: "view" | "download" | "print") {
     setBusy(`pdf-${f.filing_id}`);
     try {
       const path = f.attached_upload_id ? `/documents/uploads/${f.attached_upload_id}/download` : `/gov-forms/${f.filing_id}/pdf`;
       const filename = buildFilename([GOV_FORM_LABELS[f.form_type] || f.form_type], "pdf");
       if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
       else await downloadFile(path, filename);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not open this form.");
@@ -77,6 +78,7 @@ export function MyTaxFormsPage() {
                     <>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handleView(f, "view")}>{t("myTaxForms.view")}</button>
                       <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handleView(f, "download")}>{t("myTaxForms.download")}</button>
+                      <button type="button" className="btn btn-sm" disabled={busy === `pdf-${f.filing_id}`} onClick={() => handleView(f, "print")}>{t("myTaxForms.print")}</button>
                     </>
                   )}
                 </div>

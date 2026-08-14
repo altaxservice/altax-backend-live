@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, downloadFile, fetchAuthedBlob, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import { BackLink } from "../components/BackLink";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
@@ -37,6 +37,7 @@ export function EstimateDetailPage() {
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [realPrinting, setRealPrinting] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [addLineOpen, setAddLineOpen] = useState(false);
   const [editingInfo, setEditingInfo] = useState(false);
@@ -241,6 +242,19 @@ export function EstimateDetailPage() {
     }
   }
 
+  async function handlePrint() {
+    if (!estimateId) return;
+    setRealPrinting(true);
+    try {
+      await ensureSaved();
+      await printFile(`/estimates/${estimateId}/print`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not print the PDF.");
+    } finally {
+      setRealPrinting(false);
+    }
+  }
+
   async function handleOpenSend() {
     await ensureSaved();
     setSendOpen(true);
@@ -276,6 +290,7 @@ export function EstimateDetailPage() {
           {dirty && <button className="btn btn-primary" disabled={saving} onClick={() => saveLines()}>{saving ? "Saving…" : "Save Changes"}</button>}
           <button className="btn" disabled={viewing} onClick={handleView}>{viewing ? "Generating…" : "Preview PDF"}</button>
           <button className="btn" disabled={printing} onClick={handleDownload}>{printing ? "Generating…" : "Download PDF"}</button>
+          <button className="btn" disabled={realPrinting} onClick={handlePrint}>{realPrinting ? "Printing…" : "Print PDF"}</button>
           <button className="btn" onClick={handleOpenSend}>Send to Client</button>
           <button className="btn btn-sm" onClick={() => navigate("/estimates")}>Close</button>
           {!locked && <button className="btn" disabled={busy} onClick={handleRebuild}>Rebuild from Fee Schedule</button>}

@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
-import { api, ApiError, viewFile, downloadFile, buildFilename } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, printFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
 import { useNotify, useConfirm } from "./ConfirmProvider";
@@ -401,19 +401,20 @@ function FindingsPanel({ clientId }: { clientId: string }) {
  */
 function ClientValueReportCard({ clientId, clientName }: { clientId: string; clientName?: string }) {
   const notify = useNotify();
-  const [busy, setBusy] = useState<"view" | "download" | null>(null);
+  const [busy, setBusy] = useState<"view" | "download" | "print" | null>(null);
   const today = new Date().toISOString().slice(0, 10);
   const oneYearAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().slice(0, 10); })();
   const [from, setFrom] = useState(oneYearAgo);
   const [to, setTo] = useState(today);
   const rangeInvalid = Boolean(from) && Boolean(to) && from > to;
 
-  async function handle(mode: "view" | "download") {
+  async function handle(mode: "view" | "download" | "print") {
     if (rangeInvalid) return;
     setBusy(mode);
     const qs = `?from=${from}&to=${to}`;
     try {
       if (mode === "view") await viewFile(`/reports/pdf/client-value-report/${clientId}${qs}`);
+      else if (mode === "print") await printFile(`/reports/pdf/client-value-report/${clientId}${qs}`);
       else await downloadFile(`/reports/pdf/client-value-report/${clientId}${qs}`, buildFilename([clientName, "Annual Value Report", from, to], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate the report.");
@@ -440,6 +441,7 @@ function ClientValueReportCard({ clientId, clientName }: { clientId: string; cli
           </label>
           <button type="button" className="btn btn-sm" onClick={() => handle("view")} disabled={busy !== null || rangeInvalid}>{busy === "view" ? "Opening…" : "View Report"}</button>
           <button type="button" className="btn btn-sm" onClick={() => handle("download")} disabled={busy !== null || rangeInvalid}>{busy === "download" ? "Downloading…" : "Download PDF"}</button>
+          <button type="button" className="btn btn-sm" onClick={() => handle("print")} disabled={busy !== null || rangeInvalid}>{busy === "print" ? "Printing…" : "Print"}</button>
         </div>
       </div>
       {rangeInvalid && <p style={{ color: "var(--red)", fontSize: 11.5, margin: "8px 0 0" }}>The "From" date must be on or before the "To" date.</p>}
@@ -465,7 +467,7 @@ export function ClientSwotSection({ clientId, clientName }: { clientId: string; 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<ClientSwot>(EMPTY_SWOT);
   const [saving, setSaving] = useState(false);
-  const [printBusy, setPrintBusy] = useState<"view" | "download" | null>(null);
+  const [printBusy, setPrintBusy] = useState<"view" | "download" | "print" | null>(null);
   const [autoDrafting, setAutoDrafting] = useState(false);
 
   function load() {
@@ -527,10 +529,11 @@ export function ClientSwotSection({ clientId, clientName }: { clientId: string; 
     }
   }
 
-  async function handlePrint(mode: "view" | "download") {
+  async function handlePrint(mode: "view" | "download" | "print") {
     setPrintBusy(mode);
     try {
       if (mode === "view") await viewFile(`/reports/pdf/client-swot/${clientId}`);
+      else if (mode === "print") await printFile(`/reports/pdf/client-swot/${clientId}`);
       else await downloadFile(`/reports/pdf/client-swot/${clientId}`, buildFilename([clientName, "Business Advisory Report"], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate the report.");
@@ -577,6 +580,7 @@ export function ClientSwotSection({ clientId, clientName }: { clientId: string; 
             <button type="button" className="btn btn-sm" onClick={handleAutoDraft} disabled={autoDrafting} title="Fills in Overview/Strengths/Weaknesses/Opportunities/Threats/Tax Strategy/Growth from real numbers already in the system — never overwrites a field that already has text.">{autoDrafting ? "Analyzing…" : "Auto-Fill from Business Data"}</button>
             <button type="button" className="btn btn-sm" onClick={() => handlePrint("view")} disabled={printBusy !== null}>{printBusy === "view" ? "Opening…" : "View Report"}</button>
             <button type="button" className="btn btn-sm" onClick={() => handlePrint("download")} disabled={printBusy !== null}>{printBusy === "download" ? "Downloading…" : "Download PDF"}</button>
+            <button type="button" className="btn btn-sm" onClick={() => handlePrint("print")} disabled={printBusy !== null}>{printBusy === "print" ? "Printing…" : "Print"}</button>
             <button type="button" className="btn btn-sm" onClick={startEditing}>Edit</button>
           </div>
         ) : (

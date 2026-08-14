@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { api, ApiError, openAnyFile, downloadAnyFile } from "../api/client";
+import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { Task } from "../api/types";
 import type { Communication, PortalUser } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
@@ -377,6 +377,7 @@ function TaskAttachments({ taskId, clientId }: { taskId: string; clientId: strin
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
                 <button type="button" className="link-button" onClick={() => downloadAnyFile(u.file_url, u.file_name || "attachment")}>Download</button>
+                <button type="button" className="link-button" onClick={() => printAnyFile(u.file_url)}>Print</button>
                 <span className="muted" style={{ fontSize: 12 }}>{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</span>
               </div>
             </div>
