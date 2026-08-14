@@ -35,18 +35,23 @@
  * as every other feature in this app.
  */
 import { Router, Response } from "express";
-import { query, queryOne } from "../../config/db";
-import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
+import { query, queryOne, withTransaction } from "../../config/db";
+import { AuthedRequest, requireAuth, requireRole, invalidateActiveCache } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
+import { composeAddress } from "../../common/address";
 import { generateBillOfSalePdf } from "../govForms/billOfSale";
 import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
 import {
   generateGovForm, type CraData, type Form8822bData,
   type MdAmendLlcData, type MdAmendCorpData, type MdDissolutionData, type MdDissolutionPerson,
 } from "../govForms/govForms.service";
+// Reused, not reinvented, for "Apply New Owner to Client Profile" below —
+// same invite-token format, invite-link shape, and best-effort send-email
+// helper POST /users already uses when it issues a fresh portal invite.
+import { newInviteToken, inviteLink, sendInviteEmail } from "../users/users.routes";
 
 export const ownershipTransferRouter = Router();
 
@@ -146,7 +151,8 @@ ownershipTransferRouter.get("/:clientId/ownership-transfers", requireAuth, requi
             buyer_street_address, buyer_city, buyer_state, buyer_zip_code, effective_date, sale_price,
             assets_included, liabilities_included, additional_terms, include_bill_of_sale, asset_allocations,
             gov_form_8822b_filing_id, gov_form_cra_filing_id, md_amendment_task_id,
-            gov_form_amendment_filing_id, gov_form_dissolution_filing_id, created_by, created_at
+            gov_form_amendment_filing_id, gov_form_dissolution_filing_id, created_by, created_at,
+            applied_to_profile_at, applied_by
        FROM altax.v3_ownership_transfers WHERE client_id = $1 ORDER BY created_at DESC`,
     [clientId]
   );
@@ -683,4 +689,182 @@ ownershipTransferRouter.get("/:clientId/ownership-transfers/:transferId/bill-of-
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   res.setHeader("Content-Disposition", `attachment; filename="Bill of Sale - ${loaded.client.client_name}.docx"`);
   res.send(docxBuffer);
+}));
+
+/**
+ * "Apply New Owner to Client Profile" — the step that finally makes an
+ * Ownership Transfer touch the client's own record and portal login, which
+ * nothing before this route ever did (Generate & Review only creates the
+ * 8822-B/CRA/Amendment/Dissolution/Bill of Sale documents themselves).
+ * Admin-only, same gate this app already uses for other destructive/
+ * security-sensitive actions (Void, hard-delete, etc.).
+ *
+ * Gate — enforced here too, never trusted from the frontend's disabled
+ * button alone: every NON-NULL linked filing id (8822-B/CRA/Amendment/
+ * Dissolution) must point to a v3_gov_form_filings row with
+ * status = 'Submitted'. Bill of Sale has no sign/submit workflow, so it's
+ * never part of the gate. md_amendment_task_id (the pre-Phase-4 plain-task
+ * fallback used when a client's entity_type has no real MD SDAT Amendment
+ * generator) isn't gov-form-backed, so a transfer that only produced that
+ * task is never blocked on it — the response instead calls this out via
+ * `amendmentWasTaskOnly` so the confirm dialog can say so.
+ *
+ * What it does, in one DB transaction (see withTransaction in config/db.ts):
+ *  1. Copies the transfer's buyer_* fields onto v3_clients' own Responsible
+ *     Party fields (company_contact_name/title/email/phone/address parts).
+ *     company_contact_ssn is deliberately left untouched — buyer_ssn is
+ *     already separately-encrypted PII on the transfer row, and copying it
+ *     into a different encrypted column without being sure that's wanted is
+ *     exactly the kind of guess-wrong-on-sensitive-data mistake worth
+ *     avoiding; staff can copy it by hand into the Owner SS No. field if
+ *     that's actually intended for a given transfer.
+ *  2. Old owner's portal login (this app's canonical one-row-per-client
+ *     scheme, looked up the same way the rest of this app queries it —
+ *     assigned_client_id + role — rather than assuming a raw
+ *     user_id = 'usr_'||clientId string match, since role is stored
+ *     inconsistently-cased and a client's row could in principle have been
+ *     created before that convention existed): password_hash/password_salt/
+ *     totp_secret/totp_enabled/totp_backup_codes/login_otp_hash/expires/attempts/
+ *     failed_login_count/locked_until are all cleared, closing the "old
+ *     password still authenticates against a relabeled account" gap — not
+ *     just flipping active off and on.
+ *  3. That same row (or a brand-new one, if this client never had a portal
+ *     login) is reprovisioned for the new owner: email/name from buyer_*,
+ *     active = true, a fresh 7-day invite_token/invite_expires,
+ *     must_reset_password = true, and a real invite email sent via the same
+ *     sendInviteEmail()/inviteLink() helpers POST /users already uses.
+ */
+ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-new-owner", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, transferId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const transfer = await queryOne<any>(`SELECT * FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
+  if (!transfer) return res.status(404).json({ error: "Transfer not found." });
+  if (transfer.applied_to_profile_at) {
+    return res.status(400).json({
+      error: `This transfer's new owner was already applied to the client profile on ${new Date(transfer.applied_to_profile_at).toLocaleString()} by ${transfer.applied_by || "an admin"}.`,
+    });
+  }
+  if (!String(transfer.buyer_name || "").trim()) return res.status(400).json({ error: "This transfer has no buyer name on file." });
+
+  // Gate — every non-null linked filing must be Submitted.
+  const linkedFilings: { label: string; id: string | null }[] = [
+    { label: "Form 8822-B", id: transfer.gov_form_8822b_filing_id },
+    { label: "Maryland CRA", id: transfer.gov_form_cra_filing_id },
+    { label: "MD Articles of Amendment", id: transfer.gov_form_amendment_filing_id },
+    { label: "MD Articles of Dissolution", id: transfer.gov_form_dissolution_filing_id },
+  ];
+  const notReady: string[] = [];
+  for (const f of linkedFilings) {
+    if (!f.id) continue;
+    const filing = await queryOne<{ status: string }>(`SELECT status FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [f.id]);
+    if (!filing) notReady.push(`${f.label} filing is missing.`);
+    else if (filing.status !== "Submitted") notReady.push(`${f.label} is still "${filing.status}", not Submitted.`);
+  }
+  if (notReady.length) {
+    return res.status(400).json({ error: `Every generated filing must be Submitted before applying the new owner: ${notReady.join(" ")}` });
+  }
+  const amendmentWasTaskOnly = !transfer.gov_form_amendment_filing_id && !!transfer.md_amendment_task_id;
+
+  const buyerEmail = String(transfer.buyer_email || "").trim() || null;
+  const composedAddress = composeAddress({
+    street: transfer.buyer_street_address, city: transfer.buyer_city, state: transfer.buyer_state, zip: transfer.buyer_zip_code,
+  });
+
+  const result = await withTransaction(async (db) => {
+    await db.query(
+      `UPDATE altax.v3_clients SET
+         company_contact_name = $2, company_contact_title = $3, company_contact_email = $4, company_contact_phone = $5,
+         company_contact_street_address = $6, company_contact_city = $7, company_contact_state = $8, company_contact_zip_code = $9,
+         company_contact_address = $10, updated_at = now()
+       WHERE client_id = $1`,
+      [
+        clientId, transfer.buyer_name, transfer.buyer_title, buyerEmail, transfer.buyer_phone,
+        transfer.buyer_street_address, transfer.buyer_city, transfer.buyer_state, transfer.buyer_zip_code, composedAddress,
+      ]
+    );
+
+    // Same lookup this app already uses elsewhere for "this client's portal
+    // login row" (e.g. the Archive Client handler in clients.routes.ts) —
+    // assigned_client_id + role, not an assumed usr_<clientId> id string,
+    // since v3_users.role is stored inconsistently cased ("Client"/"client").
+    const existingUser = await db.queryOne<any>(
+      `SELECT * FROM altax.v3_users WHERE assigned_client_id = $1 AND lower(role) = 'client'`,
+      [clientId]
+    );
+
+    const token = newInviteToken();
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    let portalUserId: string;
+    let portalAction: "reprovisioned" | "created";
+
+    if (existingUser) {
+      portalUserId = existingUser.user_id;
+      portalAction = "reprovisioned";
+      await db.query(
+        `UPDATE altax.v3_users SET
+           email = $2, name = $3, active = true,
+           password_hash = NULL, password_salt = NULL, password_hash_version = NULL,
+           totp_secret = NULL, totp_enabled = false, totp_backup_codes = '[]'::jsonb,
+           login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0,
+           failed_login_count = 0, locked_until = NULL, last_password_change_at = NULL,
+           invite_token = $4, invite_expires = $5, must_reset_password = true, updated_at = now()
+         WHERE user_id = $1`,
+        [portalUserId, buyerEmail, transfer.buyer_name, token, expires]
+      );
+    } else {
+      // No portal login exists yet for this client — provisioned fresh, same
+      // deterministic usr_<clientId> id / shape POST /users would create.
+      portalUserId = `usr_${clientId}`;
+      portalAction = "created";
+      await db.query(
+        `INSERT INTO altax.v3_users
+           (user_id, email, name, role, assigned_client_id, reminder_preference, active,
+            invite_token, invite_expires, must_reset_password, source_system, source_record_id)
+         VALUES ($1,$2,$3,'client',$4,'Email',true,$5,$6,true,'Node Web App',$7)`,
+        [portalUserId, buyerEmail, transfer.buyer_name, clientId, token, expires, transferId]
+      );
+    }
+
+    await db.query(
+      `UPDATE altax.v3_ownership_transfers SET applied_to_profile_at = now(), applied_by = $2 WHERE transfer_id = $1`,
+      [transferId, req.user!.email]
+    );
+
+    return { portalUserId, portalAction, token };
+  });
+
+  // Cache is only ever a few minutes stale, but there's no reason to make the
+  // new owner wait for it to expire — same call the deactivate route already
+  // makes to make an active-flag change take effect on the very next request.
+  invalidateActiveCache(result.portalUserId);
+
+  let inviteEmailed = false;
+  let inviteEmailError: string | undefined;
+  let issuedLink: string | undefined;
+  if (buyerEmail) {
+    issuedLink = inviteLink(req, "client", result.token, buyerEmail);
+    const sendResult = await sendInviteEmail(buyerEmail, transfer.buyer_name, issuedLink);
+    inviteEmailed = sendResult.sent;
+    inviteEmailError = sendResult.error;
+  }
+
+  await logAudit(
+    "Clients", "OWNERSHIP_TRANSFER_APPLIED_TO_PROFILE", transferId, "buyer_name", "", transfer.buyer_name,
+    `Applied new owner ${transfer.buyer_name} to client profile for ${clientId}; portal access transferred ` +
+      `(${result.portalAction} portal login ${result.portalUserId}) by ${req.user!.email}.` +
+      (amendmentWasTaskOnly ? " Note: MD Amendment on this transfer was only tracked as a reminder task, not a filed form." : ""),
+    req.user!.email
+  );
+
+  res.json({
+    ok: true,
+    transferId,
+    portalUserId: result.portalUserId,
+    portalAction: result.portalAction,
+    inviteEmailed,
+    inviteEmailError,
+    inviteLink: issuedLink,
+    amendmentWasTaskOnly,
+  });
 }));

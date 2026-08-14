@@ -1023,6 +1023,7 @@ export function ClientDetailPage() {
                   sellerNameDefault={(client.company_contact_name as string | null) || undefined}
                   sellerTitleDefault={(client.company_contact_title as string | null) || undefined}
                   onFilingsGenerated={(filingIds) => { setOwnershipHighlightFilingIds(filingIds); setOwnershipReloadKey((k) => k + 1); }}
+                  onClientUpdated={load}
                 />
               </div>
             </Fragment>

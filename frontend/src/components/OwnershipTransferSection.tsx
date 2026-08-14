@@ -3,9 +3,10 @@ import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from 
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "./Toast";
 import { useConfirm, useNotify } from "./ConfirmProvider";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { US_STATES, ASSET_ALLOCATION_CATEGORIES } from "../utils/clientOptions";
 import { StepProgress, type StepProgressStep } from "./StepProgress";
+import type { GovFormFiling } from "../api/govForms";
 
 interface AssetAllocationLine {
   category: string;
@@ -39,6 +40,9 @@ interface OwnershipTransfer {
   gov_form_dissolution_filing_id: string | null;
   md_amendment_task_id: string | null;
   created_at: string;
+  /** Set once "Apply New Owner to Client Profile" has been run for this transfer — see POST .../apply-new-owner. Null until then. */
+  applied_to_profile_at: string | null;
+  applied_by: string | null;
 }
 
 /** Row shape while being edited in the form — amount stays a string so the input can be empty mid-typing, parsed to a number only on submit. */
@@ -148,10 +152,12 @@ function maskCraNumber(v: string): string {
  * links into it) — this component only owns the transfer intake and the
  * Bill of Sale, since the other four already have a home.
  */
-export function OwnershipTransferSection({ clientId, clientName, sellerNameDefault, sellerTitleDefault, onFilingsGenerated }: {
+export function OwnershipTransferSection({ clientId, clientName, sellerNameDefault, sellerTitleDefault, onFilingsGenerated, onClientUpdated }: {
   clientId: string; clientName: string; sellerNameDefault?: string; sellerTitleDefault?: string;
   /** Called with every filing_id a successful "Generate All" created (8822-B/CRA/Amendment/Dissolution) so the page can scroll to and highlight them in the Government Forms section above — see ClientDetailPage.tsx's wiring of this alongside GovFormsSection's own highlightFilingIds/reloadKey props. */
   onFilingsGenerated?: (filingIds: string[]) => void;
+  /** Called after a successful "Apply New Owner to Client Profile" so the parent page's own client record (company_contact_name/email/etc., shown elsewhere on this page) reloads and reflects the new owner without a manual refresh. */
+  onClientUpdated?: () => void;
 }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -162,6 +168,9 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
   const [identity, setIdentity] = useState<ClientIdentityLite | null>(null);
   const [meta, setMeta] = useState<WizardMeta | null>(null);
   const [firmProfile, setFirmProfile] = useState<FirmProfileLite | null>(null);
+  /** This client's government-form filings (status only matters here) — used to gate "Apply New Owner to Client Profile" on every non-null linked filing being Submitted. Loaded independently of GovFormsSection above (which owns its own fetch/highlight state) so this gate stays correct even before that section has rendered/loaded. */
+  const [filings, setFilings] = useState<GovFormFiling[] | null>(null);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
   const [showWizard, setShowWizard] = useState(false);
   const [step, setStep] = useState(1);
@@ -193,6 +202,83 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
     api.get<WizardMeta>("/gov-forms/meta").then(setMeta).catch(() => setMeta(null));
     api.get<FirmProfileLite>("/firm-settings").then(setFirmProfile).catch(() => setFirmProfile(null));
   }, [clientId]);
+
+  function loadFilings() {
+    api.get<{ filings: GovFormFiling[] }>(`/gov-forms/client/${clientId}`).then((res) => setFilings(res.filings)).catch(() => setFilings([]));
+  }
+  useEffect(loadFilings, [clientId]);
+  // GovFormsSection above owns its own separate fetch of this same list and
+  // is where staff actually flip a filing to Signed/Submitted (Sign Now /
+  // Mark Submitted) — this component has no direct signal when that
+  // happens. A light poll keeps the "Apply New Owner" gate from going stale
+  // for an entire page reload after staff finish that work elsewhere on the
+  // page, without wiring a new cross-component callback through
+  // ClientDetailPage just for this.
+  useEffect(() => {
+    const id = setInterval(loadFilings, 10000);
+    return () => clearInterval(id);
+  }, [clientId]);
+
+  /**
+   * "Apply New Owner to Client Profile" is only ever offered once every
+   * NON-NULL linked filing (8822-B/CRA/Amendment/Dissolution) is Submitted.
+   * md_amendment_task_id (the old plain-task fallback for entity types with
+   * no real MD Amendment generator) is never gov-form-backed, so it's
+   * deliberately excluded from this check — see the backend route's own
+   * doc comment in ownershipTransfer.routes.ts for the same reasoning.
+   * Returns a list of blocking reasons; empty means ready.
+   */
+  function applyBlockingReasons(t: OwnershipTransfer): string[] {
+    if (t.applied_to_profile_at) return [`Already applied on ${fmtDateTime(t.applied_to_profile_at)}.`];
+    if (!t.buyer_name?.trim()) return ["No buyer name on file."];
+    if (filings === null) return ["Loading filing statuses…"];
+    const linked: { label: string; id: string | null }[] = [
+      { label: "Form 8822-B", id: t.gov_form_8822b_filing_id },
+      { label: "Maryland CRA", id: t.gov_form_cra_filing_id },
+      { label: "MD Articles of Amendment", id: t.gov_form_amendment_filing_id },
+      { label: "MD Articles of Dissolution", id: t.gov_form_dissolution_filing_id },
+    ];
+    const reasons: string[] = [];
+    for (const f of linked) {
+      if (!f.id) continue;
+      const filing = filings.find((x) => x.filing_id === f.id);
+      if (!filing) reasons.push(`${f.label} filing not found.`);
+      else if (filing.status !== "Submitted") reasons.push(`${f.label} is still ${filing.status}.`);
+    }
+    return reasons;
+  }
+
+  async function handleApplyNewOwner(t: OwnershipTransfer) {
+    const amendmentWasTaskOnly = !t.gov_form_amendment_filing_id && !!t.md_amendment_task_id;
+    const ok = await confirmDialog({
+      title: "Apply New Owner to Client Profile",
+      message:
+        `This will update ${clientName}'s Responsible Party contact info to ${t.buyer_name} (from ${t.buyer_email || "no email on file"}), ` +
+        `deactivate the OLD owner's portal login and clear their password/2FA so it can no longer be used, and email a NEW portal invite to the new owner. ` +
+        `This cannot be undone from here.` +
+        (amendmentWasTaskOnly ? ` Note: the MD Articles of Amendment for this transfer was only tracked as a reminder task, not filed as a real form.` : ""),
+      confirmLabel: "Apply New Owner", danger: true,
+    });
+    if (!ok) return;
+    setApplyingId(t.transfer_id);
+    try {
+      const res = await api.post<{
+        ok: boolean; portalUserId: string; portalAction: "reprovisioned" | "created";
+        inviteEmailed: boolean; inviteEmailError?: string; inviteLink?: string; amendmentWasTaskOnly: boolean;
+      }>(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/apply-new-owner`, {});
+      toast(
+        `New owner applied. Portal login ${res.portalAction === "created" ? "created" : "transferred"} for ${t.buyer_name}` +
+        (res.inviteEmailed ? " — invite emailed." : res.inviteLink ? " — invite email failed to send; share the invite link manually." : ".")
+      );
+      load();
+      loadFilings();
+      onClientUpdated?.();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not apply the new owner.");
+    } finally {
+      setApplyingId(null);
+    }
+  }
 
   const referenceDataLoaded = !!identity && !!meta && !!firmProfile;
   const amendmentKind = identity?.entity_type ? ENTITY_TYPE_TO_AMENDMENT_KIND[identity.entity_type] : undefined;
@@ -387,6 +473,7 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       setLastResult(res);
       toast("Ownership transfer package created.");
       load();
+      loadFilings();
       if (res.createdFilingIds && res.createdFilingIds.length) onFilingsGenerated?.(res.createdFilingIds);
     } catch (err: any) {
       setSaveError(err?.message || "Could not create the transfer package.");
@@ -994,7 +1081,10 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
               <tr><th>Seller</th><th>Buyer</th><th>Effective Date</th><th>Sale Price</th><th>Created</th><th></th></tr>
             </thead>
             <tbody>
-              {transfers.map((t) => (
+              {transfers.map((t) => {
+                const blockingReasons = applyBlockingReasons(t);
+                const applyReady = blockingReasons.length === 0;
+                return (
                 <tr key={t.transfer_id}>
                   <td>{t.seller_name}</td>
                   <td>{t.buyer_name}</td>
@@ -1014,9 +1104,26 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                     {isAdmin && (
                       <button className="btn-secondary" onClick={() => handleDelete(t)} disabled={busyId === t.transfer_id}>{busyId === t.transfer_id ? "Deleting…" : "Delete"}</button>
                     )}
+                    {isAdmin && (
+                      t.applied_to_profile_at ? (
+                        <span className="muted" style={{ fontSize: 12, alignSelf: "center" }}>
+                          Applied on {fmtDateTime(t.applied_to_profile_at)}{t.applied_by ? ` by ${t.applied_by}` : ""}
+                        </span>
+                      ) : (
+                        <button
+                          className="btn-primary"
+                          onClick={() => handleApplyNewOwner(t)}
+                          disabled={!applyReady || applyingId === t.transfer_id}
+                          title={applyReady ? "Update the client's contact info and transfer the portal login to the new owner" : blockingReasons.join(" ")}
+                        >
+                          {applyingId === t.transfer_id ? "Applying…" : "Apply New Owner to Client Profile"}
+                        </button>
+                      )
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

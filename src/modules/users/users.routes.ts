@@ -10,7 +10,8 @@ import { normalizeText, isAssignedToUser, getUserAliases } from "../../common/as
 
 export const usersRouter = Router();
 
-function newInviteToken(): string {
+/** Exported so other routes that need to issue a fresh invite the exact same way (e.g. ownershipTransfer.routes.ts's "Apply New Owner to Client Profile") can reuse this instead of duplicating the token format. */
+export function newInviteToken(): string {
   return crypto.randomUUID().replace(/-/g, "") + String(Math.floor(100000 + Math.random() * 900000));
 }
 
@@ -33,7 +34,7 @@ function nextUserId(): string {
 // link-building for why: a misconfigured/locally-scoped FRONTEND_BASE_URL
 // silently produced invite links unreachable from anywhere but the sender's
 // own machine, with no error to surface it.
-function inviteLink(req: AuthedRequest, role: string, token: string, email?: string): string {
+export function inviteLink(req: AuthedRequest, role: string, token: string, email?: string): string {
   const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
   const params = new URLSearchParams();
   if (email) params.set("email", email);
@@ -49,7 +50,7 @@ function inviteLink(req: AuthedRequest, role: string, token: string, email?: str
  * a delivery failure falls back to that same manual-link behavior instead of blocking
  * user creation, so this is purely additive.
  */
-async function sendInviteEmail(email: string, name: string, link: string): Promise<{ sent: boolean; error?: string }> {
+export async function sendInviteEmail(email: string, name: string, link: string): Promise<{ sent: boolean; error?: string }> {
   try {
     const { sendEmail } = await import("../../common/notifications");
     const { portalInviteEmailHtml } = await import("../../common/emailTemplate");
