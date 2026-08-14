@@ -933,6 +933,7 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
   let newPaid = 0, balance = 0, status = "";
   let overpay = false;
+  let isDuplicate = false;
   let duplicateResponse: any = null;
   await withTransaction(async (db) => {
     // Lock the invoice row and recompute amount_paid from THIS read, not the
@@ -956,7 +957,7 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
     // so reserving the key and creating the payment row are atomic together.
     if (idempotencyKey) {
       const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "billing.record-payment");
-      if (!reserved) { duplicateResponse = existingResponse; return; }
+      if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
     }
 
     await db.query(
@@ -991,7 +992,16 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
         { ok: true, paymentId, invoiceId: req.params.invoiceId, amountPaid: newPaid, balanceDue: balance, status });
     }
   });
-  if (duplicateResponse) return res.status(200).json(duplicateResponse);
+  // ACC-019 follow-up (found by independent review, 2026-08-13) — reserved=false
+  // with no saved response shouldn't be reachable given reservation and save
+  // happen in the same transaction, but if it ever is (e.g. another request's
+  // transaction is still mid-flight), fail honestly instead of falling through
+  // to a fabricated "success" built from local variables that were never
+  // actually written to v3_payments.
+  if (isDuplicate) {
+    if (duplicateResponse) return res.status(200).json(duplicateResponse);
+    return res.status(409).json({ error: "This payment submission is already being processed. Wait a moment, then check the invoice's payment history before retrying." });
+  }
   if (overpay) return res.status(400).json({ error: "Payment exceeds invoice total." });
 
   await logAudit("Billing", "RECORD_PAYMENT", paymentId, "InvoiceID", "", req.params.invoiceId,

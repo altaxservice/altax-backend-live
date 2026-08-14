@@ -32,8 +32,8 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
     setRotating(true);
     setError(null);
     try {
-      const res = await api.post<{ ok: boolean; message: string; envLineToSave: string; note: string }>("/system/diagnostics/rotate-jwt-secret", { confirm: typed });
-      setResult(`${res.message}\n\nSave this line to your .env file:\n${res.envLineToSave}\n\n${res.note}`);
+      const res = await api.post<{ ok: boolean; message: string; warning: string; envLineToSave: string; note: string }>("/system/diagnostics/rotate-jwt-secret", { confirm: typed });
+      setResult(`${res.message}\n\n⚠ ${res.warning}\n\nSave this line to your .env file:\n${res.envLineToSave}\n\n${res.note}`);
       onFixed();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not rotate the key.");
@@ -64,7 +64,7 @@ function DiagnosticRow({ check, onFixed }: { check: DiagnosticCheck; onFixed: ()
       {confirmOpen && (
         <div className="card" style={{ marginTop: 12, borderColor: "var(--red)" }}>
           <p style={{ marginTop: 0, fontSize: 13 }}>
-            This immediately signs out every logged-in user, including you — everyone must log in again. Type <strong>ROTATE LOGIN KEY</strong> to confirm.
+            This immediately signs out every logged-in user, including you — everyone must log in again. It also invalidates every 2FA backup code issued so far (they're keyed off this same secret), so anyone relying on one should re-enroll 2FA afterward. Type <strong>ROTATE LOGIN KEY</strong> to confirm.
           </p>
           <input
             type="text"

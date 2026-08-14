@@ -568,17 +568,25 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
 systemRouter.post("/diagnostics/rotate-jwt-secret", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const confirm = String(req.body?.confirm || "").trim();
   if (confirm !== "ROTATE LOGIN KEY") {
-    return res.status(400).json({ error: 'Type "ROTATE LOGIN KEY" to confirm. This signs every current user out immediately.' });
+    return res.status(400).json({
+      error: 'Type "ROTATE LOGIN KEY" to confirm. This signs every current user out immediately, and also invalidates every 2FA backup code issued so far (they\'re keyed off this same secret — see totp.ts) — anyone who might need one should re-enroll after rotating.',
+    });
   }
   const newSecret = crypto.randomBytes(48).toString("base64");
   process.env.JWT_SECRET = newSecret;
   await persistRotatedJwtSecret(newSecret, req.user!.email);
 
-  await logAudit("System", "ROTATE_JWT_SECRET", "jwt-secret", "", "", "rotated", `Login security key rotated by ${req.user!.email}. All sessions invalidated.`, req.user!.email);
+  // SEC-003 x BC-008 interaction (found by independent review, 2026-08-13):
+  // backup-code hashes are HMAC-keyed by this same JWT_SECRET, so rotating it
+  // silently invalidates every already-issued backup code. Logged explicitly
+  // so this isn't a silent side effect buried in an unrelated audit entry.
+  await logAudit("System", "ROTATE_JWT_SECRET", "jwt-secret", "", "", "rotated",
+    `Login security key rotated by ${req.user!.email}. All sessions invalidated, and every existing 2FA backup code is now invalid (backup codes are keyed off this secret).`, req.user!.email);
 
   res.json({
     ok: true,
     message: "Login security key rotated. Everyone (including you) will need to log in again. This is now durably saved, so it survives a server restart or redeploy.",
+    warning: "This also invalidated every 2FA backup code issued so far, since they're keyed off this same secret. Anyone relying on a saved backup code should re-enroll 2FA to get a fresh set.",
     envLineToSave: `JWT_SECRET=${newSecret}`,
     note: "The line above is only needed if you also run this app locally against .env — the live server itself now persists the rotated key in the database and no longer depends on .env being updated by hand.",
   });

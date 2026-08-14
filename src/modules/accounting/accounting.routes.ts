@@ -1833,6 +1833,7 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
   const notes = String(body.notes || "").trim() || null;
   const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
 
+  let isDuplicate = false;
   let duplicateResponse: any = null;
   await withTransaction(async (db) => {
     // ACC-019 — a double-click or retried submit generates the same jeId only
@@ -1841,7 +1842,7 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
     // are atomic together.
     if (idempotencyKey) {
       const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "accounting.create-journal-entry");
-      if (!reserved) { duplicateResponse = existingResponse; return; }
+      if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
     }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -1870,7 +1871,14 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
         { ok: true, jeId, lines: lines.length, totalDebit, totalCredit });
     }
   });
-  if (duplicateResponse) return res.status(200).json(duplicateResponse);
+  // ACC-019 follow-up (found by independent review, 2026-08-13) — see the
+  // matching comment in billing.routes.ts's payment route for why this
+  // fails honestly instead of fabricating success when reserved=false has
+  // no saved response yet.
+  if (isDuplicate) {
+    if (duplicateResponse) return res.status(200).json(duplicateResponse);
+    return res.status(409).json({ error: "This journal entry submission is already being processed. Wait a moment, then check Recent Manual Entries before retrying." });
+  }
 
   await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", "Manual journal entry created from web app.", req.user!.email);
 

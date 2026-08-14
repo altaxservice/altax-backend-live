@@ -2880,6 +2880,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     setDescription("");
     setRef("");
     setNotes("");
+    // ACC-019 follow-up (found by independent review, 2026-08-13) — cancelling
+    // out of a replace-in-progress must not leave the next, unrelated entry
+    // reusing this attempt's idempotency key.
+    jeIdempotencyKey.current = crypto.randomUUID();
   }
 
   async function handleSubmit(e: FormEvent) {

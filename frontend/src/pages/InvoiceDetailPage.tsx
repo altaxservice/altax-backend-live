@@ -207,7 +207,20 @@ export function InvoiceDetailPage() {
               <button className="btn" onClick={() => setEditing(true)}>Edit</button>
               <button className="btn" disabled={sharing} onClick={handleShareLink}>{sharing ? "Creating…" : "Copy Share Link"}</button>
               <button className="btn btn-primary" onClick={() => setShowSend(true)}>Send</button>
-              <button className="btn btn-primary" onClick={() => setShowPaymentForm((v) => !v)}>Record Payment</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  // ACC-019 follow-up (found by independent review, 2026-08-13) —
+                  // closing the form (whether by toggling it shut or reopening
+                  // fresh) always starts the NEXT payment attempt with a new key,
+                  // so a stale key from an earlier attempt can never carry over
+                  // onto an unrelated later submission.
+                  paymentIdempotencyKey.current = null;
+                  setShowPaymentForm((v) => !v);
+                }}
+              >
+                Record Payment
+              </button>
               <button className="btn btn-danger" onClick={handleVoid}>Void</button>
             </>
           )}

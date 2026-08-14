@@ -501,6 +501,11 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
   if (!data.checks.length) {
     emptyNote(c, y);
   } else {
+    // PERF-014 follow-up (found by independent review, 2026-08-13) — same
+    // unbounded-loop shape as generatePayrollPdf/generateArAgingPdf, just
+    // missed in that pass. Lower real-world exposure (one employee's own
+    // checks, not firm-wide), but capped for consistency.
+    const shownChecks = data.checks.slice(0, REPORT_ROW_CAP);
     const colDate = 48, colGross = PAGE_W - 48 - 90, colNet = PAGE_W - 48;
     c.text(colDate, y, "Date", { size: 8, bold: true, color: MUTED });
     c.text(colGross, y, "Gross", { size: 8, bold: true, color: MUTED, align: "right" });
@@ -508,7 +513,7 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
     y += 6;
     c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
     y += 14;
-    for (const check of data.checks) {
+    for (const check of shownChecks) {
       if (y > PAGE_H - 60) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
@@ -517,6 +522,11 @@ export async function generateEmployeeReportPdf(data: EmployeeReportData): Promi
       c.text(colDate, y, fmtDate(check.payDate), { size: 9 });
       c.text(colGross, y, money(check.gross), { size: 9, align: "right" });
       c.text(colNet, y, money(check.net), { size: 9, align: "right" });
+      y += 14;
+    }
+    if (data.checks.length > shownChecks.length) {
+      if (y > PAGE_H - 60) { drawFooter(c, profile.firmName); ({ page, c } = await newPage(doc, font, bold)); y = 60; }
+      c.text(colDate, y, `+ ${data.checks.length - shownChecks.length} more — export CSV for the full list.`, { size: 8.5, color: MUTED });
       y += 14;
     }
   }
