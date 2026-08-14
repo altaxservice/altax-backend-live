@@ -107,7 +107,8 @@ const SECTIONS: Section[] = [
           "Referral Source (Profile tab, in Edit mode): type or pick from the suggested list (Referral, Google, Website, Social Media, Walk-in, Other) to record how this client found you.",
           "Documents tab: contracts, uploaded files, document requests, and (if the client's type/services match one) an automatic Document Checklist.",
           "Billing tab: every invoice for this client, plus a \"Create Invoice from Unbilled Time\" button when there's approved, billable time waiting.",
-          "Communications tab: every message sent to/from this client, plus \"+ Log Activity\" for anything that happened outside the app.",
+          "Communications tab: every message sent to/from this client.",
+          "Compliance, Responsible Party, and Account are always-editable tabs carrying fields first captured at Add Client — Tax IDs/EIN/SSN and agency settings, the responsible party's own info, and account summary counts, respectively.",
         ],
         useWhen: "Use Referral Source consistently so you can eventually answer \"where do our clients actually come from\" — pull it up when deciding where to spend marketing effort.",
       },
@@ -148,13 +149,57 @@ const SECTIONS: Section[] = [
         useWhen: "Use this table, not the narrative fields, when you need to actually assign and track follow-up work rather than just describe the situation.",
       },
       {
-        heading: "Logging an activity (calls, walk-ins, meetings)",
+        heading: "Activity Timeline & Task Notes (staying on top of client interactions)",
         steps: [
-          "On the client's Communications tab, click \"+ Log Activity\" any time you call, meet with, or talk to a client outside the app.",
-          "Pick a type (Phone Call, In-Person Meeting, Video Call, Voicemail, Other), write a one-line note, Save.",
-          "It merges into the same timeline as real emails/texts sent through the app, so the Communications tab is the whole interaction history, not just what went through this app.",
+          "Open a client, click the Activity Timeline tab, then \"+ Log Activity\" any time you call, meet with, or talk to a client outside the app — pick a type (Phone Call, In-Person Meeting, Video Call, Voicemail, Other), write a one-line note, Save.",
+          "Every real email/text sent through the app shows up on the same timeline automatically, marked \"(sent)\" — so this one tab is the whole interaction history, not just what you logged by hand.",
+          "The Task Notes tab is a separate, cross-task inbox: every note left on any of this client's open tasks lands here in one list, so you don't have to open each task to check for one. Click a row to jump into that task's own Activity Timeline, where the note actually lives.",
+          "Both tabs track read/unread per staff member — a new note stays unread until you personally open the tab it lives in. The Client Note / Task Note counters on the client's side panel drop the moment you do.",
         ],
-        useWhen: "Log it right after any client interaction so nothing gets lost — \"he asked for a payment extension,\" \"she confirmed the W-2 count,\" etc.",
+        useWhen: "Log it right after any client interaction so nothing gets lost — \"he asked for a payment extension,\" \"she confirmed the W-2 count,\" etc. Check Task Notes first thing after time away — it's the fastest way to see what changed across every open task at once.",
+      },
+      {
+        heading: "Client Flags — Balance/Agency Past Due, Credit, Custom",
+        steps: [
+          "Balance Past Due and Agency Past Due flags are computed automatically — they appear the moment an invoice or a tracked agency obligation (EFTPS, MD Withholding, MD UI, MD Sales Tax, etc.) goes past due unpaid, and clear the moment it's paid. Nothing to set up.",
+          "Credit and Custom are the two kinds staff enters by hand — Credit records money owed to the client (an overpayment); Custom is for anything else worth flagging (e.g. \"Not in Good Standing\"), with an optional category, note, and due date.",
+          "From the client's side panel, click + Flag to add a Credit or Custom flag; Resolve closes it (kept for history, not deleted). Every flag has a Share checkbox — check it, then use Notify Client to send that specific flag to the client by email/SMS.",
+          "The Command Center's At-Risk Clients panel is this same signal rolled up firm-wide — check it there before opening clients one at a time.",
+        ],
+        useWhen: "Use a Custom flag for anything a client needs to know that the system can't compute on its own — a lapsed license, a state notice, anything that isn't a number already in the ledger.",
+      },
+      {
+        heading: "Gov Forms tab — POA, government filing forms & maker-checker review",
+        steps: [
+          "Open a client, click the Gov Forms tab. It covers two families of documents: Authorization to Act / Release of Information (POA — IRS 2848, IRS 8821, MD 548), and the filing forms themselves (SS-4, 2553, W-9, 8832, CRA registration, 8822-B).",
+          "Click New [form], fill in the fields (most pre-fill from the client's own profile), then Sign Now (In Person) — these are physical-signature-only forms; there is no client e-sign step on this tab.",
+          "Once signed, click Mark Submitted to record it as filed — or, if your firm wants a second set of eyes first, Send for Review instead. An admin then sees it on the Command Center's Filing Reviews panel and clicks Approve & Submit (or Reject, which sends it back to Signed so it can be corrected and resent).",
+          "Admin can Void a filing at any point, or Delete one that's still an unsigned Draft.",
+        ],
+        useWhen: "Use Send for Review whenever a filing should be checked before it goes out — the reviewing admin sees exactly who requested it and when, right on their own Command Center.",
+      },
+      {
+        heading: "Permits & Compliance tab",
+        steps: [
+          "Open a client, click Permits & Compliance to track this client's health permits/licenses — expiration dates, renewal status, and notes per permit.",
+          "This is distinct from the standalone HACCP plan generator (Health Permits in the sidebar): that page drafts the actual HACCP/food-safety plan document; this tab tracks the permits and licenses themselves.",
+        ],
+      },
+      {
+        heading: "Vault & Payment Methods tab (admin only)",
+        steps: [
+          "Open a client, click Vault & Payment Methods (admin only) to store this client's own portal/agency login credentials (encrypted at rest) and any saved payment methods on file.",
+          "This is separate from the firm's own Portal Credentials vault (Firm section) — that one holds the firm's own logins to EFTPS/MD Tax Connect/etc.; this one holds each individual client's.",
+        ],
+      },
+      {
+        heading: "Tax Forms tab — sending W-4/W-9 to an employee to e-sign",
+        steps: [
+          "Open a client, click Tax Forms, then Send W-4 or Send W-9 for the employee who needs to fill one out.",
+          "The employee gets it on their own portal (My Tax Forms) to fill in and electronically sign themselves — nothing for staff to fill in by hand.",
+          "Once they submit it, it shows back up here, signed, ready to download or print.",
+        ],
+        useWhen: "Use this any time a new hire needs to submit a W-4, or an existing employee needs to update their withholding — no paper, no manual PDF stamping.",
       },
       {
         heading: "Sending a portal invite",
@@ -278,15 +323,24 @@ const SECTIONS: Section[] = [
         heading: "Booking a client appointment",
         steps: [
           "From the Calendar view, click \"+ New Appointment\".",
-          "Pick an existing client or enter a brand-new contact's name/email/phone, choose a date and time, and save — a confirmation email and text go out automatically, and a reminder is sent the day before.",
+          "Pick an existing client or enter a brand-new contact's name/email/phone, choose a date, time, and Assigned Staff, and save — a confirmation email and text go out automatically, and a reminder is sent the day before.",
           "Clients can also self-book through the public \"Book a Consultation\" link on the marketing site — those show up here the same way.",
+        ],
+      },
+      {
+        heading: "Editing, reassigning, or cancelling an appointment",
+        steps: [
+          "Click any existing appointment on the calendar to open the same New Appointment form pre-filled — change the date/time, or change Assigned Staff to reassign it; the newly assigned staff member gets notified.",
+          "The client can cancel or reschedule it themselves from the link in their own confirmation email (no login needed) — a reschedule shows the old and new time together in the notice everyone gets; a cancellation notifies assigned staff immediately.",
+          "The system also sends a confirmation-request reminder ahead of the appointment and asks the client to confirm they're still coming — no separate step for staff to trigger this.",
         ],
       },
       {
         heading: "Calendar Settings (admin only)",
         steps: [
           "On the Calendar page, click the Settings toggle (only visible to admins).",
-          "Set which weekdays are bookable, business hours, appointment length, the office location/directions shown in confirmation emails, and the policy text sent with every booking.",
+          "Set bookable hours per weekday (not one blanket schedule — Monday can close earlier than Wednesday, for example), appointment length options, Gap Between Appointments (buffer time so back-to-back bookings aren't scheduled with zero travel/prep time), the office location/directions shown in confirmation emails, and the policy text sent with every booking.",
+          "Reminder Lead Times and the staff/admin reminder channel are configured here too — set how many hours or days ahead a reminder goes out, and whether staff get theirs by email, SMS, or both.",
         ],
         useWhen: "Update this whenever office hours change — the public booking page and every confirmation email pull live from these settings, so there's nothing else to update by hand.",
       },
@@ -361,6 +415,16 @@ const SECTIONS: Section[] = [
           "Click Add Rule. Pick the task type it creates, the trigger condition, the frequency, and the warning windows.",
           "Save — the rule is now available to run as a batch any time it applies.",
         ],
+      },
+      {
+        heading: "Task Rules Agent — auto-drafted batches, reviewed before they post",
+        steps: [
+          "The Task Rules Agent panel (top of the Rules page) runs every rule automatically overnight and drops the result here as a draft batch, instead of someone having to remember to click Create Batch Tasks — nothing it drafts becomes a real task until a person approves it.",
+          "Each pending batch shows which rule it's from and how many clients would get a task. Reassign lets you change who a batch's tasks go to before approving; Dismiss throws the whole batch away.",
+          "Select multiple batches with their checkboxes, then Approve Selected — or approve one at a time. Approving is what actually creates the tasks.",
+          "\"Turn off automatic nightly drafting\" only pauses the automatic overnight run — Run Agent Now (manual, on demand) and the plain Create Batch Tasks flow above still work regardless of that setting.",
+        ],
+        useWhen: "Check this panel first thing in the morning during a busy filing period — most of the quarter's tasks are usually already drafted and just need a review, not a from-scratch batch run.",
       },
     ],
     body: [],
@@ -520,7 +584,9 @@ const SECTIONS: Section[] = [
         heading: "Sales Input & Payroll",
         steps: [
           "Sales tab: enter a date, gross sales breaks into taxable categories with \"+ Add Category\", Save Sales Input — this posts to that client's GL and feeds the Sales Tax report.",
-          "Payroll tab: manage Employees, run Paychecks (single or Batch Create Paychecks for several at once), and review real IRS-bracket federal + state withholding calculated automatically per employee.",
+          "Employees tab: the employee records themselves — pay rate, filing status, county/state exemptions, pay frequency. Add or edit an employee here before they can be paid.",
+          "Payroll tab: create paychecks (single or Batch Create Paychecks for several employees at once), with real IRS-bracket federal + state withholding calculated automatically per employee — and, from the same tab, enroll this client into the Payroll Agent for automatic recurring drafts (see the Payroll Agent section).",
+          "Paychecks tab: the running paycheck history/ledger for this client — every paycheck ever created, filterable by period.",
         ],
       },
       {
@@ -554,14 +620,24 @@ const SECTIONS: Section[] = [
         useWhen: "Use it for a client on ongoing bookkeeping who wants to stay on plan, or to catch a category that's blown past what was expected.",
       },
       {
-        heading: "Bank Rec",
+        heading: "Bank Rec — uploading a statement and matching by hand",
         steps: [
           "Bank Rec tab: pick which bank/cash account you're reconciling.",
-          "Export a CSV from the client's real online banking (needs a Date column and either an Amount column or separate Debit/Credit columns) and upload it.",
-          "Unmatched bank lines appear on the left, unmatched GL entries on the right. Click one of each that represent the same transaction, then click Match.",
+          "Upload the client's own bank statement export (.csv/.xls/.xlsx/.pdf — needs a Date column and either an Amount column or separate Debit/Credit columns).",
+          "Unmatched bank lines appear on one side, unmatched GL entries on the other. Click one of each that represent the same transaction, then click Match — or click Auto-Match to have the system match by exact amount + nearest date (within 10 days) across everything unmatched at once.",
           "If a bank line has nothing in the books yet (a bank fee, an unrecorded charge), click New Entry on that line instead, pick which account to charge it to, and it creates the missing GL entry and matches it in one step.",
           "The top of the page shows Book Balance vs. Cleared Balance vs. Difference — when Difference hits $0.00, that account is fully reconciled for the period uploaded.",
         ],
+      },
+      {
+        heading: "Bank Rec Agent — suggested journal entries for unmatched lines",
+        steps: [
+          "After a statement upload, any bank line the system can't already match shows up in Suggested Journal Entries with a guessed category — from a remembered rule when one matches (\"suggested from rule ...\"), or blank if nothing matched yet.",
+          "Pick or confirm the Category, then Approve — this creates and posts the actual journal entry. Dismiss instead if a line genuinely needs no entry (already accounted for elsewhere).",
+          "Check \"Remember this categorization\" before approving to turn that vendor/description into a rule — the next matching bank line from the same source gets the same category suggested automatically, so the list gets shorter to review over time.",
+          "Approved entries move down to Ready to Reconcile — click Confirm Match (or Confirm All) once you've checked each one actually clears against its bank line. This is the same final reconciliation step as manual matching, just for entries the Agent helped create.",
+        ],
+        useWhen: "Use \"Remember this categorization\" for anything recurring (a monthly software subscription, a regular vendor) — a few minutes spent teaching it now means those lines stop needing review every future statement.",
       },
       {
         heading: "Month-End, Year-End, Check Settings & Tax Rates",
@@ -569,6 +645,43 @@ const SECTIONS: Section[] = [
           "Month-End / Year-End tabs: closing checklists and period-lock tools for that client's books.",
           "Check Settings tab: calibrate MICR check printing (line positions, font) if this firm prints physical paychecks.",
           "Tax Rates tab: the sales-tax rate table by state/category used across Sales Input and the calculator — keep it current when a jurisdiction changes its rate.",
+        ],
+      },
+    ],
+    body: [],
+  },
+
+  // ---------------- Money: Payroll Agent ----------------
+  {
+    key: "payroll-agent",
+    label: "Payroll Agent",
+    title: "Payroll Agent",
+    roles: ADMIN_STAFF_ROLES,
+    group: "Money",
+    intro: "The Payroll Agent drafts upcoming paychecks ahead of time on a recurring schedule, so no one has to remember pay day — every draft still needs a human Approve before it becomes a real, posted paycheck.",
+    topics: [
+      {
+        heading: "Enrolling an employee",
+        steps: [
+          "From Accounting → Payroll tab (pick the client first), enroll an employee in Auto Payroll and set their pay frequency, next pay date, and how many lead days ahead of pay day a draft should be created.",
+          "Or from the Payroll Agent page itself, click \"Enroll More →\" — it takes you to that same Accounting → Payroll tab.",
+        ],
+      },
+      {
+        heading: "Reviewing and approving drafts",
+        route: "/payroll-agent", routeLabel: "Payroll Agent",
+        steps: [
+          "Go to Payroll Agent. Every enrolled employee whose lead-days window has opened shows up under Pending Drafts.",
+          "Click Edit on a draft to override hours, rate, or gross wages before approving — otherwise it uses the employee's normal pay rate.",
+          "Approve turns the draft into a real, posted paycheck — the exact same action as manually creating one on Accounting → Payroll. Dismiss skips that pay date instead (with an optional reason) without touching the employee's ongoing schedule.",
+        ],
+        useWhen: "Check this page a day or two before each pay run — drafts are usually already sitting there ready for a quick review instead of building every paycheck from scratch.",
+      },
+      {
+        heading: "Turning Auto Payroll on or off",
+        steps: [
+          "\"Turn off automatic nightly drafting\" (top of the Payroll Agent page) only pauses the overnight sweep that creates new drafts — it doesn't touch drafts already pending, and manual paycheck creation on Accounting → Payroll keeps working regardless.",
+          "Enrolled Employees lists every schedule; toggle Show off to see paused schedules without deleting them.",
         ],
       },
     ],
@@ -783,6 +896,15 @@ const SECTIONS: Section[] = [
         ],
         useWhen: "Use this first when something looks broken and you're not sure if it's a data problem or a real bug — it's built to answer that quickly.",
       },
+      {
+        heading: "Labels",
+        route: "/labels", routeLabel: "Labels",
+        steps: [
+          "Go to Labels. Pick a name and a color, click Add — this is a firm-wide palette, not per-client.",
+          "On the Clients or Tasks list, click the + on any row to attach one or more labels; click the × on a chip to remove one. Every staff member sees the same labels on the same records immediately.",
+        ],
+        useWhen: "Use labels for anything that doesn't fit a status field — \"VIP,\" \"Needs Attention,\" \"New This Year\" — a quick visual cue on the list view, not a workflow state.",
+      },
     ],
     body: [],
   },
@@ -810,11 +932,17 @@ const SECTIONS: Section[] = [
     title: "Client Portal basics",
     roles: ["client"],
     labelKey: "guide.client-portal.label", titleKey: "guide.client-portal.title",
-    bodyKeys: ["guide.client-portal.body.0", "guide.client-portal.body.1", "guide.client-portal.body.2"],
+    bodyKeys: [
+      "guide.client-portal.body.0", "guide.client-portal.body.1", "guide.client-portal.body.2",
+      "guide.client-portal.body.3", "guide.client-portal.body.4", "guide.client-portal.body.5",
+    ],
     body: [
       "You only see records for your own company.",
       "Use Documents to review what AL TAX has requested and upload files directly.",
       "Use Communications to message AL TAX and see replies in one history.",
+      "Use My Business to fill in your own business profile details AL TAX uses for advisory work — update it any time something changes.",
+      "Agreements shows every contract you've signed or have pending; Government Filings shows the filings AL TAX has submitted on your behalf — both are read-only references.",
+      "Any account notice AL TAX flags for you (a balance issue, a compliance concern) shows on your Command Center under Account Notices.",
     ],
   },
   {
@@ -863,10 +991,11 @@ const SECTIONS: Section[] = [
     title: "Employee portal",
     roles: ["employee"],
     labelKey: "guide.employee-portal.label", titleKey: "guide.employee-portal.title",
-    bodyKeys: ["guide.employee-portal.body.0", "guide.employee-portal.body.1"],
+    bodyKeys: ["guide.employee-portal.body.0", "guide.employee-portal.body.1", "guide.employee-portal.body.2"],
     body: [
       "View your paystubs shared by payroll, including gross pay, taxes, and net pay for each period.",
       "Contact the firm through Messages if something on a paystub needs review.",
+      "Under My Tax Forms, fill in and electronically sign a W-4 or W-9 whenever staff sends you one — no printing, no scanning.",
     ],
   },
   {

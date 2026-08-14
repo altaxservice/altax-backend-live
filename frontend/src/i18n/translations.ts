@@ -205,6 +205,9 @@ export const translations: Record<string, Record<Lang, string>> = {
   "guide.client-portal.body.0": { en: "You only see records for your own company.", ar: "تشاهد فقط سجلات شركتك الخاصة." },
   "guide.client-portal.body.1": { en: "Use Documents to review what AL TAX has requested and upload files directly.", ar: "استخدم صفحة المستندات لمراجعة ما طلبه AL TAX ورفع الملفات مباشرة." },
   "guide.client-portal.body.2": { en: "Use Communications to message AL TAX and see replies in one history.", ar: "استخدم صفحة الرسائل لمراسلة AL TAX ورؤية الردود في سجل واحد." },
+  "guide.client-portal.body.3": { en: "Use My Business to fill in your own business profile details AL TAX uses for advisory work — update it any time something changes.", ar: "استخدم صفحة عملي لملء تفاصيل ملف عملك التي يستخدمها AL TAX لأعمال الاستشارات — حدّثها في أي وقت يتغير فيه شيء." },
+  "guide.client-portal.body.4": { en: "Agreements shows every contract you've signed or have pending; Government Filings shows the filings AL TAX has submitted on your behalf — both are read-only references.", ar: "تعرض صفحة الاتفاقيات كل عقد وقّعته أو ما زال معلقاً؛ وتعرض صفحة الإيداعات الحكومية الإيداعات التي قدّمها AL TAX نيابة عنك — كلاهما للاطلاع فقط." },
+  "guide.client-portal.body.5": { en: "Any account notice AL TAX flags for you (a balance issue, a compliance concern) shows on your Command Center under Account Notices.", ar: "أي إشعار حساب يضعه لك AL TAX (مشكلة في الرصيد، أو أمر يتعلق بالامتثال) يظهر في مركز القيادة الخاص بك تحت إشعارات الحساب." },
 
   "guide.client-messages.label": { en: "Messages", ar: "الرسائل" },
   "guide.client-messages.title": { en: "Messages", ar: "الرسائل" },
@@ -227,6 +230,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "guide.employee-portal.title": { en: "Employee portal", ar: "بوابة الموظف" },
   "guide.employee-portal.body.0": { en: "View your paystubs shared by payroll, including gross pay, taxes, and net pay for each period.", ar: "اطّلع على قسائم راتبك التي يشاركها قسم الرواتب، بما في ذلك الإجمالي والضرائب وصافي الراتب لكل فترة." },
   "guide.employee-portal.body.1": { en: "Contact the firm through Messages if something on a paystub needs review.", ar: "تواصل مع المكتب عبر الرسائل إذا احتاج شيء في قسيمة راتبك للمراجعة." },
+  "guide.employee-portal.body.2": { en: "Under My Tax Forms, fill in and electronically sign a W-4 or W-9 whenever staff sends you one — no printing, no scanning.", ar: "ضمن نماذج ضرائبي، املأ ووقّع إلكترونياً نموذج W-4 أو W-9 كلما أرسله لك الموظفون — دون طباعة أو مسح ضوئي." },
 
   "guide.employee-login.label": { en: "Login", ar: "تسجيل الدخول" },
   "guide.employee-login.title": { en: "Signing in", ar: "تسجيل الدخول" },
