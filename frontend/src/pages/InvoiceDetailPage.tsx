@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
@@ -38,6 +38,11 @@ export function InvoiceDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [paymentForm, setPaymentForm] = useState(PAYMENT_FORM_DEFAULTS);
+  // ACC-019 — stays the same across repeat submits of this one open form (a
+  // failed/retried "Record Payment" click resends the same key, so the
+  // backend recognizes it as the same attempt instead of a new payment), and
+  // is cleared once the form closes so the NEXT payment gets its own key.
+  const paymentIdempotencyKey = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
@@ -120,13 +125,15 @@ export function InvoiceDetailPage() {
     setSaving(true);
     setSaveError(null);
     try {
+      if (!paymentIdempotencyKey.current) paymentIdempotencyKey.current = crypto.randomUUID();
       await api.post(`/billing/invoices/${invoiceId}/payments`, {
         paymentDate: paymentForm.paymentDate || undefined, actualAmount: Number(paymentForm.amount), method: paymentForm.method,
         paymentMethodId: paymentForm.paymentProfile === MANUAL_PROFILE ? undefined : paymentForm.paymentProfile,
         paymentBankName: paymentForm.bankName, paymentAccountType: paymentForm.accountType, paymentRoutingNumber: paymentForm.routingNumber,
         paymentAccountNumber: paymentForm.accountNumber, paymentBankLast4: paymentForm.bankLast4, confirmationNumber: paymentForm.confirmationNumber,
-        notes: paymentForm.notes,
+        notes: paymentForm.notes, idempotencyKey: paymentIdempotencyKey.current,
       });
+      paymentIdempotencyKey.current = null;
       setShowPaymentForm(false);
       setPaymentForm(PAYMENT_FORM_DEFAULTS);
       toast("Payment recorded.");

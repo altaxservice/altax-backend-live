@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { rateLimit } from "./common/rateLimit";
 import { pool } from "./config/db";
+import { applyPersistedJwtSecret } from "./common/jwtSecret";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep } from "./modules/clients/clients.routes";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
@@ -502,7 +503,11 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`AL TAX backend (Phase 0) listening on :${port}`);
+// BC-008 — reapply any DB-persisted JWT secret rotation before accepting
+// requests, so a restart doesn't silently revert to .env's stale value.
+applyPersistedJwtSecret().finally(() => {
+  app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`AL TAX backend (Phase 0) listening on :${port}`);
+  });
 });

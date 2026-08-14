@@ -1250,6 +1250,15 @@ interface ChecklistProgressRow {
   checked: boolean;
   checked_at: string | null;
   checked_by: string | null;
+  linked_upload_id: string | null;
+  linked_file_name: string | null;
+  linked_uploaded_at: string | null;
+}
+
+interface ChecklistAvailableUpload {
+  upload_id: string;
+  file_name: string;
+  uploaded_at: string | null;
 }
 
 /**
@@ -1259,12 +1268,22 @@ interface ChecklistProgressRow {
  * this client's type/services every time this loads (see checklists.routes.ts's
  * syncAndLoadProgress), so nothing to "apply" manually here — check a service
  * on Profile, save, come back to Documents, the new checklist items are here.
+ *
+ * TAX-008 (Hard Audit, 2026-08-13) — checking an item can now optionally link
+ * a real uploaded document as evidence (backend validates it belongs to this
+ * client). Linking is optional, not required — some items really are
+ * confirmed some other way — but when a matching upload exists, this closes
+ * the gap where the checkbox and the client's actual Documents were two
+ * totally disconnected systems.
  */
 function ClientChecklistSection({ clientId }: { clientId: string }) {
   const notify = useNotify();
   const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [linkingRow, setLinkingRow] = useState<ChecklistProgressRow | null>(null);
+  const [availableUploads, setAvailableUploads] = useState<ChecklistAvailableUpload[] | null>(null);
+  const [pickedUploadId, setPickedUploadId] = useState("");
 
   function load() {
     api.get<{ progress: ChecklistProgressRow[] }>(`/checklists/clients/${clientId}/checklist`)
@@ -1273,16 +1292,44 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
   }
   useEffect(load, [clientId]);
 
-  async function handleToggle(row: ChecklistProgressRow) {
+  async function doToggle(row: ChecklistProgressRow, linkedUploadId?: string) {
     setTogglingId(row.progress_id);
     try {
-      const res = await api.post<{ checked: boolean }>(`/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`, {});
-      setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id ? { ...r, checked: res.checked } : r)));
+      const res = await api.post<{ checked: boolean; linkedUploadId: string | null }>(
+        `/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`,
+        linkedUploadId ? { linkedUploadId } : {}
+      );
+      setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id
+        ? { ...r, checked: res.checked, linked_upload_id: res.linkedUploadId, linked_file_name: availableUploads?.find((u) => u.upload_id === res.linkedUploadId)?.file_name ?? (res.linkedUploadId ? r.linked_file_name : null) }
+        : r)));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not update this item.");
     } finally {
       setTogglingId(null);
     }
+  }
+
+  async function handleCheckboxChange(row: ChecklistProgressRow) {
+    if (row.checked) {
+      // Unchecking never needs a picker.
+      await doToggle(row);
+      return;
+    }
+    setLinkingRow(row);
+    setPickedUploadId("");
+    setAvailableUploads(null);
+    try {
+      const res = await api.get<{ uploads: ChecklistAvailableUpload[] }>(`/checklists/clients/${clientId}/available-uploads`);
+      setAvailableUploads(res.uploads);
+    } catch {
+      setAvailableUploads([]);
+    }
+  }
+
+  async function confirmLink() {
+    if (!linkingRow) return;
+    await doToggle(linkingRow, pickedUploadId || undefined);
+    setLinkingRow(null);
   }
 
   if (error) return <div className="card" style={{ marginBottom: 16 }}><ErrorBanner error={error} /></div>;
@@ -1308,11 +1355,26 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
         <div key={name} style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
           <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{name}</div>
           {items.map((r) => (
-            <label key={r.progress_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
-              <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => handleToggle(r)} />
-              <span style={{ textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>{r.document_name}</span>
-              {r.checked && r.checked_by && <span className="muted" style={{ fontSize: 11 }}>— {r.checked_by}</span>}
-            </label>
+            <div key={r.progress_id}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
+                <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => handleCheckboxChange(r)} />
+                <span style={{ textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>{r.document_name}</span>
+                {r.checked && r.checked_by && <span className="muted" style={{ fontSize: 11 }}>— {r.checked_by}</span>}
+                {r.checked && r.linked_file_name && <span className="badge" style={{ fontSize: 10 }}>{r.linked_file_name}</span>}
+              </label>
+              {linkingRow?.progress_id === r.progress_id && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0 8px 26px", flexWrap: "wrap" }}>
+                  <select className="field" style={{ maxWidth: 260 }} value={pickedUploadId} onChange={(e) => setPickedUploadId(e.target.value)} disabled={!availableUploads}>
+                    <option value="">{availableUploads ? "No document — mark by other means" : "Loading uploads…"}</option>
+                    {(availableUploads || []).map((u) => (
+                      <option key={u.upload_id} value={u.upload_id}>{u.file_name}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={confirmLink} disabled={!availableUploads}>Mark Collected</button>
+                  <button type="button" className="btn btn-sm" onClick={() => setLinkingRow(null)}>Cancel</button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       ))}

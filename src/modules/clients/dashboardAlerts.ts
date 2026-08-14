@@ -14,15 +14,28 @@ export interface DashboardAlertSettings {
   updatedBy: string | null; updatedAt: string | null;
 }
 
+// PERF-015 (Hard Audit, 2026-08-13) — assembleSwotEngineInput calls this once
+// per client inside the nightly SWOT sweep (runSwotFindingsSweep), but this
+// is one firm-wide settings row, identical on every call within a sweep run.
+// Same short TTL-cache shape as reports.routes.ts's ensureCoaTypeCache — a
+// live edit to these settings still takes effect within 30s, no cache-bust
+// wiring needed on the PATCH route.
+let cachedSettings: DashboardAlertSettings | null = null;
+let cachedSettingsAt = 0;
+const DASHBOARD_ALERT_SETTINGS_CACHE_TTL_MS = 30_000;
+
 export async function getDashboardAlertSettings(): Promise<DashboardAlertSettings> {
+  if (cachedSettings && Date.now() - cachedSettingsAt < DASHBOARD_ALERT_SETTINGS_CACHE_TTL_MS) return cachedSettings;
   const row = await queryOne<any>(`SELECT * FROM altax.v3_dashboard_alert_settings WHERE id = 'DASHALERT-1'`);
-  return {
+  cachedSettings = {
     autoAlertsEnabled: row ? row.auto_alerts_enabled !== false : true,
     cashThreshold: row ? Number(row.cash_threshold) : 0,
     overdueDaysThreshold: row ? Number(row.overdue_days_threshold) : 90,
     filingDeadlineDaysThreshold: row ? Number(row.filing_deadline_days_threshold) : 7,
     updatedBy: row?.updated_by || null, updatedAt: row?.updated_at || null,
   };
+  cachedSettingsAt = Date.now();
+  return cachedSettings;
 }
 
 export async function updateDashboardAlertSettings(

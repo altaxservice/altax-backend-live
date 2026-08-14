@@ -717,6 +717,11 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedInvoice = openInvoices.find((i) => i.invoice_id === form.invoiceId);
+  // ACC-019 — stable for this modal's whole mounted lifetime, so a
+  // failed/retried submit resends the same key rather than risking a
+  // duplicate payment; a fresh key is generated automatically next time this
+  // modal is opened, since it remounts from scratch each time.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   async function handleSubmit() {
     if (!form.invoiceId || !form.amount) { setError("Invoice and Amount are required."); return; }
@@ -728,7 +733,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
         paymentMethodId: form.paymentProfile === MANUAL_PROFILE ? undefined : form.paymentProfile,
         paymentBankName: form.bankName, paymentAccountType: form.accountType, paymentRoutingNumber: form.routingNumber,
         paymentAccountNumber: form.accountNumber, paymentBankLast4: form.bankLast4, confirmationNumber: form.confirmationNumber,
-        notes: form.notes,
+        notes: form.notes, idempotencyKey: idempotencyKeyRef.current,
       });
       toast("Payment recorded.");
       onDone();

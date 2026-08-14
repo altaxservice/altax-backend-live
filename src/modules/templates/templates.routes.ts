@@ -550,6 +550,24 @@ export interface ResolvedTemplate {
  * no client/period source), so all three read the exact same resolved text
  * rather than each re-deriving it independently and risking drift.
  */
+// PERF-015 (Hard Audit, 2026-08-13) — reminders.routes.ts's staff-digest sweep
+// calls resolveTemplate("Staff Task Reminder", ...) once per due task (could be
+// dozens), and every one of those calls re-ran this exact same override lookup
+// with the exact same args. Short TTL cache keyed by lowercased template name —
+// a live template edit still takes effect within 30s, same tradeoff already
+// accepted by ensureCoaTypeCache/getDashboardAlertSettings's caches.
+const templateOverrideCache = new Map<string, { row: any; at: number }>();
+const TEMPLATE_OVERRIDE_CACHE_TTL_MS = 30_000;
+
+async function loadTemplateOverride(name: string): Promise<any> {
+  const key = name.toLowerCase();
+  const cached = templateOverrideCache.get(key);
+  if (cached && Date.now() - cached.at < TEMPLATE_OVERRIDE_CACHE_TTL_MS) return cached.row;
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_templates WHERE lower(template_name) = lower($1)`, [name]);
+  templateOverrideCache.set(key, { row, at: Date.now() });
+  return row;
+}
+
 export async function resolveTemplate(
   name: string, clientId: string, periodStart: string, periodEnd: string,
   extraOverride?: Record<string, string>
@@ -565,7 +583,7 @@ export async function resolveTemplate(
   }
   Object.assign(extra, extraOverride);
 
-  const override = await queryOne<any>(`SELECT * FROM altax.v3_templates WHERE lower(template_name) = lower($1)`, [name]);
+  const override = await loadTemplateOverride(name);
   if (override) {
     return {
       template_name: override.template_name, category: override.category, active: override.active,

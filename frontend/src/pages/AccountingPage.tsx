@@ -214,6 +214,7 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
 function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [sales, setSales] = useState<any[]>([]);
@@ -440,9 +441,21 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
    * state back rather than trusting the optimistic response.
    */
   async function handleMarkPeriodFiled(p: { start: string; end: string }, filedDate?: string, paidDate?: string) {
+    const useFiledDate = filedDate || mdFiledDate;
+    const usePaidDate = paidDate || mdPaidDate;
+    // TAX-006 (Hard Audit, 2026-08-13) — this single click clears the period's
+    // Past Due flag on the client dashboard for good (see computeClientFlags);
+    // require an explicit confirm so a slipped click or wrong date pair doesn't
+    // silently mark a period filed that wasn't.
+    const ok = await confirmDialog({
+      title: "Mark period filed?",
+      message: `Confirm the state actually received this filing/payment. Period ${p.start} through ${p.end}, filed ${useFiledDate}, paid ${usePaidDate}. This clears the period's Past Due flag.`,
+      confirmLabel: "Mark Filed",
+    });
+    if (!ok) return;
     setMarkingPeriodEnd(p.end);
     try {
-      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, filedDate: filedDate || mdFiledDate, paidDate: paidDate || mdPaidDate });
+      await api.post(`/reports/md-filing/${clientId}/mark-paid`, { periodStart: p.start, periodEnd: p.end, filedDate: useFiledDate, paidDate: usePaidDate });
       setMdFilingReloadKey((k) => k + 1);
       setPickingPeriodEnd(null);
     } catch (err) {
@@ -2780,6 +2793,11 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // ACC-019 — stays the same across repeat submits of this one entry (a
+  // failed/retried post resends the same key instead of risking a duplicate
+  // posting), and is refreshed after a successful post so the NEXT entry
+  // gets its own key.
+  const jeIdempotencyKey = useRef(crypto.randomUUID());
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [entries, setEntries] = useState<any[]>([]);
   const [search, setSearch] = useState("");
@@ -2871,9 +2889,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     setSuccess(null);
     try {
       const res = await api.post<any>("/accounting/journal-entries", {
-        clientId, entryDate, ref, description, notes,
+        clientId, entryDate, ref, description, notes, idempotencyKey: jeIdempotencyKey.current,
         lines: lines.map((l) => ({ account: l.account, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, memo: l.memo })),
       });
+      jeIdempotencyKey.current = crypto.randomUUID();
       if (replacingJeId) {
         // Only now that the replacement exists is it safe to drop the original.
         await api.post(`/accounting/journal-entries/${replacingJeId}/delete`, { confirm: "DELETE" });

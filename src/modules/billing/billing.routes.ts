@@ -9,6 +9,7 @@ import { resolvePaymentMethod, postInvoiceTotalGl, postInvoicePaymentGl } from "
 import { composeAddress } from "../../common/address";
 import { lookupSalesTaxRate } from "../../common/taxRates";
 import { encryptValue } from "../../common/encryption";
+import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
 
 /**
  * Billing module — Phase 5. Covers invoices, payments, and recurring billing. Ported
@@ -929,8 +930,10 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
   const paymentDate = String(body.paymentDate || "").trim() || null;
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
   let newPaid = 0, balance = 0, status = "";
   let overpay = false;
+  let duplicateResponse: any = null;
   await withTransaction(async (db) => {
     // Lock the invoice row and recompute amount_paid from THIS read, not the
     // one taken before the transaction started — two concurrent/double-submitted
@@ -946,6 +949,15 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
     if (newPaid > total) { overpay = true; return; }
     balance = Math.max(0, total - newPaid);
     status = balance <= 0 ? "Paid" : newPaid > 0 ? "Partial" : "Unpaid";
+
+    // ACC-019 — reserved AFTER the overpay check (a rejected request never
+    // consumes the key, so a legitimate resubmit with corrected data isn't
+    // blocked) but still inside this same transaction as the insert below,
+    // so reserving the key and creating the payment row are atomic together.
+    if (idempotencyKey) {
+      const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "billing.record-payment");
+      if (!reserved) { duplicateResponse = existingResponse; return; }
+    }
 
     await db.query(
       `INSERT INTO altax.v3_payments
@@ -973,7 +985,13 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
 
     const clientName = await getClientName(invoice.client_id);
     await postInvoicePaymentGl(invoice.client_id, clientName, paymentId, paymentDate || invoice.invoice_date, amount, false, db);
+
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(db, idempotencyKey, "billing.record-payment",
+        { ok: true, paymentId, invoiceId: req.params.invoiceId, amountPaid: newPaid, balanceDue: balance, status });
+    }
   });
+  if (duplicateResponse) return res.status(200).json(duplicateResponse);
   if (overpay) return res.status(400).json({ error: "Payment exceeds invoice total." });
 
   await logAudit("Billing", "RECORD_PAYMENT", paymentId, "InvoiceID", "", req.params.invoiceId,

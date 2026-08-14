@@ -9,6 +9,7 @@ import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
 import { buildBackupObject, runDailyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
 import { WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
+import { persistRotatedJwtSecret } from "../../common/jwtSecret";
 
 export const systemRouter = Router();
 
@@ -549,15 +550,20 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
 }));
 
 /**
- * Generates a fresh random JWT signing secret and writes it straight into the
- * live process's env var so it takes effect immediately (no restart needed) —
- * .env on disk is NOT touched, since this backend has no safe way to rewrite
- * its own config file mid-request without risking corrupting it. This means
- * the fix is temporary across a real restart; the response tells the admin the
- * exact line to paste into .env to make it permanent. Rotating this immediately
- * invalidates every existing login session (everyone must sign in again) — that
- * is the point, not a side effect, so this is deliberately a separate typed-
- * confirmation action rather than bundled into a generic "fix everything" button.
+ * Generates a fresh random JWT signing secret and writes it into the live
+ * process's env var so it takes effect immediately (no restart needed).
+ * BC-008 (Hard Audit, 2026-08-13): also persists it to Postgres
+ * (v3_jwt_secret_rotation) so a later server restart reapplies the rotated
+ * secret instead of silently reverting to .env's stale value — see
+ * jwtSecret.ts's applyPersistedJwtSecret(), called once at server start.
+ * .env on disk is still not touched directly (no safe way to rewrite this
+ * backend's own config file mid-request), so the response still gives the
+ * admin the line to paste in for local/dev copies of .env, but production no
+ * longer depends on that manual step actually happening before a redeploy.
+ * Rotating this immediately invalidates every existing login session
+ * (everyone must sign in again) — that is the point, not a side effect, so
+ * this is deliberately a separate typed-confirmation action rather than
+ * bundled into a generic "fix everything" button.
  */
 systemRouter.post("/diagnostics/rotate-jwt-secret", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const confirm = String(req.body?.confirm || "").trim();
@@ -566,14 +572,15 @@ systemRouter.post("/diagnostics/rotate-jwt-secret", requireAuth, requireRole("ad
   }
   const newSecret = crypto.randomBytes(48).toString("base64");
   process.env.JWT_SECRET = newSecret;
+  await persistRotatedJwtSecret(newSecret, req.user!.email);
 
   await logAudit("System", "ROTATE_JWT_SECRET", "jwt-secret", "", "", "rotated", `Login security key rotated by ${req.user!.email}. All sessions invalidated.`, req.user!.email);
 
   res.json({
     ok: true,
-    message: "Login security key rotated for this running server. Everyone (including you) will need to log in again.",
+    message: "Login security key rotated. Everyone (including you) will need to log in again. This is now durably saved, so it survives a server restart or redeploy.",
     envLineToSave: `JWT_SECRET=${newSecret}`,
-    note: "This change is live now but only in memory. Add the line above to your .env file so it survives the next server restart — otherwise the server will fall back to the old .env value next time it starts.",
+    note: "The line above is only needed if you also run this app locally against .env — the live server itself now persists the rotated key in the database and no longer depends on .env being updated by hand.",
   });
 }));
 

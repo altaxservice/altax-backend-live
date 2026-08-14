@@ -69,15 +69,27 @@ async function alreadySent(sourceRecordId: string): Promise<boolean> {
   return !!row;
 }
 
+// PERF-015 (Hard Audit, 2026-08-13) — the staff-digest sweep below calls this
+// once per due task, and most tasks in any given run share one of a handful
+// of staff assignees, so the same lookup repeats heavily. Short TTL cache
+// keyed by the normalized assigned_to string, same tradeoff as this file's
+// other caches — a role/active-flag change takes up to 30s to be picked up.
+const assigneeEmailCache = new Map<string, { email: string | null; at: number }>();
+const ASSIGNEE_EMAIL_CACHE_TTL_MS = 30_000;
+
 /** Resolves a task's free-text assigned_to (email, name, or user_id) to a real, active user's email — mirrors assignment.ts's alias matching. */
 export async function resolveAssigneeEmail(assignedTo: string): Promise<string | null> {
   const norm = normalizeText(assignedTo);
   if (!norm) return null;
+  const cached = assigneeEmailCache.get(norm);
+  if (cached && Date.now() - cached.at < ASSIGNEE_EMAIL_CACHE_TTL_MS) return cached.email;
   const row = await queryOne<any>(
     `SELECT email FROM altax.v3_users WHERE active = true AND (lower(email) = $1 OR lower(name) = $1 OR lower(user_id) = $1) LIMIT 1`,
     [norm]
   );
-  return row?.email || null;
+  const email = row?.email || null;
+  assigneeEmailCache.set(norm, { email, at: Date.now() });
+  return email;
 }
 
 /**

@@ -463,15 +463,31 @@ const CASH_HINTS = ["cash", "bank", "checking", "savings"];
  * entry aren't included, so it's always labeled "estimate" wherever shown
  * (ClientAtAGlance.tsx, the SWOT PDF, and the health score).
  */
-export async function computeClientCashBalance(clientId: string): Promise<number> {
+// PERF-015 (Hard Audit, 2026-08-13) — this is a firm-wide account list (not
+// client-scoped), but computeClientCashBalance runs once per client inside
+// sweeps that loop over every client (nightly SWOT sweep, monthly snapshot
+// sweep) — same TTL-cache shape as ensureCoaTypeCache just above, so a sweep
+// over N clients hits this query once instead of N times.
+let cashAccountsCache: string[] | null = null;
+let cashAccountsCacheAt = 0;
+const CASH_ACCOUNTS_CACHE_TTL_MS = 30_000;
+
+async function loadCashAccountNames(): Promise<string[]> {
+  if (cashAccountsCache && Date.now() - cashAccountsCacheAt < CASH_ACCOUNTS_CACHE_TTL_MS) return cashAccountsCache;
   const accounts = await query<any>(`SELECT account_name, detail_type FROM altax.v3_coa WHERE active = true AND account_type = 'Asset'`);
-  const cashAccounts = accounts
+  cashAccountsCache = accounts
     .filter((a: any) => {
       const name = String(a.account_name || "").toLowerCase();
       const detail = String(a.detail_type || "").toLowerCase();
       return CASH_HINTS.some((h) => name.includes(h) || detail.includes(h));
     })
     .map((a: any) => a.account_name);
+  cashAccountsCacheAt = Date.now();
+  return cashAccountsCache;
+}
+
+export async function computeClientCashBalance(clientId: string): Promise<number> {
+  const cashAccounts = await loadCashAccountNames();
   if (cashAccounts.length === 0) return 0;
   const row = await queryOne<any>(
     `SELECT COALESCE(SUM(debit - credit), 0) AS balance FROM altax.v3_gl_entries WHERE client_id = $1 AND account = ANY($2::text[])`,

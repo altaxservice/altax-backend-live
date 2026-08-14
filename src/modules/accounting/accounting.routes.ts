@@ -6,7 +6,8 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
-import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding } from "../../common/withholdingTables";
+import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
+import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding, WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
@@ -1369,10 +1370,27 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
 
   const payDate = body.payDate !== undefined ? (String(body.payDate).trim() || null) : existing.pay_date;
 
+  // TAX-010 (Hard Audit, 2026-08-13) — withholdingTables.ts's bracket constants
+  // are a single flat set for whatever year WITHHOLDING_TAX_YEAR says, not
+  // year-keyed history; the estimate* helpers have no way to compute a prior
+  // year's withholding correctly. A paycheck with $0 stored withholding (a
+  // legitimate value for low-wage/highly-exempt pay) falls through to a live
+  // re-estimate below — but only when this paycheck's own pay_date is still
+  // in the year the loaded brackets are verified for. Once brackets get
+  // bumped for a new year (per the Fix Center's own freshness check) and
+  // someone edits an older paycheck's hours, this stops that edit from
+  // silently reapplying the new year's brackets to an old pay date — the
+  // stored $0 is left as-is instead, since there's no correct historical
+  // number to fall back to.
+  const payDateYear = payDate ? new Date(payDate).getUTCFullYear() : null;
+  const bracketsMatchPayYear = payDateYear === null || payDateYear === WITHHOLDING_TAX_YEAR;
+
   const federal = body.federalWithholding !== undefined && body.federalWithholding !== ""
-    ? money(body.federalWithholding) : Number(existing.federal_withholding) || money(estimateFederalWithholding(federalTaxableWages, employeeForState || {}));
+    ? money(body.federalWithholding)
+    : Number(existing.federal_withholding) || (bracketsMatchPayYear ? money(estimateFederalWithholding(federalTaxableWages, employeeForState || {})) : 0);
   const state = body.stateTax !== undefined && body.stateTax !== ""
-    ? money(body.stateTax) : Number(existing.state_tax) || money(await estimateStateWithholding(stateTaxableWages, employeeForState || {}, payrollState, clientId));
+    ? money(body.stateTax)
+    : Number(existing.state_tax) || (bracketsMatchPayYear ? money(await estimateStateWithholding(stateTaxableWages, employeeForState || {}, payrollState, clientId)) : 0);
 
   // Every column this route recalculates gets written back. The earlier version
   // wrote only hours/rate and the tax totals, leaving regular_hours, regular_pay,
@@ -1813,8 +1831,18 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
   const ref = String(body.ref || jeId).trim();
   const description = String(body.description || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
 
+  let duplicateResponse: any = null;
   await withTransaction(async (db) => {
+    // ACC-019 — a double-click or retried submit generates the same jeId only
+    // if the caller resends the same idempotency key; reserved first, inside
+    // this same transaction, so the reservation and every line insert below
+    // are atomic together.
+    if (idempotencyKey) {
+      const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "accounting.create-journal-entry");
+      if (!reserved) { duplicateResponse = existingResponse; return; }
+    }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineId = `${jeId}-${i + 1}`;
@@ -1837,7 +1865,12 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
         debit: line.debit, credit: line.credit, source: "Manual JE", notes: line.memo || notes || description,
       }, db);
     }
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(db, idempotencyKey, "accounting.create-journal-entry",
+        { ok: true, jeId, lines: lines.length, totalDebit, totalCredit });
+    }
   });
+  if (duplicateResponse) return res.status(200).json(duplicateResponse);
 
   await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", "Manual journal entry created from web app.", req.user!.email);
 
