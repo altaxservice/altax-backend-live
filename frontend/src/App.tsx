@@ -52,6 +52,7 @@ import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 import { MyBusinessPage } from "./pages/MyBusinessPage";
 import { AgreementsPage } from "./pages/AgreementsPage";
+import { GovFilingsPage } from "./pages/GovFilingsPage";
 
 function App() {
   return (
@@ -86,6 +87,7 @@ function App() {
               <Route element={<ProtectedRoute roles={["client"]} />}>
                 <Route path="/my-business" element={<MyBusinessPage />} />
                 <Route path="/agreements" element={<AgreementsPage />} />
+                <Route path="/gov-filings" element={<GovFilingsPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/users" element={<UsersPage />} />

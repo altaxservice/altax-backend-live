@@ -219,6 +219,28 @@ function AttentionRows({ tasks, empty }: { tasks: Task[]; empty: string }) {
   );
 }
 
+/** Same compact shape as AttentionRows, for document requests (UX-016) — mirrors it deliberately rather than generalizing both into one shared component, since Task and DocumentRequest don't share a due-date field name or a DueLabel-compatible shape. */
+function AttentionDocRows({ docs, empty }: { docs: DocumentRequest[]; empty: string }) {
+  const navigate = useNavigate();
+  if (!docs.length) return <p className="muted" style={{ padding: 16 }}>{empty}</p>;
+  return (
+    <div className="attention-list">
+      {docs.map((d) => (
+        <div className="attention-item" key={d.request_id} onClick={() => navigate(`/documents/${d.request_id}`)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/documents/${d.request_id}`); } }}>
+          <div className="attention-main">
+            <div className="attention-title">{d.requested_item || "Document Request"}</div>
+            <div className="attention-meta">
+              <span>{d.client_name}</span>
+              <span>{fmtDate(d.due_from_client) || "No due date"}</span>
+            </div>
+          </div>
+          <StatusBadge status={d.status} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MiniKpis({ items }: { items: [string, string][] }) {
   return (
     <div className="command-mini-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", padding: 16, gap: 10 }}>
@@ -562,6 +584,10 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
   // only role that can actually see it firm-wide, so surfacing it here is the
   // only way it doesn't just silently sit unclaimed.
   const unassigned = openTasks.filter((t) => !t.assigned_to || !t.assigned_to.trim());
+  // UX-016: document requests carry assigned_to too, but this panel only ever
+  // covered tasks — an unassigned document request was just as unclaimed and
+  // just as invisible, with nowhere to surface it.
+  const unassignedDocs = openDocs.filter((d) => !d.assigned_to || !d.assigned_to.trim());
   // UX-003: the only staff workload view before this was a single "Active Staff"
   // metric buried on TasksListPage, with the busiest person as a footnote — an
   // admin had no way to see the whole team's load at a glance. Built from the
@@ -655,9 +681,17 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
               </div>
             </CommandPanel>
           )}
-          {unassigned.length > 0 && (
-            <CommandPanel title="Unassigned Work" note={`${unassigned.length} open task${unassigned.length === 1 ? "" : "s"} with no one on it`}>
+          {(unassigned.length > 0 || unassignedDocs.length > 0) && (
+            <CommandPanel
+              title="Unassigned Work"
+              note={`${unassigned.length} task${unassigned.length === 1 ? "" : "s"}, ${unassignedDocs.length} document request${unassignedDocs.length === 1 ? "" : "s"} with no one on ${unassigned.length + unassignedDocs.length === 1 ? "it" : "them"}`}
+            >
               <AttentionRows tasks={unassigned.slice(0, 6)} empty="No unassigned tasks." />
+              {unassignedDocs.length > 0 && (
+                <div style={{ borderTop: "1px solid var(--line)" }}>
+                  <AttentionDocRows docs={unassignedDocs.slice(0, 6)} empty="No unassigned document requests." />
+                </div>
+              )}
             </CommandPanel>
           )}
         </div>

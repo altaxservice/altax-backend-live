@@ -696,6 +696,11 @@ const DEFAULT_TAX_RATES: { rateId: string; rateType: string; rate: number; wageC
   { rateId: "MED_ER", rateType: "Medicare (Employer)", rate: 0.0145, notes: "Employer-side Medicare match." },
   { rateId: "FUTA", rateType: "Federal Unemployment (FUTA)", rate: 0.006, wageCap: 7000, notes: "Employer-only federal unemployment tax." },
   { rateId: "SUTA", rateType: "State Unemployment (SUTA)", rate: 0.025, notes: "Employer-only state unemployment tax estimate." },
+  // AUTO-011 (hard audit, 2026-08-13): the $600 1099-NEC reporting threshold
+  // was hardcoded in accounting.routes.ts, inconsistent with every other rate
+  // here — reuses wage_cap as a flat dollar amount rather than a percentage,
+  // same as how the Social Security/FUTA rows above store their wage bases.
+  { rateId: "1099_THRESHOLD", rateType: "1099-NEC Reporting Threshold", rate: 0, wageCap: 600, notes: "IRS reporting threshold — not a hard block; a firm may still issue a 1099-NEC below this if backup withholding applies. Statutory, stable for decades." },
 ];
 
 /**

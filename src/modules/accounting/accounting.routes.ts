@@ -2484,17 +2484,29 @@ accountingRouter.get("/year-end-review/:clientId", requireAuth, requireRole("adm
      ORDER BY c.employee_name`,
     [clientId, year]
   );
+  // AUTO-011 (hard audit, 2026-08-13): was a hardcoded 600, inconsistent with
+  // every other rate in this file — now the same v3_tax_rates row
+  // /system/seed-defaults creates on a fresh deployment. Falls back to the
+  // statutory 600 only if that row was somehow removed.
+  const rate1099 = await queryOne<any>(`SELECT wage_cap FROM altax.v3_tax_rates WHERE rate_id = '1099_THRESHOLD' AND active = true LIMIT 1`);
+  const threshold1099 = Number(rate1099?.wage_cap) || 600;
   const contractors = contractorRows.map((c) => {
     const issues = [...clientIssues];
     const hasTin = Boolean(c.tin || c.ssn || c.ein);
     if (!hasTin) issues.push("TIN/SSN/EIN missing");
     if (!c.address) issues.push("Address missing");
     const nec = Number(c.nec);
-    if (nec === 0) issues.push("No payments recorded for this year");
-    else if (nec < 600) issues.push("Below $600 — 1099 not required unless backup withholding applies");
+    let belowThreshold = false;
+    if (nec === 0) {
+      issues.push("No payments recorded for this year");
+    } else if (nec < threshold1099) {
+      issues.push(`Below $${threshold1099} — 1099 not required unless backup withholding applies`);
+      belowThreshold = true;
+    }
+    const blockingIssueCount = issues.length - clientIssues.length - (belowThreshold ? 1 : 0);
     return {
       contractorId: c.employee_id, contractorName: c.employee_name, tinOnFile: hasTin,
-      nec, status: issues.some((i) => !i.includes("Below $600")) ? "Needs Review" : (nec > 0 ? "Ready" : "Needs Review"), issues,
+      nec, status: blockingIssueCount > 0 ? "Needs Review" : (nec > 0 ? "Ready" : "Needs Review"), issues,
     };
   });
 

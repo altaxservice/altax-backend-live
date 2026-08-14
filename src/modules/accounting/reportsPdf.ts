@@ -37,6 +37,15 @@ const LINE = rgb(0.82, 0.82, 0.82);
 const TEAL = rgb(0.043, 0.42, 0.42);
 const TEAL_TINT = rgb(0.93, 0.97, 0.97);
 
+// PERF-014 (hard audit, 2026-08-13): shared cap for the report sections whose
+// row count scales with transaction/client volume rather than a firm's
+// (small, effectively fixed) chart of accounts — a busy client's payroll
+// check list or a firm's full AR aging client list could otherwise turn a
+// single report request into an unbounded, silently enormous PDF generated
+// synchronously in the request handler. Matches the value already proven
+// out in generateClientValueReportPdf's own LIST_ITEM_CAP.
+const REPORT_ROW_CAP = 150;
+
 function money(v: unknown): string {
   const n = Number(v);
   const sign = n < 0 ? "-" : "";
@@ -343,7 +352,12 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
     y += 6;
     c.line(48, y, PAGE_W - 48, y, LINE, 0.75);
     y += 14;
-    for (const check of data.checks) {
+    // PERF-014 (hard audit, 2026-08-13): a long date range for a client with
+    // frequent payroll could otherwise produce an unbounded, silently-huge
+    // PDF — same cap-and-say-so pattern already used by
+    // generateClientValueReportPdf's LIST_ITEM_CAP below.
+    const shownChecks = data.checks.slice(0, REPORT_ROW_CAP);
+    for (const check of shownChecks) {
       if (y > PAGE_H - 60) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
@@ -353,6 +367,11 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
       c.text(colEmp, y, check.employee.slice(0, 28), { size: 9 });
       c.text(colGross, y, money(check.gross), { size: 9, align: "right" });
       c.text(colNet, y, money(check.net), { size: 9, align: "right" });
+      y += 14;
+    }
+    if (data.checks.length > shownChecks.length) {
+      if (y > PAGE_H - 60) { drawFooter(c, profile.firmName); ({ page, c } = await newPage(doc, font, bold)); y = 60; }
+      c.text(colDate, y, `+ ${data.checks.length - shownChecks.length} more — export CSV for the full list.`, { size: 8.5, color: MUTED });
       y += 14;
     }
   }
@@ -902,13 +921,23 @@ export async function generateArAgingPdf(data: ArAgingReportData): Promise<Uint8
       c.text(L + 8, y, bucketLine, { size: 8, color: bucketColor });
       y += 15;
     };
-    for (const r of data.rows) {
+    // PERF-014 (hard audit, 2026-08-13): capped so a firm with hundreds of
+    // clients carrying a balance can't turn this into an unbounded PDF —
+    // this already paginates across pages fine, but a firm-wide collections
+    // list has no natural upper bound the way a chart of accounts does.
+    const shownRows = data.rows.slice(0, REPORT_ROW_CAP);
+    for (const r of shownRows) {
       if (y > PAGE_H - 75) {
         drawFooter(c, profile.firmName);
         ({ page, c } = await newPage(doc, font, bold));
         y = 60;
       }
       drawRow(r.clientName.slice(0, 60), r.total, false, r.current, r.d1_30, r.d31_60, r.d61_90, r.d90Plus);
+    }
+    if (data.rows.length > shownRows.length) {
+      if (y > PAGE_H - 75) { drawFooter(c, profile.firmName); ({ page, c } = await newPage(doc, font, bold)); y = 60; }
+      c.text(L, y, `+ ${data.rows.length - shownRows.length} more clients — export CSV for the full list.`, { size: 8.5, color: MUTED });
+      y += 15;
     }
     y += 4;
     c.line(L, y, R, y, INK, 1);

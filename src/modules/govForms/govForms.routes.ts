@@ -358,6 +358,54 @@ async function loadFiling(req: AuthedRequest, filingId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Client self-service (portal) — UX-012 (Hard Audit, 2026-08-13): a client had
+// no way to see the SS-4/2553/W-9/8832/CRA/8822-B filings the firm generated
+// and signed on their behalf, other than asking staff to email a copy. This
+// mirrors AgreementsPage's read-only pattern exactly: only finalized
+// (non-Draft) filings for the caller's own client_id, no edit/sign/void
+// actions — signing still only happens through the staff-facing routes above.
+// A Draft is intentionally excluded: it's a work-in-progress the firm hasn't
+// finished preparing yet, nothing a client should be shown as "on file."
+// Registered ABOVE the generic /:filingId route below so "/mine" isn't
+// matched as a filing ID.
+// ---------------------------------------------------------------------------
+
+govFormsRouter.get("/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role !== "client" || !req.user!.clientId) return res.json({ filings: [] });
+  const rows = await query<any>(
+    `SELECT filing_id, form_type, status, signed_at, submitted_via, submitted_at, created_at
+       FROM altax.v3_gov_form_filings
+      WHERE client_id = $1 AND status <> 'Draft'
+      ORDER BY created_at DESC`,
+    [req.user!.clientId]
+  );
+  res.json({ filings: rows });
+}));
+
+govFormsRouter.get("/mine/:filingId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  if (req.user!.role !== "client" || !req.user!.clientId) return res.status(404).json({ error: "Filing not found." });
+  const filing = await queryOne<any>(`SELECT * FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [req.params.filingId]);
+  if (!filing || filing.client_id !== req.user!.clientId || filing.status === "Draft") {
+    return res.status(404).json({ error: "Filing not found." });
+  }
+
+  if (filing.attached_upload_id) {
+    const upload = await queryOne<any>(`SELECT file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
+    if (upload?.file_data) {
+      const bytes = Buffer.from(decryptTolerant(upload.file_data), "base64");
+      res.setHeader("Content-Type", upload.mime_type || "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="Form_${filing.form_type}_${filing.filing_id}.pdf"`);
+      return res.send(bytes);
+    }
+  }
+
+  const bytes = await generateGovForm(filing.form_type, decryptFormData(filing.form_data));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="Form_${filing.form_type}_${filing.filing_id}.pdf"`);
+  res.send(Buffer.from(bytes));
+}));
+
+// ---------------------------------------------------------------------------
 // Employee self-service (portal) routes — an employee/contractor viewing and
 // completing their OWN W-4/W-9, never anyone else's. Ownership is enforced by
 // matching req.user.employeeId (carried on the employee-portal JWT, see
@@ -517,10 +565,30 @@ govFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
   res.json({ ok: true });
 }));
 
+/**
+ * A Draft has nothing "historical" yet, so it's always regenerated live —
+ * that's the correct behavior while someone is still previewing/editing it.
+ * Once a filing is Signed/Submitted it becomes a record: TAX-012 (hard audit,
+ * 2026-08-13) persists the exact bytes shown/signed at that moment
+ * (attached_upload_id) so a later change to the PDF template can never
+ * silently alter what an already-signed filing looks like on re-download.
+ * Older filings signed before this fix have no attached_upload_id yet — those
+ * fall back to live regeneration, same as a Draft.
+ */
 govFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
+
+  if (filing.status !== "Draft" && filing.attached_upload_id) {
+    const upload = await queryOne<any>(`SELECT file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
+    if (upload?.file_data) {
+      const bytes = Buffer.from(decryptTolerant(upload.file_data), "base64");
+      res.setHeader("Content-Type", upload.mime_type || "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="Form_${filing.form_type}_${filing.filing_id}.pdf"`);
+      return res.send(bytes);
+    }
+  }
 
   const bytes = await generateGovForm(filing.form_type, filing.form_data);
   res.setHeader("Content-Type", "application/pdf");
@@ -528,7 +596,17 @@ govFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"),
   res.send(Buffer.from(bytes));
 }));
 
-/** Records a physical/wet-ink signature — same shape as contracts' and POA's sign-in-person. */
+/**
+ * Records a physical/wet-ink signature — same shape as contracts' and POA's
+ * sign-in-person. Also persists the as-signed PDF into Documents (TAX-012,
+ * hard audit 2026-08-13), same pattern as the employee e-sign route above,
+ * so this filing has a durable historical snapshot rather than only ever
+ * being regenerated live from mutable form_data + a mutable PDF template.
+ * PDF persistence is best-effort: if it fails, the signature is still
+ * recorded (a firm needs the wet-ink signature logged even if the snapshot
+ * step has a problem) and the filing simply falls back to live regeneration
+ * on download, same as a filing signed before this fix existed.
+ */
 govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const filing = await loadFiling(req, req.params.filingId);
   if (filing === null) return res.status(404).json({ error: "Filing not found." });
@@ -539,9 +617,42 @@ govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"
   if (!signerName) return res.status(400).json({ error: "The signer's full legal name is required." });
   const signerTitle = String(req.body?.signerTitle || "").trim() || null;
 
+  let uploadId: string | null = null;
+  try {
+    const pdfBytes = await generateGovForm(filing.form_type, filing.form_data);
+    let clientId: string | null = filing.client_id || null;
+    let clientName: string | null = null;
+    if (clientId) {
+      const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+      clientName = client?.client_name || null;
+    } else if (filing.employee_id) {
+      const employee = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_employees WHERE employee_id = $1`, [filing.employee_id]);
+      clientId = employee?.client_id || null;
+      clientName = employee?.client_name || null;
+    }
+
+    uploadId = `DOC-${idSuffix()}`;
+    const downloadToken = crypto.randomBytes(24).toString("hex");
+    const fileName = `${FORM_LABELS[filing.form_type] || filing.form_type} - Signed.pdf`;
+    const fileData = encryptValue(Buffer.from(pdfBytes).toString("base64"));
+    await query(
+      `INSERT INTO altax.v3_document_uploads
+         (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Firm to Client','Generated',$10,false,'Node Web App',$1,$11)`,
+      [
+        uploadId, clientId, clientName, filing.employee_id || null, fileName,
+        `/documents/uploads/${uploadId}/download?t=${downloadToken}`, fileData, pdfBytes.byteLength,
+        req.user!.email, `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, downloadToken,
+      ]
+    );
+  } catch (err: any) {
+    uploadId = null;
+  }
+
   await query(
-    `UPDATE altax.v3_gov_form_filings SET status='Signed', signed_at=now(), signer_name=$2, signer_title=$3, recorded_by=$4, updated_at=now() WHERE filing_id=$1`,
-    [filing.filing_id, signerName, signerTitle, req.user!.email]
+    `UPDATE altax.v3_gov_form_filings SET status='Signed', signed_at=now(), signer_name=$2, signer_title=$3, recorded_by=$4, attached_upload_id=COALESCE($5, attached_upload_id), updated_at=now() WHERE filing_id=$1`,
+    [filing.filing_id, signerName, signerTitle, req.user!.email, uploadId]
   );
   await logAudit("Tools", "SIGN_GOV_FORM", filing.filing_id, "status", "Draft", "Signed",
     `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, req.user!.email);
