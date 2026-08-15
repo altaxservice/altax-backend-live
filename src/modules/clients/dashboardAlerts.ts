@@ -110,11 +110,26 @@ async function resolveClientAlertRecipients(assignedTo: string | null): Promise<
 }
 
 /**
- * Pushes an email (and SMS, if the recipient has a phone on file) for every
- * newly-created finding that qualifies (see alertWorthy above). Idempotent
- * per finding_id — a finding is only ever "newly created" once during the
- * sweep that creates it, and this is checked again here as a belt-and-
- * suspenders guard, so this can never double-send for the same condition.
+ * Pushes ONE email (and SMS, if the recipient has a phone on file) per
+ * recipient per sweep, covering every newly-created finding that qualifies
+ * (see alertWorthy above) and is addressed to them — instead of one
+ * email per finding, which used to flood a staffer with N separate
+ * "[Urgent]" emails when N clients tripped an alert-worthy condition the
+ * same night. A recipient who's the assigned staff for 2 alert-worthy
+ * clients tonight and also an admin (so picks up unassigned findings too)
+ * still gets exactly one combined email.
+ *
+ * Idempotent per finding_id — a finding is only ever "newly created" once
+ * during the sweep that creates it, and this is checked again here as a
+ * belt-and-suspenders guard, so this can never double-send for the same
+ * condition. Still writes ONE v3_communications row per underlying finding
+ * (so per-finding audit history and the alreadyAlerted() dedup check keep
+ * working exactly as before) even though the actual send is now batched —
+ * every row produced by the same recipient's batch send shares that send's
+ * provider_message_id, mirroring the "one send, multiple logical records"
+ * pattern this file already used for a single finding fanned out to
+ * multiple recipients.
+ *
  * No-ops entirely (returns pushed: 0) when auto_alerts_enabled is off.
  */
 export async function runDashboardAlertPush(createdFindings: CreatedFindingInfo[], actorEmail: string): Promise<{ pushed: number; skipped: number }> {
@@ -122,35 +137,77 @@ export async function runDashboardAlertPush(createdFindings: CreatedFindingInfo[
   if (!settings.autoAlertsEnabled) return { pushed: 0, skipped: createdFindings.length };
 
   const worthy = createdFindings.filter(alertWorthy);
-  let pushed = 0;
   let skipped = createdFindings.length - worthy.length;
-  if (worthy.length === 0) return { pushed, skipped };
+  if (worthy.length === 0) return { pushed: 0, skipped };
 
   const firmName = (await getFirmProfile()).firmName;
 
+  // Resolve recipients per finding up front — unchanged logic from the old
+  // one-email-per-finding version (assigned staff, or every admin when
+  // unassigned) and the same alreadyAlerted() idempotency guard. Only the
+  // send step below changes.
+  const pending: { finding: CreatedFindingInfo; recipients: { email: string; phone: string | null }[] }[] = [];
   for (const f of worthy) {
     if (await alreadyAlerted(f.findingId)) { skipped++; continue; }
-
     const clientRow = await queryOne<any>(`SELECT assigned_to FROM altax.v3_clients WHERE client_id = $1`, [f.clientId]);
     const recipients = await resolveClientAlertRecipients(clientRow?.assigned_to || null);
     if (recipients.length === 0) { skipped++; continue; }
+    pending.push({ finding: f, recipients });
+  }
+  if (pending.length === 0) return { pushed: 0, skipped };
 
-    const subject = `[Urgent] ${f.clientName}: ${f.findingText}`;
-    const body = `${f.findingText}\n\n${f.supportingData}\n\nRecommended action: ${f.recommendedAction}\n\nSee the client's At a Glance dashboard and SWOT Analysis tab for full context.`;
-
-    let anySent = false;
-    // This row summarizes a fan-out to potentially several recipients across
-    // email+SMS, so it can only carry one provider id — the first successful
-    // send's, matched against whichever channel actually delivers first.
-    let providerMessageId: string | null = null;
-    for (const r of recipients) {
-      const emailResult = await sendChannel("email", r.email, subject, body, { firmName });
-      if (emailResult.sent) { anySent = true; providerMessageId = providerMessageId || emailResult.providerMessageId || null; }
-      if (r.phone) {
-        const smsResult = await sendChannel("sms", r.phone, subject, `${f.clientName}: ${f.findingText} ${f.recommendedAction}`, { firmName });
-        if (smsResult.sent) { anySent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
-      }
+  // Group by recipient email so a recipient due N findings tonight gets ONE
+  // email listing all N, not N separate emails.
+  const byRecipient = new Map<string, { phone: string | null; findings: CreatedFindingInfo[] }>();
+  for (const p of pending) {
+    for (const r of p.recipients) {
+      const key = r.email.toLowerCase();
+      let entry = byRecipient.get(key);
+      if (!entry) { entry = { phone: r.phone, findings: [] }; byRecipient.set(key, entry); }
+      else if (!entry.phone && r.phone) entry.phone = r.phone;
+      entry.findings.push(p.finding);
     }
+  }
+
+  // One actual send per recipient, covering their whole batch. The email
+  // body lists every finding (client name at the top of each entry — see
+  // the bug this replaced: the client name used to only ever appear in the
+  // subject line, never the body). SMS stays short: a count plus the single
+  // most urgent item when there's more than one, matching how this app's
+  // other SMS sends (sendChannel's own long-body collapse) keep texts brief
+  // rather than cramming a full multi-item list into one message.
+  const recipientResults = new Map<string, { subject: string; body: string; sent: boolean; providerMessageId: string | null }>();
+  for (const [email, group] of byRecipient) {
+    const n = group.findings.length;
+    const subject = `[Urgent] Daily Alert — ${n} item${n === 1 ? "" : "s"} need${n === 1 ? "s" : ""} attention`;
+    const body = group.findings
+      .map((f, i) => `${i + 1}. Client: ${f.clientName}\n${f.findingText}\n\n${f.supportingData}\n\nRecommended action: ${f.recommendedAction}`)
+      .join("\n\n---\n\n")
+      + `\n\nSee each client's At a Glance dashboard and SWOT Analysis tab for full context.`;
+
+    let sent = false;
+    let providerMessageId: string | null = null;
+    const emailResult = await sendChannel("email", email, subject, body, { firmName });
+    if (emailResult.sent) { sent = true; providerMessageId = emailResult.providerMessageId || null; }
+    if (group.phone) {
+      const smsBody = n === 1
+        ? `${group.findings[0].clientName}: ${group.findings[0].findingText} ${group.findings[0].recommendedAction}`
+        : `${n} urgent items need your attention today, including ${group.findings[0].clientName}: ${group.findings[0].findingText} See your email for the full list.`;
+      const smsResult = await sendChannel("sms", group.phone, subject, smsBody, { firmName });
+      if (smsResult.sent) { sent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
+    }
+    recipientResults.set(email, { subject, body, sent, providerMessageId });
+  }
+
+  // One v3_communications row per underlying finding, preserving the
+  // existing per-finding source_record_id dedup key even though the actual
+  // send was a shared batch email per recipient.
+  let pushed = 0;
+  for (const p of pending) {
+    const emails = p.recipients.map((r) => r.email);
+    const results = emails.map((e) => recipientResults.get(e.toLowerCase())).filter((r): r is NonNullable<typeof r> => !!r);
+    const successResult = results.find((r) => r.sent) || results[0];
+    const anySent = results.some((r) => r.sent);
 
     await query(
       `INSERT INTO altax.v3_communications
@@ -158,8 +215,8 @@ export async function runDashboardAlertPush(createdFindings: CreatedFindingInfo[
           sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
        VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'DashboardAlerts',$9,$10)`,
       [
-        `COM-${idSuffix()}`, f.clientId, f.clientName, subject, body,
-        recipients.map((r) => r.email).join(", "), actorEmail, anySent ? "Sent" : "Failed", f.findingId, providerMessageId,
+        `COM-${idSuffix()}`, p.finding.clientId, p.finding.clientName, successResult?.subject || "", successResult?.body || "",
+        emails.join(", "), actorEmail, anySent ? "Sent" : "Failed", p.finding.findingId, successResult?.providerMessageId || null,
       ]
     );
     if (anySent) pushed++; else skipped++;

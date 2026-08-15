@@ -70,6 +70,17 @@ export interface SwotEngineInput {
   mdCurrentPeriodDueDate: string | null;
   mdCurrentPeriodTaxDue: number;
   mdCurrentPeriodOnTime: boolean | null;
+  // True when staff has already used "Mark Period Filed" for the current
+  // period (v3_md_filing_payments has a real recorded entry for it — see
+  // computeMdFilingBreakdown's markedFiledDate in mdFiling.ts). Distinct from
+  // mdCurrentPeriodOnTime, which is "true" for ANY not-yet-due period
+  // regardless of whether staff has actually acted on it (computeMdFiling
+  // defaults the filed/paid date to "today" when nothing was ever recorded,
+  // so onTime alone can't tell "genuinely not yet due" apart from "already
+  // marked filed early"). Bug fix 2026-08-15: without this, the upcoming-
+  // deadline finding below kept re-firing every night even after the period
+  // was marked filed, because onTime stayed true either way.
+  mdCurrentPeriodAlreadyMarkedFiled: boolean;
 
   // Upcoming deadlines beyond MD Sales Tax (which keeps its own dedicated rule
   // above — Form 202 is the only one of these with real discount/penalty/
@@ -244,7 +255,7 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
   // Distinct from the late-filing rule above: this fires while there's
   // still time to act. Urgent once inside alertThresholds.filingDeadlineDaysThreshold
   // (the push-worthy window), High out to 14 days (dashboard-visible only).
-  if (input.mdCurrentPeriodOnTime !== false && input.mdCurrentPeriodDueDate && input.mdCurrentPeriodTaxDue > 0) {
+  if (input.mdCurrentPeriodOnTime !== false && !input.mdCurrentPeriodAlreadyMarkedFiled && input.mdCurrentPeriodDueDate && input.mdCurrentPeriodTaxDue > 0) {
     const today = new Date().toISOString().slice(0, 10);
     const daysUntilDue = daysBetween(today, input.mdCurrentPeriodDueDate);
     if (daysUntilDue >= 0 && daysUntilDue <= 14) {

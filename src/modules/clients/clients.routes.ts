@@ -15,7 +15,9 @@ import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput,
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
 import { computeUpcomingDeadlines } from "./complianceCalendar";
 import { sendEmail } from "../../common/notifications";
+import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
+import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 
 /**
@@ -1086,6 +1088,12 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
   let mdCurrentPeriodDueDate: string | null = null;
   let mdCurrentPeriodTaxDue = 0;
   let mdCurrentPeriodOnTime: boolean | null = null;
+  // Set from the current period's markedFiledDate (mdFiling.ts) — non-null
+  // only when staff has genuinely used "Mark Period Filed" for this period
+  // (a real v3_md_filing_payments row), not just because the period isn't
+  // due yet. See swotFindingsEngine.ts's mdCurrentPeriodAlreadyMarkedFiled
+  // doc comment for why this has to be tracked separately from onTime.
+  let mdCurrentPeriodAlreadyMarkedFiled = false;
   if (clientRow.state === "MD") {
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
@@ -1099,6 +1107,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
       mdCurrentPeriodDueDate = current.dueDate;
       mdCurrentPeriodTaxDue = Number(current.taxDue) || 0;
       mdCurrentPeriodOnTime = current.onTime;
+      mdCurrentPeriodAlreadyMarkedFiled = Boolean(current.markedFiledDate);
     }
   }
 
@@ -1177,6 +1186,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     openTasks: ops.openTasks, balanceDue: ops.balanceDue, overdueInvoices,
     taxLiabilities: financials.taxLiabilities, cashBalance,
     mdFilingOnTime, mdLatePeriodEnds, mdCurrentPeriodDueDate, mdCurrentPeriodTaxDue, mdCurrentPeriodOnTime,
+    mdCurrentPeriodAlreadyMarkedFiled,
     upcomingObligationDeadlines,
     budgetVariances,
     payrollThisMonthCost: payrollThisMonth.totalCost, payrollLastMonthCost: payrollLastMonth.totalCost, payrollPeriodLabel: periodLabel,
@@ -1514,6 +1524,110 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
     errors.push(`alert push: ${err instanceof Error ? err.message : String(err)}`);
   }
   return { clientsProcessed, created, resolved, alertsPushed, errors };
+}
+
+/**
+ * Client-facing MD Sales Tax deadline notice — the client-appropriate
+ * counterpart to the staff-only filing_deadline_soon finding above.
+ * Deliberately scoped to MD Sales Tax only (per owner decision, 2026-08-15):
+ * EFTPS/MD Withholding/MD UI/Business Tax Return stay staff-only for now.
+ *
+ * For every MD client with a current-period filing due within the same
+ * filing_deadline_days_threshold this whole system already uses (no
+ * separate hardcoded window), not yet genuinely marked filed (reuses the
+ * same markedFiledDate signal the bug-2 fix above threads through), with
+ * tax due > 0:
+ *   - Sends only through channels the CLIENT has actually opted into
+ *     (v3_clients.email_allowed / sms_allowed — the client's own consent,
+ *     not the staff-facing company_contact_* fields) and only to the
+ *     client's own email/phone. No consent on file -> silently skipped,
+ *     never logged as a failure.
+ *   - Wording is written for a client, not staff — no "See the SWOT
+ *     Analysis tab" internal-tool language.
+ *   - Idempotent per client+period (source_system='ClientMdFilingNotice',
+ *     keyed separately from the staff alert's own per-finding-id dedup key
+ *     so the two can never collide) — never re-sent once a period has been
+ *     notified, even though this sweep runs nightly.
+ */
+export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: string): Promise<{ sent: number; skipped: number }> {
+  const settings = await getDashboardAlertSettings();
+  const firmName = (await getFirmProfile()).firmName;
+
+  const clients = await query<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, email, phone, email_allowed, sms_allowed
+       FROM altax.v3_clients
+      WHERE state = 'MD' AND sales_tax_frequency IS NOT NULL AND sales_tax_frequency <> ''
+            AND (status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived'))`
+  );
+
+  const to = new Date();
+  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+  const fromStr = from.toISOString().slice(0, 10);
+  const toStr = to.toISOString().slice(0, 10);
+
+  let sent = 0;
+  let skipped = 0;
+  for (const c of clients) {
+    try {
+      const reportClient: ReportClientInfo = {
+        clientId: c.client_id, clientName: c.client_name, ein: c.ein, address: c.address,
+        state: c.state, salesTaxFrequency: c.sales_tax_frequency,
+      };
+      const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
+      if (!mdFiling || mdFiling.periods.length === 0) continue;
+      const current = mdFiling.periods[mdFiling.periods.length - 1];
+      if (current.markedFiledDate) continue; // already genuinely marked filed — nothing to notify about
+      if (!(current.taxDue > 0)) continue;
+      const daysUntilDue = Math.round((new Date(`${current.dueDate}T00:00:00Z`).getTime() - new Date(`${toStr}T00:00:00Z`).getTime()) / 86400000);
+      if (daysUntilDue < 0 || daysUntilDue > settings.filingDeadlineDaysThreshold) continue;
+
+      const dedupKey = `${c.client_id}:${current.end}`;
+      const already = await queryOne<any>(
+        `SELECT 1 FROM altax.v3_communications WHERE source_system = 'ClientMdFilingNotice' AND source_record_id = $1`,
+        [dedupKey]
+      );
+      if (already) continue;
+
+      const canEmail = Boolean(c.email_allowed && c.email);
+      const canSms = Boolean(c.sms_allowed && c.phone);
+      if (!canEmail && !canSms) { skipped++; continue; } // no consent on file — skip silently, not a failure
+
+      const subject = `Reminder: Maryland Sales Tax Filing Due ${current.dueDate}`;
+      const body = `Your Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nIf our firm is already handling this filing for you, no action is needed. If you have questions, please contact us.`;
+      const smsBody = `Your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. If we're already handling this, no action is needed. Questions? Contact us.`;
+
+      let anySent = false;
+      let providerMessageId: string | null = null;
+      if (canEmail) {
+        const emailResult = await sendChannel("email", c.email, subject, body, { firmName });
+        if (emailResult.sent) { anySent = true; providerMessageId = emailResult.providerMessageId || null; }
+      }
+      if (canSms) {
+        const smsResult = await sendChannel("sms", c.phone, subject, smsBody, { firmName });
+        if (smsResult.sent) { anySent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
+      }
+
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+            sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+         VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'ClientMdFilingNotice',$9,$10)`,
+        [
+          `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, c.client_id, c.client_name, subject, body,
+          [canEmail ? c.email : null, canSms ? c.phone : null].filter(Boolean).join(", "),
+          actorEmail, anySent ? "Sent" : "Failed", dedupKey, providerMessageId,
+        ]
+      );
+      if (anySent) sent++; else skipped++;
+    } catch (err) {
+      skipped++;
+    }
+  }
+
+  if (sent > 0 || skipped > 0) {
+    await logAudit("Clients", "CLIENT_MD_FILING_NOTICE_SWEEP", "Firm", "", "", "", `Client MD sales tax deadline notice sweep: ${sent} sent, ${skipped} skipped, by ${actorEmail}.`, actorEmail);
+  }
+  return { sent, skipped };
 }
 
 function nextActivityId(): string {

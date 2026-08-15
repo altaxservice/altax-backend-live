@@ -7,7 +7,7 @@ import { rateLimit } from "./common/rateLimit";
 import { pool } from "./config/db";
 import { applyPersistedJwtSecret } from "./common/jwtSecret";
 import { authRouter } from "./modules/auth/auth.routes";
-import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep } from "./modules/clients/clients.routes";
+import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep, runClientMdSalesTaxDeadlineNotifications } from "./modules/clients/clients.routes";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
 import { runMonthlySnapshotSweep } from "./modules/clients/monthlySnapshot";
 import { runMonthlyManagementSummary } from "./modules/clients/monthlyManagementSummary";
@@ -461,6 +461,17 @@ console.log("Task Rules Agent sweep scheduled for 6:20AM America/New_York.");
 cron.schedule("25 6 * * *", runScheduledJob("SWOT Findings Sweep", () => runSwotFindingsSweep("System (SWOT Findings Sweep)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("SWOT findings sweep scheduled for 6:25AM America/New_York.");
+
+// Client-facing MD Sales Tax deadline notice — staggered 2 minutes after the
+// SWOT Findings sweep above so it always reads the current period's
+// markedFiledDate off the same up-to-date data. Deliberately its own cron
+// entry (not folded into the SWOT sweep) since it's a client-facing send with
+// its own consent gate and dedup key, not a staff advisory finding. MD Sales
+// Tax only for now, per owner decision — see runClientMdSalesTaxDeadlineNotifications's
+// doc comment in clients.routes.ts.
+cron.schedule("27 6 * * *", runScheduledJob("Client MD Sales Tax Deadline Notice", () => runClientMdSalesTaxDeadlineNotifications("System (Client MD Filing Notice Job)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Client MD sales tax deadline notice scheduled for 6:27AM America/New_York.");
 
 // Client risk-flag sweep (UX-005) — the "push" counterpart to the At-Risk
 // Clients dashboard panel (UX-001): logs one audit event per client newly
