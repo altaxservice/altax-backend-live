@@ -793,18 +793,21 @@ async function buildClientFlagsNotification(clientId: string, selectedKeys?: str
     arLines.push(`• ${labelAr}${noteText}${amountText}${dueTextAr}${f.details ? `: ${f.details}` : ""}`);
   }
 
-  const subject = `Important Account Items — ${client.client_name}`;
+  const firmName = (await getFirmProfile()).firmName;
+  const subject = `Account Notice — ${client.client_name}`;
   const messageEnglish = [
     `Dear ${client.client_name},`, "",
-    "Please review the following item(s) on your account:", "",
+    "The following item(s) on your account need your attention:", "",
     ...enLines, "",
-    "If you have any questions or need help resolving these, please contact our office.",
+    "If you have any questions or would like help resolving these, please reply to this message or contact our office.", "",
+    "Thank you,", firmName,
   ].join("\n");
   const messageArabic = [
     `عزيزنا ${client.client_name}،`, "",
-    "يرجى مراجعة البند/البنود التالية في حسابك:", "",
+    "يوجد البند/البنود التالية في حسابكم بحاجة إلى المتابعة:", "",
     ...arLines, "",
-    "إذا كانت لديك أي أسئلة أو تحتاج إلى مساعدة في حل هذه الأمور، يرجى التواصل مع مكتبنا.",
+    "إذا كانت لديكم أي أسئلة أو ترغبون بالمساعدة في حل هذه الأمور، يرجى الرد على هذه الرسالة أو التواصل مع مكتبنا.", "",
+    "شكراً لكم،", firmName,
   ].join("\n");
 
   return { subject, messageEnglish, messageArabic, count: flags.length, flags: shareable };
