@@ -51,6 +51,7 @@ import { haccpRouter } from "./modules/haccp/haccp.routes";
 import { checklistsRouter } from "./modules/checklists/checklists.routes";
 import { budgetsRouter } from "./modules/budgets/budgets.routes";
 import { labelsRouter } from "./modules/labels/labels.routes";
+import { suggestionsRouter } from "./modules/suggestions/suggestions.routes";
 import { formDraftsRouter } from "./modules/formDrafts/formDrafts.routes";
 import { bankRecRouter } from "./modules/bankRec/bankRec.routes";
 import { webhooksRouter } from "./modules/webhooks/webhooks.routes";
@@ -293,6 +294,7 @@ app.use("/haccp", haccpRouter);
 app.use("/checklists", checklistsRouter);
 app.use("/budgets", budgetsRouter);
 app.use("/labels", labelsRouter);
+app.use("/suggestions", suggestionsRouter);
 app.use("/form-drafts", formDraftsRouter);
 app.use("/bank-rec", bankRecRouter);
 

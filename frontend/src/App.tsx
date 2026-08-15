@@ -34,6 +34,7 @@ import { FirmSettingsPage } from "./pages/FirmSettingsPage";
 import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { ListSettingsPage } from "./pages/ListSettingsPage";
 import { LabelsPage } from "./pages/LabelsPage";
+import { SuggestionsPage } from "./pages/SuggestionsPage";
 import { DocumentChecklistsPage } from "./pages/DocumentChecklistsPage";
 import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -107,6 +108,7 @@ function App() {
                   portal-user lockout) never reach a staff response. */}
               <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
                 <Route path="/fix-center" element={<FixCenterPage />} />
+                <Route path="/suggestions" element={<SuggestionsPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/maintenance-manual" element={<MaintenanceManualPage />} />

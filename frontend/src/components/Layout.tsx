@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -67,6 +67,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
   { to: "/labels", label: "Labels", roles: ["admin"], group: "Firm", icon: Tag },
+  { to: "/suggestions", label: "Suggestions", roles: ["admin", "staff"], group: "Firm", icon: Lightbulb },
   { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm", icon: ClipboardList },
   { to: "/guide", label: "Guide", navKey: "nav.guide", icon: LifeBuoy },
 ];
@@ -97,6 +98,7 @@ const TITLES: Record<string, string> = {
   "/firm-settings": "Firm Settings",
   "/list-settings": "List Settings",
   "/labels": "Labels",
+  "/suggestions": "Suggestions",
   "/document-checklists": "Document Checklists",
   "/firm-portals": "Portal Credentials",
   "/guide": "Guide",

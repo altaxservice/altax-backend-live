@@ -719,6 +719,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         ], filteredTasks)}
       >
         {user?.role === "admin" && <button className="action-button" type="button" onClick={() => navigate("/clients?new=1")}>Add Client</button>}
+        <Link to="/suggestions" className="ghost-button">+ Suggest an Improvement</Link>
       </FilterBar>
 
       <div className="metric-grid" style={{ marginBottom: 16 }}>
@@ -931,6 +932,7 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
         <div className="quick-actions">
           <Link to="/documents" className="ghost-button">Documents</Link>
           <Link to="/communications" className="ghost-button">Messages</Link>
+          <Link to="/suggestions" className="ghost-button">+ Suggest an Improvement</Link>
           <Link to="/accounting" className="action-button">Client Workbooks</Link>
         </div>
       </div>
