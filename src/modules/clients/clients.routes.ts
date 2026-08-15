@@ -1593,8 +1593,8 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
       if (!canEmail && !canSms) { skipped++; continue; } // no consent on file — skip silently, not a failure
 
       const subject = `Reminder: Maryland Sales Tax Filing Due ${current.dueDate}`;
-      const body = `Your Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nIf our firm is already handling this filing for you, no action is needed. If you have questions, please contact us.`;
-      const smsBody = `Your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. If we're already handling this, no action is needed. Questions? Contact us.`;
+      const body = `Dear ${c.client_name},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nIf our firm is already handling this filing for you, no action is needed. If you have questions, please contact us.`;
+      const smsBody = `${c.client_name}: your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. If we're already handling this, no action is needed. Questions? Contact us.`;
 
       let anySent = false;
       let providerMessageId: string | null = null;
