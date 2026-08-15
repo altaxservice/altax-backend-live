@@ -9,7 +9,8 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings } from "../reports/reports.routes";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments } from "../reports/reports.routes";
+import { splitIntoMdFilingPeriods } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
@@ -417,7 +418,7 @@ interface ClientFlag {
    * types (BalancePastDue/AgencyPastDue) have flagId: null, so flagId alone can't address
    * one specific flag across a notify-preview call and the later filtered send. */
   key: string;
-  flagType: "BalancePastDue" | "AgencyPastDue" | "Credit" | "Custom";
+  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
   color: "red" | "green" | "amber";
@@ -456,8 +457,17 @@ interface ClientFlag {
  * Sales tab and the SWOT findings engine (computeMdFilingForReport) — a
  * client can be genuinely late on MD sales tax without staff ever having
  * created a payment-tracking task for it, since that math is fully
- * automatic. Both self-clear the moment the underlying record clears (task
- * marked paid / filing period comes back on-time). Credit and Custom are
+ * automatic. That MD math also drives two more-specific flag types,
+ * SalesTaxFilingDue and SalesTaxBalanceDue, computed per filing period over
+ * the same 6-month lookback: Filing fires once a period is within the
+ * dashboard-alert "due soon" window (getDashboardAlertSettings().
+ * filingDeadlineDaysThreshold) through any point after, regardless of
+ * whether tax is owed for that period — a nil return still has to be filed
+ * — while Balance Due keeps the original overdue-and-owing-only gating.
+ * They're independent facts and are expected to co-occur when a filing is
+ * both late and has money owed. All of these self-clear the moment the
+ * underlying record clears (task marked paid / period marked filed or
+ * paid). Credit and Custom are
  * staff-entered since this app has no source of truth for either — no
  * overpayment/credit-memo concept exists anywhere, and "something else" is
  * by definition not something the system can compute.
@@ -498,20 +508,50 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   if (clientRow?.state === "MD") {
     const to = new Date();
     const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+    const toStr = to.toISOString().slice(0, 10);
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
       state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
     };
-    const mdFiling = await computeMdFilingForReport(reportClient, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10));
+    // Filing obligation — determined from the period calendar + recorded
+    // filings directly, NOT from computeMdFilingForReport's periods below:
+    // that list silently drops any period whose summed tax comes to $0
+    // (computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is
+    // exactly the nil-return / no-sales-data-entered-yet case this flag
+    // needs to catch — a $0 or not-yet-quantified period is still a real
+    // filing obligation. Fires once the period enters the "due soon" window
+    // and keeps firing through overdue. Amber while there's still time to
+    // file, red once the due date has actually passed.
+    const { periods: allPeriods } = splitIntoMdFilingPeriods(from.toISOString().slice(0, 10), toStr, clientRow.sales_tax_frequency);
+    if (allPeriods.length > 0) {
+      const recordedFilings = await loadRecordedMdFilingPayments(clientId, allPeriods[0].start, allPeriods[allPeriods.length - 1].end);
+      const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
+      for (const p of allPeriods) {
+        if (recordedFilings.get(p.end)?.filedDate) continue;
+        const daysUntilDue = Math.round((new Date(`${p.dueDate}T00:00:00Z`).getTime() - new Date(`${toStr}T00:00:00Z`).getTime()) / 86400000);
+        if (daysUntilDue <= filingDeadlineDaysThreshold) {
+          flags.push({
+            flagId: null, key: `computed:SalesTaxFilingDue:md:${p.end}`, flagType: "SalesTaxFilingDue", amount: null,
+            note: `for the period ${p.end}`, color: daysUntilDue < 0 ? "red" : "amber", createdAt: null, createdBy: null, resolvable: false,
+            linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
+          });
+        }
+      }
+    }
+
+    // Balance owed — unchanged timing from the flag this replaces: still
+    // overdue-and-owing only, driven off the same tax-gated breakdown as
+    // before (a period with no balance owed has nothing to flag here). A
+    // period staff has already marked filed is settled — even if it was
+    // filed late, the money's been paid, so it shouldn't keep showing as an
+    // active past-due flag (see computeMdFilingForReport / v3_md_filing_payments).
+    const mdFiling = await computeMdFilingForReport(reportClient, from.toISOString().slice(0, 10), toStr);
     if (mdFiling) {
       for (const p of mdFiling.periods) {
-        // A period staff has already marked filed is settled — even if it was
-        // filed late, the money's been paid, so it shouldn't keep showing as an
-        // active past-due flag (see computeMdFilingForReport / v3_md_filing_payments).
         if (!p.markedPaidDate && !p.onTime && p.balanceDue > 0) {
           flags.push({
-            flagId: null, key: `computed:AgencyPastDue:md:${p.end}`, flagType: "AgencyPastDue", amount: p.balanceDue,
-            note: `MD Sales & Use Tax (ending ${p.end})`, color: "red", createdAt: null, createdBy: null, resolvable: false,
+            flagId: null, key: `computed:SalesTaxBalanceDue:md:${p.end}`, flagType: "SalesTaxBalanceDue", amount: p.balanceDue,
+            note: `for the period ${p.end}`, color: "red", createdAt: null, createdBy: null, resolvable: false,
             linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
           });
         }
@@ -740,6 +780,8 @@ clientsRouter.post("/:clientId/flags/:flagId/toggle-share", requireAuth, require
 const FLAG_TYPE_LABELS_AR: Record<string, string> = {
   BalancePastDue: "رصيد متأخر السداد",
   AgencyPastDue: "تقديم متأخر لدى الجهة الحكومية",
+  SalesTaxFilingDue: "تقديم إقرار ضريبة المبيعات",
+  SalesTaxBalanceDue: "رصيد ضريبة المبيعات المستحق",
   Credit: "رصيد دائن في الحساب",
 };
 const FLAG_CATEGORY_LABELS_AR: Record<string, string> = {
@@ -755,6 +797,8 @@ const FLAG_CATEGORY_LABELS_AR: Record<string, string> = {
 const FLAG_TYPE_LABELS_EN: Record<string, string> = {
   BalancePastDue: "Balance Past Due",
   AgencyPastDue: "Agency Filing Past Due",
+  SalesTaxFilingDue: "Sales Tax Filing",
+  SalesTaxBalanceDue: "Sales Tax Balance Due",
   Credit: "Credit on Account",
 };
 

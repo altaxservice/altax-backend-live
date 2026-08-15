@@ -774,8 +774,16 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
 // Exported for the same reason as computeFirmSummary above — the SWOT auto-draft
 // (clients.routes.ts) reuses this for its "current period" MD filing status signal
 // instead of re-deriving it, so it can never disagree with the reports/At a Glance figures.
-/** Recorded actual filing/payment dates (v3_md_filing_payments) within a period-end range, keyed by period_end ISO string. */
-async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string }>> {
+/**
+ * Recorded actual filing/payment dates (v3_md_filing_payments) within a
+ * period-end range, keyed by period_end ISO string. Exported so
+ * computeClientFlags (clients.routes.ts) can check whether a period has
+ * actually been marked filed WITHOUT going through computeMdFilingForReport
+ * — that path silently drops any period whose summed tax comes to $0 (see
+ * computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is exactly
+ * the nil/no-data-yet case a "still needs to be filed" flag has to catch.
+ */
+export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string }>> {
   const rows = await query<{ period_end: string; filed_date: string; paid_date: string }>(
     `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date
        FROM altax.v3_md_filing_payments
