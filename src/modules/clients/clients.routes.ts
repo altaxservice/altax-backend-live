@@ -224,13 +224,23 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
 
   // When the currently-set frequency began — lets the Compliance tab show
   // "effective since {date}" instead of just the bare frequency value, so
-  // staff can tell at a glance whether a change is already on file.
-  const openFreqRow = await queryOne<{ effective_from: string }>(
-    `SELECT effective_from::date::text AS effective_from FROM altax.v3_client_sales_tax_frequency_history
-      WHERE client_id = $1 AND effective_to IS NULL`,
-    [clientId]
-  );
-  c.sales_tax_frequency_effective_from = openFreqRow?.effective_from ?? null;
+  // staff can tell at a glance whether a change is already on file. Wrapped
+  // in try/catch, not because this should ever fail, but because code and
+  // database migrations deploy on two different clocks (code auto-deploys
+  // the instant it's pushed; the migration needs a human to run it) — a
+  // deploy that lands even a minute before its own migration would otherwise
+  // 500 this entire route for every client. Missing table -> just no
+  // "effective since" label yet, not a broken page.
+  try {
+    const openFreqRow = await queryOne<{ effective_from: string }>(
+      `SELECT effective_from::date::text AS effective_from FROM altax.v3_client_sales_tax_frequency_history
+        WHERE client_id = $1 AND effective_to IS NULL`,
+      [clientId]
+    );
+    c.sales_tax_frequency_effective_from = openFreqRow?.effective_from ?? null;
+  } catch {
+    c.sales_tax_frequency_effective_from = null;
+  }
 
   if (req.user!.role !== "admin") {
     c.individual_ssn = maskTail(c.individual_ssn);

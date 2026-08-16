@@ -799,30 +799,41 @@ export async function loadRecordedMdFilingPayments(clientId: string, expandedFro
  * in mdFiling.ts for why period math needs this instead of just the client's
  * current sales_tax_frequency. Empty array (not null) when a client has no
  * history rows at all, which the splitter treats as "fall back to the plain
- * single-frequency behavior."
+ * single-frequency behavior" — same fallback this returns if the table
+ * itself doesn't exist yet (code and its own migration deploy on different
+ * clocks; see the identical try/catch on GET /clients/:clientId).
  */
 export async function loadSalesTaxFrequencyHistory(clientId: string): Promise<{ frequency: string; effectiveFrom: string; effectiveTo: string | null }[]> {
-  const rows = await query<{ frequency: string; effective_from: string; effective_to: string | null }>(
-    `SELECT frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
-       FROM altax.v3_client_sales_tax_frequency_history
-      WHERE client_id = $1
-      ORDER BY effective_from ASC`,
-    [clientId]
-  );
-  return rows.map((r) => ({ frequency: r.frequency, effectiveFrom: r.effective_from, effectiveTo: r.effective_to }));
+  try {
+    const rows = await query<{ frequency: string; effective_from: string; effective_to: string | null }>(
+      `SELECT frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
+         FROM altax.v3_client_sales_tax_frequency_history
+        WHERE client_id = $1
+        ORDER BY effective_from ASC`,
+      [clientId]
+    );
+    return rows.map((r) => ({ frequency: r.frequency, effectiveFrom: r.effective_from, effectiveTo: r.effective_to }));
+  } catch {
+    return [];
+  }
 }
 
 /** Batched version of loadSalesTaxFrequencyHistory for sweeps that touch many clients at once (avoids one query per client). */
 export async function loadSalesTaxFrequencyHistoryBatch(clientIds: string[]): Promise<Map<string, { frequency: string; effectiveFrom: string; effectiveTo: string | null }[]>> {
   const map = new Map<string, { frequency: string; effectiveFrom: string; effectiveTo: string | null }[]>();
   if (clientIds.length === 0) return map;
-  const rows = await query<{ client_id: string; frequency: string; effective_from: string; effective_to: string | null }>(
-    `SELECT client_id, frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
-       FROM altax.v3_client_sales_tax_frequency_history
-      WHERE client_id = ANY($1::text[])
-      ORDER BY effective_from ASC`,
-    [clientIds]
-  );
+  let rows: { client_id: string; frequency: string; effective_from: string; effective_to: string | null }[];
+  try {
+    rows = await query<{ client_id: string; frequency: string; effective_from: string; effective_to: string | null }>(
+      `SELECT client_id, frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
+         FROM altax.v3_client_sales_tax_frequency_history
+        WHERE client_id = ANY($1::text[])
+        ORDER BY effective_from ASC`,
+      [clientIds]
+    );
+  } catch {
+    return map;
+  }
   for (const r of rows) {
     if (!map.has(r.client_id)) map.set(r.client_id, []);
     map.get(r.client_id)!.push({ frequency: r.frequency, effectiveFrom: r.effective_from, effectiveTo: r.effective_to });
