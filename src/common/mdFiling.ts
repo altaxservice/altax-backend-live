@@ -328,7 +328,15 @@ function isoDateOnly(v: unknown): string | null {
  * payment: each period keeps its own due date, and only one paid date is
  * needed (the date of that one catch-up payment) since that's the real
  * business event, not a separate payment per period. Periods with no tax
- * due (no sales recorded) are skipped rather than shown as a zero row.
+ * due (no sales recorded) are skipped rather than shown as a zero row —
+ * UNLESS [from, to] narrows down to exactly that one period, in which case
+ * it's shown anyway. A wide browse (a whole year, "All time") would
+ * otherwise flood with empty rows for every period nobody's touched yet,
+ * but a single-period view (the default "This month", or the exact window
+ * the SalesTaxFilingDue flag's own deep-link now sends — see
+ * clients.routes.ts) is a genuine "do I still need to file this?" question,
+ * and a nil return still needs a real Mark Filed record even at $0 —
+ * skipping it here would leave that period's flag with no way to clear.
  */
 export async function computeMdFilingBreakdown(
   sales: { saleDate: unknown; totalTaxDue: number; paymentDate?: unknown }[],
@@ -347,7 +355,7 @@ export async function computeMdFilingBreakdown(
       return d !== null && d >= period.start && d <= period.end;
     });
     const taxDue = round2(salesInPeriod.reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0));
-    if (taxDue <= 0) continue;
+    if (taxDue <= 0 && periods.length > 1) continue;
     // The sales input row(s) for this period already carry their own Payment
     // Date (set when staff entered/edited that sale) — for a period with no
     // recorded Mark Filed action yet, that's a far better default than
