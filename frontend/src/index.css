@@ -845,6 +845,27 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
    with no way to tell how much more there is. */
 .scroll-list { max-height: 480px; overflow-y: auto; }
 
+/* A .card that can be dragged wider/narrower from its right edge, with the
+   chosen width remembered per-browser (e.g. the client Profile card, whose
+   long Address/Services rows benefit from more room than the default 560px
+   on a wide screen). Same invisible-until-hovered handle pattern as
+   .client-panel-resize-handle. */
+.resizable-card { position: relative; }
+.resizable-card-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+  border-radius: 3px;
+}
+.resizable-card-handle:hover,
+.resizable-card-handle.dragging {
+  background: var(--teal-soft);
+}
+
 /* ---- Persistent client-context panel ---- */
 .client-panel {
   width: 260px;

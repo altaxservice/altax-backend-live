@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Client, Task } from "../api/types";
@@ -44,6 +44,11 @@ const hasService = (form: Record<string, any>, key: string) => Array.isArray(for
 const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
 const hasContact = (form: Record<string, any>) => Boolean(String(form.email || "").trim() || String(form.phone || "").trim());
 const filled = (v: unknown) => Boolean(v) && v !== "N/A";
+
+const PROFILE_CARD_WIDTH_MIN = 360;
+const PROFILE_CARD_WIDTH_MAX = 900;
+const PROFILE_CARD_WIDTH_KEY = "altax_client_profile_card_width";
+const clampProfileCardWidth = (n: number) => Math.min(PROFILE_CARD_WIDTH_MAX, Math.max(PROFILE_CARD_WIDTH_MIN, n));
 // "Services Provided" is a brand-new field — almost every existing client has
 // services=[] until someone opens and re-saves them, even if they've had real
 // payroll/sales-tax/tax-prep settings configured for years. Gating a whole
@@ -223,6 +228,28 @@ export function ClientDetailPage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [profileCardWidth, setProfileCardWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(PROFILE_CARD_WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0 ? clampProfileCardWidth(saved) : 560;
+  });
+  const [resizingProfileCard, setResizingProfileCard] = useState(false);
+  function startProfileCardResize(e: ReactMouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = profileCardWidth;
+    setResizingProfileCard(true);
+    function onMove(ev: MouseEvent) {
+      setProfileCardWidth(clampProfileCardWidth(startWidth + (ev.clientX - startX)));
+    }
+    function onUp() {
+      setResizingProfileCard(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setProfileCardWidth((w) => { localStorage.setItem(PROFILE_CARD_WIDTH_KEY, String(w)); return w; });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
 
   // Edit form jump-nav — same sticky-nav + scroll-spy pattern as the Add
   // Client wizard (ClientsListPage.tsx), so a client's profile edit form
@@ -817,7 +844,12 @@ export function ClientDetailPage() {
                   <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setInviteInfo(null)}>Dismiss</button>
                 </div>
               )}
-              <div className="card" style={{ maxWidth: 560 }}>
+              <div className="card resizable-card" style={{ width: profileCardWidth, maxWidth: "100%" }}>
+                <div
+                  className={`resizable-card-handle ${resizingProfileCard ? "dragging" : ""}`}
+                  onMouseDown={startProfileCardResize}
+                  title="Drag to resize"
+                />
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h2 style={{ fontSize: 15, margin: 0 }}>Profile</h2>
                   <div style={{ display: "flex", gap: 8 }}>
