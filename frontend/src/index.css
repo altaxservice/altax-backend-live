@@ -865,6 +865,28 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .resizable-card-handle.dragging {
   background: var(--teal-soft);
 }
+/* A small always-visible triangle on the handle, pointing at the card it
+   resizes — the drag target itself stays invisible until hovered (so it
+   doesn't clutter the card), but the triangle is the one cue that tells
+   someone "this edge is draggable" without them ever having to hover it. */
+.resizable-card-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 6px solid var(--muted);
+  opacity: 0.5;
+}
+.resizable-card-handle:hover::after,
+.resizable-card-handle.dragging::after {
+  border-right-color: var(--teal);
+  opacity: 1;
+}
 
 /* ---- Persistent client-context panel ---- */
 .client-panel {
@@ -891,6 +913,27 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 .client-panel-resize-handle:hover,
 .client-panel-resize-handle.dragging {
   background: var(--teal-soft);
+}
+/* Same always-visible triangle cue as .resizable-card-handle, mirrored to
+   point right — into the panel — since this handle sits on the panel's
+   left edge instead of a card's right edge. */
+.client-panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid var(--muted);
+  opacity: 0.5;
+}
+.client-panel-resize-handle:hover::after,
+.client-panel-resize-handle.dragging::after {
+  border-left-color: var(--teal);
+  opacity: 1;
 }
 /* Collapsed state of .client-panel: a narrow vertical tab that gives the panel
    back once it has been hidden. Sits in the same flex slot, so hiding the panel
