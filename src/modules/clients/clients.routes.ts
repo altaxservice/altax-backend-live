@@ -9,8 +9,8 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments } from "../reports/reports.routes";
-import { splitIntoMdFilingPeriods } from "../../common/mdFiling";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory } from "../reports/reports.routes";
+import { splitIntoMdFilingPeriodsForClient } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
@@ -221,6 +221,16 @@ clientsRouter.get("/:clientId", requireAuth, asyncHandler(async (req: AuthedRequ
 
   const c = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!c) return res.status(404).json({ error: "Client not found." });
+
+  // When the currently-set frequency began — lets the Compliance tab show
+  // "effective since {date}" instead of just the bare frequency value, so
+  // staff can tell at a glance whether a change is already on file.
+  const openFreqRow = await queryOne<{ effective_from: string }>(
+    `SELECT effective_from::date::text AS effective_from FROM altax.v3_client_sales_tax_frequency_history
+      WHERE client_id = $1 AND effective_to IS NULL`,
+    [clientId]
+  );
+  c.sales_tax_frequency_effective_from = openFreqRow?.effective_from ?? null;
 
   if (req.user!.role !== "admin") {
     c.individual_ssn = maskTail(c.individual_ssn);
@@ -522,7 +532,8 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
     // filing obligation. Fires once the period enters the "due soon" window
     // and keeps firing through overdue. Amber while there's still time to
     // file, red once the due date has actually passed.
-    const { periods: allPeriods } = splitIntoMdFilingPeriods(from.toISOString().slice(0, 10), toStr, clientRow.sales_tax_frequency);
+    const frequencyHistory = await loadSalesTaxFrequencyHistory(clientId);
+    const { periods: allPeriods } = splitIntoMdFilingPeriodsForClient(from.toISOString().slice(0, 10), toStr, frequencyHistory, clientRow.sales_tax_frequency);
     if (allPeriods.length > 0) {
       const recordedFilings = await loadRecordedMdFilingPayments(clientId, allPeriods[0].start, allPeriods[allPeriods.length - 1].end);
       const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
@@ -1973,6 +1984,15 @@ async function syncMdUiTaxRateOverride(clientId: string, clientName: string): Pr
   }
 }
 
+/** Opens a new (still-current) sales-tax-frequency-history row — see sql/084_sales_tax_frequency_history.sql and splitIntoMdFilingPeriodsForClient. */
+async function openSalesTaxFrequencyHistoryRow(clientId: string, frequency: string, effectiveFrom: string, createdBy: string): Promise<void> {
+  await query(
+    `INSERT INTO altax.v3_client_sales_tax_frequency_history (client_id, frequency, effective_from, effective_to, created_by)
+     VALUES ($1, $2, $3, NULL, $4)`,
+    [clientId, frequency, effectiveFrom, createdBy]
+  );
+}
+
 /**
  * Create client — ported from alTaxPortalAddClient / clientProfileFormHtml's Add path.
  * Accepts the full ~30-field profile (same allow-list as the PATCH route below), not just
@@ -2069,6 +2089,15 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
 
   if (Object.prototype.hasOwnProperty.call(body, "mdUiTaxRate")) {
     await syncMdUiTaxRateOverride(clientId, body.clientName);
+  }
+
+  // Anchored at a far-past sentinel date, not today — a client's sales tax
+  // history (including any imported past data) needs SOME frequency row
+  // covering it from the start, or splitIntoMdFilingPeriodsForClient would
+  // find a coverage gap. See sql/084_sales_tax_frequency_history.sql, which
+  // backfills the same sentinel for clients that already existed.
+  if (String(body.salesTaxFrequency || "").trim()) {
+    await openSalesTaxFrequencyHistoryRow(clientId, String(body.salesTaxFrequency).trim(), "2000-01-01", req.user!.email);
   }
 
   if (Array.isArray(body.services) && body.services.length > 0) {
@@ -2182,6 +2211,44 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
 
   if (Object.prototype.hasOwnProperty.call(body, "mdUiTaxRate")) {
     await syncMdUiTaxRateOverride(clientId, fields.client_name ?? old.client_name);
+  }
+
+  // MD Comptroller can reassign a client's filing frequency (e.g. Quarterly
+  // -> Monthly) effective a given date — recorded as a new history row
+  // rather than just overwriting sales_tax_frequency, so period math for
+  // periods BEFORE the change keeps using the OLD frequency's boundaries
+  // (matching what was actually filed/recorded) instead of every past
+  // period silently recomputing under whatever frequency is set today. See
+  // splitIntoMdFilingPeriodsForClient (mdFiling.ts).
+  if (Object.prototype.hasOwnProperty.call(fields, "sales_tax_frequency")) {
+    const newFreq = String(fields.sales_tax_frequency || "").trim();
+    const oldFreq = String(old.sales_tax_frequency || "").trim();
+    if (newFreq !== oldFreq) {
+      const effectiveDateRaw = String(body.salesTaxFrequencyEffectiveDate || "").trim();
+      const effectiveDate = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDateRaw) ? effectiveDateRaw : new Date().toISOString().slice(0, 10);
+      const openRow = await queryOne<{ effective_from: string; frequency: string }>(
+        `SELECT effective_from::date::text AS effective_from, frequency FROM altax.v3_client_sales_tax_frequency_history
+          WHERE client_id = $1 AND effective_to IS NULL`,
+        [clientId]
+      );
+      if (openRow && effectiveDate <= openRow.effective_from) {
+        return res.status(400).json({ error: `The frequency effective date must be after ${openRow.effective_from}, when the current frequency (${openRow.frequency || "unset"}) began.` });
+      }
+      if (openRow) {
+        const dayBefore = new Date(`${effectiveDate}T00:00:00Z`);
+        dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+        await query(
+          `UPDATE altax.v3_client_sales_tax_frequency_history SET effective_to = $2 WHERE client_id = $1 AND effective_to IS NULL`,
+          [clientId, dayBefore.toISOString().slice(0, 10)]
+        );
+      }
+      if (newFreq) {
+        await openSalesTaxFrequencyHistoryRow(clientId, newFreq, effectiveDate, req.user!.email);
+      }
+      await logAudit("Clients", "SALES_TAX_FREQUENCY_CHANGE", clientId, "sales_tax_frequency", oldFreq, newFreq,
+        `Sales tax filing frequency changed to "${newFreq || "N/A"}" effective ${effectiveDate}. Periods before that date keep using the prior frequency automatically.`,
+        req.user!.email);
+    }
   }
 
   res.json({ ok: true });

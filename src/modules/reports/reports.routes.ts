@@ -793,6 +793,43 @@ export async function loadRecordedMdFilingPayments(clientId: string, expandedFro
   return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date }]));
 }
 
+/**
+ * A client's real MD sales-tax filing frequency history (v3_client_sales_tax_
+ * frequency_history), ordered oldest-first — see splitIntoMdFilingPeriodsForClient
+ * in mdFiling.ts for why period math needs this instead of just the client's
+ * current sales_tax_frequency. Empty array (not null) when a client has no
+ * history rows at all, which the splitter treats as "fall back to the plain
+ * single-frequency behavior."
+ */
+export async function loadSalesTaxFrequencyHistory(clientId: string): Promise<{ frequency: string; effectiveFrom: string; effectiveTo: string | null }[]> {
+  const rows = await query<{ frequency: string; effective_from: string; effective_to: string | null }>(
+    `SELECT frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
+       FROM altax.v3_client_sales_tax_frequency_history
+      WHERE client_id = $1
+      ORDER BY effective_from ASC`,
+    [clientId]
+  );
+  return rows.map((r) => ({ frequency: r.frequency, effectiveFrom: r.effective_from, effectiveTo: r.effective_to }));
+}
+
+/** Batched version of loadSalesTaxFrequencyHistory for sweeps that touch many clients at once (avoids one query per client). */
+export async function loadSalesTaxFrequencyHistoryBatch(clientIds: string[]): Promise<Map<string, { frequency: string; effectiveFrom: string; effectiveTo: string | null }[]>> {
+  const map = new Map<string, { frequency: string; effectiveFrom: string; effectiveTo: string | null }[]>();
+  if (clientIds.length === 0) return map;
+  const rows = await query<{ client_id: string; frequency: string; effective_from: string; effective_to: string | null }>(
+    `SELECT client_id, frequency, effective_from::date::text AS effective_from, effective_to::date::text AS effective_to
+       FROM altax.v3_client_sales_tax_frequency_history
+      WHERE client_id = ANY($1::text[])
+      ORDER BY effective_from ASC`,
+    [clientIds]
+  );
+  for (const r of rows) {
+    if (!map.has(r.client_id)) map.set(r.client_id, []);
+    map.get(r.client_id)!.push({ frequency: r.frequency, effectiveFrom: r.effective_from, effectiveTo: r.effective_to });
+  }
+  return map;
+}
+
 export async function computeMdFilingForReport(
   client: ReportClientInfo,
   from: string,
@@ -801,8 +838,10 @@ export async function computeMdFilingForReport(
   paidDateOverride?: string
 ) {
   if (client.state !== "MD") return null;
-  const { splitIntoMdFilingPeriods, computeMdFilingBreakdown } = await import("../../common/mdFiling");
-  const { periods } = splitIntoMdFilingPeriods(from, to, client.salesTaxFrequency);
+  const { splitIntoMdFilingPeriodsForClient, computeMdFilingBreakdown } = await import("../../common/mdFiling");
+  const history = await loadSalesTaxFrequencyHistory(client.clientId);
+  const periodsResult = splitIntoMdFilingPeriodsForClient(from, to, history, client.salesTaxFrequency);
+  const { periods } = periodsResult;
   if (periods.length === 0) return null;
   const expandedFrom = periods[0].start;
   const expandedTo = periods[periods.length - 1].end;
@@ -813,7 +852,7 @@ export async function computeMdFilingForReport(
   const today = new Date().toISOString().slice(0, 10);
   const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
-  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings);
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult);
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, filedDate, paidDate };
 }
@@ -889,10 +928,11 @@ export async function computeFirmWideMdSalesTaxMissedFilings(): Promise<MdSalesT
     recordedByClient.get(r.client_id)!.add(r.period_end);
   }
 
-  const { splitIntoMdFilingPeriods, computeMdFiling } = await import("../../common/mdFiling");
+  const { splitIntoMdFilingPeriodsForClient, computeMdFiling } = await import("../../common/mdFiling");
+  const historyByClient = await loadSalesTaxFrequencyHistoryBatch(clients.map((c) => c.client_id));
   const candidates: { clientId: string; clientName: string; period: MdFilingPeriod; taxDue: number }[] = [];
   for (const c of clients) {
-    const { periods } = splitIntoMdFilingPeriods(windowFrom, windowTo, c.sales_tax_frequency);
+    const { periods } = splitIntoMdFilingPeriodsForClient(windowFrom, windowTo, historyByClient.get(c.client_id), c.sales_tax_frequency);
     const mostRecentPastDue = periods.filter((p) => p.dueDate < windowTo).sort((a, b) => b.end.localeCompare(a.end))[0];
     if (!mostRecentPastDue) continue;
     const recorded = recordedByClient.get(c.client_id);

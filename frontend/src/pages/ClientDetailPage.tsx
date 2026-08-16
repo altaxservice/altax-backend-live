@@ -49,6 +49,11 @@ const PROFILE_CARD_WIDTH_MIN = 360;
 const PROFILE_CARD_WIDTH_MAX = 900;
 const PROFILE_CARD_WIDTH_KEY = "altax_client_profile_card_width";
 const clampProfileCardWidth = (n: number) => Math.min(PROFILE_CARD_WIDTH_MAX, Math.max(PROFILE_CARD_WIDTH_MIN, n));
+
+const EDIT_FORM_WIDTH_MIN = 700;
+const EDIT_FORM_WIDTH_MAX = 1600;
+const EDIT_FORM_WIDTH_KEY = "altax_client_edit_form_width";
+const clampEditFormWidth = (n: number) => Math.min(EDIT_FORM_WIDTH_MAX, Math.max(EDIT_FORM_WIDTH_MIN, n));
 // "Services Provided" is a brand-new field — almost every existing client has
 // services=[] until someone opens and re-saves them, even if they've had real
 // payroll/sales-tax/tax-prep settings configured for years. Gating a whole
@@ -161,6 +166,13 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
     nestedIn: "Services Provided",
     fields: [
       { key: "sales_tax_frequency", apiKey: "salesTaxFrequency", label: "Sales Tax Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showSalesTaxDetails(f) },
+      // Not a real client column — read/written specially (see load()'s
+      // post-loop override and handleSave) since it only matters the moment
+      // Sales Tax Frequency is actually being changed. Maryland reassigns a
+      // client's frequency effective a specific date, not "as of whenever
+      // staff happens to click Save," so this has to be a value staff can
+      // set explicitly rather than always just "today."
+      { key: "sales_tax_frequency_effective_date", apiKey: "salesTaxFrequencyEffectiveDate", label: "Frequency Effective Date", kind: "date", hidden: (f) => !showSalesTaxDetails(f) },
     ],
   },
   {
@@ -246,6 +258,28 @@ export function ClientDetailPage() {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       setProfileCardWidth((w) => { localStorage.setItem(PROFILE_CARD_WIDTH_KEY, String(w)); return w; });
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+  const [editFormWidth, setEditFormWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(EDIT_FORM_WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0 ? clampEditFormWidth(saved) : 1180;
+  });
+  const [resizingEditForm, setResizingEditForm] = useState(false);
+  function startEditFormResize(e: ReactMouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = editFormWidth;
+    setResizingEditForm(true);
+    function onMove(ev: MouseEvent) {
+      setEditFormWidth(clampEditFormWidth(startWidth + (ev.clientX - startX)));
+    }
+    function onUp() {
+      setResizingEditForm(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setEditFormWidth((w) => { localStorage.setItem(EDIT_FORM_WIDTH_KEY, String(w)); return w; });
     }
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -338,6 +372,10 @@ export function ClientDetailPage() {
             : String(res.client[f.key] ?? "");
         }
         initial.services = Array.isArray(res.client.services) ? res.client.services : [];
+        // Not a real client field — only sent to the server when Sales Tax
+        // Frequency is actually being changed (see handleSave), but the
+        // date input still needs a sane starting value to show.
+        initial.salesTaxFrequencyEffectiveDate = new Date().toISOString().slice(0, 10);
         // Not in EDIT_SECTIONS (no visible checkbox — kept in sync with the
         // "Payroll Services" entry in Services Provided instead, see below).
         initial.payrollEnabled = Boolean(res.client.payroll_enabled);
@@ -580,7 +618,12 @@ export function ClientDetailPage() {
       </div>
 
       {editing ? (
-        <form onSubmit={handleSave} className="card" style={{ maxWidth: 1180 }}>
+        <form onSubmit={handleSave} className="card resizable-card" style={{ width: editFormWidth, maxWidth: "100%" }}>
+          <div
+            className={`resizable-card-handle ${resizingEditForm ? "dragging" : ""}`}
+            onMouseDown={startEditFormResize}
+            title="Drag to resize"
+          />
           {pendingEditDraft && (
             <DraftRestoreBanner
               updatedAt={pendingEditDraft.updatedAt}
@@ -908,7 +951,14 @@ export function ClientDetailPage() {
               {isBusinessClient && (
                 <DetailRow label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
               )}
-              <DetailRow label="Sales Tax Frequency" value={client.sales_tax_frequency as string | null} />
+              <DetailRow
+                label="Sales Tax Frequency"
+                value={client.sales_tax_frequency
+                  ? (client.sales_tax_frequency_effective_from
+                      ? `${client.sales_tax_frequency} (effective since ${fmtDateOnly(client.sales_tax_frequency_effective_from)})`
+                      : client.sales_tax_frequency)
+                  : null}
+              />
               <DetailRow label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
               {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
               {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Provider" value={client.payroll_system as string | null} />}

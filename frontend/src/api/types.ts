@@ -42,6 +42,8 @@ export interface Client {
   service_type: string | null;
   services: string[] | null;
   sales_tax_frequency: string | null;
+  /** When the current sales_tax_frequency took effect — null for a client whose frequency has never gone through a recorded change (see v3_client_sales_tax_frequency_history). */
+  sales_tax_frequency_effective_from?: string | null;
   payroll_enabled: boolean;
   payroll_frequency: string | null;
   payroll_system: string | null;

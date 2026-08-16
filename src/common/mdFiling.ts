@@ -286,6 +286,55 @@ export function splitIntoMdFilingPeriods(
   return { periods, frequencyUsed: freq };
 }
 
+/** One frequency the Comptroller has assigned a client, and the date range it actually applied for (see v3_client_sales_tax_frequency_history). `effectiveTo: null` means still current. */
+export interface SalesTaxFrequencyHistoryRow {
+  frequency: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+/**
+ * Same period grid as splitIntoMdFilingPeriods, but frequency-aware across a
+ * client's real history instead of one value for the whole [from, to] range.
+ * The Comptroller can reassign a client's filing frequency effective a given
+ * date (e.g. Quarterly -> Monthly) — a period BEFORE that date must keep the
+ * OLD frequency's calendar boundaries (matching what was actually filed
+ * then and what v3_md_filing_payments rows are keyed against), while a
+ * period AFTER uses the NEW one. Splitting the whole range under just the
+ * CURRENT frequency (what splitIntoMdFilingPeriods alone does) would
+ * silently regenerate different period_end dates for old periods, orphaning
+ * their recorded filings and misstating past due dates/penalties.
+ *
+ * Segments the range at each history row's [effectiveFrom, effectiveTo]
+ * boundary, splits each segment independently with the ordinary
+ * calendar-aligned splitter, and concatenates the results in order. Falls
+ * back to the plain single-frequency splitter when there's no history at
+ * all, so every caller's behavior is unchanged unless a real frequency
+ * change is on file for this client.
+ */
+export function splitIntoMdFilingPeriodsForClient(
+  from: string,
+  to: string,
+  history: SalesTaxFrequencyHistoryRow[] | null | undefined,
+  fallbackFrequency: string | null | undefined
+): { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null } {
+  if (!history || history.length === 0) {
+    return splitIntoMdFilingPeriods(from, to, fallbackFrequency);
+  }
+  const sorted = [...history].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  const periods: MdFilingPeriod[] = [];
+  let frequencyUsed: MdFilingFrequency | null = null;
+  for (const row of sorted) {
+    const segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
+    const segTo = (row.effectiveTo && row.effectiveTo < to) ? row.effectiveTo : to;
+    if (segFrom > segTo) continue;
+    const seg = splitIntoMdFilingPeriods(segFrom, segTo, row.frequency);
+    periods.push(...seg.periods);
+    if (seg.frequencyUsed) frequencyUsed = seg.frequencyUsed;
+  }
+  return { periods, frequencyUsed };
+}
+
 export interface MdFilingPeriodResult extends MdFilingResult {
   start: string;
   end: string;
@@ -345,9 +394,16 @@ export async function computeMdFilingBreakdown(
   frequency: string | null | undefined,
   filedDateStr: string,
   paidDateStr: string,
-  recordedFilings?: Map<string, { filedDate: string; paidDate: string }>
+  recordedFilings?: Map<string, { filedDate: string; paidDate: string }>,
+  // When the caller already has a history-aware period grid (see
+  // splitIntoMdFilingPeriodsForClient), pass it here instead of letting this
+  // function re-derive periods from a single current `frequency` value —
+  // otherwise a client whose frequency changed mid-history would have this
+  // function silently regenerate periods under just the current frequency,
+  // undoing the whole point of the history-aware split.
+  periodsOverride?: { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null }
 ): Promise<MdFilingBreakdown> {
-  const { periods, frequencyUsed } = splitIntoMdFilingPeriods(from, to, frequency);
+  const { periods, frequencyUsed } = periodsOverride ?? splitIntoMdFilingPeriods(from, to, frequency);
   const results: MdFilingPeriodResult[] = [];
   for (const period of periods) {
     const salesInPeriod = sales.filter((s) => {
