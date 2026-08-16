@@ -533,7 +533,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
           flags.push({
             flagId: null, key: `computed:SalesTaxFilingDue:md:${p.end}`, flagType: "SalesTaxFilingDue", amount: null,
             note: `for the period ${p.end}`, color: daysUntilDue < 0 ? "red" : "amber", createdAt: null, createdBy: null, resolvable: false,
-            linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
+            linkUrl: `/accounting?client=${clientId}&tab=Sales&from=${p.start}&to=${p.end}`, shareWithClient: true,
           });
         }
       }
@@ -552,7 +552,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
           flags.push({
             flagId: null, key: `computed:SalesTaxBalanceDue:md:${p.end}`, flagType: "SalesTaxBalanceDue", amount: p.balanceDue,
             note: `for the period ${p.end}`, color: "red", createdAt: null, createdBy: null, resolvable: false,
-            linkUrl: `/accounting?client=${clientId}&tab=Sales`, shareWithClient: true,
+            linkUrl: `/accounting?client=${clientId}&tab=Sales&from=${p.start}&to=${p.end}`, shareWithClient: true,
           });
         }
       }

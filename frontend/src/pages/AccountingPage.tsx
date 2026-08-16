@@ -112,7 +112,9 @@ export function AccountingPage() {
       </div>
 
       {needsClient && !clientId && <p className="muted">Pick a client above to work in their books.</p>}
-      {tab === "Sales" && clientId && <SalesTab clientId={clientId} clientState={client?.state} />}
+      {tab === "Sales" && clientId && (
+        <SalesTab clientId={clientId} clientState={client?.state} initialFrom={searchParams.get("from")} initialTo={searchParams.get("to")} />
+      )}
       {tab === "Payroll" && clientId && <PayrollTab clientId={clientId} clientState={client?.state} />}
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
       {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
@@ -211,7 +213,7 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
   { label: "All time", range: () => ({ start: "", end: "" }) },
 ];
 
-function SalesTab({ clientId, clientState }: { clientId: string; clientState?: string | null }) {
+function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId: string; clientState?: string | null; initialFrom?: string | null; initialTo?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
   const confirmDialog = useConfirm();
@@ -231,7 +233,14 @@ function SalesTab({ clientId, clientState }: { clientId: string; clientState?: s
   const [viewing, setViewing] = useState<any | null>(null);
   const [salesPreview, setSalesPreview] = useState<SalesPreview | null>(null);
   const [editSalesPreview, setEditSalesPreview] = useState<SalesPreview | null>(null);
+  // A Sales Tax Filing/Balance Due flag deep-links here with ?from=&to= set to
+  // the exact flagged period, so clicking it actually lands on that period's
+  // data instead of the "This month" default — which, for a flag about an
+  // older period, would otherwise show an empty, seemingly-unrelated table.
   const [period, setPeriod] = useState(() => {
+    if (initialFrom && initialTo && /^\d{4}-\d{2}-\d{2}$/.test(initialFrom) && /^\d{4}-\d{2}-\d{2}$/.test(initialTo)) {
+      return { start: initialFrom, end: initialTo };
+    }
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
