@@ -898,8 +898,15 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
   documentStatuses: { label: "Document Request Statuses", values: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"] },
   paymentMethods: { label: "Payment Methods", values: ["Cash", "Check", "Zelle", "Card", "ACH", "Wire", "Other"] },
   communicationChannels: { label: "Communication Channels", values: ["Email", "Portal Note", "SMS", "WhatsApp", "Phone"] },
+  // "Permit / License Renewal Needed" and "Signature Needed (POA/W-4/W-9)" cover the two
+  // gaps the automated flag engine (computeClientFlags -> complianceGapFlags.ts) can NOT
+  // detect on its own: neither HACCP/business-license expiration nor POA/W4/W9 signing
+  // deadlines have a real due-date column anywhere in the schema today, so staff still
+  // have to notice and flag these by hand. See computeClientFlags's own "explicitly out
+  // of scope" reasoning (clients.routes.ts) for why these stay manual.
   clientFlagCategories: { label: "Client Flag Categories", values: [
-    "Balance Past Due", "Not in Good Standing", "Compliance Issue", "Missing Documentation", "Legal / Dispute",
+    "Balance Past Due", "Not in Good Standing", "Compliance Issue", "Permit / License Renewal Needed",
+    "Signature Needed (POA/W-4/W-9)", "Missing Documentation", "Legal / Dispute",
     "Ownership Change Pending", "Collections", "Other",
   ] },
 };
