@@ -63,7 +63,7 @@ function lastDayOfMonth(year: number, month0: number): number {
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-interface DuePeriod { periodLabel: string; periodStart: string; periodEnd: string; dueDate: string }
+export interface DuePeriod { periodLabel: string; periodStart: string; periodEnd: string; dueDate: string }
 
 /**
  * Computes the most recently fully-completed reporting period for a rule, as
@@ -165,7 +165,7 @@ function parseMaxWarningDays(rule: any): number {
  * ("BusinessReturnType") originally assumed here. Both forms are mapped below.
  * Bounded, known set — safer than a generic PascalCase/label-to-snake_case guess.
  */
-const CLIENT_TRIGGER_COLUMNS: Record<string, string> = {
+export const CLIENT_TRIGGER_COLUMNS: Record<string, string> = {
   ClientName: "client_name", EntityType: "entity_type", Status: "status", State: "state",
   Email: "email", Phone: "phone", AssignedTo: "assigned_to",
   SalesTaxFrequency: "sales_tax_frequency", "Sales Tax Frequency": "sales_tax_frequency",
