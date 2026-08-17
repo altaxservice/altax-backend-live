@@ -11,6 +11,14 @@ import type { CandidateFinding } from "./swotFindingsEngine";
  */
 export interface DashboardAlertSettings {
   autoAlertsEnabled: boolean; cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number;
+  /** Grace period (days) added on top of a payroll-enabled client's own pay
+   * frequency before PayrollCadenceGap fires — see complianceGapFlags.ts. */
+  payrollCadenceGraceDays: number;
+  /** Days since a client's last GL entry, past which BookkeepingStale fires
+   * — real production data set this default deliberately high (75, not a
+   * round-number guess) since the firm's whole client base normally lags
+   * ~48 days behind on posting; see complianceGapFlags.ts's own comment. */
+  bookkeepingStalenessDaysThreshold: number;
   updatedBy: string | null; updatedAt: string | null;
 }
 
@@ -32,6 +40,8 @@ export async function getDashboardAlertSettings(): Promise<DashboardAlertSetting
     cashThreshold: row ? Number(row.cash_threshold) : 0,
     overdueDaysThreshold: row ? Number(row.overdue_days_threshold) : 90,
     filingDeadlineDaysThreshold: row ? Number(row.filing_deadline_days_threshold) : 7,
+    payrollCadenceGraceDays: row?.payroll_cadence_grace_days != null ? Number(row.payroll_cadence_grace_days) : 10,
+    bookkeepingStalenessDaysThreshold: row?.bookkeeping_staleness_days_threshold != null ? Number(row.bookkeeping_staleness_days_threshold) : 75,
     updatedBy: row?.updated_by || null, updatedAt: row?.updated_at || null,
   };
   cachedSettingsAt = Date.now();
@@ -39,7 +49,10 @@ export async function getDashboardAlertSettings(): Promise<DashboardAlertSetting
 }
 
 export async function updateDashboardAlertSettings(
-  fields: Partial<{ autoAlertsEnabled: boolean; cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number }>,
+  fields: Partial<{
+    autoAlertsEnabled: boolean; cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number;
+    payrollCadenceGraceDays: number; bookkeepingStalenessDaysThreshold: number;
+  }>,
   actorEmail: string
 ): Promise<void> {
   await query(
@@ -48,13 +61,17 @@ export async function updateDashboardAlertSettings(
        cash_threshold = COALESCE($2, cash_threshold),
        overdue_days_threshold = COALESCE($3, overdue_days_threshold),
        filing_deadline_days_threshold = COALESCE($4, filing_deadline_days_threshold),
-       updated_by = $5, updated_at = now()
+       payroll_cadence_grace_days = COALESCE($5, payroll_cadence_grace_days),
+       bookkeeping_staleness_days_threshold = COALESCE($6, bookkeeping_staleness_days_threshold),
+       updated_by = $7, updated_at = now()
      WHERE id = 'DASHALERT-1'`,
     [
       fields.autoAlertsEnabled === undefined ? null : fields.autoAlertsEnabled,
       fields.cashThreshold === undefined ? null : fields.cashThreshold,
       fields.overdueDaysThreshold === undefined ? null : fields.overdueDaysThreshold,
       fields.filingDeadlineDaysThreshold === undefined ? null : fields.filingDeadlineDaysThreshold,
+      fields.payrollCadenceGraceDays === undefined ? null : fields.payrollCadenceGraceDays,
+      fields.bookkeepingStalenessDaysThreshold === undefined ? null : fields.bookkeepingStalenessDaysThreshold,
       actorEmail,
     ]
   );

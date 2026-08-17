@@ -15,6 +15,11 @@ import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
 import { computeUpcomingDeadlines } from "./complianceCalendar";
+import {
+  computeClientPayrollCadenceGap, computeFirmWidePayrollCadenceGaps,
+  computeClientBookkeepingStaleness, computeFirmWideBookkeepingStaleness,
+  computeClientMissingComplianceTaskGaps, computeFirmWideMissingComplianceTaskGaps,
+} from "./complianceGapFlags";
 import { sendEmail } from "../../common/notifications";
 import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
@@ -135,7 +140,8 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
   const staffScope = isAdmin ? "" : `AND c.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
   const params = isAdmin ? [] : [aliases];
 
-  const [balanceRows, agencyRows, manualRows, mdSalesTaxMissed] = await Promise.all([
+  const { payrollCadenceGraceDays, bookkeepingStalenessDaysThreshold } = await getDashboardAlertSettings();
+  const [balanceRows, agencyRows, manualRows, mdSalesTaxMissed, payrollGaps, bookkeepingGaps, missingTaskGaps] = await Promise.all([
     query<any>(
       `SELECT c.client_id, c.client_name, COALESCE(SUM(i.balance_due), 0) AS amount
          FROM altax.v3_clients c
@@ -166,6 +172,9 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
       params
     ),
     computeFirmWideMdSalesTaxMissedFilings(),
+    computeFirmWidePayrollCadenceGaps(payrollCadenceGraceDays),
+    computeFirmWideBookkeepingStaleness(bookkeepingStalenessDaysThreshold),
+    computeFirmWideMissingComplianceTaskGaps(),
   ]);
 
   // computeFirmWideMdSalesTaxMissedFilings() has no per-client filter of its own
@@ -175,9 +184,17 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
     ? null
     : new Set((await query<any>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])`, [aliases])).map((r: any) => r.client_id));
 
-  const byClient = new Map<string, { clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number; mdSalesTaxUnfiledPeriodEnd: string | null; mdSalesTaxUnfiledAmount: number }>();
+  const byClient = new Map<string, {
+    clientId: string; clientName: string; balancePastDue: number; agencyPastDueCount: number; agencyPastDueAmount: number; manualFlagCount: number;
+    mdSalesTaxUnfiledPeriodEnd: string | null; mdSalesTaxUnfiledAmount: number;
+    payrollGapNote: string | null; bookkeepingStaleDays: number | null; missingComplianceTaskCount: number;
+  }>();
   const get = (clientId: string, clientName: string) => {
-    if (!byClient.has(clientId)) byClient.set(clientId, { clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0, mdSalesTaxUnfiledPeriodEnd: null, mdSalesTaxUnfiledAmount: 0 });
+    if (!byClient.has(clientId)) byClient.set(clientId, {
+      clientId, clientName, balancePastDue: 0, agencyPastDueCount: 0, agencyPastDueAmount: 0, manualFlagCount: 0,
+      mdSalesTaxUnfiledPeriodEnd: null, mdSalesTaxUnfiledAmount: 0,
+      payrollGapNote: null, bookkeepingStaleDays: null, missingComplianceTaskCount: 0,
+    });
     return byClient.get(clientId)!;
   };
   for (const r of balanceRows) get(r.client_id, r.client_name).balancePastDue = Number(r.amount || 0);
@@ -192,6 +209,18 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
     const c = get(m.clientId, m.clientName);
     c.mdSalesTaxUnfiledPeriodEnd = m.periodEnd;
     c.mdSalesTaxUnfiledAmount = m.balanceDue;
+  }
+  for (const [clientId, gap] of payrollGaps) {
+    if (staffAllowedClientIds && !staffAllowedClientIds.has(clientId)) continue;
+    get(clientId, gap.clientName).payrollGapNote = `last paycheck ${gap.lastPayDate} (${gap.daysSinceLastPay} days ago)`;
+  }
+  for (const [clientId, gap] of bookkeepingGaps) {
+    if (staffAllowedClientIds && !staffAllowedClientIds.has(clientId)) continue;
+    get(clientId, gap.clientName).bookkeepingStaleDays = gap.daysSinceLastEntry;
+  }
+  for (const [clientId, entry] of missingTaskGaps) {
+    if (staffAllowedClientIds && !staffAllowedClientIds.has(clientId)) continue;
+    get(clientId, entry.clientName).missingComplianceTaskCount = entry.gaps.length;
   }
 
   // Ranked by dollars owed first (the most consequential kind of risk), then
@@ -375,7 +404,8 @@ clientsRouter.get("/:clientId/summary", requireAuth, asyncHandler(async (req: Au
  * self-clearing behavior as the flags themselves.
  */
 export async function runClientRiskFlagSweep(actorEmail: string): Promise<{ newlyFlagged: number }> {
-  const [balanceRows, agencyRows, alreadySent] = await Promise.all([
+  const { payrollCadenceGraceDays, bookkeepingStalenessDaysThreshold } = await getDashboardAlertSettings();
+  const [balanceRows, agencyRows, alreadySent, payrollGaps, bookkeepingGaps, missingTaskGaps] = await Promise.all([
     query<any>(
       `SELECT c.client_id, c.client_name FROM altax.v3_clients c
          JOIN altax.v3_invoices i ON i.client_id = c.client_id
@@ -391,13 +421,27 @@ export async function runClientRiskFlagSweep(actorEmail: string): Promise<{ newl
         GROUP BY c.client_id, c.client_name`
     ),
     query<any>(`SELECT client_id, flag_type FROM altax.v3_flag_alerts_sent`),
+    computeFirmWidePayrollCadenceGaps(payrollCadenceGraceDays),
+    computeFirmWideBookkeepingStaleness(bookkeepingStalenessDaysThreshold),
+    computeFirmWideMissingComplianceTaskGaps(),
   ]);
   const sentSet = new Set(alreadySent.map((r: any) => `${r.client_id}|${r.flag_type}`));
-  const currentlyFlagged: { clientId: string; clientName: string; flagType: "BalancePastDue" | "AgencyPastDue" }[] = [
+  const currentlyFlagged: { clientId: string; clientName: string; flagType: "BalancePastDue" | "AgencyPastDue" | "PayrollCadenceGap" | "BookkeepingStale" | "MissingComplianceTask" }[] = [
     ...balanceRows.map((r: any) => ({ clientId: r.client_id, clientName: r.client_name, flagType: "BalancePastDue" as const })),
     ...agencyRows.map((r: any) => ({ clientId: r.client_id, clientName: r.client_name, flagType: "AgencyPastDue" as const })),
+    ...Array.from(payrollGaps, ([clientId, gap]) => ({ clientId, clientName: gap.clientName, flagType: "PayrollCadenceGap" as const })),
+    ...Array.from(bookkeepingGaps, ([clientId, gap]) => ({ clientId, clientName: gap.clientName, flagType: "BookkeepingStale" as const })),
+    ...Array.from(missingTaskGaps, ([clientId, entry]) => ({ clientId, clientName: entry.clientName, flagType: "MissingComplianceTask" as const })),
   ];
   const active = new Set(currentlyFlagged.map((f) => `${f.clientId}|${f.flagType}`));
+
+  const FLAG_DESCRIPTIONS: Record<string, (name: string) => string> = {
+    BalancePastDue: (name) => `${name} has an overdue balance owed to the firm.`,
+    AgencyPastDue: (name) => `${name} has an overdue agency obligation (tax/EFTPS/etc).`,
+    PayrollCadenceGap: (name) => `${name}'s payroll appears to have stopped running — no paycheck in longer than their pay frequency allows.`,
+    BookkeepingStale: (name) => `${name}'s bookkeeping has gone stale — no GL activity in longer than the staleness threshold.`,
+    MissingComplianceTask: (name) => `${name} has a recurring compliance task (EFTPS/MD Withholding/MD UI/Business Tax Return) that should exist for the current period and doesn't.`,
+  };
 
   let newlyFlagged = 0;
   for (const { clientId, clientName, flagType } of currentlyFlagged) {
@@ -406,13 +450,7 @@ export async function runClientRiskFlagSweep(actorEmail: string): Promise<{ newl
       `INSERT INTO altax.v3_flag_alerts_sent (client_id, flag_type) VALUES ($1, $2) ON CONFLICT (client_id, flag_type) DO NOTHING`,
       [clientId, flagType]
     );
-    await logAudit(
-      "Clients", "CLIENT_BECAME_AT_RISK", clientId, "flag", "", flagType,
-      flagType === "BalancePastDue"
-        ? `${clientName} has an overdue balance owed to the firm.`
-        : `${clientName} has an overdue agency obligation (tax/EFTPS/etc).`,
-      actorEmail
-    );
+    await logAudit("Clients", "CLIENT_BECAME_AT_RISK", clientId, "flag", "", flagType, FLAG_DESCRIPTIONS[flagType](clientName), actorEmail);
     newlyFlagged++;
   }
   // Self-clear: any tracking row whose flag is no longer active gets removed
@@ -438,7 +476,7 @@ interface ClientFlag {
    * types (BalancePastDue/AgencyPastDue) have flagId: null, so flagId alone can't address
    * one specific flag across a notify-preview call and the later filtered send. */
   key: string;
-  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "Credit" | "Custom";
+  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "PayrollCadenceGap" | "BookkeepingStale" | "MissingComplianceTask" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
   color: "red" | "green" | "amber";
@@ -522,7 +560,9 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   }
 
   const clientRow = await queryOne<any>(
-    `SELECT client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`,
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency,
+            payroll_enabled, payroll_frequency, eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type
+       FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
   if (clientRow?.state === "MD") {
@@ -578,6 +618,46 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
           });
         }
       }
+    }
+  }
+
+  // Cross-service gap checks — payroll cadence, bookkeeping staleness, and
+  // missing compliance tasks (EFTPS/MD Withholding/MD UI/Business Tax
+  // Return) — see complianceGapFlags.ts for what evidence each one requires
+  // before it will ever assert a gap. Applies to any client regardless of
+  // state, unlike the MD-only block above.
+  if (clientRow) {
+    const { payrollCadenceGraceDays, bookkeepingStalenessDaysThreshold } = await getDashboardAlertSettings();
+
+    const payrollGap = await computeClientPayrollCadenceGap(clientId, clientRow, payrollCadenceGraceDays);
+    if (payrollGap) {
+      flags.push({
+        flagId: null, key: `computed:PayrollCadenceGap:${clientId}`, flagType: "PayrollCadenceGap", amount: null,
+        note: `last paycheck ${payrollGap.lastPayDate} (${payrollGap.daysSinceLastPay} days ago)`, color: "red",
+        createdAt: null, createdBy: null, resolvable: false,
+        linkUrl: `/accounting?client=${clientId}&tab=Payroll`, shareWithClient: true,
+      });
+    }
+
+    const bookkeepingGap = await computeClientBookkeepingStaleness(clientId, bookkeepingStalenessDaysThreshold);
+    if (bookkeepingGap) {
+      flags.push({
+        flagId: null, key: `computed:BookkeepingStale:${clientId}`, flagType: "BookkeepingStale", amount: null,
+        note: `last GL entry ${bookkeepingGap.lastEntryDate} (${bookkeepingGap.daysSinceLastEntry} days ago)`, color: "amber",
+        createdAt: null, createdBy: null, resolvable: false,
+        linkUrl: `/accounting?client=${clientId}&tab=GL`, shareWithClient: true,
+      });
+    }
+
+    const missingTaskGaps = await computeClientMissingComplianceTaskGaps(clientId, clientRow);
+    for (const gap of missingTaskGaps) {
+      flags.push({
+        flagId: null, key: `computed:MissingComplianceTask:${gap.ruleId}:${gap.periodLabel}`, flagType: "MissingComplianceTask", amount: null,
+        note: `${gap.taskType} for ${gap.periodLabel} (due ${gap.dueDate}) — no task on file`, color: "red",
+        createdAt: null, createdBy: null, resolvable: false,
+        // Internal process-integrity signal, not a client-facing "we forgot" admission.
+        shareWithClient: false,
+      });
     }
   }
 
@@ -804,6 +884,8 @@ const FLAG_TYPE_LABELS_AR: Record<string, string> = {
   AgencyPastDue: "تقديم متأخر لدى الجهة الحكومية",
   SalesTaxFilingDue: "تقديم إقرار ضريبة المبيعات",
   SalesTaxBalanceDue: "رصيد ضريبة المبيعات المستحق",
+  PayrollCadenceGap: "توقف في معالجة الرواتب",
+  BookkeepingStale: "الدفاتر المحاسبية غير محدثة",
   Credit: "رصيد دائن في الحساب",
 };
 const FLAG_CATEGORY_LABELS_AR: Record<string, string> = {
@@ -821,6 +903,8 @@ const FLAG_TYPE_LABELS_EN: Record<string, string> = {
   AgencyPastDue: "Agency Filing Past Due",
   SalesTaxFilingDue: "Sales Tax Filing",
   SalesTaxBalanceDue: "Sales Tax Balance Due",
+  PayrollCadenceGap: "Payroll Processing Gap",
+  BookkeepingStale: "Bookkeeping Not Up to Date",
   Credit: "Credit on Account",
 };
 

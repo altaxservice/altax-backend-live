@@ -263,6 +263,9 @@ interface AtRiskClient {
   manualFlagCount: number;
   mdSalesTaxUnfiledPeriodEnd: string | null;
   mdSalesTaxUnfiledAmount: number;
+  payrollGapNote: string | null;
+  bookkeepingStaleDays: number | null;
+  missingComplianceTaskCount: number;
 }
 
 /**
@@ -293,7 +296,7 @@ function AtRiskClientsPanel() {
     <CommandPanel
       critical
       title="At-Risk Clients"
-      note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, unfiled MD sales tax, or flag past due${salesTaxUnfiledCount > 0 ? ` — ${salesTaxUnfiledCount} missing a sales tax filing` : ""}`}
+      note={`${clients.length} client${clients.length === 1 ? "" : "s"} with an open balance, agency obligation, unfiled MD sales tax, payroll/bookkeeping gap, or flag past due${salesTaxUnfiledCount > 0 ? ` — ${salesTaxUnfiledCount} missing a sales tax filing` : ""}`}
     >
       <div className="attention-list">
         {clients.slice(0, 8).map((c) => (
@@ -304,6 +307,9 @@ function AtRiskClientsPanel() {
                 {c.balancePastDue > 0 && <span>{fmtMoney(c.balancePastDue)} overdue balance</span>}
                 {c.agencyPastDueCount > 0 && <span>{c.agencyPastDueCount} agency obligation{c.agencyPastDueCount === 1 ? "" : "s"} past due{c.agencyPastDueAmount > 0 ? ` (${fmtMoney(c.agencyPastDueAmount)})` : ""}</span>}
                 {c.mdSalesTaxUnfiledPeriodEnd && <span className="status-pill status-red" style={{ fontSize: 11 }}>Sales tax not filed (period ending {fmtDate(c.mdSalesTaxUnfiledPeriodEnd)})</span>}
+                {c.payrollGapNote && <span className="status-pill status-red" style={{ fontSize: 11 }}>Payroll gap — {c.payrollGapNote}</span>}
+                {c.bookkeepingStaleDays !== null && <span className="status-pill status-amber" style={{ fontSize: 11 }}>Books stale ({c.bookkeepingStaleDays} days)</span>}
+                {c.missingComplianceTaskCount > 0 && <span className="status-pill status-red" style={{ fontSize: 11 }}>{c.missingComplianceTaskCount} compliance task{c.missingComplianceTaskCount === 1 ? "" : "s"} not on file</span>}
                 {c.manualFlagCount > 0 && <span>{c.manualFlagCount} open flag{c.manualFlagCount === 1 ? "" : "s"}</span>}
               </div>
             </div>

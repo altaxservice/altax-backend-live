@@ -209,6 +209,7 @@ export function FirmSettingsPage() {
 
 interface DashboardAlertSettings {
   autoAlertsEnabled: boolean; cashThreshold: number; overdueDaysThreshold: number; filingDeadlineDaysThreshold: number;
+  payrollCadenceGraceDays: number; bookkeepingStalenessDaysThreshold: number;
   updatedBy: string | null; updatedAt: string | null;
 }
 
@@ -221,7 +222,7 @@ interface DashboardAlertSettings {
 function DashboardAlertSettingsCard() {
   const toast = useToast();
   const [settings, setSettings] = useState<DashboardAlertSettings | null>(null);
-  const [form, setForm] = useState({ cashThreshold: "0", overdueDaysThreshold: "90", filingDeadlineDaysThreshold: "7" });
+  const [form, setForm] = useState({ cashThreshold: "0", overdueDaysThreshold: "90", filingDeadlineDaysThreshold: "7", payrollCadenceGraceDays: "10", bookkeepingStalenessDaysThreshold: "75" });
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
 
@@ -229,7 +230,10 @@ function DashboardAlertSettingsCard() {
     api.get<DashboardAlertSettings>("/reports/dashboard-alert-settings")
       .then((res) => {
         setSettings(res);
-        setForm({ cashThreshold: String(res.cashThreshold), overdueDaysThreshold: String(res.overdueDaysThreshold), filingDeadlineDaysThreshold: String(res.filingDeadlineDaysThreshold) });
+        setForm({
+          cashThreshold: String(res.cashThreshold), overdueDaysThreshold: String(res.overdueDaysThreshold), filingDeadlineDaysThreshold: String(res.filingDeadlineDaysThreshold),
+          payrollCadenceGraceDays: String(res.payrollCadenceGraceDays), bookkeepingStalenessDaysThreshold: String(res.bookkeepingStalenessDaysThreshold),
+        });
       })
       .catch(() => {});
   }
@@ -257,6 +261,8 @@ function DashboardAlertSettingsCard() {
         cashThreshold: Number(form.cashThreshold) || 0,
         overdueDaysThreshold: Number(form.overdueDaysThreshold) || 90,
         filingDeadlineDaysThreshold: Number(form.filingDeadlineDaysThreshold) || 7,
+        payrollCadenceGraceDays: Number(form.payrollCadenceGraceDays) || 10,
+        bookkeepingStalenessDaysThreshold: Number(form.bookkeepingStalenessDaysThreshold) || 75,
       });
       setSettings(res);
       toast("Alert thresholds saved.");
@@ -273,8 +279,9 @@ function DashboardAlertSettingsCard() {
     <div className="card" style={{ maxWidth: 520, marginTop: 16 }}>
       <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Dashboard Alerts</h2>
       <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
-        When on, a client whose cash goes low, receivable goes seriously overdue, or filing deadline closes in gets an
-        automatic email (and text, if a phone is on file) to their assigned staff member — checked nightly.
+        When on, a client whose cash goes low, receivable goes seriously overdue, filing deadline closes in, payroll
+        stops running, or books go stale gets an automatic email (and text, if a phone is on file) to their assigned
+        staff member — checked nightly.
       </p>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <span>Automatic alerts are {settings.autoAlertsEnabled ? "on" : "off"}</span>
@@ -294,6 +301,14 @@ function DashboardAlertSettingsCard() {
         <div className="field">
           <label htmlFor="filing-threshold">Filing deadline alert threshold (days out)</label>
           <input id="filing-threshold" type="number" min={1} value={form.filingDeadlineDaysThreshold} onChange={(e) => setForm((f) => ({ ...f, filingDeadlineDaysThreshold: e.target.value }))} />
+        </div>
+        <div className="field">
+          <label htmlFor="payroll-cadence-grace">Payroll cadence grace period (days)</label>
+          <input id="payroll-cadence-grace" type="number" min={0} value={form.payrollCadenceGraceDays} onChange={(e) => setForm((f) => ({ ...f, payrollCadenceGraceDays: e.target.value }))} />
+        </div>
+        <div className="field">
+          <label htmlFor="bookkeeping-staleness">Bookkeeping staleness threshold (days)</label>
+          <input id="bookkeeping-staleness" type="number" min={1} value={form.bookkeepingStalenessDaysThreshold} onChange={(e) => setForm((f) => ({ ...f, bookkeepingStalenessDaysThreshold: e.target.value }))} />
         </div>
         <button type="submit" className="btn btn-sm btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : "Save Thresholds"}</button>
       </form>

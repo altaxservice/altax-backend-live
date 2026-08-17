@@ -1239,6 +1239,8 @@ reportsRouter.patch("/dashboard-alert-settings", requireAuth, requireRole("admin
       cashThreshold: body.cashThreshold !== undefined ? Number(body.cashThreshold) : undefined,
       overdueDaysThreshold: body.overdueDaysThreshold !== undefined ? Number(body.overdueDaysThreshold) : undefined,
       filingDeadlineDaysThreshold: body.filingDeadlineDaysThreshold !== undefined ? Number(body.filingDeadlineDaysThreshold) : undefined,
+      payrollCadenceGraceDays: body.payrollCadenceGraceDays !== undefined ? Number(body.payrollCadenceGraceDays) : undefined,
+      bookkeepingStalenessDaysThreshold: body.bookkeepingStalenessDaysThreshold !== undefined ? Number(body.bookkeepingStalenessDaysThreshold) : undefined,
     },
     req.user!.email
   );
