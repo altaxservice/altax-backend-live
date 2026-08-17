@@ -535,13 +535,14 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
     };
     // Filing obligation — determined from the period calendar + recorded
     // filings directly, NOT from computeMdFilingForReport's periods below:
-    // that list silently drops any period whose summed tax comes to $0
-    // (computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is
-    // exactly the nil-return / no-sales-data-entered-yet case this flag
-    // needs to catch — a $0 or not-yet-quantified period is still a real
-    // filing obligation. Fires once the period enters the "due soon" window
-    // and keeps firing through overdue. Amber while there's still time to
-    // file, red once the due date has actually passed.
+    // that list only shows a $0 period once it's due-soon-or-overdue
+    // (computeMdFilingBreakdown's own skip logic), whereas this flag needs
+    // every period in the full lookback window regardless of whether it's
+    // "due soon" yet — a $0 or not-yet-quantified period is still a real
+    // filing obligation the moment it exists, not just once it's about to
+    // be late. Fires once the period enters the "due soon" window and keeps
+    // firing through overdue. Amber while there's still time to file, red
+    // once the due date has actually passed.
     const frequencyHistory = await loadSalesTaxFrequencyHistory(clientId);
     const { periods: allPeriods } = splitIntoMdFilingPeriodsForClient(from.toISOString().slice(0, 10), toStr, frequencyHistory, clientRow.sales_tax_frequency);
     if (allPeriods.length > 0) {

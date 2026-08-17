@@ -1,4 +1,5 @@
 import { queryOne } from "../config/db";
+import { getDashboardAlertSettings } from "../modules/clients/dashboardAlerts";
 
 /**
  * Maryland Form 202 Line 18 (timely discount) / Line 37 (late penalty +
@@ -377,15 +378,19 @@ function isoDateOnly(v: unknown): string | null {
  * payment: each period keeps its own due date, and only one paid date is
  * needed (the date of that one catch-up payment) since that's the real
  * business event, not a separate payment per period. Periods with no tax
- * due (no sales recorded) are skipped rather than shown as a zero row —
- * UNLESS [from, to] narrows down to exactly that one period, in which case
- * it's shown anyway. A wide browse (a whole year, "All time") would
- * otherwise flood with empty rows for every period nobody's touched yet,
- * but a single-period view (the default "This month", or the exact window
- * the SalesTaxFilingDue flag's own deep-link now sends — see
- * clients.routes.ts) is a genuine "do I still need to file this?" question,
- * and a nil return still needs a real Mark Filed record even at $0 —
- * skipping it here would leave that period's flag with no way to clear.
+ * due (no sales recorded) and no Mark Filed record are skipped rather than
+ * shown as a zero row, UNLESS the period is currently actionable — due soon
+ * or already overdue, per the same filingDeadlineDaysThreshold the
+ * SalesTaxFilingDue flag itself uses (clients.routes.ts) — in which case
+ * it's shown regardless of how wide [from, to] is. A wide browse (a whole
+ * year, "All time") would otherwise flood with empty rows for every period
+ * nobody's touched yet, but a period the flag is currently complaining
+ * about is a genuine "do I still need to file this?" question no matter
+ * what date range someone happened to have selected when they looked — and
+ * a nil return still needs a real Mark Filed record even at $0, so hiding
+ * an actionable $0 period here would leave its flag with no way to clear.
+ * A period that's already been marked filed (recorded below) never shows a
+ * zero row even if actionable — nothing left to act on.
  */
 export async function computeMdFilingBreakdown(
   sales: { saleDate: unknown; totalTaxDue: number; paymentDate?: unknown }[],
@@ -404,6 +409,8 @@ export async function computeMdFilingBreakdown(
   periodsOverride?: { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null }
 ): Promise<MdFilingBreakdown> {
   const { periods, frequencyUsed } = periodsOverride ?? splitIntoMdFilingPeriods(from, to, frequency);
+  const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
+  const todayStr = new Date().toISOString().slice(0, 10);
   const results: MdFilingPeriodResult[] = [];
   for (const period of periods) {
     const salesInPeriod = sales.filter((s) => {
@@ -411,7 +418,16 @@ export async function computeMdFilingBreakdown(
       return d !== null && d >= period.start && d <= period.end;
     });
     const taxDue = round2(salesInPeriod.reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0));
-    if (taxDue <= 0 && periods.length > 1) continue;
+    // A period staff has explicitly marked filed uses those REAL filed/paid dates
+    // instead of filedDateStr/paidDateStr (normally "today") — so its on-time/late
+    // status and penalty/interest freeze at the actual filing event rather than
+    // recomputing against whatever day this happens to be rendered.
+    const recorded = recordedFilings?.get(period.end) ?? null;
+    if (taxDue <= 0 && periods.length > 1) {
+      if (recorded) continue;
+      const daysUntilDue = Math.round((new Date(`${period.dueDate}T00:00:00Z`).getTime() - new Date(`${todayStr}T00:00:00Z`).getTime()) / 86400000);
+      if (daysUntilDue > filingDeadlineDaysThreshold) continue;
+    }
     // The sales input row(s) for this period already carry their own Payment
     // Date (set when staff entered/edited that sale) — for a period with no
     // recorded Mark Filed action yet, that's a far better default than
@@ -424,11 +440,6 @@ export async function computeMdFilingBreakdown(
       .filter((d): d is string => d !== null)
       .sort()
       .pop() ?? null;
-    // A period staff has explicitly marked filed uses those REAL filed/paid dates
-    // instead of filedDateStr/paidDateStr (normally "today") — so its on-time/late
-    // status and penalty/interest freeze at the actual filing event rather than
-    // recomputing against whatever day this happens to be rendered.
-    const recorded = recordedFilings?.get(period.end) ?? null;
     const filedDate = recorded?.filedDate ?? salesPaymentDate ?? filedDateStr;
     const paidDate = recorded?.paidDate ?? salesPaymentDate ?? paidDateStr;
     const result = await computeMdFiling(taxDue, period.dueDate, filedDate, paidDate);
