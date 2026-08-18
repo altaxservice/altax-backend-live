@@ -371,7 +371,14 @@ export function TasksListPage() {
     } catch (err) {
       setPageTasks(previousPageTasks);
       setTasks(previousTasks);
-      await notify(err instanceof ApiError ? err.message : "Could not update status.");
+      const message = err instanceof ApiError ? err.message : "Could not update status.";
+      // Same evidence-required rejection TaskDetailPage.tsx's own status control
+      // handles (missingCompletionEvidence, tasks.routes.ts) — but there's no
+      // inline edit form in a table row to open, so send staff to the one place
+      // that has it instead of just naming fields they can't reach from here.
+      const needsEvidence = message.includes("before marking this task Completed");
+      await notify(needsEvidence ? `${message} Opening this task to add them.` : message);
+      if (needsEvidence) navigate(`/tasks/${taskId}?open=edit`);
     } finally {
       setSavingStatusId(null);
     }

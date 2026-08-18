@@ -137,7 +137,13 @@ export function TaskDetailPage() {
       await api.patch(`/tasks/${taskId}`, { status: newStatus });
       load();
     } catch (err) {
-      await notify(err instanceof ApiError ? err.message : "Could not update status.");
+      const message = err instanceof ApiError ? err.message : "Could not update status.";
+      // The one 400 this route can return (missingCompletionEvidence, tasks.routes.ts)
+      // asks for fields that live in the Edit form, not anywhere on this dialog —
+      // opening it right after the notice, instead of just naming the fields and
+      // leaving staff to find them, is what actually unblocks the "Completed" pick.
+      await notify(message.includes("before marking this task Completed") ? `${message} Opening the edit form now.` : message);
+      if (message.includes("before marking this task Completed")) setEditing(true);
     } finally {
       setStatusSaving(false);
     }
