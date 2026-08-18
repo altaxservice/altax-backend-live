@@ -14,12 +14,12 @@ import { CLIENT_TRIGGER_COLUMNS, clientMatchesRule, computeDuePeriod, type DuePe
 
 const ACTIVE_CLIENT_STATUS_FILTER = `(status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))`;
 
-function isoDate(v: unknown): string | null {
+export function isoDate(v: unknown): string | null {
   if (!v) return null;
   return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
 }
 
-function daysBetween(fromIso: string, toIso: string): number {
+export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((new Date(`${toIso}T00:00:00Z`).getTime() - new Date(`${fromIso}T00:00:00Z`).getTime()) / 86400000);
 }
 
@@ -178,7 +178,7 @@ export async function computeFirmWideBookkeepingStaleness(
 // "...payment" diverge immediately, so neither prefixes the other).
 // ---------------------------------------------------------------------------
 
-function taskLabelsLikelyMatch(a: string, b: string): boolean {
+export function taskLabelsLikelyMatch(a: string, b: string): boolean {
   const x = a.trim().toLowerCase();
   const y = b.trim().toLowerCase();
   if (!x || !y) return false;
@@ -186,7 +186,7 @@ function taskLabelsLikelyMatch(a: string, b: string): boolean {
 }
 
 const MISSING_TASK_TRIGGER_COLUMNS = new Set(["eftps_enabled", "md_withholding_frequency", "mdui_enabled", "business_return_type"]);
-const MISSING_TASK_MATCH_WINDOW_DAYS = 5;
+export const MISSING_TASK_MATCH_WINDOW_DAYS = 5;
 
 export interface MissingComplianceTaskGap { ruleId: string; taskType: string; periodLabel: string; dueDate: string }
 
@@ -214,7 +214,7 @@ export interface MissingComplianceTaskGap { ruleId: string; taskType: string; pe
 // above, just triggered by task_type instead of frequency. EFTPS has no
 // such split (a single "EFTPS Deposit" rule covers the whole obligation),
 // so it's unaffected by this exclusion.
-function relevantMissingTaskRules(rules: any[]): any[] {
+export function relevantMissingTaskRules(rules: any[]): any[] {
   return rules.filter((rule) => {
     const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
     if (!col || !MISSING_TASK_TRIGGER_COLUMNS.has(col)) return false;

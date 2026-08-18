@@ -19,7 +19,9 @@ import {
   computeClientPayrollCadenceGap, computeFirmWidePayrollCadenceGaps,
   computeClientBookkeepingStaleness, computeFirmWideBookkeepingStaleness,
   computeClientMissingComplianceTaskGaps, computeFirmWideMissingComplianceTaskGaps,
+  type PayrollCadenceGap, type BookkeepingStaleness, type MissingComplianceTaskGap,
 } from "./complianceGapFlags";
+import { computeClientComplianceTimeline, computeClientComplianceScore } from "./complianceTimeline";
 import { sendEmail } from "../../common/notifications";
 import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
@@ -530,7 +532,13 @@ interface ClientFlag {
  * overpayment/credit-memo concept exists anywhere, and "something else" is
  * by definition not something the system can compute.
  */
-async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
+interface ClientFlagsResult {
+  flags: ClientFlag[];
+  clientRow: any;
+  gaps: { payrollGap: PayrollCadenceGap | null; bookkeepingGap: BookkeepingStaleness | null; missingTaskGaps: MissingComplianceTaskGap[] };
+}
+
+async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> {
   const flags: ClientFlag[] = [];
 
   const overdue = await queryOne<any>(
@@ -560,7 +568,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   }
 
   const clientRow = await queryOne<any>(
-    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency,
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, created_at,
             payroll_enabled, payroll_frequency, eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
@@ -625,11 +633,17 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
   // missing compliance tasks (EFTPS/MD Withholding/MD UI/Business Tax
   // Return) — see complianceGapFlags.ts for what evidence each one requires
   // before it will ever assert a gap. Applies to any client regardless of
-  // state, unlike the MD-only block above.
+  // state, unlike the MD-only block above. Hoisted to outer scope (not just
+  // `if (clientRow)`-local) so they can be returned alongside flags — the
+  // Compliance Score (complianceTimeline.ts) reuses these exact objects
+  // instead of re-querying them a second time.
+  let payrollGap: PayrollCadenceGap | null = null;
+  let bookkeepingGap: BookkeepingStaleness | null = null;
+  let missingTaskGaps: MissingComplianceTaskGap[] = [];
   if (clientRow) {
     const { payrollCadenceGraceDays, bookkeepingStalenessDaysThreshold } = await getDashboardAlertSettings();
 
-    const payrollGap = await computeClientPayrollCadenceGap(clientId, clientRow, payrollCadenceGraceDays);
+    payrollGap = await computeClientPayrollCadenceGap(clientId, clientRow, payrollCadenceGraceDays);
     if (payrollGap) {
       flags.push({
         flagId: null, key: `computed:PayrollCadenceGap:${clientId}`, flagType: "PayrollCadenceGap", amount: null,
@@ -639,7 +653,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
       });
     }
 
-    const bookkeepingGap = await computeClientBookkeepingStaleness(clientId, bookkeepingStalenessDaysThreshold);
+    bookkeepingGap = await computeClientBookkeepingStaleness(clientId, bookkeepingStalenessDaysThreshold);
     if (bookkeepingGap) {
       flags.push({
         flagId: null, key: `computed:BookkeepingStale:${clientId}`, flagType: "BookkeepingStale", amount: null,
@@ -649,7 +663,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
       });
     }
 
-    const missingTaskGaps = await computeClientMissingComplianceTaskGaps(clientId, clientRow);
+    missingTaskGaps = await computeClientMissingComplianceTaskGaps(clientId, clientRow);
     for (const gap of missingTaskGaps) {
       flags.push({
         flagId: null, key: `computed:MissingComplianceTask:${gap.ruleId}:${gap.periodLabel}`, flagType: "MissingComplianceTask", amount: null,
@@ -677,7 +691,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlag[]> {
     });
   }
 
-  return flags;
+  return { flags, clientRow, gaps: { payrollGap, bookkeepingGap, missingTaskGaps } };
 }
 
 /**
@@ -713,7 +727,14 @@ clientsRouter.get("/:clientId/flags", requireAuth, requireRole("admin", "staff")
   if (!(await canAccessClient(req.user!, clientId))) {
     return res.status(403).json({ error: "You do not have access to this client." });
   }
-  res.json({ flags: await computeClientFlags(clientId) });
+  const { flags, clientRow, gaps } = await computeClientFlags(clientId);
+  let complianceScore = null;
+  let complianceTimeline: Awaited<ReturnType<typeof computeClientComplianceTimeline>> = [];
+  if (clientRow) {
+    complianceTimeline = await computeClientComplianceTimeline(clientId, clientRow);
+    complianceScore = computeClientComplianceScore(complianceTimeline, gaps);
+  }
+  res.json({ flags, complianceScore, complianceTimeline });
 }));
 
 clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -919,7 +940,7 @@ const FLAG_TYPE_LABELS_EN: Record<string, string> = {
 async function buildClientFlagsNotification(clientId: string, selectedKeys?: string[]): Promise<{ subject: string; messageEnglish: string; messageArabic: string; count: number; flags: ClientFlag[] } | null> {
   const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return null;
-  const shareable = (await computeClientFlags(clientId)).filter((f) => f.shareWithClient);
+  const shareable = (await computeClientFlags(clientId)).flags.filter((f) => f.shareWithClient);
   if (shareable.length === 0) return null;
   // A one-time, per-send filter only — never touches share_with_client itself
   // (that stays the separate standing toggle via POST .../toggle-share).
@@ -975,7 +996,7 @@ async function buildClientFlagsNotification(clientId: string, selectedKeys?: str
  */
 clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   if (req.user!.role !== "client" || !req.user!.clientId) return res.json({ notices: [] });
-  const flags = (await computeClientFlags(req.user!.clientId)).filter((f) => f.shareWithClient);
+  const flags = (await computeClientFlags(req.user!.clientId)).flags.filter((f) => f.shareWithClient);
   const notices = flags.map((f) => {
     const labelEn = f.category || FLAG_TYPE_LABELS_EN[f.flagType] || f.flagType;
     const labelAr = f.category

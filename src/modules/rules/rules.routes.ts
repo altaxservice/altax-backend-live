@@ -150,6 +150,29 @@ export function computeDuePeriod(rule: any, asOf: Date): DuePeriod | null {
   return null; // Weekly, One-Time, or an unrecognized frequency.
 }
 
+/**
+ * The last `count` periods for a rule, oldest first — built by walking
+ * computeDuePeriod backward rather than duplicating its date math. Feeding a
+ * period's own periodStart back in as the next asOf deterministically yields
+ * the immediately preceding period for every frequency computeDuePeriod
+ * supports (Monthly steps back one month, Quarterly one quarter, Semiannual
+ * one half, Annual one year — verified against each branch above). Stops
+ * early (fewer than `count` results) for Weekly/One-Time/no-due_day rules,
+ * matching computeDuePeriod's own null contract — those simply have no
+ * period grid to walk.
+ */
+export function computeDuePeriodsBack(rule: any, asOf: Date, count: number): DuePeriod[] {
+  const periods: DuePeriod[] = [];
+  let cursor = asOf;
+  for (let i = 0; i < count; i++) {
+    const p = computeDuePeriod(rule, cursor);
+    if (!p) break;
+    periods.push(p);
+    cursor = new Date(`${p.periodStart}T00:00:00Z`);
+  }
+  return periods.reverse();
+}
+
 /** The largest lead time in a rule's comma-separated warning_days ("14,7,3") — how many days before the due date the agent starts drafting. Falls back to 7 when unset/unparseable. */
 function parseMaxWarningDays(rule: any): number {
   const parts = String(rule.warning_days || "").split(",").map((s) => Math.trunc(Number(s.trim()))).filter((n) => Number.isFinite(n) && n >= 0);

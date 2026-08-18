@@ -9,7 +9,7 @@ interface ClientSummary { openTasks: number; openRequests: number; openInvoices:
 
 interface ClientFlag {
   flagId: string | null;
-  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "Credit" | "Custom";
+  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "PayrollCadenceGap" | "BookkeepingStale" | "MissingComplianceTask" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
   color: "red" | "green" | "amber";
@@ -21,6 +21,36 @@ interface ClientFlag {
   category?: string | null;
   details?: string | null;
   dueDate?: string | null;
+}
+
+interface ComplianceScoreComponent { label: string; points: number; maxPoints: number; detail: string }
+interface ClientComplianceScore { score: number; band: "Green" | "Yellow" | "Red"; components: ComplianceScoreComponent[]; currentlyOverdueCount: number }
+interface TimelinePeriod { periodLabel: string; dueDate: string; status: "onTime" | "late" | "missing" | "notYetDue"; filedDate: string | null }
+interface ComplianceTimelineLane { obligationType: string; periods: TimelinePeriod[] }
+
+const TIMELINE_STATUS_COLOR: Record<TimelinePeriod["status"], string> = {
+  onTime: "var(--green)", late: "var(--amber)", missing: "var(--red)", notYetDue: "var(--line)",
+};
+const TIMELINE_STATUS_LABEL: Record<TimelinePeriod["status"], string> = {
+  onTime: "filed on time", late: "filed late", missing: "missing", notYetDue: "not yet due",
+};
+
+/** One obligation's period-by-period strip — small colored squares, oldest to newest, so a pattern ("always late on X") is visible at a glance instead of inferred from today's status alone. */
+function ComplianceTimelineRow({ lane }: { lane: ComplianceTimelineLane }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130 }}>{lane.obligationType}</span>
+      <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {lane.periods.map((p) => (
+          <div
+            key={p.periodLabel}
+            title={`${p.periodLabel} — due ${p.dueDate}${p.filedDate ? `, filed ${p.filedDate}` : ""} (${TIMELINE_STATUS_LABEL[p.status]})`}
+            style={{ width: 14, height: 14, borderRadius: 3, background: TIMELINE_STATUS_COLOR[p.status] }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 interface HealthScoreComponent { label: string; points: number; maxPoints: number; detail: string }
@@ -147,7 +177,14 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
  *   GL-derived estimates (no bank feed or vendor-bill subledger exists in
  *   this app) — always labeled as such per dataLimitations from the API.
  */
-export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId: string; summary: ClientSummary | null; onNavigateTab: (tab: string) => void }) {
+export function ClientAtAGlance({ clientId, summary, flags, complianceScore, complianceTimeline, onNavigateTab }: {
+  clientId: string;
+  summary: ClientSummary | null;
+  flags: ClientFlag[] | null;
+  complianceScore: ClientComplianceScore | null;
+  complianceTimeline: ComplianceTimelineLane[];
+  onNavigateTab: (tab: string) => void;
+}) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const notify = useNotify();
@@ -157,7 +194,6 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
   const [snapshots, setSnapshots] = useState<MonthlySnapshot[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [flags, setFlags] = useState<ClientFlag[] | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
 
   async function handleMarkDone(d: Deadline) {
@@ -172,12 +208,6 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
       setMarkingDone(null);
     }
   }
-
-  useEffect(() => {
-    api.get<{ flags: ClientFlag[] }>(`/clients/${clientId}/flags`)
-      .then((r) => setFlags(r.flags))
-      .catch(() => setFlags(null));
-  }, [clientId]);
 
   useEffect(() => {
     if (!isAdmin) { setDash(null); setSnapshots(null); return; }
@@ -200,6 +230,32 @@ export function ClientAtAGlance({ clientId, summary, onNavigateTab }: { clientId
 
   return (
     <div>
+      {complianceScore && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Compliance Score</h2>
+            <span className={`status-pill ${bandPillClass(complianceScore.band)}`}>{complianceScore.band}</span>
+          </div>
+          <div style={{ fontSize: 40, fontWeight: 850, fontFamily: "var(--serif)" }}>{complianceScore.score}<span style={{ fontSize: 16, color: "var(--muted)" }}> / 100</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
+            {complianceScore.components.map((c) => (
+              <div key={c.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, gap: 12 }}>
+                <span className="muted">{c.label} — {c.detail}</span>
+                <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{c.points}/{c.maxPoints}</span>
+              </div>
+            ))}
+          </div>
+          {complianceTimeline.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              <div className="metric-label">Filing History — last 12 periods</div>
+              {complianceTimeline.map((lane) => (
+                <ComplianceTimelineRow key={lane.obligationType} lane={lane} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Operations</h2>
         <div className="metric-grid">

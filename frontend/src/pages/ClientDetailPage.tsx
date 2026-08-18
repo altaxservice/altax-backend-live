@@ -213,6 +213,27 @@ const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity 
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
+interface ClientFlag {
+  flagId: string | null;
+  flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "PayrollCadenceGap" | "BookkeepingStale" | "MissingComplianceTask" | "Credit" | "Custom";
+  amount: number | null;
+  note: string | null;
+  color: "red" | "green" | "amber";
+  createdAt: string | null;
+  createdBy: string | null;
+  resolvable: boolean;
+  linkTaskId?: string;
+  linkUrl?: string;
+  category?: string | null;
+  details?: string | null;
+  dueDate?: string | null;
+}
+interface ComplianceScoreComponent { label: string; points: number; maxPoints: number; detail: string }
+interface ClientComplianceScore { score: number; band: "Green" | "Yellow" | "Red"; components: ComplianceScoreComponent[]; currentlyOverdueCount: number }
+interface TimelinePeriod { periodLabel: string; dueDate: string; status: "onTime" | "late" | "missing" | "notYetDue"; filedDate: string | null }
+interface ComplianceTimelineLane { obligationType: string; periods: TimelinePeriod[] }
+interface ClientFlagsResponse { flags: ClientFlag[]; complianceScore: ClientComplianceScore | null; complianceTimeline: ComplianceTimelineLane[] }
+
 /** Turns bare URLs in freeform notes into clickable links, matching legacy's linkified notes field. */
 function linkifyNotes(text: string): ReactNode[] {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
@@ -235,6 +256,9 @@ export function ClientDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [client, setClient] = useState<Client | null>(null);
   const [summary, setSummary] = useState<ClientSummary | null>(null);
+  const [flags, setFlags] = useState<ClientFlag[] | null>(null);
+  const [complianceScore, setComplianceScore] = useState<ClientComplianceScore | null>(null);
+  const [complianceTimeline, setComplianceTimeline] = useState<ComplianceTimelineLane[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [form, setForm] = useState<Record<string, any>>({});
@@ -351,6 +375,16 @@ export function ClientDetailPage() {
   const canArchive = user?.role === "admin";
   const canSeeStaffTabs = user?.role === "admin" || user?.role === "staff";
   const visibleTabs = DETAIL_TABS.filter((t) => canSeeStaffTabs || !STAFF_ONLY_TABS.includes(t));
+
+  // Lifted here (rather than fetched inside ClientAtAGlance) so the header's
+  // overdue badge can render regardless of which tab is active, and so
+  // ClientAtAGlance doesn't need its own duplicate fetch of the same response.
+  useEffect(() => {
+    if (!clientId || !canSeeStaffTabs) { setFlags(null); setComplianceScore(null); setComplianceTimeline([]); return; }
+    api.get<ClientFlagsResponse>(`/clients/${clientId}/flags`)
+      .then((r) => { setFlags(r.flags); setComplianceScore(r.complianceScore); setComplianceTimeline(r.complianceTimeline); })
+      .catch(() => { setFlags(null); setComplianceScore(null); setComplianceTimeline([]); });
+  }, [clientId, canSeeStaffTabs]);
 
   useEffect(() => {
     if (!canEdit) return;
@@ -610,6 +644,11 @@ export function ClientDetailPage() {
             <div className="muted" style={{ fontSize: 13, margin: "-2px 0 6px" }}>DBA: {client.dba_name as string}</div>
           )}
           <StatusBadge status={client.status} />
+          {complianceScore && complianceScore.currentlyOverdueCount > 0 && (
+            <span className="status-pill status-red" style={{ marginLeft: 6 }}>
+              {complianceScore.currentlyOverdueCount} Overdue
+            </span>
+          )}
           <LabelChips labels={clientLabelList} onRemove={canEdit ? unassignClientLabel : undefined} />
           {canEdit && (
             <LabelPicker allLabels={allLabels} assignedIds={new Set(clientLabelList.map((l) => l.label_id))} onAdd={assignClientLabel} />
@@ -861,6 +900,9 @@ export function ClientDetailPage() {
             <ClientAtAGlance
               clientId={client.client_id}
               summary={summary}
+              flags={flags}
+              complianceScore={complianceScore}
+              complianceTimeline={complianceTimeline}
               onNavigateTab={(t) => { setTab(t as DetailTab); setSearchParams({ tab: t }, { replace: true }); }}
             />
           )}
