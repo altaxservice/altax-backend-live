@@ -2320,12 +2320,25 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
     const oldFreq = String(old.sales_tax_frequency || "").trim();
     const effectiveDateRaw = String(body.salesTaxFrequencyEffectiveDate || "").trim();
     const effectiveDateProvided = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDateRaw);
-    const effectiveDate = effectiveDateProvided ? effectiveDateRaw : new Date().toISOString().slice(0, 10);
     const openRow = await queryOne<{ effective_from: string; frequency: string }>(
       `SELECT effective_from::date::text AS effective_from, frequency FROM altax.v3_client_sales_tax_frequency_history
         WHERE client_id = $1 AND effective_to IS NULL`,
       [clientId]
     );
+    // When staff doesn't type an explicit effective date, "today" is only the
+    // right default if this client already has real frequency coverage to
+    // build forward from (openRow exists) — that's a genuine "changing as of
+    // today" edit. If this is the client's very FIRST-EVER frequency history
+    // row (openRow is null), defaulting to today silently orphans any real
+    // sales/tax data recorded before today from every report and flag that
+    // depends on frequency history (splitIntoMdFilingPeriodsForClient never
+    // looks earlier than the earliest row) — a real production gap found
+    // 2026-08-18 across 6 clients whose frequency had been set via this PATCH
+    // path with no prior history row. The client CREATE path already anchors
+    // brand-new clients at this same sentinel (see "2000-01-01" above, used
+    // unconditionally for every new client); this closes the other way a
+    // client ends up with a frequency assigned for the first time.
+    const effectiveDate = effectiveDateProvided ? effectiveDateRaw : (openRow ? new Date().toISOString().slice(0, 10) : "2000-01-01");
     // Two distinct real edits share this one form field set: (a) the frequency
     // is genuinely changing, or (b) staff is correcting WHEN the already-open
     // segment started — e.g. it was saved with today's default date and the
