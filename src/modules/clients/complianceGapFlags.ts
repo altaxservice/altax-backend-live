@@ -197,16 +197,29 @@ export interface MissingComplianceTaskGap { ruleId: string; taskType: string; pe
 // clients respectively out of the whole active client base, on a fresh
 // re-check). That's not individual clients falling behind — it's that annual
 // return prep and MW508 are handled directly during tax season and were
-// never tracked through this task system to begin with, unlike the
-// Monthly/Quarterly rules in this same group (EFTPS, MD UI, MD Withholding
-// filing/payment), which showed real, plausible, individually-varying gaps
-// (8/11/15 clients). Scoped out entirely rather than guessing at a
-// per-client answer the app has no data to support.
+// never tracked through this task system to begin with. Scoped out entirely
+// rather than guessing at a per-client answer the app has no data to support.
+//
+// Second real production data check (2026-08-18, against actual production —
+// the first check above ran against the dev database by mistake and missed
+// this): MD UI and MD Withholding each define a separate Filing rule
+// (TR-009, TR-014*) AND Payment rule (TR-010, TR-015*) for the same
+// obligation, but staff only ever create ONE combined task per period,
+// always named "... Filing" — confirmed zero tasks named "...payment" exist
+// anywhere in production (open or archived) for either obligation, across
+// every client. The Payment rule variant would therefore flag nearly every
+// enrolled client every period, not because payment was actually missed,
+// but because "Payment" was never tracked as a task distinct from "Filing"
+// to begin with — the same false-positive shape as the Annual exclusion
+// above, just triggered by task_type instead of frequency. EFTPS has no
+// such split (a single "EFTPS Deposit" rule covers the whole obligation),
+// so it's unaffected by this exclusion.
 function relevantMissingTaskRules(rules: any[]): any[] {
   return rules.filter((rule) => {
     const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
     if (!col || !MISSING_TASK_TRIGGER_COLUMNS.has(col)) return false;
-    return String(rule.frequency || "").trim().toLowerCase() !== "annual";
+    if (String(rule.frequency || "").trim().toLowerCase() === "annual") return false;
+    return !/\bpayment$/i.test(String(rule.task_type || "").trim());
   });
 }
 
