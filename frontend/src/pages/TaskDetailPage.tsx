@@ -15,6 +15,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
+import { useSelectedClient } from "../context/SelectedClientContext";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -66,6 +67,7 @@ export function TaskDetailPage() {
   const notify = useNotify();
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
+  const { setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const openParam = searchParams.get("open");
   const [task, setTask] = useState<Task | null>(null);
@@ -111,6 +113,18 @@ export function TaskDetailPage() {
   }
 
   useEffect(load, [taskId]);
+
+  // The sidebar ClientContextPanel reads a globally-persisted "selected client"
+  // (SelectedClientContext, backed by localStorage) that's normally only set by
+  // list-page row clicks — opening a task by direct link, deep link, or Prev/Next
+  // paging never touched it, so the panel kept showing whichever client was last
+  // explicitly clicked instead of the client this task actually belongs to.
+  // Re-deriving it from the loaded task on every load keeps it correct regardless
+  // of how this page was reached.
+  useEffect(() => {
+    if (task) setSelectedClient(task.client_id, task.client_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.client_id, task?.client_name]);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();

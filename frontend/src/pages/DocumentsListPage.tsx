@@ -11,6 +11,7 @@ import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { saveListOrder } from "../utils/listNav";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 
@@ -185,6 +186,11 @@ export function DocumentsListPage() {
     if (q) rows = rows.filter((r) => [r.requested_item, r.client_name, r.assigned_to, r.status].some((v) => String(v || "").toLowerCase().includes(q)));
     return rows;
   }, [scopedRequests, statusFilter, period, search]);
+
+  // Powers DocumentDetailPage's Previous/Next paging — see utils/listNav.ts.
+  useEffect(() => {
+    saveListOrder("documents", filteredRequests.map((r) => r.request_id));
+  }, [filteredRequests]);
 
   const openRequestsAll = useMemo(() => scopedRequests.filter((r) => !hasFile(r) && !CLOSED_STATUSES.includes(String(r.status || "").toLowerCase())), [scopedRequests]);
   const overdueAll = useMemo(() => openRequestsAll.filter(isOverdue), [openRequestsAll]);

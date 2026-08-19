@@ -5,6 +5,7 @@ import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from 
 import type { TaxRate, CoaAccount, Employee } from "../api/types2";
 import type { Client } from "../api/types";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { saveListOrder } from "../utils/listNav";
 import { fmtDateOnly as fmtDate } from "../utils/date";
 import type { PaymentMethod } from "../api/types2";
 import { StatusBadge } from "../components/StatusBadge";
@@ -52,6 +53,18 @@ export function AccountingPage() {
 
   const client = clients.find((c) => c.client_id === clientId);
   const needsClient = CLIENT_SCOPED_TABS.includes(tab);
+
+  // ?client= is allowed to win over the globally-selected client (see above),
+  // but the sidebar ClientContextPanel reads only the global context — so a
+  // direct/deep link that lands here with a ?client= different from whatever
+  // was last clicked elsewhere left the panel showing the wrong client's
+  // notes/flags/contact info while the books on screen were the right ones.
+  // Re-syncing here means the panel always matches what's actually loaded,
+  // the same fix as TaskDetailPage.tsx and InvoiceDetailPage.tsx.
+  useEffect(() => {
+    if (clientId && clientId !== globalClientId) setSelectedClient(clientId, client?.client_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, client?.client_name]);
 
   function handleClientChange(id: string) {
     setClientId(id);
@@ -2381,6 +2394,13 @@ function WorkerProfilesSection({ clientId, clientState, workerType, onWorkersCha
   const visibleWorkers = workerSearchQ
     ? workers.filter((e) => [e.employee_name, e.employee_id, e.pay_type, e.state, e.status].some((v) => String(v || "").toLowerCase().includes(workerSearchQ)))
     : workers;
+
+  // Powers EmployeeDetailPage's Previous/Next paging — see utils/listNav.ts.
+  // Employees and Contractors share one route (/employees/:id), so both tabs
+  // write to the same "employees" key.
+  useEffect(() => {
+    saveListOrder("employees", visibleWorkers.map((e) => e.employee_id));
+  }, [visibleWorkers]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

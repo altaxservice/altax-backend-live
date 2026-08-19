@@ -9,6 +9,8 @@ import { UploadToPortalModal } from "../components/UploadToPortalModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
@@ -220,10 +222,13 @@ export function EmployeeDetailPage() {
 
   return (
     <div>
-      <BackLink
-        fallback={`/accounting?client=${employee.client_id}&tab=${isContractor ? "Contractors" : "Employees"}`}
-        fallbackLabel={isContractor ? "Contractors" : "Employees"}
-      />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink
+          fallback={`/accounting?client=${employee.client_id}&tab=${isContractor ? "Contractors" : "Employees"}`}
+          fallbackLabel={isContractor ? "Contractors" : "Employees"}
+        />
+        <PrevNextNav basePath="/employees" {...getAdjacentIds("employees", employeeId)} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{employee.employee_name}</h1>

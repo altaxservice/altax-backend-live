@@ -10,6 +10,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { saveListOrder } from "../utils/listNav";
 import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
 import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { AddRecurringModal } from "../components/AddRecurringModal";
@@ -293,6 +294,11 @@ export function InvoicesListPage() {
     if (q) rows = rows.filter((i) => [i.invoice_id, clientName(i.client_id), i.description, i.total_amount].some((v) => String(v || "").toLowerCase().includes(q)));
     return rows;
   }, [invoices, clientIdFilter, statusFilter, search, clients]);
+
+  // Powers InvoiceDetailPage's Previous/Next paging — see utils/listNav.ts.
+  useEffect(() => {
+    saveListOrder("invoices", filteredInvoices.map((i) => i.invoice_id));
+  }, [filteredInvoices]);
 
   const filteredSchedules = useMemo(() => {
     let rows = schedules || [];

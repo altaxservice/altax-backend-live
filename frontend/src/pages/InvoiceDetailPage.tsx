@@ -8,11 +8,14 @@ import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { SendInvoiceModal } from "../components/SendInvoiceModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
 import { useToast } from "../components/Toast";
 import { fmtDateOnly } from "../utils/date";
 import { METHODS, ACCOUNT_TYPES, MANUAL_PROFILE, PaymentProfileField } from "./InvoicesListPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { useSelectedClient } from "../context/SelectedClientContext";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -54,12 +57,24 @@ export function InvoiceDetailPage() {
   const [editing, setEditing] = useState(false);
   const [showSend, setShowSend] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const { setSelectedClient } = useSelectedClient();
 
   const canManage = user?.role === "admin" || user?.role === "staff";
 
   useEffect(() => {
     if (canManage) api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
   }, [canManage]);
+
+  // Keeps the sidebar ClientContextPanel in sync with whichever client this
+  // invoice actually belongs to — see TaskDetailPage.tsx for the same fix and
+  // the full rationale (a stale globally-persisted "selected client" otherwise
+  // sits in the sidebar until the user happens to click a list row elsewhere).
+  useEffect(() => {
+    if (!invoice) return;
+    const name = clients.find((c) => c.client_id === invoice.client_id)?.client_name;
+    setSelectedClient(invoice.client_id, name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoice?.client_id, clients]);
 
   async function handleViewInvoice() {
     if (!invoiceId) return;
@@ -217,7 +232,10 @@ export function InvoiceDetailPage() {
 
   return (
     <div>
-      <BackLink fallback="/billing" fallbackLabel="All invoices" />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink fallback="/billing" fallbackLabel="All invoices" />
+        <PrevNextNav basePath="/billing" {...getAdjacentIds("invoices", invoiceId)} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{invoice.invoice_id}</h1>

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, ApiError, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
@@ -273,7 +275,10 @@ export function EstimateDetailPage() {
 
   return (
     <div>
-      <BackLink fallback="/estimates" fallbackLabel="All estimates" />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink fallback="/estimates" fallbackLabel="All estimates" />
+        <PrevNextNav basePath="/estimates" {...getAdjacentIds("estimates", estimateId)} />
+      </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, margin: "8px 0 20px" }}>
         <div>

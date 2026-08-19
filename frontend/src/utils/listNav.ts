@@ -13,7 +13,9 @@
  */
 const KEY_PREFIX = "listNav:";
 
-export function saveListOrder(entity: "clients" | "tasks", ids: string[]): void {
+type ListEntity = "clients" | "tasks" | "invoices" | "estimates" | "employees" | "documents";
+
+export function saveListOrder(entity: ListEntity, ids: string[]): void {
   try {
     sessionStorage.setItem(KEY_PREFIX + entity, JSON.stringify(ids));
   } catch {
@@ -21,7 +23,7 @@ export function saveListOrder(entity: "clients" | "tasks", ids: string[]): void 
   }
 }
 
-export function getAdjacentIds(entity: "clients" | "tasks", currentId: string | undefined | null): { prevId: string | null; nextId: string | null } {
+export function getAdjacentIds(entity: ListEntity, currentId: string | undefined | null): { prevId: string | null; nextId: string | null } {
   if (!currentId) return { prevId: null, nextId: null };
   try {
     const raw = sessionStorage.getItem(KEY_PREFIX + entity);

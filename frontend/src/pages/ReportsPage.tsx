@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, viewFile, downloadFile, printFile, fetchAuthedBlob, buildFilename } from "../api/client";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
@@ -125,9 +125,13 @@ export function ReportsPage() {
   const navigate = useNavigate();
   const notify = useNotify();
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
+  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>("Financial Overview");
   const [clients, setClients] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState(globalClientId || "");
+  // ?clientId= wins over the globally selected client — ClientAtAGlance's
+  // "Reports" link passes it, and this page used to ignore it entirely and
+  // silently fall back to whatever client was last selected elsewhere.
+  const [clientId, setClientId] = useState(searchParams.get("clientId") || globalClientId || "");
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [entries, setEntries] = useState<any[]>([]);
@@ -162,6 +166,17 @@ export function ReportsPage() {
   useEffect(() => {
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
   }, []);
+
+  // Keeps the sidebar ClientContextPanel in sync with whichever client is
+  // actually on screen — see AccountingPage.tsx/TaskDetailPage.tsx for the
+  // same fix and the full rationale (a ?clientId= link, or any client change
+  // here, otherwise left the panel showing a stale, previously-selected client).
+  useEffect(() => {
+    if (clientId && clientId !== globalClientId) {
+      setSelectedClient(clientId, clients.find((c) => c.client_id === clientId)?.client_name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, clients]);
 
   // The Chart of Accounts' own account_type is the authoritative source for
   // bucketFor() below — see backend reports.routes.ts's ensureCoaTypeCache for why

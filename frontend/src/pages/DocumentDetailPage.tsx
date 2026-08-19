@@ -5,6 +5,9 @@ import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2"
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
+import { PrevNextNav } from "../components/PrevNextNav";
+import { getAdjacentIds } from "../utils/listNav";
+import { useSelectedClient } from "../context/SelectedClientContext";
 import { useToast } from "../components/Toast";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { fmtDateTime } from "../utils/date";
@@ -52,6 +55,7 @@ export function DocumentDetailPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const canManage = user?.role === "admin" || user?.role === "staff";
+  const { setSelectedClient } = useSelectedClient();
 
   function load() {
     if (!requestId) return;
@@ -69,6 +73,14 @@ export function DocumentDetailPage() {
   useEffect(load, [requestId]);
   useEffect(loadUploads, [requestId]);
   useEffect(() => { if (canManage) api.get<WebOptions>("/system/options").then(setOptions).catch(() => {}); }, [canManage]);
+
+  // Keeps the sidebar ClientContextPanel in sync with whichever client this
+  // document request actually belongs to — see TaskDetailPage.tsx for the
+  // same fix and the full rationale.
+  useEffect(() => {
+    if (request) setSelectedClient(request.client_id, request.client_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.client_id, request?.client_name]);
 
   const visibleUploads = (uploads || []).filter((u) => u.status !== "Removed");
 
@@ -188,7 +200,10 @@ export function DocumentDetailPage() {
 
   return (
     <div>
-      <BackLink fallback="/documents" fallbackLabel="All documents" />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <BackLink fallback="/documents" fallbackLabel="All documents" />
+        <PrevNextNav basePath="/documents" {...getAdjacentIds("documents", requestId)} />
+      </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 24px", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>{request.requested_item}</h1>

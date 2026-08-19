@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useStickyState } from "../utils/listState";
+import { saveListOrder } from "../utils/listNav";
 import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type Estimate } from "../api/estimates";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -55,6 +56,11 @@ export function EstimatesListPage() {
     if (q && ![e.estimate_number, e.business_name, e.status, e.entity_type, e.business_type].some((v) => String(v || "").toLowerCase().includes(q))) return false;
     return true;
   });
+
+  // Powers EstimateDetailPage's Previous/Next paging — see utils/listNav.ts.
+  useEffect(() => {
+    saveListOrder("estimates", filtered.map((e) => e.estimate_id));
+  }, [filtered]);
 
   const pipeline = (estimates || [])
     .filter((e) => e.status === "Draft" || e.status === "Contacted" || e.status === "Sent")
