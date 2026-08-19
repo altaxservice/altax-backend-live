@@ -104,6 +104,8 @@ export function HaccpGeneratorPage() {
   const [customEquipmentInput, setCustomEquipmentInput] = useState("");
   const [showBulkMenuInput, setShowBulkMenuInput] = useState(false);
   const [bulkMenuInput, setBulkMenuInput] = useState("");
+  const [copyFromPlanId, setCopyFromPlanId] = useState("");
+  const [copyingItems, setCopyingItems] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -115,6 +117,11 @@ export function HaccpGeneratorPage() {
   useEffect(() => {
     api.get<HaccpOptions>("/haccp/options").then(setOptions).catch(() => {});
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
+    // Needed on the Generate tab too, not just Saved Plans — powers "Copy
+    // Items From Another Plan" below, so every previously-built plan is a
+    // reusable item list for the next similar business, not a one-off.
+    loadPlans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function loadPlans() {
@@ -177,6 +184,35 @@ export function HaccpGeneratorPage() {
     setSelectedMenu((prev) => new Set([...prev, ...lines]));
     setBulkMenuInput("");
     setShowBulkMenuInput(false);
+  }
+
+  /**
+   * Pulls the menu + equipment selections from an already-saved plan into
+   * the one being built now — the real fix for "another business has the
+   * same menu": once ANY plan has its items entered, every plan after it
+   * (a second location, a similar carryout, a franchise sibling) is a
+   * one-click reuse instead of re-pasting or re-typing the same list again.
+   * Adds to whatever's already selected here rather than replacing it, and
+   * never touches business info/license fields — only items.
+   */
+  async function copyItemsFromPlan(planId: string) {
+    if (!planId) return;
+    setCopyingItems(true);
+    try {
+      const r = await api.get<{ plan: HaccpPlanDetail }>(`/haccp/plans/${planId}`);
+      setSelectedMenu((prev) => new Set([...prev, ...(r.plan.selected_menu_items || [])]));
+      setSelectedEquipment((prev) => {
+        const existingKeys = new Set(prev.map((e) => e.key));
+        const additions = (r.plan.selected_equipment || []).filter((e) => !existingKeys.has(e.key));
+        return [...prev, ...additions];
+      });
+      toast(`Copied items from ${r.plan.business_name}.`);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not load that plan's items.");
+    } finally {
+      setCopyingItems(false);
+      setCopyFromPlanId("");
+    }
   }
 
   function toggleEquipment(key: string, label: string) {
@@ -471,6 +507,21 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={clearAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Clear All</button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.</p>
+          {(plans || []).filter((p) => p.plan_id !== form.planId).length > 0 && (
+            <div className="field" style={{ maxWidth: 340, marginBottom: 10 }}>
+              <label htmlFor="hp-copy-plan">Copy Items From Another Plan (optional)</label>
+              <select
+                id="hp-copy-plan" value={copyFromPlanId} disabled={copyingItems}
+                onChange={(e) => { const id = e.target.value; setCopyFromPlanId(id); if (id) copyItemsFromPlan(id); }}
+              >
+                <option value="">{copyingItems ? "Copying…" : "Choose a saved plan…"}</option>
+                {(plans || []).filter((p) => p.plan_id !== form.planId).map((p) => (
+                  <option key={p.plan_id} value={p.plan_id}>{p.business_name} ({p.plan_id})</option>
+                ))}
+              </select>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>Adds that plan's menu &amp; equipment to what's checked here — doesn't touch business info.</div>
+            </div>
+          )}
           {menuCategoriesToShow.map((cat) => (
             <div key={cat.category} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
