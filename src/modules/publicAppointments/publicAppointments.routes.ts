@@ -16,6 +16,7 @@ import { query, queryOne, pool } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { sendPushToUsers } from "../../common/webPush";
 import { logAudit } from "../../common/audit";
 import { createAppointment, notifyAppointment, notifyStaffOfAppointmentChange } from "../appointments/appointments.routes";
 import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
@@ -410,6 +411,15 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
         }
       }
     }
+    // Real phone push, on top of the email above — fires even if the admin's
+    // phone never shows the email (Mail app closed, push-to-inbox delayed,
+    // etc). Best-effort and silently a no-op if push isn't configured/no
+    // admin has a device subscribed — see webPush.ts.
+    await sendPushToUsers(admins.map((a: any) => a.email), {
+      title: `📅 New Booking — ${name}`,
+      body: `${whenShort} · ${isReturning ? "Existing Client" : "New Prospect"}`,
+      url: "/calendar",
+    });
   } catch (err) {
     if (!(err instanceof NotConfiguredError)) {
       // eslint-disable-next-line no-console

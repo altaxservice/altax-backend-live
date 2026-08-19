@@ -206,6 +206,110 @@ function AppointmentTypesManager() {
   );
 }
 
+/** VAPID public key (base64url, no padding) -> the raw byte array pushManager.subscribe() needs. Standard Web Push conversion — the browser API only accepts this shape, not the base64 string itself. */
+function urlBase64ToUint8Array(base64: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = window.atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+interface PushStatus { configured: boolean; subscribedDeviceCount: number; publicKey: string | null }
+
+/**
+ * Lets an admin opt THIS device into real phone push for new online
+ * bookings — on top of the admin-confirmation email, which fires either way.
+ * "This device" because a Web Push subscription is per browser+device, not
+ * per account — an admin working from both a phone and a laptop enables each
+ * separately, and each shows up as its own row server-side.
+ */
+function PushNotificationsCard() {
+  const notify = useNotify();
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const [subscribedHere, setSubscribedHere] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window;
+
+  function load() {
+    api.get<PushStatus>("/push/status").then(setStatus).catch(() => {});
+    if (supported) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.pushManager.getSubscription())
+        .then((sub) => setSubscribedHere(Boolean(sub)))
+        .catch(() => {});
+    }
+  }
+  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleEnable() {
+    if (!status?.publicKey) return;
+    setBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        await notify("Notifications were blocked. Check this browser/phone's site settings to allow them, then try again.");
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(status.publicKey) as BufferSource });
+      await api.post("/push/subscribe", { subscription: subscription.toJSON() });
+      setSubscribedHere(true);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not enable push notifications on this device.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDisable() {
+    setBusy(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const subscription = await reg.pushManager.getSubscription();
+      if (subscription) {
+        await api.post("/push/unsubscribe", { endpoint: subscription.endpoint });
+        await subscription.unsubscribe();
+      }
+      setSubscribedHere(false);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not disable push notifications on this device.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="field">
+      <label>Phone / Desktop Push Notifications</label>
+      {!supported && (
+        <p className="muted" style={{ fontSize: 12.5, margin: "4px 0 0" }}>
+          This browser doesn't support push notifications. On an iPhone, the app must be added to the Home Screen first (Share → Add to Home Screen), then opened from there.
+        </p>
+      )}
+      {supported && status && !status.configured && (
+        <p className="muted" style={{ fontSize: 12.5, margin: "4px 0 0" }}>
+          Not set up yet — VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY need to be added to the backend environment first.
+        </p>
+      )}
+      {supported && status?.configured && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-sm" disabled={busy} onClick={subscribedHere ? handleDisable : handleEnable}>
+            {busy ? "Working…" : subscribedHere ? "Disable on This Device" : "Enable on This Device"}
+          </button>
+          <span className="muted" style={{ fontSize: 12.5 }}>
+            {subscribedHere
+              ? "On for this device — you'll get a phone/desktop alert the moment a client books online."
+              : status.subscribedDeviceCount > 0
+              ? `Off here, but on for ${status.subscribedDeviceCount} other device${status.subscribedDeviceCount === 1 ? "" : "s"} on your account.`
+              : "Off — new bookings still email every admin either way."}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Calendar Settings (admin-only) — controls what the public /book page and the
  * "+ New Appointment" default offer: which weekdays are bookable, business
@@ -263,6 +367,8 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
         confirmation/reminder — which days and hours are bookable, the appointment durations someone can choose from,
         the office location, and the policy text that gets appended in English and Arabic.
       </p>
+
+      <PushNotificationsCard />
 
       <div className="field">
         <label>Bookable Days</label>

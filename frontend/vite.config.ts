@@ -53,6 +53,15 @@ export default defineConfig({
         // shell instead of the marketing homepage, with no cache entry for "/" itself —
         // exactly this aliasing. Disabling it is required for the denylist to mean anything.
         directoryIndex: null,
+        // Loads the hand-written push/notificationclick listeners (public/push-sw.js)
+        // into the generated service worker — those are plain self.addEventListener
+        // calls independent of Workbox's own routing, so they don't need to be
+        // "generated" the way navigateFallback/runtimeCaching above do. Keeping them
+        // in a separate importScripts file means switching to injectManifest mode
+        // (which would require hand-reimplementing every rule above from scratch,
+        // including the hard-won navigateFallbackDenylist/directoryIndex fixes) isn't
+        // needed just to add push support.
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             // GET-only, read-mostly API prefixes safe to serve stale-while-offline.

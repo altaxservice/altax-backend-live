@@ -44,6 +44,7 @@ import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete
 import { runDailyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
+import { pushSubscriptionsRouter } from "./modules/pushSubscriptions/pushSubscriptions.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
 import { publicContractRouter } from "./modules/contracts/publicContract.routes";
 import { publicMessageRouter } from "./modules/communications/publicMessage.routes";
@@ -287,6 +288,7 @@ app.use("/reminders", remindersRouter);
 app.use("/appointments", appointmentsRouter);
 app.use("/firm-settings", firmSettingsRouter);
 app.use("/appointment-settings", appointmentSettingsRouter);
+app.use("/push", pushSubscriptionsRouter);
 app.use("/contracts", contractsRouter);
 app.use("/public/contracts", publicContractRouter);
 app.use("/public/messages", publicMessageRouter);
