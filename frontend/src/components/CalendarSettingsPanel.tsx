@@ -21,6 +21,7 @@ interface AppointmentSettings {
   bookableWeekdays: { mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean; sun: boolean };
   slotMinutes: number;
   gapMinutes: number;
+  minLeadMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
@@ -43,6 +44,15 @@ const WEEKDAYS: { key: keyof AppointmentSettings["bookableWeekdays"]; label: str
 ];
 const SLOT_OPTIONS = [15, 20, 30, 45, 60, 90, 120];
 const GAP_OPTIONS = [0, 5, 10, 15, 20, 30, 45, 60];
+const MIN_LEAD_OPTIONS = [
+  { minutes: 0, label: "No minimum" },
+  { minutes: 60, label: "1 hour" },
+  { minutes: 120, label: "2 hours" },
+  { minutes: 240, label: "4 hours" },
+  { minutes: 720, label: "12 hours" },
+  { minutes: 1440, label: "24 hours" },
+  { minutes: 2880, label: "48 hours" },
+];
 // Mirrors REMINDER_LEAD_PRESETS in src/common/appointmentSettings.ts — the backend
 // is the source of truth (its DB CHECK constraint enforces this exact list); this
 // copy only drives which checkboxes render.
@@ -283,6 +293,12 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
           <label htmlFor="cal-gap-minutes">Gap Between Appointments</label>
           <select id="cal-gap-minutes" value={settings.gapMinutes} onChange={(e) => setSettings((s) => s && { ...s, gapMinutes: Number(e.target.value) })}>
             {GAP_OPTIONS.map((m) => <option key={m} value={m}>{m === 0 ? "No gap" : `${m} min`}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="cal-min-lead">Minimum Advance Notice <span className="muted" style={{ fontWeight: 400 }}>(same-day cutoff)</span></label>
+          <select id="cal-min-lead" value={settings.minLeadMinutes} onChange={(e) => setSettings((s) => s && { ...s, minLeadMinutes: Number(e.target.value) })}>
+            {MIN_LEAD_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
           </select>
         </div>
         <div className="field">

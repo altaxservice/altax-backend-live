@@ -78,6 +78,12 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   const slots: string[] = [];
   const nowMs = Date.now();
   const gapMs = settings.gapMinutes * 60 * 1000;
+  // Minimum advance notice a client must give — separate from gapMs (spacing
+  // between two different appointments). Applied as a floor on top of "now"
+  // rather than a separate check, so every candidate slot below (both the
+  // hourly grid and the gap-boundary slots) automatically respects it.
+  const minLeadMs = settings.minLeadMinutes * 60 * 1000;
+  const earliestBookableMs = nowMs + minLeadMs;
   const { startHour, endHour } = hoursForDay(settings, jsDay);
   const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
   const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
@@ -86,7 +92,7 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
       const startIso = slotToUtcIso(y, mo, d, hour, minute);
       const startMs = new Date(startIso).getTime();
       const endMs = startMs + durationMinutes * 60 * 1000;
-      if (startMs <= nowMs) continue;
+      if (startMs < earliestBookableMs) continue;
       if (endMs > dayCloseMs) continue;
       // Padded by gapMs on both sides so a candidate slot that would land
       // less than the configured gap away from an existing appointment
@@ -102,7 +108,7 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   // earliest next-available time — as bookable.
   for (const r of bookedRanges) {
     const startMs = r.end + gapMs;
-    if (startMs <= nowMs || startMs < dayOpenMs) continue;
+    if (startMs < earliestBookableMs || startMs < dayOpenMs) continue;
     const endMs = startMs + durationMinutes * 60 * 1000;
     if (endMs > dayCloseMs) continue;
     const overlaps = bookedRanges.some((other) => startMs < other.end + gapMs && endMs > other.start - gapMs);
@@ -353,30 +359,50 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       `SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`
     );
     const when = new Date(startTime).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" });
+    // Short form for the SUBJECT LINE specifically — this is what actually
+    // shows up as a phone lock-screen/notification-shade banner (the full
+    // "Tuesday, August 25, 2026 at 2:00 PM" form above gets truncated before
+    // the time even appears). Day+date+time up front means an admin can tell
+    // when the appointment is without opening the notification at all.
+    const whenShort = new Date(startTime).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const isReturning = Boolean(matchedClientId);
     // This entire email is built from unauthenticated public input (name/phone/
     // email/reason) — unlike every other email builder in this app, this one
     // used to interpolate it raw. A booking named e.g. `<a href=...>Urgent...`
     // would render as a live link inside the firm's own internal admin
     // notification. Escape everything, and only convert newlines to <br> AFTER
     // escaping so the <br> tags themselves don't get escaped too.
-    const badge = matchedClientId
-      ? `<span style="background:#e6f4ea;color:#1e7e34;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700;">RETURNING CLIENT</span>`
-      : `<span style="background:#fff4e5;color:#a15c00;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700;">NEW PROSPECT</span>`;
+    const badge = isReturning
+      ? `<span style="background:#e6f4ea;color:#1e7e34;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">RETURNING CLIENT</span>`
+      : `<span style="background:#fff4e5;color:#a15c00;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">NEW PROSPECT</span>`;
+    // Loud, high-contrast top band with the date/time front and center — the
+    // one thing a plain paragraph list buried: an admin scanning a phone
+    // notification, or skimming an inbox, previously had to read past the
+    // name and badge to even find when the appointment is.
     const html = `
-      <h2>New consultation booked online ${badge}</h2>
-      <p><strong>Name:</strong> ${escapeHtml(name)}</p>
-      <p><strong>Phone:</strong> ${phone ? escapeHtml(phone) : "not provided"}</p>
-      <p><strong>Email:</strong> ${email ? escapeHtml(email) : "not provided"}</p>
-      <p><strong>When:</strong> ${when} ET</p>
-      ${reason ? `<p><strong>Notes:</strong><br>${escapeHtml(reason).replace(/\n/g, "<br>")}</p>` : ""}
-      <p style="color:#777;font-size:12px;">Booked via the public /book page &middot; ${escapeHtml(appointmentId)}</p>
+      <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+        <div style="background:#0f5132;color:#ffffff;padding:18px 20px;border-radius:10px 10px 0 0;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">📅 New Online Booking</div>
+          <div style="font-size:22px;font-weight:800;margin-top:4px;">${when} ET</div>
+        </div>
+        <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:20px;">
+          <div style="margin-bottom:14px;">${badge}</div>
+          <table style="width:100%;border-collapse:collapse;font-size:14.5px;">
+            <tr><td style="padding:5px 0;color:#666;width:70px;">Name</td><td style="padding:5px 0;font-weight:700;">${escapeHtml(name)}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Phone</td><td style="padding:5px 0;">${phone ? escapeHtml(phone) : "not provided"}</td></tr>
+            <tr><td style="padding:5px 0;color:#666;">Email</td><td style="padding:5px 0;">${email ? escapeHtml(email) : "not provided"}</td></tr>
+          </table>
+          ${reason ? `<div style="margin-top:14px;padding:10px 12px;background:#f7f7f5;border-radius:8px;font-size:13.5px;"><strong>Notes:</strong><br>${escapeHtml(reason).replace(/\n/g, "<br>")}</div>` : ""}
+          <p style="color:#999;font-size:11.5px;margin:16px 0 0;">Booked via the public /book page &middot; ${escapeHtml(appointmentId)}</p>
+        </div>
+      </div>
     `;
     // Per-admin try/catch — previously one admin's failed send (bad address,
     // transient SMTP error) aborted the whole loop, so the rest of the firm's
     // admins never learned a new consultation was booked online.
     for (const admin of admins) {
       try {
-        await sendEmail({ to: admin.email, subject: `${matchedClientId ? "Consultation" : "New prospect"} booked — ${name}`, html });
+        await sendEmail({ to: admin.email, subject: `📅 ${whenShort} — ${name} booked online (${isReturning ? "Existing Client" : "New Prospect"})`, html });
       } catch (err) {
         if (!(err instanceof NotConfiguredError)) {
           // eslint-disable-next-line no-console
