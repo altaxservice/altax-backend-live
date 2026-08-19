@@ -5,6 +5,7 @@ import {
   computeClientCogs, computeClientRatios, computeClientHealthScore, computeRevenueTrend, computeMdFilingForReport, loadPayrollForPeriod,
 } from "../reports/reports.routes";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
+import { summarizeMdFilingOnTime } from "../../common/mdFiling";
 
 // crypto.randomUUID() rather than a 3-digit random suffix — this sweep
 // inserts one row per active client within the same run, and a 900-value
@@ -74,7 +75,10 @@ export async function runMonthlySnapshotSweep(actorEmail: string, opts: { runDat
       if (c.state === "MD") {
         const reportClient: ReportClientInfo = { clientId: c.client_id, clientName: c.client_name, ein: c.ein, address: c.address, state: c.state, salesTaxFrequency: c.sales_tax_frequency };
         const mdFiling = await computeMdFilingForReport(reportClient, trendFrom, monthEnd);
-        if (mdFiling && mdFiling.periods.length > 0) mdFilingOnTime = mdFiling.periods.every((p: any) => p.onTime);
+        // asOf is monthEnd, not today — this snapshot records how things stood
+        // as of the month it's recording, not as of whenever the sweep happens
+        // to run.
+        if (mdFiling) mdFilingOnTime = summarizeMdFilingOnTime(mdFiling.periods, monthEnd);
       }
 
       const health = computeClientHealthScore({

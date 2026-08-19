@@ -9,8 +9,8 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
-import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory } from "../reports/reports.routes";
-import { splitIntoMdFilingPeriodsForClient } from "../../common/mdFiling";
+import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
+import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import { computeSwotFindings, groupFindingsToLegacyFields, type SwotEngineInput, type CandidateFinding } from "./swotFindingsEngine";
 import { getDashboardAlertSettings, runDashboardAlertPush, type CreatedFindingInfo } from "./dashboardAlerts";
@@ -574,9 +574,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> 
     [clientId]
   );
   if (clientRow?.state === "MD") {
-    const to = new Date();
-    const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
-    const toStr = to.toISOString().slice(0, 10);
+    const { from: fromStr, to: toStr } = defaultFirmSummaryRange();
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
       state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
@@ -592,7 +590,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> 
     // firing through overdue. Amber while there's still time to file, red
     // once the due date has actually passed.
     const frequencyHistory = await loadSalesTaxFrequencyHistory(clientId);
-    const { periods: allPeriods } = splitIntoMdFilingPeriodsForClient(from.toISOString().slice(0, 10), toStr, frequencyHistory, clientRow.sales_tax_frequency);
+    const { periods: allPeriods } = splitIntoMdFilingPeriodsForClient(fromStr, toStr, frequencyHistory, clientRow.sales_tax_frequency);
     if (allPeriods.length > 0) {
       const recordedFilings = await loadRecordedMdFilingPayments(clientId, allPeriods[0].start, allPeriods[allPeriods.length - 1].end);
       const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
@@ -615,10 +613,11 @@ async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> 
     // period staff has already marked filed is settled — even if it was
     // filed late, the money's been paid, so it shouldn't keep showing as an
     // active past-due flag (see computeMdFilingForReport / v3_md_filing_payments).
-    const mdFiling = await computeMdFilingForReport(reportClient, from.toISOString().slice(0, 10), toStr);
+    const mdFiling = await computeMdFilingForReport(reportClient, fromStr, toStr);
     if (mdFiling) {
       for (const p of mdFiling.periods) {
-        if (!p.markedPaidDate && !p.onTime && p.balanceDue > 0) {
+        const status = classifyMdFilingPeriod(p, toStr);
+        if (!p.markedPaidDate && (status === "missing" || status === "late") && p.balanceDue > 0) {
           flags.push({
             flagId: null, key: `computed:SalesTaxBalanceDue:md:${p.end}`, flagType: "SalesTaxBalanceDue", amount: p.balanceDue,
             note: `for the period ${p.end}`, color: "red", createdAt: null, createdBy: null, resolvable: false,
@@ -1232,10 +1231,7 @@ function fmtFlagDate(v: unknown): string {
  * the new "Generate Findings Now" action read off one consistent snapshot.
  */
 async function assembleSwotEngineInput(clientId: string, clientRow: any): Promise<SwotEngineInput> {
-  const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
-  const fromStr = from.toISOString().slice(0, 10);
-  const toStr = to.toISOString().slice(0, 10);
+  const { from: fromStr, to: toStr } = defaultFirmSummaryRange();
 
   const [financials, ops, cashBalance, alertSettings, has2553Row] = await Promise.all([
     computeFirmSummary(fromStr, toStr, clientId),
@@ -1734,10 +1730,7 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
             AND (status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived'))`
   );
 
-  const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
-  const fromStr = from.toISOString().slice(0, 10);
-  const toStr = to.toISOString().slice(0, 10);
+  const { from: fromStr, to: toStr } = defaultFirmSummaryRange();
 
   let sent = 0;
   let skipped = 0;

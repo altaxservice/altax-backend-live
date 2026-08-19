@@ -359,6 +359,45 @@ export interface MdFilingBreakdown {
 }
 
 /**
+ * The ONLY trustworthy "was this period actually filed" read of a period
+ * result — `p.onTime` alone is not a compliance signal. computeMdFiling
+ * defaults the filed/paid date to whatever the caller passed (virtually
+ * always "today", for the Form 202 discount/penalty preview this function
+ * was built for) and also accepts a sales row's own Payment Date as a
+ * fallback, so `onTime` reads true for any period that simply isn't due
+ * yet, or whose sales happen to carry an early payment_date — neither is
+ * evidence anyone filed. Only `markedFiledDate` (a real v3_md_filing_payments
+ * row) proves a filing happened, so it's checked first; `onTime` is only
+ * trusted inside that branch, where computeMdFiling was genuinely called
+ * with the real recorded filed/paid dates.
+ */
+export type MdFilingPeriodStatus = "onTime" | "late" | "missing" | "notYetDue";
+
+export function classifyMdFilingPeriod(
+  p: Pick<MdFilingPeriodResult, "markedFiledDate" | "dueDate" | "onTime">,
+  asOfStr: string
+): MdFilingPeriodStatus {
+  if (p.markedFiledDate !== null) return p.onTime ? "onTime" : "late";
+  if (p.dueDate < asOfStr) return "missing";
+  return "notYetDue";
+}
+
+/**
+ * Health-Score-shaped tri-state over a whole period list — deliberately the
+ * same boolean|null contract computeClientHealthScore's mdFilingOnTime param
+ * already takes, so wiring this in never requires a scoring signature change.
+ */
+export function summarizeMdFilingOnTime(
+  periods: Pick<MdFilingPeriodResult, "markedFiledDate" | "dueDate" | "onTime">[],
+  asOfStr: string
+): boolean | null {
+  const statuses = periods.map((p) => classifyMdFilingPeriod(p, asOfStr));
+  if (statuses.some((s) => s === "late" || s === "missing")) return false;
+  if (statuses.some((s) => s === "onTime")) return true;
+  return null;
+}
+
+/**
  * pg returns a DATE column as a native JS Date (UTC midnight), not a
  * string — String(dateObject) gives "Mon Jun 30 2026 00:00:00 GMT+...",
  * which never matches a "YYYY-MM-DD" period boundary. Route callers pass
@@ -406,7 +445,15 @@ export async function computeMdFilingBreakdown(
   // otherwise a client whose frequency changed mid-history would have this
   // function silently regenerate periods under just the current frequency,
   // undoing the whole point of the history-aware split.
-  periodsOverride?: { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null }
+  periodsOverride?: { periods: MdFilingPeriod[]; frequencyUsed: MdFilingFrequency | null },
+  // Report/PDF/CSV callers (the default) deliberately hide a $0 period with
+  // nothing left to act on, per this function's own doc comment above. The
+  // Compliance Timeline needs the opposite: every period in its window
+  // represented (including a marked-filed nil return, as a green square, and
+  // a future $0 period, as a not-yet-due square) so a client's filing
+  // history isn't silently missing entries. Opt-in, default false, so every
+  // existing report/PDF/CSV caller is byte-identical.
+  options?: { includeZeroTaxPeriods?: boolean }
 ): Promise<MdFilingBreakdown> {
   const { periods, frequencyUsed } = periodsOverride ?? splitIntoMdFilingPeriods(from, to, frequency);
   const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
@@ -423,7 +470,7 @@ export async function computeMdFilingBreakdown(
     // status and penalty/interest freeze at the actual filing event rather than
     // recomputing against whatever day this happens to be rendered.
     const recorded = recordedFilings?.get(period.end) ?? null;
-    if (taxDue <= 0 && periods.length > 1) {
+    if (!options?.includeZeroTaxPeriods && taxDue <= 0 && periods.length > 1) {
       if (recorded) continue;
       const daysUntilDue = Math.round((new Date(`${period.dueDate}T00:00:00Z`).getTime() - new Date(`${todayStr}T00:00:00Z`).getTime()) / 86400000);
       if (daysUntilDue > filingDeadlineDaysThreshold) continue;

@@ -2,6 +2,7 @@ import { query, queryOne } from "../../config/db";
 import { CLIENT_TRIGGER_COLUMNS, clientMatchesRule, computeDuePeriodsBack } from "../rules/rules.routes";
 import { relevantMissingTaskRules, taskLabelsLikelyMatch, MISSING_TASK_MATCH_WINDOW_DAYS, daysBetween, isoDate } from "./complianceGapFlags";
 import { computeMdFilingForReport } from "../reports/reports.routes";
+import { classifyMdFilingPeriod, type MdFilingPeriodStatus } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
 import type { PayrollCadenceGap, BookkeepingStaleness, MissingComplianceTaskGap } from "./complianceGapFlags";
 
@@ -25,31 +26,27 @@ import type { PayrollCadenceGap, BookkeepingStaleness, MissingComplianceTaskGap 
  * the 2000-01-01 sentinel (correct, for its actual filing history), but its
  * real sales data (v3_sales_input) only starts 2026-01-31 and its earliest
  * task only exists from 2026-07-17 — the system simply never tracked this
- * client before then. Both `computeMdSalesTaxLane` and `computeTaskRuleLanes`
- * therefore clamp their lookback to the earliest REAL evidence for that
- * specific obligation (earliest sale for MD Sales Tax, falling back to the
- * client's own `created_at` if it has never recorded a sale; earliest task
- * ever recorded, any type, for the task-rule lanes, same created_at
- * fallback), rather than trusting frequency-history/rule config alone to
- * know how far back a real obligation genuinely reaches.
+ * client before then. `computeTaskRuleLanes` clamps its lookback to the
+ * earliest task ever recorded (any type), falling back to the client's own
+ * `created_at` if it has never had a task.
  *
- * That created_at fallback matters, not just a null-guard detail: a second
- * real-data check (2026-08-18, same day, caught in live use right after
- * shipping) found the MD lane originally skipped ENTIRELY — not just
- * clamped — for any client with zero v3_sales_input rows, silently
- * contradicting the older, still-live SalesTaxFilingDue flag in
- * clients.routes.ts, which correctly treats a $0/not-yet-quantified period
- * as a real filing obligation the moment it exists (a nil return still has
- * to be filed). Dozens of real MD clients have a genuine quarterly
- * obligation but zero sales entered yet, and were showing a false 100/Green
- * Compliance Score while the same client's Account Flags card and Business
- * Health Score both correctly showed the filing as overdue. "No sales
- * evidence yet" must fall back to created_at (a filing obligation clearly
- * still exists), not skip the lane outright — only "we don't know how far
- * back this obligation genuinely reaches" should suppress a period.
+ * `computeMdSalesTaxLane` deliberately does NOT use that same created_at
+ * fallback — a second real-data check (2026-08-18, same day, caught live
+ * right after this first fix shipped) found it originally skipped the WHOLE
+ * lane for any client with zero v3_sales_input rows, silently contradicting
+ * the older, still-live SalesTaxFilingDue flag in clients.routes.ts, which
+ * correctly treats a $0/not-yet-quantified period as a real filing
+ * obligation the moment it exists (a nil return still has to be filed).
+ * Dozens of real MD clients have a genuine quarterly obligation but zero
+ * sales entered yet. Falling back to created_at would have "fixed" that by
+ * introducing a WORSE bug: 140 of ~160 clients share one bulk-import
+ * created_at (2026-07-08), so that floor would silently hide genuinely-
+ * current overdue quarters. The MD lane instead clamps its lookback ONLY
+ * when real sales evidence exists to clamp against; with zero evidence it
+ * trusts the frequency-history period grid fully, same as the flag does.
  */
 
-export type TimelineStatus = "onTime" | "late" | "missing" | "notYetDue";
+export type TimelineStatus = MdFilingPeriodStatus;
 export interface TimelinePeriod { periodLabel: string; dueDate: string; status: TimelineStatus; filedDate: string | null }
 export type ComplianceObligationType = "MD Sales Tax" | "EFTPS" | "MD Withholding" | "MD UI";
 export interface ComplianceTimelineLane { obligationType: ComplianceObligationType; periods: TimelinePeriod[] }
@@ -108,16 +105,19 @@ async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBac
     clientId, clientName: "", ein: null, address: null,
     state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
   };
-  const result = await computeMdFilingForReport(reportClient, from, to);
+  // includeZeroTaxPeriods: true — without this, a $0 period staff already
+  // marked filed is dropped entirely (no green square, excluded from the
+  // on-time-rate numerator/denominator), and a client with zero taxable
+  // sales in the whole window loses the MD lane altogether. Reports/PDFs/CSVs
+  // keep the default (skip) behavior; this Timeline needs every period
+  // represented. See mdFiling.ts's computeMdFilingBreakdown doc comment.
+  const result = await computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true });
   if (!result) return null;
   const todayStr = to;
-  const periods: TimelinePeriod[] = result.periods.map((p) => {
-    let status: TimelineStatus;
-    if (p.markedFiledDate !== null) status = p.onTime ? "onTime" : "late";
-    else if (p.dueDate < todayStr) status = "missing";
-    else status = "notYetDue";
-    return { periodLabel: `${p.start} – ${p.end}`, dueDate: p.dueDate, status, filedDate: p.markedFiledDate };
-  });
+  const periods: TimelinePeriod[] = result.periods.map((p) => ({
+    periodLabel: `${p.start} – ${p.end}`, dueDate: p.dueDate,
+    status: classifyMdFilingPeriod(p, todayStr), filedDate: p.markedFiledDate,
+  }));
   return { obligationType: "MD Sales Tax", periods };
 }
 
@@ -232,7 +232,7 @@ export function computeClientComplianceScore(
   const overduePoints = overdueCount === 0 ? 40 : overdueCount === 1 ? 25 : overdueCount === 2 ? 10 : 0;
   const overdueComponent: ComplianceScoreComponent = {
     label: "Currently Overdue", points: overduePoints, maxPoints: 40,
-    detail: allPeriods.length === 0 ? "No compliance obligations on file for this client." : overdueCount === 0 ? "Nothing currently overdue." : `${overdueCount} period${overdueCount === 1 ? "" : "s"} overdue right now.`,
+    detail: allPeriods.length === 0 ? "No compliance obligations on file for this client." : overdueCount === 0 ? "Nothing currently overdue." : `${overdueCount} period${overdueCount === 1 ? "" : "s"} overdue right now (no completed filing on record — an open, unfinished task still counts).`,
   };
 
   const onTime = allPeriods.filter((p) => p.status === "onTime").length;
@@ -249,7 +249,7 @@ export function computeClientComplianceScore(
   const missingTaskPoints = missingTaskCount === 0 ? 15 : missingTaskCount === 1 ? 8 : missingTaskCount === 2 ? 3 : 0;
   const missingTaskComponent: ComplianceScoreComponent = {
     label: "Missing Compliance Tasks", points: missingTaskPoints, maxPoints: 15,
-    detail: missingTaskCount === 0 ? "No structurally missing filing tasks." : `${missingTaskCount} filing task${missingTaskCount === 1 ? "" : "s"} that should exist but doesn't.`,
+    detail: missingTaskCount === 0 ? "No structurally missing filing tasks." : `${missingTaskCount} filing task${missingTaskCount === 1 ? "" : "s"} where no task was ever created for it.`,
   };
 
   const payrollPoints = gaps.payrollGap === null ? 8 : 0;

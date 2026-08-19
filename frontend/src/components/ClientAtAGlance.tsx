@@ -237,6 +237,9 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
             <span className={`status-pill ${bandPillClass(complianceScore.band)}`}>{complianceScore.band}</span>
           </div>
           <div style={{ fontSize: 40, fontWeight: 850, fontFamily: "var(--serif)" }}>{complianceScore.score}<span style={{ fontSize: 16, color: "var(--muted)" }}> / 100</span></div>
+          <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", lineHeight: 1.5 }}>
+            Filing discipline only — the last 12 months of sales tax, payroll-tax and unemployment filings. Money and profitability are scored separately.
+          </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
             {complianceScore.components.map((c) => (
               <div key={c.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, gap: 12 }}>
@@ -310,6 +313,9 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
             </div>
             <div>
               <div className="metric-label" style={{ marginBottom: 6 }}>Other Notes</div>
+              <p className="muted" style={{ fontSize: 11, margin: "0 0 6px", lineHeight: 1.4 }}>
+                Staff-entered notes (e.g. not in good standing) covering risks the system can't compute — not part of the Compliance Score.
+              </p>
               {(() => {
                 const other = flags.filter((f) => f.flagType === "Custom");
                 return other.length > 0 ? (
@@ -377,6 +383,9 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                   <span className={`status-pill ${bandPillClass(dash.health.band)}`}>{dash.health.band}</span>
                 </div>
                 <div style={{ fontSize: 40, fontWeight: 850, fontFamily: "var(--serif)" }}>{dash.health.score}<span style={{ fontSize: 16, color: "var(--muted)" }}> / 100</span></div>
+                <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0", lineHeight: 1.5 }}>
+                  Financial health over the last 6 months; its Compliance line covers MD sales tax only — see the Compliance Score above for the full filing picture.
+                </p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
                   {dash.health.components.map((c) => (
                     <div key={c.label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, gap: 12 }}>
@@ -505,6 +514,9 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                       );
                     })}
                   </div>
+                  <p className="muted" style={{ fontSize: 11, margin: "10px 0 0", lineHeight: 1.4 }}>
+                    EFTPS, MD Withholding, MD UI and business-return deadlines drop off this list once they're past due — anything already overdue shows in Account Flags and the filing history above.
+                  </p>
                 </div>
               )}
 

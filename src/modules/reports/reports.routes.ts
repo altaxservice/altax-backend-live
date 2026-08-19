@@ -9,6 +9,7 @@ import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/t
 import { NON_TAXABLE_CATEGORY_ID } from "../../common/taxRates";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
 import type { MdFilingPeriod } from "../../common/mdFiling";
+import { summarizeMdFilingOnTime } from "../../common/mdFiling";
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
@@ -55,8 +56,8 @@ function bucketAccount(account: string): "revenue" | "expense" | "other" {
   return "other";
 }
 
-/** Firm Overview's fallback window when no from/to is supplied (old bookmarked links, direct API calls) — the same "last 6 months ending today" this route always showed before from/to support existed. */
-function defaultFirmSummaryRange(): { from: string; to: string } {
+/** Firm Overview's fallback window when no from/to is supplied (old bookmarked links, direct API calls) — the same "last 6 months ending today" this route always showed before from/to support existed. Exported so other modules needing this same standard 6-month window (clients.routes.ts's MD flags block, SWOT input, the MD notice cron) share one implementation instead of hand-duplicating the date math. */
+export function defaultFirmSummaryRange(): { from: string; to: string } {
   const to = new Date();
   const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
@@ -633,7 +634,7 @@ export function computeClientHealthScore(params: {
   let compPts = 10;
   let compDetail = "Not applicable (non-MD client or no filing period in range).";
   if (params.mdFilingOnTime === true) { compPts = 10; compDetail = "Sales tax filings on time."; }
-  else if (params.mdFilingOnTime === false) { compPts = 0; compDetail = "One or more sales tax filings currently show as late."; }
+  else if (params.mdFilingOnTime === false) { compPts = 0; compDetail = "One or more sales tax filings are late or have no filing on record."; }
   components.push({ label: "Compliance", points: compPts, maxPoints: 10, detail: compDetail });
 
   const score = components.reduce((s, c) => s + c.points, 0);
@@ -846,7 +847,8 @@ export async function computeMdFilingForReport(
   from: string,
   to: string,
   filedDateOverride?: string,
-  paidDateOverride?: string
+  paidDateOverride?: string,
+  options?: { includeZeroTaxPeriods?: boolean }
 ) {
   if (client.state !== "MD") return null;
   const { splitIntoMdFilingPeriodsForClient, computeMdFilingBreakdown } = await import("../../common/mdFiling");
@@ -863,7 +865,7 @@ export async function computeMdFilingForReport(
   const today = new Date().toISOString().slice(0, 10);
   const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
-  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult);
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult, options);
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, filedDate, paidDate };
 }
@@ -1070,7 +1072,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
 
   const clientRow = await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation,
-            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type
+            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -1102,9 +1104,7 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     periodDays,
   });
   const { trendPct } = computeRevenueTrend(financials.months);
-  const mdFilingOnTime = clientRow.state === "MD" && mdFiling && mdFiling.periods.length > 0
-    ? mdFiling.periods.every((p: any) => p.onTime)
-    : null;
+  const mdFilingOnTime = clientRow.state === "MD" && mdFiling ? summarizeMdFilingOnTime(mdFiling.periods, to) : null;
   const health = computeClientHealthScore({
     netMarginPct: ratios.netMarginPct, trendPct,
     arD61_90: arAging.d61_90, arD90Plus: arAging.d90Plus, arTotal: arAging.total,
