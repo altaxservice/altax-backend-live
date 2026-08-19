@@ -135,5 +135,10 @@ export function stageForEstimate(status: string): StageLabel | null {
   return STATUS_TO_STAGE[status] || null;
 }
 
+/** Numbered display label matching PipelinePage's own column numbering (1-4, Lost unnumbered) — shared so Estimates/Pipeline/Estimate Detail all describe the same stage the same way. */
+export const PIPELINE_STAGE_LABEL: Record<StageLabel, string> = {
+  New: "1. New", Contacted: "2. Contacted", "Proposal Sent": "3. Proposal Sent", Won: "4. Won", Lost: "Lost",
+};
+
 export const money = (n: number | string | null | undefined): string =>
   `$${(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

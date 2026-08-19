@@ -9,7 +9,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
-import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
+import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, stageForEstimate, PIPELINE_STAGE_LABEL, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
 import { METHODS } from "./InvoicesListPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateTime } from "../utils/date";
@@ -287,6 +287,11 @@ export function EstimateDetailPage() {
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <StatusBadge status={estimate.status} />
             <span className="muted">{estimate.estimate_number}</span>
+            {!estimate.client_id && stageForEstimate(estimate.status) && (
+              <button type="button" className="link-button muted" style={{ padding: 0 }} onClick={() => navigate("/pipeline")} title="This is the same record shown on the Pipeline board">
+                Pipeline: {PIPELINE_STAGE_LABEL[stageForEstimate(estimate.status)!]}
+              </button>
+            )}
             {estimate.client_id && (
               <a className="muted" href={`/clients/${estimate.client_id}`}>→ Client record</a>
             )}

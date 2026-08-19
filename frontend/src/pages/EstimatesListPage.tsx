@@ -5,7 +5,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
-import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, type Estimate } from "../api/estimates";
+import { BUSINESS_TYPES, ENTITY_TYPES, SPEEDS, money, stageForEstimate, PIPELINE_STAGE_LABEL, type Estimate } from "../api/estimates";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
@@ -90,9 +90,15 @@ export function EstimatesListPage() {
         <div>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>
             Quote a new business, then turn an approved quote into a client, invoice and task list in one step.
+            Every row here is the same record as a card on the{" "}
+            <button type="button" className="link-button" style={{ padding: 0, fontSize: 13 }} onClick={() => navigate("/pipeline")}>Pipeline board</button>
+            {" "}— just a table instead of a funnel.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setCreating(true)}>New Estimate</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => navigate("/pipeline")}>View as Pipeline</button>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}>New Estimate</button>
+        </div>
       </div>
 
       <div className="metric-grid metric-grid-3" style={{ marginBottom: 16 }}>
@@ -156,7 +162,9 @@ export function EstimatesListPage() {
                   </td>
                   <td data-label="Status">
                     <StatusBadge status={est.status} />
-                    {est.client_id && <div className="cell-sub">Converted</div>}
+                    {est.client_id
+                      ? <div className="cell-sub">Converted</div>
+                      : (() => { const stage = stageForEstimate(est.status); return stage ? <div className="cell-sub">Pipeline: {PIPELINE_STAGE_LABEL[stage]}</div> : null; })()}
                   </td>
                   <td data-label="Valid Until" className="muted">{est.valid_until || "—"}</td>
                   <td data-label="Total" style={{ textAlign: "right", fontWeight: 700 }}>{money(est.totals?.total)}</td>

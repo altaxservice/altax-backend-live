@@ -144,7 +144,7 @@ export function PipelinePage() {
       <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         <button type="button" className="ghost-button" disabled={refreshing} onClick={handleRefresh}><RefreshCw size={13} strokeWidth={2} aria-hidden="true" className={refreshing ? "icon-spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button>
         <button type="button" className="ghost-button" onClick={handleExportCsv}><Download size={13} strokeWidth={2} aria-hidden="true" />Export CSV</button>
-        <button className="btn" onClick={() => navigate("/estimates")}>View as List</button>
+        <button className="btn" onClick={() => navigate("/estimates")}>View as List (Estimates)</button>
         <button type="button" className="btn btn-primary" onClick={() => setShowNewProspect(true)}><Plus size={13} strokeWidth={2} aria-hidden="true" />New Prospect</button>
       </div>
 
@@ -194,6 +194,12 @@ export function PipelinePage() {
       <div style={{ marginBottom: 12 }}>
         <input placeholder="Search pipeline — client, description, amount…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 280 }} />
       </div>
+
+      <p className="muted" style={{ fontSize: 12.5, marginTop: -8, marginBottom: 12 }}>
+        Each card below is the same estimate you'll find under{" "}
+        <button type="button" className="link-button" style={{ padding: 0, fontSize: 12.5 }} onClick={() => navigate("/estimates")}>Estimates</button>
+        {" "}— this board just groups them by stage instead of listing them in a table.
+      </p>
 
       <PipelineSteps />
 
