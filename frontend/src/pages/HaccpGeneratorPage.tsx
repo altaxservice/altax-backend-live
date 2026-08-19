@@ -212,18 +212,41 @@ export function HaccpGeneratorPage() {
       .catch((err) => toast(err instanceof ApiError ? err.message : "Could not load this plan."));
   }
 
+  // Linking a client only ever set form.clientId — every business-info field
+  // (name, address, phone, email, contact) stayed blank even though the
+  // client record already has it, so staff had to retype it by hand for
+  // every plan. This fills in whatever's still blank from the client's own
+  // record; it never overwrites a field staff already typed (e.g. re-linking
+  // an existing saved plan to a different client shouldn't wipe a
+  // deliberately-edited phone number).
+  function prefillFromClient(clientId: string) {
+    const c = clients.find((cl) => cl.client_id === clientId);
+    if (!c) { setForm((f) => ({ ...f, clientId })); return; }
+    setForm((f) => ({
+      ...f,
+      clientId,
+      businessName: f.businessName || c.client_name || "",
+      street: f.street || (c.street_address as string) || "",
+      city: f.city || (c.city as string) || "",
+      zip: f.zip || (c.zip_code as string) || "",
+      phone: f.phone || c.phone || "",
+      email: f.email || c.email || "",
+      contactPerson: f.contactPerson || c.company_contact_name || "",
+    }));
+  }
+
   // Deep link from the client's "Permits & Compliance" tab: ?planId=... opens
   // straight into that saved plan instead of making staff find it again in the
   // Saved Plans search; ?clientId=... (from "+ New Health Permit" on that same
-  // tab) preselects the client on a fresh form so the new plan is linked from
-  // the start rather than staff having to remember to pick it.
+  // tab) preselects AND prefills the client on a fresh form, once the client
+  // list has actually loaded.
   useEffect(() => {
     const planId = searchParams.get("planId");
     const clientId = searchParams.get("clientId");
     if (planId) reopenForRenewal(planId);
-    else if (clientId) setForm((f) => ({ ...f, clientId }));
+    else if (clientId && clients.length > 0) prefillFromClient(clientId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, clients]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -399,7 +422,7 @@ export function HaccpGeneratorPage() {
             <div className="field"><label htmlFor="hp-license">License / Permit #</label><input id="hp-license" value={form.licenseNumber} onChange={(e) => setForm((f) => ({ ...f, licenseNumber: e.target.value }))} placeholder="Optional" /></div>
             <div className="field">
               <label htmlFor="hp-client">Link to Existing Client (optional)</label>
-              <select id="hp-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}>
+              <select id="hp-client" value={form.clientId} onChange={(e) => prefillFromClient(e.target.value)}>
                 <option value="">Not a client yet / no link</option>
                 {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name} ({c.client_id})</option>)}
               </select>
