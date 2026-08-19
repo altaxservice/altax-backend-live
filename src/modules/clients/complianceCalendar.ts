@@ -178,7 +178,30 @@ export function computeUpcomingDeadlines(params: {
   deadlines.push(...computeFederalPayrollDeadlines(params.payrollEnabled, withinDays, asOf));
 
   if (params.mdAnnualReportEnabled) {
-    deadlines.push({ label: "MD Annual Report", date: nextFixedAnnualDate(4, 15, asOf), source: "MD Annual Report" });
+    // Was nextFixedAnnualDate — which only ever returns a FUTURE April 15, so a
+    // client that missed its Annual Report (the filing that keeps it in good
+    // standing) never showed anything overdue here, and Annual-frequency rules
+    // are deliberately excluded from the missing-task-gap check elsewhere
+    // (relevantMissingTaskRules, complianceGapFlags.ts) — so nothing anywhere
+    // in this app caught it. Confirmed live: a real client's April 2026 report
+    // was never filed, never tracked, and only surfaced when a staffer entered
+    // a manual "not in good standing" note months later. computeDuePeriod's
+    // annual branch (same engine Business Tax Return/MW508 already use here)
+    // reports last year's period whether its due date has passed or not, which
+    // is what actually lets this show as overdue. It has no per-client
+    // awareness on its own, though — it always reports last calendar year's
+    // period regardless of the client's actual formation date, so the
+    // dateOfFormation check below is a floor: a client that didn't exist yet
+    // for that fiscal year falls back to the safe forward-only date instead
+    // of being falsely flagged. Deliberately NOT added to UNVERIFIED_PAST_SOURCES below —
+    // unlike EFTPS/MD Withholding/MD UI/Business Tax Return, there is no flag/
+    // timeline backup that would otherwise catch a missed one.
+    const period = computeDuePeriod({ frequency: "Annual", due_day: "15", due_month: "4" }, asOf);
+    if (period && params.dateOfFormation && params.dateOfFormation <= period.periodEnd) {
+      deadlines.push({ label: "MD Annual Report", date: period.dueDate, source: "MD Annual Report" });
+    } else {
+      deadlines.push({ label: "MD Annual Report", date: nextFixedAnnualDate(4, 15, asOf), source: "MD Annual Report" });
+    }
   }
 
   // Same due-date engine the seeded Task Rules use (sql/056), reused here rather

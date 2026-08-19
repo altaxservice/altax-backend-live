@@ -63,7 +63,7 @@ interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
 interface Deadline { label: string; date: string; source?: string }
 /** Obligation types with a lightweight "Mark Done" record (v3_obligation_completions) — see clients.routes.ts's /obligations/mark-done. */
-const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax"]);
+const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report"]);
 interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {

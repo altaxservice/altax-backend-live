@@ -799,7 +799,7 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
   res.status(201).json({ ok: true, flagId });
 }));
 
-const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax"]);
+const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report"]);
 
 /**
  * One click, right on the dashboard, to silence a specific upcoming/overdue
