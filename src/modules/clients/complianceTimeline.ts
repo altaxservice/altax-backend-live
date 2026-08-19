@@ -27,11 +27,26 @@ import type { PayrollCadenceGap, BookkeepingStaleness, MissingComplianceTaskGap 
  * task only exists from 2026-07-17 — the system simply never tracked this
  * client before then. Both `computeMdSalesTaxLane` and `computeTaskRuleLanes`
  * therefore clamp their lookback to the earliest REAL evidence for that
- * specific obligation (earliest sale for MD Sales Tax; earliest task ever
- * recorded, any type, for the task-rule lanes — falling back to the client's
- * own `created_at` only if it has never had a single task), rather than
- * trusting frequency-history/rule config alone to know how far back a real
- * obligation genuinely reaches.
+ * specific obligation (earliest sale for MD Sales Tax, falling back to the
+ * client's own `created_at` if it has never recorded a sale; earliest task
+ * ever recorded, any type, for the task-rule lanes, same created_at
+ * fallback), rather than trusting frequency-history/rule config alone to
+ * know how far back a real obligation genuinely reaches.
+ *
+ * That created_at fallback matters, not just a null-guard detail: a second
+ * real-data check (2026-08-18, same day, caught in live use right after
+ * shipping) found the MD lane originally skipped ENTIRELY — not just
+ * clamped — for any client with zero v3_sales_input rows, silently
+ * contradicting the older, still-live SalesTaxFilingDue flag in
+ * clients.routes.ts, which correctly treats a $0/not-yet-quantified period
+ * as a real filing obligation the moment it exists (a nil return still has
+ * to be filed). Dozens of real MD clients have a genuine quarterly
+ * obligation but zero sales entered yet, and were showing a false 100/Green
+ * Compliance Score while the same client's Account Flags card and Business
+ * Health Score both correctly showed the filing as overdue. "No sales
+ * evidence yet" must fall back to created_at (a filing obligation clearly
+ * still exists), not skip the lane outright — only "we don't know how far
+ * back this obligation genuinely reaches" should suppress a period.
  */
 
 export type TimelineStatus = "onTime" | "late" | "missing" | "notYetDue";
@@ -73,11 +88,22 @@ async function earliestTaskEvidenceDate(clientId: string): Promise<string | null
 /** MD Sales Tax lane — reuses the exact, already-proven computeMdFilingForReport chain rather than reassembling its period-splitting/query pipeline. */
 async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBack: number, asOf: Date): Promise<ComplianceTimelineLane | null> {
   if (String(clientRow.state || "").trim().toUpperCase() !== "MD") return null;
+  // Only clamp the lookback when there's real sales evidence to clamp
+  // against (guards the original 4 GUYS-style false positive: real sales
+  // evidence starting partway through the window means the obligation
+  // likely didn't exist before that). With ZERO sales evidence, don't floor
+  // at all — trust the period grid the same way the older, already-live
+  // SalesTaxFilingDue flag in clients.routes.ts does (it has no evidence
+  // floor either, only a shorter 6-month recency window): a $0/never-entered
+  // period is still a real filing obligation, not proof one never existed.
+  // client.created_at is NOT a usable floor here — 140 of ~160 clients share
+  // one bulk-import created_at (2026-07-08), so it would silently hide
+  // genuinely-current overdue quarters (e.g. Q2 2026, due ~Jul 20) that the
+  // Account Flags card and Business Health Score both correctly still show.
   const earliestSale = await earliestSaleDate(clientId);
-  if (!earliestSale) return null; // no real sales evidence ever — nothing to trust a period grid against.
   const to = asOf.toISOString().slice(0, 10);
   const fromDate = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - monthsBack, 1));
-  const from = fromDate.toISOString().slice(0, 10) > earliestSale ? fromDate.toISOString().slice(0, 10) : earliestSale;
+  const from = earliestSale && fromDate.toISOString().slice(0, 10) < earliestSale ? earliestSale : fromDate.toISOString().slice(0, 10);
   const reportClient: ReportClientInfo = {
     clientId, clientName: "", ein: null, address: null,
     state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
