@@ -106,6 +106,12 @@ export function HaccpGeneratorPage() {
   const [bulkMenuInput, setBulkMenuInput] = useState("");
   const [copyFromPlanId, setCopyFromPlanId] = useState("");
   const [copyingItems, setCopyingItems] = useState(false);
+  // Most requests are just "give me the HACCP food-safety plan" — the
+  // license/permit application section below is a much bigger form (owner
+  // home address, waste hauler, tobacco license, certified food managers,
+  // county-specific fields) that has nothing to do with the plan itself.
+  // Defaults to hiding it so the common case is the short form.
+  const [planMode, setPlanMode] = useState<"haccpOnly" | "full">("haccpOnly");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -268,6 +274,13 @@ export function HaccpGeneratorPage() {
     setLicenseForm({ ...EMPTY_LICENSE_FORM, ...(plan.license_application_data || {}), county: { ...EMPTY_LICENSE_FORM.county, ...(plan.license_application_data?.county || {}) } });
     setSavedPlanId(plan.plan_id);
     setTab("generate");
+    // Reopening a plan that already has real license-application data means
+    // it was built in the full mode — keep showing that section rather than
+    // silently hiding data staff already entered.
+    setPlanMode(
+      plan.license_number || plan.license_application_data?.tradeName || plan.license_application_data?.ownerHomeStreet
+        ? "full" : "haccpOnly"
+    );
   }
 
   function togglePermit(key: string) {
@@ -359,6 +372,7 @@ export function HaccpGeneratorPage() {
     setSelectedEquipment([]);
     setSavedPlanId(null);
     setError(null);
+    setPlanMode("haccpOnly");
   }
 
   async function saveToDocuments(planId: string | null = savedPlanId) {
@@ -459,6 +473,19 @@ export function HaccpGeneratorPage() {
             </div>
           )}
           {error && <ErrorBanner error={error} />}
+
+          <div className="field" style={{ maxWidth: 420, marginBottom: 16 }}>
+            <label htmlFor="hp-plan-mode">What do you need?</label>
+            <select id="hp-plan-mode" value={planMode} onChange={(e) => setPlanMode(e.target.value as "haccpOnly" | "full")}>
+              <option value="haccpOnly">HACCP Plan only</option>
+              <option value="full">HACCP Plan + License/Permit Application</option>
+            </select>
+            <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+              {planMode === "haccpOnly"
+                ? "Just the food-safety plan — skips the license/permit application fields below entirely."
+                : "Also fills the license/permit application and plan review documents for this jurisdiction."}
+            </div>
+          </div>
 
           <div className="form-section-title">Business Information</div>
           <div className="form-grid-3">
@@ -619,6 +646,8 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={addCustomEquipmentItem}>Add Item</button>
           </div>
 
+          {planMode === "full" && (
+          <>
           <div className="form-section-title">License &amp; Permit Applications</div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
             {form.jurisdiction === "Baltimore County"
@@ -757,22 +786,28 @@ export function HaccpGeneratorPage() {
               </div>
             </>
           )}
+          </>
+          )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.planId ? "Save & Regenerate" : "Generate Plan"}</button>
             {savedPlanId && (
               <>
-                <span className="muted" style={{ fontSize: 12 }}>The whole package:</span>
+                <span className="muted" style={{ fontSize: 12 }}>{planMode === "full" ? "The whole package:" : "HACCP Plan:"}</span>
                 <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}</button>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - HACCP Plan.pdf`)}>Download HACCP</button>
                 <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - HACCP Plan (Editable).docx`)}>Download HACCP (Word)</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf`)}>Print HACCP</button>
-                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
-                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
+                {planMode === "full" && (
+                  <>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}</button>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
+                  </>
+                )}
                 {form.clientId && (
                   <button type="button" className="btn btn-sm" onClick={() => saveToDocuments()} disabled={savingToDocuments}>{savingToDocuments ? "Saving…" : "Save to Documents"}</button>
                 )}
