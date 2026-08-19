@@ -102,6 +102,8 @@ export function HaccpGeneratorPage() {
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentSelection[]>([]);
   const [customMenuInput, setCustomMenuInput] = useState("");
   const [customEquipmentInput, setCustomEquipmentInput] = useState("");
+  const [showBulkMenuInput, setShowBulkMenuInput] = useState(false);
+  const [bulkMenuInput, setBulkMenuInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -145,6 +147,21 @@ export function HaccpGeneratorPage() {
   function selectAllMenuCategory(cat: { items: { key: string }[] }) {
     setSelectedMenu((prev) => new Set([...prev, ...cat.items.map((i) => i.key)]));
   }
+  function clearAllMenu() {
+    setSelectedMenu(new Set());
+  }
+  // Real menu items (e.g. from a client's actual PDF menu) almost never match
+  // the generic master checklist by name — the checklist is deliberately
+  // broad categories, not a dish-name catalog. Pasting the whole list at
+  // once, one item per line, is the realistic way to get every real menu
+  // item onto the plan instead of typing each one into the single-item box.
+  function addBulkMenuItems() {
+    const lines = Array.from(new Set(bulkMenuInput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)));
+    if (lines.length === 0) return;
+    setSelectedMenu((prev) => new Set([...prev, ...lines]));
+    setBulkMenuInput("");
+    setShowBulkMenuInput(false);
+  }
 
   function toggleEquipment(key: string, label: string) {
     setSelectedEquipment((prev) => prev.some((e) => e.key === key) ? prev.filter((e) => e.key !== key) : [...prev, { key, label, quantity: 1 }]);
@@ -169,6 +186,9 @@ export function HaccpGeneratorPage() {
       const additions = (options?.equipmentItems || []).filter((i) => !existingKeys.has(i.key)).map((i) => ({ key: i.key, label: i.label, quantity: 1 }));
       return [...prev, ...additions];
     });
+  }
+  function clearAllEquipment() {
+    setSelectedEquipment([]);
   }
 
   function addManager() {
@@ -432,6 +452,7 @@ export function HaccpGeneratorPage() {
           <div className="form-section-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             Menu Items
             <button type="button" className="btn btn-sm" onClick={selectAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Select All</button>
+            <button type="button" className="btn btn-sm" onClick={clearAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Clear All</button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.</p>
           {menuCategoriesToShow.map((cat) => (
@@ -463,15 +484,36 @@ export function HaccpGeneratorPage() {
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
             <input value={customMenuInput} onChange={(e) => setCustomMenuInput(e.target.value)} placeholder="e.g. Rotisserie Chicken" style={{ maxWidth: 240, padding: "6px 10px" }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomMenuItem(); } }} />
             <button type="button" className="btn btn-sm" onClick={addCustomMenuItem}>Add Item</button>
+            <button type="button" className="btn btn-sm" onClick={() => setShowBulkMenuInput((v) => !v)} style={{ textTransform: "none", fontWeight: 400 }}>
+              {showBulkMenuInput ? "Cancel paste" : "Paste Multiple Items…"}
+            </button>
           </div>
+          {showBulkMenuInput && (
+            <div style={{ marginBottom: 16 }}>
+              <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                Paste a whole menu or list — one item per line (copy straight from a menu doc). Each line becomes its own item on the plan.
+              </p>
+              <textarea
+                value={bulkMenuInput} onChange={(e) => setBulkMenuInput(e.target.value)} rows={6}
+                placeholder={"Chicken Over Rice\nLamb Gyro\nCatfish\n…"}
+                style={{ width: "100%", maxWidth: 480, padding: "8px 10px", fontFamily: "inherit", fontSize: 13 }}
+              />
+              <div style={{ marginTop: 6 }}>
+                <button type="button" className="btn btn-sm btn-primary" onClick={addBulkMenuItems} disabled={!bulkMenuInput.trim()}>
+                  Add All Lines
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="form-section-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             Equipment
             <button type="button" className="btn btn-sm" onClick={selectAllEquipment} style={{ textTransform: "none", fontWeight: 400 }}>Select All</button>
+            <button type="button" className="btn btn-sm" onClick={clearAllEquipment} style={{ textTransform: "none", fontWeight: 400 }}>Clear All</button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every piece of equipment on site — set a quantity if there's more than one. Not on the list? Type it below and add it.</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 10 }}>
