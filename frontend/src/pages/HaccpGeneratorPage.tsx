@@ -150,13 +150,29 @@ export function HaccpGeneratorPage() {
   function clearAllMenu() {
     setSelectedMenu(new Set());
   }
+  // Text copied out of a PDF menu drags along bullet characters (•●▪-*),
+  // and a menu with prices stripped out (like a HACCP-only copy) often
+  // leaves a bare trailing dash or period where the price used to be
+  // ("Catfish – ", "Regular (2pc Toast)."). Left in, those become part of
+  // the item name on the printed plan. Strip only leading list-marker
+  // characters and a genuinely trailing dash/period — never touch a dash
+  // in the middle of a word, so real hyphenated names survive untouched.
+  function cleanPastedMenuLine(raw: string): string {
+    return raw
+      .replace(/^[\s]*[•●▪◦∙·*-]+\s*/, "")
+      .replace(/\s*[–—-]+\s*$/, "")
+      .replace(/[.\s]+$/, "")
+      .trim();
+  }
   // Real menu items (e.g. from a client's actual PDF menu) almost never match
   // the generic master checklist by name — the checklist is deliberately
   // broad categories, not a dish-name catalog. Pasting the whole list at
   // once, one item per line, is the realistic way to get every real menu
   // item onto the plan instead of typing each one into the single-item box.
   function addBulkMenuItems() {
-    const lines = Array.from(new Set(bulkMenuInput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)));
+    const lines = Array.from(new Set(
+      bulkMenuInput.split(/\r?\n/).map(cleanPastedMenuLine).filter(Boolean)
+    ));
     if (lines.length === 0) return;
     setSelectedMenu((prev) => new Set([...prev, ...lines]));
     setBulkMenuInput("");
