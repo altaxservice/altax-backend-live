@@ -554,6 +554,10 @@ interface ClientFlag {
   category?: string | null;
   details?: string | null;
   dueDate?: string | null;
+  /** MissingComplianceTask-only — the Task Rule's task_type text, matched against
+   * v3_tasks.task_name by taskLabelsLikelyMatch() in complianceGapFlags.ts. Lets the
+   * frontend pre-fill a real "Create Task" form instead of just describing the gap. */
+  gapTaskType?: string;
   /** Whether this flag is allowed to appear in a client-facing notification (see POST :clientId/flags/notify-preview). Computed flags (Balance/Agency Past Due) are always eligible; manual flags default to false until staff opts them in. */
   shareWithClient: boolean;
   /** Only populated by computeResolvedClientFlags — who/when a manual flag was resolved. */
@@ -729,6 +733,7 @@ async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> 
         flagId: null, key: `computed:MissingComplianceTask:${gap.ruleId}:${gap.periodLabel}`, flagType: "MissingComplianceTask", amount: null,
         note: `${gap.taskType} for ${gap.periodLabel} (due ${gap.dueDate}) — no task on file`, color: "red",
         createdAt: null, createdBy: null, resolvable: false,
+        gapTaskType: gap.taskType, dueDate: gap.dueDate,
         // Internal process-integrity signal, not a client-facing "we forgot" admission.
         shareWithClient: false,
       });
@@ -860,7 +865,7 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
   res.status(201).json({ ok: true, flagId });
 }));
 
-const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report"]);
+const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
 
 /**
  * One click, right on the dashboard, to silence a specific upcoming/overdue

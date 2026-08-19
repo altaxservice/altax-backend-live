@@ -25,8 +25,15 @@ const OTHER = "Other";
  * faked; see project_polish_backlog memory. "Month(s)" has no backend field either — a
  * request selecting multiple months fans out to one request per client per month.
  */
-export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, onClose, onDone }: {
-  initialClientId?: string; initialTaskId?: string; initialMode?: Mode; onClose: () => void; onDone: () => void;
+export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, initialTaskType, initialTaskName, initialDueDate, onClose, onDone }: {
+  initialClientId?: string; initialTaskId?: string; initialMode?: Mode;
+  // Pre-fills the Task form — used by ClientAtAGlance's "Create Task" action on a
+  // Missing Compliance Task gap, so the task it creates actually satisfies that
+  // gap (computeClientMissingComplianceTaskGaps matches on task name, not type —
+  // see taskLabelsLikelyMatch in complianceGapFlags.ts) rather than just looking
+  // similar to it.
+  initialTaskType?: string; initialTaskName?: string; initialDueDate?: string;
+  onClose: () => void; onDone: () => void;
 }) {
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -51,9 +58,9 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   // serves when opened without a specific client in mind.
   const [clientLocked, setClientLocked] = useState(!!initialClientId);
 
-  const [taskType, setTaskType] = useState("Custom");
-  const [taskName, setTaskName] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [taskType, setTaskType] = useState(initialTaskType || "Custom");
+  const [taskName, setTaskName] = useState(initialTaskName || "");
+  const [dueDate, setDueDate] = useState(initialDueDate || "");
   const [assignedTo, setAssignedTo] = useState("");
   const [period, setPeriod] = useState("");
   const [paymentRequired, setPaymentRequired] = useState(false);

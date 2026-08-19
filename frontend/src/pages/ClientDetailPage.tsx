@@ -379,12 +379,17 @@ export function ClientDetailPage() {
   // Lifted here (rather than fetched inside ClientAtAGlance) so the header's
   // overdue badge can render regardless of which tab is active, and so
   // ClientAtAGlance doesn't need its own duplicate fetch of the same response.
-  useEffect(() => {
+  // Named (not inline) so ClientAtAGlance can also call it directly — e.g. after
+  // creating a task from a Missing Compliance Task gap, to make that gap's flag
+  // disappear as soon as the real fix exists, not on the next full page load.
+  function loadFlags() {
     if (!clientId || !canSeeStaffTabs) { setFlags(null); setComplianceScore(null); setComplianceTimeline([]); return; }
     api.get<ClientFlagsResponse>(`/clients/${clientId}/flags`)
       .then((r) => { setFlags(r.flags); setComplianceScore(r.complianceScore); setComplianceTimeline(r.complianceTimeline); })
       .catch(() => { setFlags(null); setComplianceScore(null); setComplianceTimeline([]); });
-  }, [clientId, canSeeStaffTabs]);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadFlags, [clientId, canSeeStaffTabs]);
 
   useEffect(() => {
     if (!canEdit) return;
@@ -917,6 +922,7 @@ export function ClientDetailPage() {
               complianceScore={complianceScore}
               complianceTimeline={complianceTimeline}
               onNavigateTab={(t) => { setTab(t as DetailTab); setSearchParams({ tab: t }, { replace: true }); }}
+              onFlagsChanged={loadFlags}
             />
           )}
 

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { useNotify } from "./ConfirmProvider";
+import { NewWorkItemModal } from "./NewWorkItemModal";
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -21,6 +22,10 @@ interface ClientFlag {
   category?: string | null;
   details?: string | null;
   dueDate?: string | null;
+  /** MissingComplianceTask-only — see clients.routes.ts's ClientFlag interface. Drives
+   * the "Create Task" action below (pre-fills NewWorkItemModal so the created task
+   * actually satisfies the gap, not just describes it). */
+  gapTaskType?: string;
 }
 
 interface ComplianceScoreComponent { label: string; points: number; maxPoints: number; detail: string }
@@ -63,7 +68,7 @@ interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
 interface Deadline { label: string; date: string; source?: string }
 /** Obligation types with a lightweight "Mark Done" record (v3_obligation_completions) — see clients.routes.ts's /obligations/mark-done. */
-const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report"]);
+const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
 interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {
@@ -93,6 +98,9 @@ function flagLabel(f: ClientFlag): string {
   if (f.flagType === "SalesTaxFilingDue") return `Sales Tax Filing ${f.note}`;
   if (f.flagType === "SalesTaxBalanceDue") return `Sales Tax Balance Due ${f.note}${f.amount !== null ? `: ${fmtMoney(f.amount)}` : ""}`;
   if (f.flagType === "Credit") return `Credit: ${fmtMoney(f.amount)}${f.note ? ` — ${f.note}` : ""}`;
+  // These three already spell out their own date/period inline (see complianceGapFlags.ts's
+  // note text) — the generic dueDate suffix below would just repeat it a second time.
+  if (f.flagType === "PayrollCadenceGap" || f.flagType === "BookkeepingStale" || f.flagType === "MissingComplianceTask") return f.note || "";
   const label = f.category || f.note;
   return `${label}${f.amount !== null ? ` (${fmtMoney(f.amount)})` : ""}${f.dueDate ? ` — ${fmtDateOnly(f.dueDate)}` : ""}`;
 }
@@ -177,13 +185,17 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
  *   GL-derived estimates (no bank feed or vendor-bill subledger exists in
  *   this app) — always labeled as such per dataLimitations from the API.
  */
-export function ClientAtAGlance({ clientId, summary, flags, complianceScore, complianceTimeline, onNavigateTab }: {
+export function ClientAtAGlance({ clientId, summary, flags, complianceScore, complianceTimeline, onNavigateTab, onFlagsChanged }: {
   clientId: string;
   summary: ClientSummary | null;
   flags: ClientFlag[] | null;
   complianceScore: ClientComplianceScore | null;
   complianceTimeline: ComplianceTimelineLane[];
   onNavigateTab: (tab: string) => void;
+  /** Reloads the flags/gaps prop (lifted to ClientDetailPage) — called after
+   * creating a task from a Missing Compliance Task gap so that gap's flag
+   * disappears as soon as the real fix exists. */
+  onFlagsChanged: () => void;
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -195,6 +207,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
+  const [createTaskGap, setCreateTaskGap] = useState<{ taskType: string; dueDate: string } | null>(null);
 
   async function handleMarkDone(d: Deadline) {
     const key = `${d.source}|${d.date}`;
@@ -273,7 +286,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
       {flags && flags.length > 0 && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account Flags</h2>
-          <div className="metric-grid metric-grid-3">
+          <div className="metric-grid">
             <div>
               <div className="metric-label" style={{ marginBottom: 6 }}>Owed to Us</div>
               {(() => {
@@ -337,8 +350,60 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                 ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
               })()}
             </div>
+            <div>
+              <div className="metric-label" style={{ marginBottom: 6 }}>Process Gaps</div>
+              <p className="muted" style={{ fontSize: 11, margin: "0 0 6px", lineHeight: 1.4 }}>
+                Computed from real payroll/bookkeeping/task records — no manual override. Payroll and Bookkeeping clear the moment a new paycheck or GL entry is posted; a missing task can be created right here.
+              </p>
+              {(() => {
+                const gaps = flags.filter((f) => f.flagType === "PayrollCadenceGap" || f.flagType === "BookkeepingStale" || f.flagType === "MissingComplianceTask");
+                return gaps.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {gaps.map((f) => {
+                      if (f.flagType === "MissingComplianceTask") {
+                        return (
+                          <div key={f.flagId || `${f.flagType}-${f.note}`} className={`status-pill status-${f.color}`} style={{ flexDirection: "column", alignItems: "flex-start", width: "fit-content", maxWidth: "100%", gap: 4 }}>
+                            <span>{flagLabel(f)}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCreateTaskGap({ taskType: f.gapTaskType || "", dueDate: f.dueDate || "" })}
+                              style={{ background: "none", border: "1px solid currentColor", borderRadius: 4, cursor: "pointer", color: "inherit", padding: "1px 6px", fontSize: 10.5, fontWeight: 700 }}
+                            >
+                              Create Task
+                            </button>
+                          </div>
+                        );
+                      }
+                      const target = f.linkUrl;
+                      return (
+                        <button
+                          key={f.flagId || `${f.flagType}-${f.note}`}
+                          type="button"
+                          onClick={() => target && navigate(target)}
+                          className={`status-pill status-${f.color}`}
+                          style={{ width: "fit-content", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
+                        >
+                          {flagLabel(f)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
+              })()}
+            </div>
           </div>
         </div>
+      )}
+
+      {createTaskGap && (
+        <NewWorkItemModal
+          initialClientId={clientId}
+          initialTaskType={createTaskGap.taskType}
+          initialTaskName={createTaskGap.taskType}
+          initialDueDate={createTaskGap.dueDate}
+          onClose={() => setCreateTaskGap(null)}
+          onDone={() => { setCreateTaskGap(null); onFlagsChanged(); }}
+        />
       )}
 
       {isAdmin && (
