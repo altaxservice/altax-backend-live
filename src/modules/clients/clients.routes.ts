@@ -19,6 +19,7 @@ import {
   computeClientPayrollCadenceGap, computeFirmWidePayrollCadenceGaps,
   computeClientBookkeepingStaleness, computeFirmWideBookkeepingStaleness,
   computeClientMissingComplianceTaskGaps, computeFirmWideMissingComplianceTaskGaps,
+  computeFirmWideMdAnnualReportOverdue,
   type PayrollCadenceGap, type BookkeepingStaleness, type MissingComplianceTaskGap,
 } from "./complianceGapFlags";
 import { computeClientComplianceTimeline, computeClientComplianceScore } from "./complianceTimeline";
@@ -229,6 +230,66 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
   // by how many distinct agency obligations are overdue.
   const clients = Array.from(byClient.values()).sort((a, b) => (b.balancePastDue - a.balancePastDue) || (b.agencyPastDueCount - a.agencyPastDueCount));
   res.json({ clients });
+}));
+
+/**
+ * Firm-wide list of clients with no recorded completion for their most
+ * recently due MD Annual Report — see complianceCalendar.ts's
+ * computeUpcomingDeadlines for why this could never be seen before (it only
+ * ever showed a future date) and complianceGapFlags.ts's
+ * computeFirmWideMdAnnualReportOverdue for the compute logic. Backs the bulk
+ * "Mark Done" tool below — most of these were very likely filed the normal
+ * way outside this app, before this obligation type had any completion
+ * tracking at all; this list just has no way to know that on its own.
+ */
+clientsRouter.get("/md-annual-report-overdue", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const overdue = await computeFirmWideMdAnnualReportOverdue();
+  if (isAdmin) return res.json({ clients: overdue });
+  const aliases = Array.from(await getUserAliases(req.user!.email));
+  const allowedIds = new Set((await query<any>(`SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])`, [aliases])).map((r: any) => r.client_id));
+  res.json({ clients: overdue.filter((c) => allowedIds.has(c.clientId)) });
+}));
+
+/**
+ * Bulk companion to POST /:clientId/obligations/mark-done — same INSERT, same
+ * validation, same audit trail, just looped over multiple (clientId, dueDate)
+ * pairs in one request instead of clicking through each client individually.
+ * Partial success by design (matches the /tasks/bulk convention): a bad
+ * clientId doesn't abort the rest of the batch.
+ */
+clientsRouter.post("/obligations/mark-done-bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const source = String(body.source || "").trim();
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!OBLIGATION_MARK_DONE_SOURCES.has(source)) return res.status(400).json({ error: "Unrecognized obligation type." });
+  if (items.length === 0) return res.status(400).json({ error: "No items provided." });
+
+  const completedDate = new Date().toISOString().slice(0, 10);
+  let succeeded = 0;
+  const failed: { clientId: string; error: string }[] = [];
+  for (const item of items) {
+    const clientId = String(item?.clientId || "").trim();
+    const dueDate = String(item?.dueDate || "").trim();
+    const label = String(item?.label || "").trim() || null;
+    if (!clientId || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) { failed.push({ clientId: clientId || "(missing)", error: "Invalid clientId or dueDate." }); continue; }
+    if (!(await canAccessClient(req.user!, clientId))) { failed.push({ clientId, error: "No access to this client." }); continue; }
+    try {
+      await query(
+        `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (client_id, source, due_date) DO UPDATE SET
+           label = EXCLUDED.label, completed_date = EXCLUDED.completed_date,
+           completed_by = EXCLUDED.completed_by, completed_at = now()`,
+        [clientId, source, dueDate, label, completedDate, req.user!.email]
+      );
+      await logAudit("Clients", "OBLIGATION_MARKED_DONE", clientId, "obligation", "", `${source} (${dueDate})`, `${label || source} (due ${dueDate}) marked done in bulk by ${req.user!.email}.`, req.user!.email);
+      succeeded++;
+    } catch (err) {
+      failed.push({ clientId, error: err instanceof Error ? err.message : "Unknown error." });
+    }
+  }
+  res.json({ ok: true, succeeded, failed });
 }));
 
 /**

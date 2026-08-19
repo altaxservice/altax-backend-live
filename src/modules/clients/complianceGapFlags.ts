@@ -309,3 +309,43 @@ export async function computeFirmWideMissingComplianceTaskGaps(asOf: Date = new 
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// MD Annual Report — firm-wide list of clients with no recorded completion
+// (v3_obligation_completions) for their most recently due Annual Report. See
+// complianceCalendar.ts's computeUpcomingDeadlines for the same per-client
+// logic and its full rationale (mirrored here rather than imported, since
+// that file is deliberately DB-access-free — see its own top comment).
+// dateOfFormation is the same floor used there: without it, a client that
+// didn't exist yet for the fiscal year in question would be falsely flagged.
+// ---------------------------------------------------------------------------
+
+export interface MdAnnualReportOverdue { clientId: string; clientName: string; dueDate: string }
+
+export async function computeFirmWideMdAnnualReportOverdue(asOf: Date = new Date()): Promise<MdAnnualReportOverdue[]> {
+  const clients = await query<any>(
+    `SELECT client_id, client_name, date_of_formation FROM altax.v3_clients
+      WHERE md_annual_report_enabled = true AND ${ACTIVE_CLIENT_STATUS_FILTER}`
+  );
+  if (clients.length === 0) return [];
+  const asOfStr = asOf.toISOString().slice(0, 10);
+  const period = computeDuePeriod({ frequency: "Annual", due_day: "15", due_month: "4" }, asOf);
+  if (!period || period.dueDate >= asOfStr) return [];
+
+  const eligible = clients.filter((c: any) => {
+    const formed = isoDate(c.date_of_formation);
+    return formed && formed <= period.periodEnd;
+  });
+  if (eligible.length === 0) return [];
+
+  const clientIds = eligible.map((c: any) => c.client_id);
+  const completions = await query<any>(
+    `SELECT client_id FROM altax.v3_obligation_completions WHERE source = 'MD Annual Report' AND due_date = $1::date AND client_id = ANY($2::text[])`,
+    [period.dueDate, clientIds]
+  );
+  const completedIds = new Set(completions.map((r: any) => r.client_id));
+
+  return eligible
+    .filter((c: any) => !completedIds.has(c.client_id))
+    .map((c: any) => ({ clientId: c.client_id, clientName: c.client_name, dueDate: period.dueDate }));
+}

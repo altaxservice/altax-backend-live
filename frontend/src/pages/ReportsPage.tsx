@@ -10,7 +10,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
 
-const TABS = ["Financial Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
+const TABS = ["Financial Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "MD Annual Report", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Sentinel clientId value meaning "no single client — aggregate across the whole
@@ -23,7 +23,7 @@ const FIRM_WIDE = "__FIRM_WIDE__";
  * unpredictably and gave no visual signal it was still one control. */
 const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
   { label: "Financials", tabs: ["Financial Overview", "P&L", "Balance Sheet", "Trial Balance", "AR Aging"] },
-  { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee"] },
+  { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee", "MD Annual Report"] },
   { label: "Client-Facing", tabs: ["Client Message", "Sales, Tax & Payroll Report"] },
 ];
 
@@ -33,6 +33,8 @@ const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   "Financial Overview": null, "AR Aging": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
   "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee", "Client Message": "client-message",
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
+  // Firm-wide, not a per-client statement — no PDF export here (see MdAnnualReportOverdueTab).
+  "MD Annual Report": null,
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
 const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Trial Balance": "trial-balance", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
@@ -581,8 +583,9 @@ export function ReportsPage() {
       </div>
 
       {tab === "AR Aging" && <ArAgingTab />}
+      {tab === "MD Annual Report" && <MdAnnualReportOverdueTab />}
 
-      {tab !== "AR Aging" && (
+      {tab !== "AR Aging" && tab !== "MD Annual Report" && (
       <>
           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
             <div className="field" style={{ maxWidth: 320, margin: 0 }}>
@@ -1367,6 +1370,122 @@ function ArAgingTab() {
                 </tr>
               </tfoot>
             )}
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+interface MdAnnualReportOverdueRow { clientId: string; clientName: string; dueDate: string }
+
+/**
+ * Firm-wide, not per-client — same "own home outside the client toolbar" pattern
+ * as ArAgingTab above. Backs the GET /clients/md-annual-report-overdue and
+ * POST /clients/obligations/mark-done-bulk routes (clients.routes.ts) built to
+ * let staff clear the ~118 clients whose MD Annual Report only just became
+ * visible as overdue (see complianceCalendar.ts's computeUpcomingDeadlines fix)
+ * — most were very likely filed the normal way outside this app and just never
+ * had a completion recorded here.
+ */
+function MdAnnualReportOverdueTab() {
+  const navigate = useNavigate();
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
+  const [data, setData] = useState<MdAnnualReportOverdueRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    setError(null);
+    api.get<{ clients: MdAnnualReportOverdueRow[] }>("/clients/md-annual-report-overdue")
+      .then((r) => { setData(r.clients); setSelected(new Set()); })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load overdue MD Annual Reports."));
+  }
+  useEffect(load, []);
+
+  function toggleSelected(clientId: string) {
+    setSelected((prev) => { const next = new Set(prev); next.has(clientId) ? next.delete(clientId) : next.add(clientId); return next; });
+  }
+  function toggleSelectAll() {
+    if (!data) return;
+    setSelected((prev) => (prev.size === data.length ? new Set() : new Set(data.map((r) => r.clientId))));
+  }
+
+  async function handleMarkDone() {
+    if (!data || selected.size === 0) return;
+    const ok = await confirmDialog({
+      title: "Mark MD Annual Report filed",
+      message: `Mark ${selected.size} client(s)' MD Annual Report as filed? This only records that it was filed — only do this for clients you know actually filed it.`,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const items = data.filter((r) => selected.has(r.clientId)).map((r) => ({ clientId: r.clientId, dueDate: r.dueDate, label: "MD Annual Report" }));
+      const res = await api.post<{ ok: boolean; succeeded: number; failed: { clientId: string; error: string }[] }>(
+        "/clients/obligations/mark-done-bulk", { source: "MD Annual Report", items }
+      );
+      if (res.failed.length) await notify(`${res.succeeded} marked filed. ${res.failed.length} could not be updated: ${res.failed.map((f) => f.clientId).join(", ")}.`);
+      else await notify(`${res.succeeded} client(s) marked as filed.`);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark these as filed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) return <ErrorBanner error={error} />;
+  if (!data) return <div className="spinner-wrap">Loading…</div>;
+
+  return (
+    <>
+      <div className="command-panel" style={{ marginBottom: 16 }}>
+        <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h2 className="command-panel-title">MD Annual Report — Overdue</h2>
+            <div className="command-panel-note">
+              Clients with no recorded completion for their most recently due Maryland Annual Report (due April 15).
+              Most of these were very likely filed the normal way outside this app — select the ones you know were filed and mark them below.
+            </div>
+          </div>
+          {selected.size > 0 && (
+            <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{selected.size} selected</span>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={handleMarkDone}>
+                {busy ? "Marking…" : "Mark Filed"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="command-panel">
+        <div className="command-panel-header">
+          <h2 className="command-panel-title">Clients ({data.length})</h2>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={data.length > 0 && selected.size === data.length} onChange={toggleSelectAll} /></th>
+                <th scope="col">Client</th>
+                <th scope="col">Due Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((r) => (
+                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
+                  <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.clientId)} onChange={() => toggleSelected(r.clientId)} /></td>
+                  <td>{r.clientName}</td>
+                  <td className="muted">{r.dueDate}</td>
+                </tr>
+              ))}
+              {data.length === 0 && (
+                <tr><td colSpan={3} className="muted" style={{ textAlign: "center", padding: 24 }}>No overdue MD Annual Reports.</td></tr>
+              )}
+            </tbody>
           </table>
         </div>
       </div>
