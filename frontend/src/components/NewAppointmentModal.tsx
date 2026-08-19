@@ -113,6 +113,11 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           assignedTo: form.assignedTo || "", notifyClient: form.notifyClient,
           appointmentTypeId: form.appointmentTypeId || null, appointmentTypeName: selectedType?.name || null,
           guestEmails: form.guestEmails,
+          // Who this is WITH (the linked client, if any) still can't change
+          // here — only these free-text fields, which is what a typo'd
+          // self-booked email/phone actually needs fixed.
+          contactName: appointment!.client_id ? undefined : form.contactName.trim(),
+          contactEmail: form.contactEmail.trim(), contactPhone: form.contactPhone.trim(),
         });
       } else {
         await api.post("/appointments", {
@@ -146,23 +151,41 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
         {isEditing ? (
           // Every field here already comes back from GET /appointments (SELECT a.* — a
           // full row), it just previously had nowhere to render once you opened Edit:
-          // Email/Phone were only shown on the NEW-appointment form (gated !isEditing
-          // below), and Status/Type/Created-by weren't shown anywhere in this modal at
-          // all — the only thing visible was the "With {name}" line, which reads as
-          // "the name is missing" for a nameless blocked-time appointment even though
-          // that's legitimate (Title alone is enough to create one).
+          // Status/Type/Created-by weren't shown anywhere in this modal at all — the
+          // only thing visible was the "With {name}" line, which reads as "the name is
+          // missing" for a nameless blocked-time appointment even though that's
+          // legitimate (Title alone is enough to create one). Email/Phone (and Name,
+          // for a non-client contact) are now editable here too — a self-booked client
+          // typo used to mean cancelling and rebooking the whole appointment just to
+          // fix one character.
           <div className="card" style={{ margin: "0 0 12px", padding: 12, background: "var(--surface)" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
               <div><span className="muted">With:</span> {appointment!.client_name || appointment!.contact_name || "—"}</div>
               <div><span className="muted">Status:</span> {appointment!.status}</div>
-              <div><span className="muted">Email:</span> {appointment!.contact_email || "—"}</div>
-              <div><span className="muted">Phone:</span> {appointment!.contact_phone || "—"}</div>
               {appointment!.appointment_type_name && <div><span className="muted">Type:</span> {appointment!.appointment_type_name}</div>}
               {appointment!.created_by && <div><span className="muted">Created by:</span> {appointment!.created_by}</div>}
             </div>
-            <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
-              Who this is with can't be changed here — cancel and rebook to change the client/contact.
-            </p>
+            <div className="form-grid">
+              {!appointment!.client_id && (
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="appt-edit-contact-name">Contact Name</label>
+                  <input id="appt-edit-contact-name" value={form.contactName} onChange={(e) => setForm((f) => ({ ...f, contactName: e.target.value }))} />
+                </div>
+              )}
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="appt-edit-contact-email">Contact Email</label>
+                <input id="appt-edit-contact-email" type="email" value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="appt-edit-contact-phone">Contact Phone</label>
+                <input id="appt-edit-contact-phone" value={form.contactPhone} onChange={(e) => setForm((f) => ({ ...f, contactPhone: e.target.value }))} />
+              </div>
+            </div>
+            {appointment!.client_id && (
+              <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+                Linked to client {appointment!.client_name} — that link can't change here, cancel and rebook to move this to a different client.
+              </p>
+            )}
           </div>
         ) : (
           <div className="field">

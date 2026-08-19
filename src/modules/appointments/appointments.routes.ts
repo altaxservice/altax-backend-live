@@ -971,6 +971,7 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
        reminder_lead_minutes_sent = CASE WHEN $9 THEN '{}' ELSE reminder_lead_minutes_sent END,
        confirmation_request_sent_at = CASE WHEN $9 THEN NULL ELSE confirmation_request_sent_at END,
        appointment_type_id = $10, appointment_type_name = $11, guest_emails = $12,
+       contact_name = $13, contact_email = $14, contact_phone = $15,
        updated_at = now()
      WHERE appointment_id = $1`,
     [appointmentId, title, startTime, endTime,
@@ -990,7 +991,15 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
       // of them hit this on every single save.
       body.appointmentTypeId !== undefined ? (body.appointmentTypeId ? String(body.appointmentTypeId).trim() || null : null) : existing.appointment_type_id,
       body.appointmentTypeName !== undefined ? (body.appointmentTypeName ? String(body.appointmentTypeName).trim() || null : null) : existing.appointment_type_name,
-      body.guestEmails !== undefined ? (parseEmailList(body.guestEmails) || null) : existing.guest_emails]
+      body.guestEmails !== undefined ? (parseEmailList(body.guestEmails) || null) : existing.guest_emails,
+      // Fixes a typo'd contact — the WHO (client_id, the linked client
+      // record) still can't change here, only the free-text contact fields
+      // reminders/confirmations actually get sent to. A wrong self-booked
+      // email/phone previously meant cancelling and rebooking the whole
+      // appointment just to correct one character.
+      body.contactName !== undefined ? (body.contactName ? String(body.contactName).trim() || null : null) : existing.contact_name,
+      body.contactEmail !== undefined ? (body.contactEmail ? String(body.contactEmail).trim() || null : null) : existing.contact_email,
+      body.contactPhone !== undefined ? (body.contactPhone ? String(body.contactPhone).trim() || null : null) : existing.contact_phone]
   );
 
   if (timeChanged || assignmentChanged) {
