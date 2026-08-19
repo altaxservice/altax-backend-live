@@ -83,6 +83,7 @@ export interface Estimate {
   tax_rate: string;
   deposit_amount: string;
   deposit_date: string | null;
+  deposit_method: string | null;
   terms: string | null;
   internal_note: string | null;
   approved_at: string | null;

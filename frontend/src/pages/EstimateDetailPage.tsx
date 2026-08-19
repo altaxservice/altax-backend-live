@@ -10,6 +10,7 @@ import { useToast } from "../components/Toast";
 import { SendEstimateModal } from "../components/SendEstimateModal";
 import { AddEstimateLineModal } from "../components/AddEstimateLineModal";
 import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, type Estimate, type EstimateLine, type EstimateTotals } from "../api/estimates";
+import { METHODS } from "./InvoicesListPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateTime } from "../utils/date";
 
@@ -571,6 +572,21 @@ export function EstimateDetailPage() {
             <label htmlFor="est-deposit">Deposit received</label>
             <input id="est-deposit" type="number" step="0.01" defaultValue={estimate.deposit_amount}
               onBlur={(e) => patchEstimate({ depositAmount: Number(e.target.value) })} disabled={locked} />
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label htmlFor="est-deposit-method">Deposit method</label>
+              <select id="est-deposit-method" defaultValue={estimate.deposit_method || ""} disabled={locked}
+                onChange={(e) => patchEstimate({ depositMethod: e.target.value })}>
+                <option value="">—</option>
+                {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label htmlFor="est-deposit-date">Deposit date</label>
+              <input id="est-deposit-date" type="date" defaultValue={estimate.deposit_date ? estimate.deposit_date.slice(0, 10) : ""}
+                onChange={(e) => patchEstimate({ depositDate: e.target.value })} disabled={locked} />
+            </div>
           </div>
           <div className="field">
             <label htmlFor="est-discount">Discount</label>

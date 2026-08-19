@@ -30,8 +30,13 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
   const [items, setItems] = useState<FeeItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [catalogQty, setCatalogQty] = useState(1);
+  // Multiple fee-schedule items can be checked at once (e.g. Articles of
+  // Organization + Expedited Processing + Trade Name Registration all belong
+  // on the same estimate) — previously this only let one item be picked per
+  // "Add to Estimate" click, so a typical multi-fee job meant reopening this
+  // modal over and over. Each selected item keeps its own quantity.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [qtyById, setQtyById] = useState<Record<string, number>>({});
 
   useEffect(() => {
     api.get<{ feeItems: FeeItem[] }>("/estimates/fee-items")
@@ -46,23 +51,35 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
     return list.filter((i) => i.name.toLowerCase().includes(q) || (i.agency || "").toLowerCase().includes(q) || i.jurisdiction.toLowerCase().includes(q));
   }, [items, search]);
 
-  const selected = (items || []).find((i) => i.fee_item_id === selectedId) || null;
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else {
+        next.add(id);
+        setQtyById((q) => (q[id] ? q : { ...q, [id]: 1 }));
+      }
+      return next;
+    });
+  }
+
+  const selectedItems = (items || []).filter((i) => selectedIds.has(i.fee_item_id));
 
   function addFromCatalog() {
-    if (!selected) return;
-    onAdd([{
-      fee_item_id: selected.fee_item_id,
-      description: selected.name,
-      category: selected.category,
-      agency: selected.agency,
-      qty: catalogQty || 1,
-      unit_cost: Number(selected.unit_cost),
-      unit_price: Number(selected.unit_price),
-      amount_kind: selected.amount_kind,
-      percent_rate: Number(selected.percent_rate),
-      included: selected.included,
+    if (selectedItems.length === 0) return;
+    onAdd(selectedItems.map((item) => ({
+      fee_item_id: item.fee_item_id,
+      description: item.name,
+      category: item.category,
+      agency: item.agency,
+      qty: qtyById[item.fee_item_id] || 1,
+      unit_cost: Number(item.unit_cost),
+      unit_price: Number(item.unit_price),
+      amount_kind: item.amount_kind,
+      percent_rate: Number(item.percent_rate),
+      included: item.included,
       payer: "Firm",
-    }]);
+    })));
   }
 
   // ---- New line mode ----
@@ -139,26 +156,50 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
               <label htmlFor="al-search">Search</label>
               <input id="al-search" autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Fee name, agency, or jurisdiction…" />
             </div>
-            <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
-              {filtered.map((item) => (
-                <button
-                  key={item.fee_item_id} type="button"
-                  onClick={() => setSelectedId(item.fee_item_id)}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%",
-                    textAlign: "left", padding: "9px 12px", border: "none", borderBottom: "1px solid var(--line)",
-                    background: selectedId === item.fee_item_id ? "var(--teal-soft)" : "transparent", cursor: "pointer",
-                  }}
-                >
-                  <span>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{item.name}</div>
-                    <div className="muted" style={{ fontSize: 11.5 }}>{item.agency || "—"} · {item.jurisdiction}{item.speed ? ` · ${item.speed}` : ""}</div>
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 600, flexShrink: 0, marginLeft: 10 }}>
-                    {item.amount_kind === "percent" ? `${Number(item.percent_rate)}%` : item.included ? "Included" : money(item.unit_price)}
-                  </span>
-                </button>
-              ))}
+            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+              {filtered.map((item) => {
+                const isSelected = selectedIds.has(item.fee_item_id);
+                return (
+                  <div
+                    key={item.fee_item_id}
+                    role="button" tabIndex={0}
+                    onClick={() => toggleSelected(item.fee_item_id)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSelected(item.fee_item_id); } }}
+                    style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%",
+                      textAlign: "left", padding: "9px 12px", borderBottom: "1px solid var(--line)",
+                      background: isSelected ? "var(--teal-soft)" : "transparent", cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                      <input
+                        type="checkbox" checked={isSelected} readOnly
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelected(item.fee_item_id)}
+                        style={{ flexShrink: 0 }}
+                      />
+                      <span style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{item.name}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{item.agency || "—"} · {item.jurisdiction}{item.speed ? ` · ${item.speed}` : ""}</div>
+                      </span>
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: 10 }}>
+                      {isSelected && (
+                        <input
+                          type="number" min="1" step="1" aria-label={`Quantity for ${item.name}`}
+                          value={qtyById[item.fee_item_id] || 1}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setQtyById((q) => ({ ...q, [item.fee_item_id]: Number(e.target.value) || 1 }))}
+                          style={{ width: 52, padding: "3px 5px", fontSize: 12.5 }}
+                        />
+                      )}
+                      <span style={{ fontSize: 13, fontWeight: 600, width: 68, textAlign: "right" }}>
+                        {item.amount_kind === "percent" ? `${Number(item.percent_rate)}%` : item.included ? "Included" : money(item.unit_price)}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
               {!filtered.length && items && (
                 <div className="muted" style={{ padding: 20, textAlign: "center", fontSize: 13 }}>No fees match "{search}".</div>
               )}
@@ -167,16 +208,16 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
               )}
             </div>
 
-            {selected && (
-              <div className="field" style={{ maxWidth: 120, marginTop: 12 }}>
-                <label htmlFor="al-qty">Quantity</label>
-                <input id="al-qty" type="number" min="1" step="1" value={catalogQty} onChange={(e) => setCatalogQty(Number(e.target.value))} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
+              <span className="muted" style={{ fontSize: 12.5 }}>
+                {selectedItems.length > 0 ? `${selectedItems.length} item${selectedItems.length === 1 ? "" : "s"} selected` : "Check one or more items to add"}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn" onClick={onClose}>Cancel</button>
+                <button type="button" className="btn btn-primary" disabled={selectedItems.length === 0} onClick={addFromCatalog}>
+                  Add {selectedItems.length > 1 ? `${selectedItems.length} Items` : "to Estimate"}
+                </button>
               </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-              <button type="button" className="btn" onClick={onClose}>Cancel</button>
-              <button type="button" className="btn btn-primary" disabled={!selected} onClick={addFromCatalog}>Add to Estimate</button>
             </div>
           </>
         ) : (

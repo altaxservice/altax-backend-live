@@ -388,7 +388,7 @@ estimatesRouter.patch("/:estimateId", requireAuth, requireRole("admin", "staff")
     entityType: "entity_type", businessType: "business_type", jurisdiction: "jurisdiction", speed: "speed",
     estimateDate: "estimate_date", validUntil: "valid_until", preparedBy: "prepared_by",
     discountAmount: "discount_amount", discountPercent: "discount_percent", taxRate: "tax_rate", depositAmount: "deposit_amount",
-    depositDate: "deposit_date", terms: "terms", internalNote: "internal_note", status: "status",
+    depositDate: "deposit_date", depositMethod: "deposit_method", terms: "terms", internalNote: "internal_note", status: "status",
   };
   const sets: string[] = [];
   const params: any[] = [estimateId];
