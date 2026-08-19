@@ -406,10 +406,23 @@ export function ClientDetailPage() {
             : String(res.client[f.key] ?? "");
         }
         initial.services = Array.isArray(res.client.services) ? res.client.services : [];
-        // Not a real client field — only sent to the server when Sales Tax
-        // Frequency is actually being changed (see handleSave), but the
-        // date input still needs a sane starting value to show.
-        initial.salesTaxFrequencyEffectiveDate = new Date().toISOString().slice(0, 10);
+        // Not a real client field — only meaningful to the server when Sales
+        // Tax Frequency is actually being changed (see handleSave). Defaulting
+        // this to "today" used to mean every no-touch resave of an MD client
+        // silently submitted today's date as an intentional date correction
+        // (clients.routes.ts's dateIsCorrection path can't tell "staff typed
+        // this" from "the form pre-filled it"), overwriting a real historical
+        // effective_from with today — this is exactly how the 2026-08-18
+        // frequency-history fix for 4 GUYS/USA MARKET/etc. got silently undone
+        // minutes after being applied. Defaulting to the client's own current
+        // effective_from instead means an untouched resave round-trips the
+        // same date back (a true no-op); defaulting to "" when there's no
+        // history row yet lets the backend's own first-ever-row sentinel
+        // ("2000-01-01") actually engage instead of being permanently shadowed
+        // by an always-present "today".
+        initial.salesTaxFrequencyEffectiveDate = res.client.sales_tax_frequency_effective_from
+          ? String(res.client.sales_tax_frequency_effective_from).slice(0, 10)
+          : "";
         // Not in EDIT_SECTIONS (no visible checkbox — kept in sync with the
         // "Payroll Services" entry in Services Provided instead, see below).
         initial.payrollEnabled = Boolean(res.client.payroll_enabled);
