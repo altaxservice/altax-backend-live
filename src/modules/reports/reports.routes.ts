@@ -158,6 +158,126 @@ reportsRouter.get("/firm-summary", requireAuth, requireRole("admin"), asyncHandl
 }));
 
 /**
+ * Firm Report — 4 firm-level views built entirely on data the app already
+ * captures per client, just never rolled up before (owner request,
+ * 2026-08-20: "what other firms have in their system to be on top of their
+ * company"). Each one answers a real question:
+ *   - Revenue by Service Type: where the money actually comes from. Uses
+ *     each client's own service_type as the bucket (a client's revenue isn't
+ *     split across sub-services even on a "Full Service" client — an
+ *     approximation, not a true service-line P&L, since GL entries aren't
+ *     tagged by service line at all).
+ *   - Client Concentration: what % of revenue rides on the top few clients —
+ *     losing a client that's 15%+ of revenue is a real risk worth knowing
+ *     about before it happens, not after.
+ *   - MD On-Time Filing Rate: the firm-wide rollup of the same
+ *     classifyMdFilingPeriod math already used per-client (mdFiling.ts) —
+ *     "what % of MD sales tax periods across every client were on time."
+ *   - Estimate Win Rate: of estimates that reached a real decision (Approved
+ *     or Declined) in the window, what fraction were won. Still-open
+ *     estimates (Draft/Contacted/Sent) are excluded from the rate itself
+ *     (nothing to win/lose yet) but reported alongside for context.
+ */
+export async function computeFirmInsights(from: string, to: string) {
+  await ensureCoaTypeCache();
+
+  // --- Revenue by Service Type + Client Concentration: same GL-bucketing
+  // approach as computeFirmSummary, just grouped by client instead of by
+  // month, then joined to each client's service_type/name in one pass. ---
+  const glRows = await query<any>(
+    `SELECT client_id, account, debit, credit FROM altax.v3_gl_entries WHERE entry_date >= $1::date AND entry_date <= $2::date`,
+    [from, to]
+  );
+  const revenueByClient = new Map<string, number>();
+  for (const row of glRows) {
+    if (!row.client_id) continue;
+    if (bucketAccount(row.account) !== "revenue") continue;
+    revenueByClient.set(row.client_id, (revenueByClient.get(row.client_id) || 0) + (Number(row.credit || 0) - Number(row.debit || 0)));
+  }
+  const clientIds = Array.from(revenueByClient.keys());
+  const clientRows = clientIds.length
+    ? await query<any>(`SELECT client_id, client_name, service_type FROM altax.v3_clients WHERE client_id = ANY($1::text[])`, [clientIds])
+    : [];
+  const clientMeta = new Map(clientRows.map((c: any) => [c.client_id, c]));
+
+  const totalRevenue = Array.from(revenueByClient.values()).reduce((sum, v) => sum + v, 0);
+
+  const revenueByServiceMap = new Map<string, number>();
+  for (const [clientId, revenue] of revenueByClient) {
+    const serviceType = clientMeta.get(clientId)?.service_type || "(not set)";
+    revenueByServiceMap.set(serviceType, (revenueByServiceMap.get(serviceType) || 0) + revenue);
+  }
+  const revenueByServiceType = Array.from(revenueByServiceMap.entries())
+    .map(([serviceType, revenue]) => ({
+      serviceType, revenue: round2(revenue), pctOfTotal: totalRevenue > 0 ? round2((revenue / totalRevenue) * 100) : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const clientConcentrationAll = Array.from(revenueByClient.entries())
+    .map(([clientId, revenue]) => ({
+      clientId, clientName: clientMeta.get(clientId)?.client_name || clientId,
+      revenue: round2(revenue), pctOfTotal: totalRevenue > 0 ? round2((revenue / totalRevenue) * 100) : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const clientConcentration = clientConcentrationAll.slice(0, 10);
+  const top5Pct = round2(clientConcentrationAll.slice(0, 5).reduce((sum, c) => sum + c.pctOfTotal, 0));
+  const top10Pct = round2(clientConcentrationAll.slice(0, 10).reduce((sum, c) => sum + c.pctOfTotal, 0));
+
+  // --- MD On-Time Filing Rate: firm-wide rollup of the same per-client
+  // classifyMdFilingPeriod math (mdFiling.ts) — every MD client with a real
+  // sales-tax frequency, every period whose due date falls in [from, to]. ---
+  const mdClients = await query<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients
+      WHERE state = 'MD' AND sales_tax_frequency IS NOT NULL AND sales_tax_frequency <> ''
+            AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))`
+  );
+  let onTime = 0, late = 0, missing = 0, filedPendingPayment = 0, notYetDue = 0;
+  for (const c of mdClients) {
+    const reportClient: ReportClientInfo = {
+      clientId: c.client_id, clientName: c.client_name, ein: c.ein, address: c.address, state: c.state, salesTaxFrequency: c.sales_tax_frequency,
+    };
+    const mdFiling = await computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true });
+    if (!mdFiling) continue;
+    for (const p of mdFiling.periods) {
+      if (p.dueDate < from || p.dueDate > to) continue;
+      const status = classifyMdFilingPeriod(p, to);
+      if (status === "onTime") onTime++;
+      else if (status === "late") late++;
+      else if (status === "missing") missing++;
+      else if (status === "filedPendingPayment") filedPendingPayment++;
+      else notYetDue++;
+    }
+  }
+  const decidedTotal = onTime + late + missing;
+  const mdOnTimeFilingRate = {
+    onTime, late, missing, filedPendingPayment, notYetDue, total: decidedTotal,
+    pct: decidedTotal > 0 ? round2((onTime / decidedTotal) * 100) : null,
+  };
+
+  // --- Estimate Win Rate ---
+  const estimateRows = await query<any>(
+    `SELECT status FROM altax.v3_estimates WHERE estimate_date >= $1::date AND estimate_date <= $2::date`,
+    [from, to]
+  );
+  const won = estimateRows.filter((r: any) => r.status === "Approved").length;
+  const lost = estimateRows.filter((r: any) => r.status === "Declined").length;
+  const stillOpen = estimateRows.length - won - lost;
+  const estimateWinRate = {
+    won, lost, stillOpen, totalCreated: estimateRows.length,
+    winRatePct: won + lost > 0 ? round2((won / (won + lost)) * 100) : null,
+  };
+
+  return { revenueByServiceType, clientConcentration, concentrationRisk: { top5Pct, top10Pct }, mdOnTimeFilingRate, estimateWinRate };
+}
+
+reportsRouter.get("/firm-insights", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json(await computeFirmInsights(rangeFrom, rangeTo));
+}));
+
+/**
  * Same computeFirmSummary a client scoped down to just this one client — powers
  * the "Financial Snapshot" on Client Detail's "At a Glance" tab. Admin-only,
  * matching every other route in this file that surfaces this revenue/expense
