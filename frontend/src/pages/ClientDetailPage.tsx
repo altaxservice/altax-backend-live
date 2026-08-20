@@ -2353,8 +2353,8 @@ function NoticesSection({ clientId }: { clientId: string }) {
                     <td>{n.notice_type}</td>
                     <td>{n.tax_period || "—"}</td>
                     <td>{n.amount != null ? `$${Number(n.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
-                    <td>{fmtDate(n.received_date)}</td>
-                    <td style={{ color: overdue ? "var(--red)" : undefined, fontWeight: overdue ? 700 : undefined }}>{n.response_deadline ? fmtDate(n.response_deadline) : "—"}{overdue ? " (overdue)" : ""}</td>
+                    <td>{fmtDateOnly(n.received_date)}</td>
+                    <td style={{ color: overdue ? "var(--red)" : undefined, fontWeight: overdue ? 700 : undefined }}>{n.response_deadline ? fmtDateOnly(n.response_deadline) : "—"}{overdue ? " (overdue)" : ""}</td>
                     <td>
                       <select value={n.status} onChange={(e) => handleStatusChange(n, e.target.value)} style={{ fontSize: 12.5 }}>
                         {NOTICE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
