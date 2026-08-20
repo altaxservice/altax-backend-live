@@ -75,6 +75,10 @@ class Cursor {
   rect(x: number, y: number, w: number, h: number, color = TEAL) {
     this.page.drawRectangle({ x, y: this.top - y - h, width: w, height: h, color });
   }
+  /** Small solid square — used as a "confirmed/included" checklist marker instead of a plain "-" dash. */
+  checkbox(x: number, yFromTop: number, size = 6) {
+    this.page.drawRectangle({ x, y: this.top - yFromTop - size + 1, width: size, height: size, color: TEAL });
+  }
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
@@ -190,10 +194,37 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
   y = Math.max(leftY, rightY) + 12;
   c.line(L, y, R, y, LINE, 0.75);
+  y += 28;
 
-  // Big gap, then the contact block — same "CONTACT PERSON / PHONE NUMBER /
-  // EMAIL" centered layout the Word doc's cover already has.
-  y += 150;
+  // "At a Glance" summary panel — this used to be a large empty gap between
+  // the business-info block and the contact block. A one-page cover with
+  // nothing but a title and an address reads as unfinished; a quick count of
+  // what's actually in the plan gives the reader something real to look at
+  // before flipping to the detail pages.
+  const totalMenuItems = data.menuGroups.reduce((n, g) => n + g.items.length, 0);
+  const panelH = 92;
+  c.rect(L, y, R - L, panelH, TEAL_TINT);
+  c.text(L + 16, y + 22, "AT A GLANCE", { size: 9, bold: true, color: TEAL });
+  const stats: [string, string][] = [
+    ["Menu categories covered", String(data.menuGroups.length)],
+    ["Menu items on file", String(totalMenuItems)],
+    ["Equipment on file", String(data.equipment.length)],
+    ["Critical control processes", "3"],
+  ];
+  const colGap = (R - L - 32) / 2;
+  stats.forEach(([label, value], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const sx = L + 16 + col * colGap;
+    const sy = y + 42 + row * 26;
+    c.text(sx, sy, value, { size: 15, bold: true });
+    c.text(sx + 34, sy - 4, label, { size: 8.5, color: MUTED });
+  });
+  y += panelH + 20;
+
+  // Then the contact block — same "CONTACT PERSON / PHONE NUMBER / EMAIL"
+  // centered layout the Word doc's cover already has.
+  y += 40;
   function coverContactLine(label: string, value?: string | null) {
     if (!value) return;
     const labelText = `${label}: `;
@@ -233,16 +264,37 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
     y += 16;
   }
+  // Two-column checklist with a small solid-square marker per item, instead
+  // of one plain "- item" column — a business with a real menu (a full-size
+  // restaurant can easily run 80-100+ items once real dish names are added,
+  // not just the ~35 generic master categories) used to print as several
+  // pages of a bare single-column list. Category header gets a light tint
+  // band so a long menu still reads as sectioned, not a wall of text.
+  const colGapMenu = 24;
+  const colWidthMenu = (R - L - 28 - colGapMenu) / 2;
+  const leftColX = L + 14;
+  const rightColX = leftColX + colWidthMenu + colGapMenu;
   for (const group of data.menuGroups) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
-    c.text(L, y, group.category, { size: 10, bold: true });
-    y += 14;
-    for (const item of group.items) {
-      if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
-      c.text(L + 12, y, `- ${item}`, { size: 9.5 });
-      y += 13;
+    if (y > PAGE_H - 70) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    c.rect(L, y, R - L, 16, TEAL_TINT);
+    c.text(L + 8, y + 11, group.category, { size: 9.5, bold: true, color: TEAL });
+    y += 24;
+    for (let i = 0; i < group.items.length; i += 2) {
+      const leftItem = group.items[i];
+      const rightItem = group.items[i + 1];
+      const leftLines = wrapText(leftItem, font, 9, colWidthMenu - 14);
+      const rightLines = rightItem ? wrapText(rightItem, font, 9, colWidthMenu - 14) : [];
+      const rowLines = Math.max(leftLines.length, rightLines.length || 1);
+      if (y + rowLines * 12 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+      c.checkbox(leftColX, y - 7);
+      leftLines.forEach((line, li) => c.text(leftColX + 12, y + li * 12, line, { size: 9 }));
+      if (rightItem) {
+        c.checkbox(rightColX, y - 7);
+        rightLines.forEach((line, li) => c.text(rightColX + 12, y + li * 12, line, { size: 9 }));
+      }
+      y += rowLines * 12 + 4;
     }
-    y += 6;
+    y += 10;
   }
 
   // ---- Body: CCP sections, general handling/training — starts on its own fresh page ----
@@ -308,10 +360,28 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
     y += 16;
   }
-  for (const item of data.equipment) {
-    if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
-    c.text(L, y, `- ${item.label}${item.quantity > 1 ? ` (x${item.quantity})` : ""}`, { size: 9.5 });
-    y += 13;
+  // Same two-column checklist treatment as the Menu page, for the same
+  // reason — a well-equipped kitchen easily lists 20-30+ pieces.
+  const colGapEquip = 24;
+  const colWidthEquip = (R - L - colGapEquip) / 2;
+  const leftEquipX = L;
+  const rightEquipX = leftEquipX + colWidthEquip + colGapEquip;
+  for (let i = 0; i < data.equipment.length; i += 2) {
+    const leftItem = data.equipment[i];
+    const rightItem = data.equipment[i + 1];
+    const leftLabel = `${leftItem.label}${leftItem.quantity > 1 ? ` (x${leftItem.quantity})` : ""}`;
+    const rightLabel = rightItem ? `${rightItem.label}${rightItem.quantity > 1 ? ` (x${rightItem.quantity})` : ""}` : "";
+    const leftLines = wrapText(leftLabel, font, 9.5, colWidthEquip - 14);
+    const rightLines = rightItem ? wrapText(rightLabel, font, 9.5, colWidthEquip - 14) : [];
+    const rowLines = Math.max(leftLines.length, rightLines.length || 1);
+    if (y + rowLines * 13 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    c.checkbox(leftEquipX, y - 7);
+    leftLines.forEach((line, li) => c.text(leftEquipX + 12, y + li * 13, line, { size: 9.5 }));
+    if (rightItem) {
+      c.checkbox(rightEquipX, y - 7);
+      rightLines.forEach((line, li) => c.text(rightEquipX + 12, y + li * 13, line, { size: 9.5 }));
+    }
+    y += rowLines * 13 + 4;
   }
 
   return doc.save();

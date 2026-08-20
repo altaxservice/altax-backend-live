@@ -168,34 +168,53 @@ function pageBreak(): Paragraph {
   return new Paragraph({ children: [new PageBreak()] });
 }
 
+// A one-item-per-row single-column table was fine for the short lists the
+// real reference sample this was built from actually had. A restaurant's
+// real menu (dish names added on top of the ~35 generic master categories)
+// can easily reach 80-100+ items, which turned into 80-100+ full-width table
+// rows — many pages of a single narrow column. Two items per row keeps the
+// same bordered-table look (color intentionally untouched — see the
+// BANNER_FILL/ACCENT comment above; this file stays colorless per prior
+// explicit request) while roughly halving the page count for a real menu.
 function menuTable(groups: HaccpMenuGroup[]): Table {
   const rows: TableRow[] = [];
+  const halfWidth = CONTENT_WIDTH / 2;
   for (const g of groups) {
     rows.push(new TableRow({
       children: [new TableCell({
+        columnSpan: 2,
         width: { size: CONTENT_WIDTH, type: WidthType.DXA },
         shading: { type: ShadingType.CLEAR, fill: BANNER_FILL },
         children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${g.category.toUpperCase()}:`, bold: true, font: FONT, size: 22, color: ACCENT })] })],
       })],
     }));
-    for (const item of g.items) {
+    for (let i = 0; i < g.items.length; i += 2) {
+      const left = g.items[i];
+      const right = g.items[i + 1];
       rows.push(new TableRow({
-        children: [new TableCell({
-          width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: item, bold: true, font: FONT, size: 21 })] })],
-        })],
+        children: [
+          new TableCell({
+            width: { size: halfWidth, type: WidthType.DXA },
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: left, bold: true, font: FONT, size: 21 })] })],
+          }),
+          new TableCell({
+            width: { size: halfWidth, type: WidthType.DXA },
+            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: right ? [new TextRun({ text: right, bold: true, font: FONT, size: 21 })] : [] })],
+          }),
+        ],
       }));
     }
   }
   if (!rows.length) {
     rows.push(new TableRow({
       children: [new TableCell({
+        columnSpan: 2,
         width: { size: CONTENT_WIDTH, type: WidthType.DXA },
         children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "(none selected)", italics: true, color: MUTED, font: FONT, size: 20 })] })],
       })],
     }));
   }
-  return new Table({ width: { size: CONTENT_WIDTH, type: WidthType.DXA }, columnWidths: [CONTENT_WIDTH], rows });
+  return new Table({ width: { size: CONTENT_WIDTH, type: WidthType.DXA }, columnWidths: [halfWidth, halfWidth], rows });
 }
 
 const EQUIPMENT_BULLETS_REF = "haccpEquipmentBullets";
