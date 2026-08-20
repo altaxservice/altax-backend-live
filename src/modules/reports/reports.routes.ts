@@ -337,6 +337,54 @@ reportsRouter.get("/firm-insights", requireAuth, requireRole("admin"), asyncHand
   res.json(await computeFirmInsights(rangeFrom, rangeTo));
 }));
 
+/** One combined CSV/XLSX covering all 6 Firm Report sections — sectioned with blank-row separators since each metric has a different column shape, same {sendTabular} helper (and its ?format=xlsx toggle) as every other export in this file. */
+reportsRouter.get("/csv/firm-insights", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  const insights = await computeFirmInsights(rangeFrom, rangeTo);
+
+  const rows: (string | number)[][] = [];
+  rows.push(["Revenue by Service Type"]);
+  rows.push(["Service Type", "Revenue", "% of Total"]);
+  for (const r of insights.revenueByServiceType) rows.push([r.serviceType, r.revenue, r.pctOfTotal]);
+  rows.push([]);
+
+  rows.push([`Client Concentration (Top 5: ${insights.concentrationRisk.top5Pct}% · Top 10: ${insights.concentrationRisk.top10Pct}%)`]);
+  rows.push(["Client", "Revenue", "% of Total"]);
+  for (const c of insights.clientConcentration) rows.push([c.clientName, c.revenue, c.pctOfTotal]);
+  rows.push([]);
+
+  rows.push(["MD On-Time Filing Rate"]);
+  rows.push(["On-Time Rate", "On Time", "Late", "Missing", "Filed Pending Payment", "Not Yet Due"]);
+  rows.push([
+    insights.mdOnTimeFilingRate.pct !== null ? `${insights.mdOnTimeFilingRate.pct}%` : "—",
+    insights.mdOnTimeFilingRate.onTime, insights.mdOnTimeFilingRate.late, insights.mdOnTimeFilingRate.missing,
+    insights.mdOnTimeFilingRate.filedPendingPayment, insights.mdOnTimeFilingRate.notYetDue,
+  ]);
+  rows.push([]);
+
+  rows.push(["Estimate Win Rate"]);
+  rows.push(["Win Rate", "Won", "Lost", "Still Open"]);
+  rows.push([
+    insights.estimateWinRate.winRatePct !== null ? `${insights.estimateWinRate.winRatePct}%` : "—",
+    insights.estimateWinRate.won, insights.estimateWinRate.lost, insights.estimateWinRate.stillOpen,
+  ]);
+  rows.push([]);
+
+  rows.push([`Client Growth (Active clients today: ${insights.clientGrowth.activeClientCountNow})`]);
+  rows.push(["Month", "New Clients", "Likely Bulk Import"]);
+  for (const m of insights.clientGrowth.monthly) rows.push([m.month, m.newClients, m.likelyBulkImport ? "Yes" : ""]);
+  rows.push([]);
+
+  rows.push(["Staff Utilization"]);
+  rows.push(["Staff", "Total Hours", "Billable Hours", "Billable %"]);
+  for (const s of insights.staffUtilization) rows.push([s.name, s.totalHours, s.billableHours, s.billablePct]);
+
+  await logAudit("Reports", "EXPORT_FIRM_INSIGHTS_CSV", "Firm", "Period", "", `${rangeFrom} to ${rangeTo}`, `Firm Report ${String(req.query.format || "").toLowerCase() === "xlsx" ? "Excel" : "CSV"} exported by ${req.user!.email}.`, req.user!.email);
+  sendTabular(req, res, "Firm Report", [`Firm Report: ${rangeFrom} to ${rangeTo}`], rows, `FirmReport_${rangeFrom}_${rangeTo}`);
+}));
+
 /**
  * Same computeFirmSummary a client scoped down to just this one client — powers
  * the "Financial Snapshot" on Client Detail's "At a Glance" tab. Admin-only,

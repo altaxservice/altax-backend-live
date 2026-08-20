@@ -520,6 +520,17 @@ export function ReportsPage() {
     }
   }
 
+  async function handleFirmInsightsCsv(format: "csv" | "xlsx" = "csv") {
+    setReportBusy(`insights-${format}`);
+    try {
+      await downloadFile(`/reports/csv/firm-insights?from=${from}&to=${to}&format=${format}`, buildFilename(["Firm Report", `${from} to ${to}`], format));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not export this data.");
+    } finally {
+      setReportBusy(null);
+    }
+  }
+
   /**
    * "Email Report" — fetches the exact same PDF Preview/Print already generates,
    * then hands it to the same /communications send path the Communications page
@@ -800,7 +811,20 @@ export function ReportsPage() {
                           {firmInsightsError && <ErrorBanner error={firmInsightsError} />}
                           {!firmInsights && !firmInsightsError && <div className="spinner-wrap">Loading Firm Report…</div>}
                           {firmInsights && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 16, flexWrap: "wrap", gap: 8 }}>
+                              <h2 className="command-panel-title" style={{ margin: 0 }}>Firm Report</h2>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmInsightsCsv("csv")}>
+                                  {reportBusy === "insights-csv" ? "Exporting…" : "Export CSV"}
+                                </button>
+                                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmInsightsCsv("xlsx")}>
+                                  {reportBusy === "insights-xlsx" ? "Exporting…" : "Export Excel"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {firmInsights && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
                               <div className="command-panel">
                                 <div className="command-panel-header">
                                   <h2 className="command-panel-title">Revenue by Service Type</h2>
