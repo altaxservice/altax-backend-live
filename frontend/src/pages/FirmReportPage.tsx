@@ -214,6 +214,10 @@ export function FirmReportPage() {
 
       <QualityControlSection />
 
+      <CommunicationGapsSection />
+
+      <DocumentCollectionGapsSection />
+
       <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
@@ -541,6 +545,91 @@ function QualityControlSection() {
       {renderTable(data.govFormRejections, "No rejections — either everything passed review, or no filing has gone through the optional review step yet.")}
       <div style={{ padding: "12px 16px 4px", fontWeight: 700, fontSize: 13 }}>Tax Returns (agency e-file rejections)</div>
       {renderTable(data.taxReturnRejections, "No rejections tracked yet.")}
+    </div>
+  );
+}
+
+interface CommunicationGapClient { clientId: string; clientName: string; lastContactAt: string | null; daysSinceContact: number | null }
+
+/** "Clients with no contact in X days" (spec item #22) — every active client's most recent v3_communications row, firm-wide. */
+function CommunicationGapsSection() {
+  const navigate = useNavigate();
+  const [data, setData] = useState<{ clients: CommunicationGapClient[]; thresholdDays: number } | null>(null);
+
+  useEffect(() => {
+    api.get<{ clients: CommunicationGapClient[]; thresholdDays: number }>("/reports/communication-gaps").then(setData).catch(() => {});
+  }, []);
+
+  if (!data) return null;
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Communication Gaps</h2>
+        <div className="command-panel-note">Active clients with no logged communication in {data.thresholdDays}+ days (or ever) — {data.clients.length} client{data.clients.length === 1 ? "" : "s"}.</div>
+      </div>
+      {data.clients.length === 0 ? (
+        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>Every active client has been contacted within {data.thresholdDays} days.</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Client</th><th scope="col">Last Contact</th><th scope="col">Days Since</th></tr></thead>
+            <tbody>
+              {data.clients.slice(0, 30).map((c) => (
+                <tr key={c.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${c.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${c.clientId}`); } }}>
+                  <td>{c.clientName}</td>
+                  <td>{c.lastContactAt ? new Date(c.lastContactAt).toLocaleDateString() : "Never"}</td>
+                  <td style={{ color: "var(--red)" }}>{c.daysSinceContact !== null ? c.daysSinceContact : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.clients.length > 30 && <p className="muted" style={{ padding: "8px 16px", fontSize: 11 }}>+{data.clients.length - 30} more not shown.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface DocumentGapRow { requestId: string; clientId: string; clientName: string; requestedItem: string; assignedTo: string | null; daysWaiting: number }
+
+/** "Days waiting" per open document request (spec item #23) — no "reminders sent" count exists anywhere to surface, so this is days-waiting only, not fabricated. */
+function DocumentCollectionGapsSection() {
+  const navigate = useNavigate();
+  const [data, setData] = useState<{ rows: DocumentGapRow[]; totalOutstanding: number; avgDaysWaiting: number | null } | null>(null);
+
+  useEffect(() => {
+    api.get<{ rows: DocumentGapRow[]; totalOutstanding: number; avgDaysWaiting: number | null }>("/reports/document-collection-gaps").then(setData).catch(() => {});
+  }, []);
+
+  if (!data) return null;
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Document Collection</h2>
+        <div className="command-panel-note">{data.totalOutstanding} outstanding request{data.totalOutstanding === 1 ? "" : "s"}{data.avgDaysWaiting !== null ? `, averaging ${data.avgDaysWaiting} days waiting` : ""}.</div>
+      </div>
+      {data.rows.length === 0 ? (
+        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>No outstanding document requests.</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Client</th><th scope="col">Requested Item</th><th scope="col">Assigned To</th><th scope="col">Days Waiting</th></tr></thead>
+            <tbody>
+              {data.rows.slice(0, 30).map((r) => (
+                <tr key={r.requestId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
+                  <td>{r.clientName}</td>
+                  <td>{r.requestedItem}</td>
+                  <td>{r.assignedTo || "—"}</td>
+                  <td style={{ color: r.daysWaiting > 14 ? "var(--red)" : undefined, fontWeight: r.daysWaiting > 14 ? 700 : undefined }}>{r.daysWaiting}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.rows.length > 30 && <p className="muted" style={{ padding: "8px 16px", fontSize: 11 }}>+{data.rows.length - 30} more not shown.</p>}
+        </div>
+      )}
     </div>
   );
 }

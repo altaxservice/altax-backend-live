@@ -1715,6 +1715,72 @@ reportsRouter.get("/quality-control", requireAuth, requireRole("admin"), asyncHa
   res.json(await computeQualityControl());
 }));
 
+export interface CommunicationGapClient { clientId: string; clientName: string; lastContactAt: string | null; daysSinceContact: number | null }
+
+/**
+ * "Clients with no contact in X days" (spec item #22) — every active
+ * client's most recent v3_communications row (COALESCE(sent_at, created_at)
+ * — a Portal Note or a send that never actually went out still counts as
+ * "we touched this client," which is the honest reading of "last contact,"
+ * not "last successful external send"). thresholdDays defaults to 30;
+ * clients with zero communications ever show as daysSinceContact: null,
+ * sorted first (never contacted is worse than contacted 90 days ago).
+ */
+export async function computeCommunicationGaps(thresholdDays = 30): Promise<{ clients: CommunicationGapClient[]; thresholdDays: number }> {
+  const rows = await query<any>(
+    `SELECT c.client_id, c.client_name, MAX(COALESCE(comm.sent_at, comm.created_at)) AS last_contact
+       FROM altax.v3_clients c
+       LEFT JOIN altax.v3_communications comm ON comm.client_id = c.client_id
+      WHERE (c.status IS NULL OR lower(c.status) NOT IN ('inactive', 'archived', 'no', 'false'))
+      GROUP BY c.client_id, c.client_name`
+  );
+  const clients = rows
+    .map((r: any) => {
+      const lastContactAt = r.last_contact ? new Date(r.last_contact).toISOString() : null;
+      const daysSinceContact = lastContactAt ? Math.floor((Date.now() - new Date(lastContactAt).getTime()) / 86400000) : null;
+      return { clientId: r.client_id, clientName: r.client_name, lastContactAt, daysSinceContact };
+    })
+    .filter((c: CommunicationGapClient) => c.daysSinceContact === null || c.daysSinceContact >= thresholdDays)
+    .sort((a: CommunicationGapClient, b: CommunicationGapClient) => (b.daysSinceContact ?? Infinity) - (a.daysSinceContact ?? Infinity));
+  return { clients, thresholdDays };
+}
+
+reportsRouter.get("/communication-gaps", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const thresholdDays = req.query.thresholdDays ? Number(req.query.thresholdDays) : 30;
+  res.json(await computeCommunicationGaps(Number.isFinite(thresholdDays) && thresholdDays > 0 ? thresholdDays : 30));
+}));
+
+export interface DocumentGapRow { requestId: string; clientId: string; clientName: string; requestedItem: string; assignedTo: string | null; daysWaiting: number }
+
+/**
+ * "Days waiting" per open document request (spec item #23) — same
+ * open-status list DashboardPage.tsx's own openDocs filter already uses,
+ * so this agrees with what staff see there. No "reminders sent" count
+ * exists anywhere to surface (document-request reminders aren't tracked
+ * as their own event) — flagged here rather than fabricated.
+ */
+export async function computeDocumentCollectionGaps(): Promise<{ rows: DocumentGapRow[]; totalOutstanding: number; avgDaysWaiting: number | null }> {
+  const rows = await query<any>(
+    `SELECT dr.request_id, dr.client_id, c.client_name, dr.requested_item, dr.assigned_to,
+            EXTRACT(DAY FROM now() - dr.request_date)::int AS days_waiting
+       FROM altax.v3_document_requests dr
+       JOIN altax.v3_clients c ON c.client_id = dr.client_id
+      WHERE dr.received_date IS NULL AND dr.request_date IS NOT NULL
+            AND lower(dr.status) NOT IN ('closed', 'completed', 'void', 'archived')
+      ORDER BY dr.request_date ASC`
+  );
+  const mapped = rows.map((r: any) => ({
+    requestId: r.request_id, clientId: r.client_id, clientName: r.client_name,
+    requestedItem: r.requested_item || "Document", assignedTo: r.assigned_to, daysWaiting: Number(r.days_waiting) || 0,
+  }));
+  const avgDaysWaiting = mapped.length > 0 ? round2(mapped.reduce((s: number, r: any) => s + r.daysWaiting, 0) / mapped.length) : null;
+  return { rows: mapped, totalOutstanding: mapped.length, avgDaysWaiting };
+}
+
+reportsRouter.get("/document-collection-gaps", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json(await computeDocumentCollectionGaps());
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,
