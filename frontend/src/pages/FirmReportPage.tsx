@@ -34,6 +34,14 @@ interface FirmHealthScore {
   components: { label: string; points: number; maxPoints: number; detail: string }[];
 }
 
+interface StaffCapacityRow {
+  email: string; name: string; capacityHours: number; loggedHours: number; availableHours: number;
+  status: "Under Capacity" | "Healthy" | "Near Capacity" | "Over Capacity";
+}
+const CAPACITY_STATUS_COLOR: Record<string, string> = {
+  "Under Capacity": "var(--muted)", "Healthy": "var(--teal)", "Near Capacity": "#b8860b", "Over Capacity": "var(--red)",
+};
+
 const BAND_COLOR: Record<string, string> = { Green: "var(--teal)", Yellow: "#b8860b", Red: "var(--red)" };
 
 function fmtMoney(v: unknown): string {
@@ -47,6 +55,7 @@ export function FirmReportPage() {
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [insights, setInsights] = useState<FirmInsights | null>(null);
   const [healthScore, setHealthScore] = useState<FirmHealthScore | null>(null);
+  const [capacity, setCapacity] = useState<{ capacityHoursPerWeek: number; staff: StaffCapacityRow[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -59,6 +68,10 @@ export function FirmReportPage() {
     setHealthScore(null);
     api.get<FirmHealthScore>(`/reports/firm-health-score?from=${from}&to=${to}`)
       .then(setHealthScore)
+      .catch(() => {});
+    setCapacity(null);
+    api.get<{ capacityHoursPerWeek: number; staff: StaffCapacityRow[] }>(`/reports/staff-capacity?from=${from}&to=${to}`)
+      .then(setCapacity)
       .catch(() => {});
   }, [from, to]);
 
@@ -349,6 +362,34 @@ export function FirmReportPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {capacity && (
+        <div className="command-panel" style={{ marginTop: 16 }}>
+          <div className="command-panel-header">
+            <h2 className="command-panel-title">Staff Capacity</h2>
+            <div className="command-panel-note">
+              Real hours logged in Time Tracking against a flat {capacity.capacityHoursPerWeek}-hour/week assumption (no per-staff capacity setting exists yet) — "Under Capacity" for everyone below just means little/no time has been logged for this window yet, not necessarily light workload.
+            </div>
+          </div>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th scope="col">Staff</th><th scope="col">Capacity Hours</th><th scope="col">Logged Hours</th><th scope="col">Available</th><th scope="col">Status</th></tr></thead>
+              <tbody>
+                {capacity.staff.length === 0 && <tr><td colSpan={5} className="muted">No active staff.</td></tr>}
+                {capacity.staff.map((s) => (
+                  <tr key={s.email}>
+                    <td>{s.name}</td>
+                    <td>{s.capacityHours}</td>
+                    <td>{s.loggedHours}</td>
+                    <td style={{ color: s.availableHours < 0 ? "var(--red)" : undefined }}>{s.availableHours}</td>
+                    <td><span style={{ color: CAPACITY_STATUS_COLOR[s.status], fontWeight: 700 }}>{s.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

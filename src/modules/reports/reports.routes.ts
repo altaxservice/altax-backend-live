@@ -1525,6 +1525,54 @@ reportsRouter.get("/management-exceptions", requireAuth, requireRole("admin"), a
 }));
 
 /**
+ * No per-staff "expected hours" setting exists anywhere in this app yet
+ * (v3_users has no such column) — building one is a real UI/schema decision
+ * (per-person? role-based default? who edits it?), not something to guess
+ * silently. Uses one clearly-labeled firm-wide default instead, so this is
+ * honest about what it is: real logged hours (v3_time_entries) against a
+ * flat assumption, not a per-person-tuned capacity model. Easy to swap for
+ * a real per-staff setting later without changing this function's shape.
+ */
+const DEFAULT_CAPACITY_HOURS_PER_WEEK = 40;
+
+export type StaffCapacityStatus = "Under Capacity" | "Healthy" | "Near Capacity" | "Over Capacity";
+export interface StaffCapacity {
+  email: string; name: string; capacityHours: number; loggedHours: number; availableHours: number; status: StaffCapacityStatus;
+}
+
+export async function computeStaffCapacity(from: string, to: string): Promise<StaffCapacity[]> {
+  const periodDays = Math.max(1, Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000) + 1);
+  const capacityHours = round2(DEFAULT_CAPACITY_HOURS_PER_WEEK * (periodDays / 7));
+
+  const [staffRows, hoursRows] = await Promise.all([
+    query<any>(`SELECT email, name FROM altax.v3_users WHERE lower(role) IN ('admin', 'staff') AND active = true`),
+    query<any>(
+      `SELECT user_email, COALESCE(SUM(hours), 0) AS hours FROM altax.v3_time_entries
+        WHERE entry_date >= $1::date AND entry_date <= $2::date GROUP BY user_email`,
+      [from, to]
+    ),
+  ]);
+  const hoursByEmail = new Map(hoursRows.map((r: any) => [r.user_email, Number(r.hours)]));
+
+  return staffRows
+    .map((s: any) => {
+      const loggedHours = round2(hoursByEmail.get(s.email) || 0);
+      const availableHours = round2(capacityHours - loggedHours);
+      const pctUsed = capacityHours > 0 ? (loggedHours / capacityHours) * 100 : 0;
+      const status: StaffCapacityStatus = pctUsed >= 100 ? "Over Capacity" : pctUsed >= 85 ? "Near Capacity" : pctUsed >= 40 ? "Healthy" : "Under Capacity";
+      return { email: s.email, name: s.name || s.email, capacityHours, loggedHours, availableHours, status };
+    })
+    .sort((a: StaffCapacity, b: StaffCapacity) => b.loggedHours - a.loggedHours);
+}
+
+reportsRouter.get("/staff-capacity", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json({ capacityHoursPerWeek: DEFAULT_CAPACITY_HOURS_PER_WEEK, staff: await computeStaffCapacity(rangeFrom, rangeTo) });
+}));
+
+/**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,
  * Liabilities, and Equity are point-in-time balances — a Balance Sheet "as of" a date
