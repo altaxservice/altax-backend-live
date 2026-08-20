@@ -349,6 +349,66 @@ function AtRiskClientsPanel() {
   );
 }
 
+interface ManagementException {
+  severity: "critical" | "warning";
+  label: string;
+  count: number;
+  amount?: number;
+  detail: string;
+  link: string;
+}
+
+/**
+ * "Management manages exceptions, not thousands of records" — one ranked
+ * list at the very top of the Command Center instead of making the owner
+ * scan every panel below to notice what's actually urgent. Backed by GET
+ * /reports/management-exceptions (reports.routes.ts), which pulls together
+ * AR aging, missed MD sales tax filings, overdue tasks, overdue invoices,
+ * and MD portal verification staleness — signals that already exist as
+ * separate panels on this page (At-Risk Clients, Missing Sales Tax
+ * Filings, Verification Due) plus a couple of direct counts. This
+ * supplements those panels rather than replacing them; it's the "read this
+ * first" summary, they're still the "drill into it" detail.
+ */
+function ManagementExceptionsPanel() {
+  const navigate = useNavigate();
+  const [items, setItems] = useState<ManagementException[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ items: ManagementException[] }>("/reports/management-exceptions")
+      .then((res) => { if (!cancelled) setItems(res.items); })
+      .catch(() => { if (!cancelled) setItems([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!items || items.length === 0) return null;
+
+  return (
+    <CommandPanel
+      critical={items.some((i) => i.severity === "critical")}
+      title="Management Attention Required"
+      note={`${items.length} item${items.length === 1 ? "" : "s"} across the firm need${items.length === 1 ? "s" : ""} a look`}
+    >
+      <div className="attention-list">
+        {items.map((i) => (
+          <div className="attention-item" key={i.label} onClick={() => navigate(i.link)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(i.link); } }}>
+            <div className="attention-main">
+              <div className="attention-title">
+                <span className={`status-pill ${i.severity === "critical" ? "status-red" : "status-amber"}`} style={{ fontSize: 11, marginRight: 6 }}>
+                  {i.severity === "critical" ? "Critical" : "Attention"}
+                </span>
+                {i.count} {i.label}
+              </div>
+              <div className="attention-meta"><span>{i.detail}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </CommandPanel>
+  );
+}
+
 /**
  * The direct answer to "tell me if I missed a client who was supposed to
  * file and I didn't — not by task, an actual flag" (owner request,
@@ -793,6 +853,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
   return (
     <div>
+      <ManagementExceptionsPanel />
       {overdue.length > 0 && (
         <div className="alert-strip">
           <strong>{overdue.length}</strong> of {openTasks.length} open tasks are overdue.

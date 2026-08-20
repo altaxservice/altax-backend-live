@@ -1413,6 +1413,100 @@ export async function computeFirmWideMdSalesTaxMissedFilings(): Promise<MdSalesT
   return results;
 }
 
+export interface ManagementException {
+  severity: "critical" | "warning";
+  label: string;
+  count: number;
+  amount?: number;
+  detail: string;
+  link: string;
+}
+
+/**
+ * "Management manages exceptions, not thousands of records" — a single
+ * ranked list (critical first, then warning; by count within each tier)
+ * pulling together signals that already exist as separate DashboardPage
+ * panels (At-Risk Clients, Missing Sales Tax Filings, Verification Due) plus
+ * a couple of direct counts (overdue tasks, overdue invoices, AR aging) —
+ * intentionally reuses computeArAging/computeFirmWideMdSalesTaxMissedFilings
+ * rather than re-deriving the same numbers a second way. Deliberately does
+ * NOT include client-level manual flags (computeClientFlags) — that logic
+ * lives in clients.routes.ts and isn't bulk-queryable without the kind of
+ * larger refactor computeFirmWideMdSalesTaxMissedFilings itself needed; left
+ * for a follow-up rather than duplicating per-client N+1 queries here.
+ * As-of-today only (no from/to) — this reports current risk, not a period.
+ */
+export async function computeManagementExceptions(): Promise<ManagementException[]> {
+  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow] = await Promise.all([
+    computeArAging(),
+    computeFirmWideMdSalesTaxMissedFilings(),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
+        WHERE lower(status) NOT IN ('completed','void','closed','archived')
+          AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE`
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_clients
+        WHERE state = 'MD' AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))
+          AND (mdtaxconnect_verified_at IS NULL OR mdtaxconnect_verified_at <= CURRENT_DATE - INTERVAL '30 days'
+               OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= CURRENT_DATE - INTERVAL '30 days')`
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(balance_due), 0) AS total FROM altax.v3_invoices
+        WHERE lower(status) NOT IN ('paid', 'void') AND balance_due > 0
+          AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`
+    ),
+  ]);
+
+  const items: ManagementException[] = [];
+
+  if (arAging.totals.d90Plus > 0) {
+    items.push({
+      severity: "critical", label: "A/R over 90 days past due",
+      count: arAging.rows.filter((r: any) => r.d90Plus > 0).length, amount: arAging.totals.d90Plus,
+      detail: `${fmtMoney(arAging.totals.d90Plus)} across ${arAging.rows.filter((r: any) => r.d90Plus > 0).length} client(s).`,
+      link: "/billing",
+    });
+  }
+  if (mdMissed.length > 0) {
+    const total = mdMissed.reduce((s, f) => s + f.balanceDue, 0);
+    items.push({
+      severity: "critical", label: "Missed MD Sales Tax filings", count: mdMissed.length, amount: total,
+      detail: `${mdMissed.length} client(s), ${fmtMoney(total)} tax due.`,
+      link: "/clients",
+    });
+  }
+  const overdueTasks = Number(overdueTaskRow?.count || 0);
+  if (overdueTasks > 0) {
+    items.push({ severity: "critical", label: "Overdue tasks", count: overdueTasks, detail: `${overdueTasks} task(s) past their agency due date.`, link: "/tasks" });
+  }
+  const overdueInvoiceCount = Number(overdueInvoiceRow?.count || 0);
+  if (overdueInvoiceCount > 0) {
+    const total = Number(overdueInvoiceRow?.total || 0);
+    items.push({ severity: "warning", label: "Overdue invoices", count: overdueInvoiceCount, amount: total, detail: `${overdueInvoiceCount} invoice(s), ${fmtMoney(total)} outstanding.`, link: "/billing" });
+  }
+  if (arAging.totals.d61_90 > 0) {
+    items.push({
+      severity: "warning", label: "A/R in the 61-90 day bucket",
+      count: arAging.rows.filter((r: any) => r.d61_90 > 0).length, amount: arAging.totals.d61_90,
+      detail: `${fmtMoney(arAging.totals.d61_90)} — will become critical (90+) if not collected soon.`,
+      link: "/billing",
+    });
+  }
+  const verificationDue = Number(verificationRow?.count || 0);
+  if (verificationDue > 0) {
+    items.push({ severity: "warning", label: "MD portal verification overdue", count: verificationDue, detail: `${verificationDue} MD client(s) not checked in MDTAXCONNECT/MD Business Express in 30+ days.`, link: "/clients" });
+  }
+
+  const order: Record<string, number> = { critical: 0, warning: 1 };
+  items.sort((a, b) => order[a.severity] - order[b.severity] || b.count - a.count);
+  return items;
+}
+
+reportsRouter.get("/management-exceptions", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json({ items: await computeManagementExceptions() });
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,
