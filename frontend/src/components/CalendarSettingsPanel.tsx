@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { ErrorBanner } from "./ErrorBanner";
+import { useSmsStatus } from "../hooks/useSmsStatus";
 
 interface AppointmentType {
   appointmentTypeId: string;
@@ -22,6 +23,7 @@ interface AppointmentSettings {
   slotMinutes: number;
   gapMinutes: number;
   minLeadMinutes: number;
+  confirmationRequestLeadMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
   dayHours: { mon: DayHours; tue: DayHours; wed: DayHours; thu: DayHours; fri: DayHours; sat: DayHours; sun: DayHours };
@@ -52,6 +54,11 @@ const MIN_LEAD_OPTIONS = [
   { minutes: 720, label: "12 hours" },
   { minutes: 1440, label: "24 hours" },
   { minutes: 2880, label: "48 hours" },
+];
+const CONFIRMATION_LEAD_OPTIONS = [
+  { minutes: 720, label: "12 hours before" },
+  { minutes: 1440, label: "24 hours before" },
+  { minutes: 2880, label: "48 hours before" },
 ];
 // Mirrors REMINDER_LEAD_PRESETS in src/common/appointmentSettings.ts — the backend
 // is the source of truth (its DB CHECK constraint enforces this exact list); this
@@ -319,6 +326,7 @@ function PushNotificationsCard() {
  */
 export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}) {
   const toast = useToast();
+  const { smsConfigured } = useSmsStatus();
   const [settings, setSettings] = useState<AppointmentSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -405,6 +413,12 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
           <label htmlFor="cal-min-lead">Minimum Advance Notice <span className="muted" style={{ fontWeight: 400 }}>(same-day cutoff)</span></label>
           <select id="cal-min-lead" value={settings.minLeadMinutes} onChange={(e) => setSettings((s) => s && { ...s, minLeadMinutes: Number(e.target.value) })}>
             {MIN_LEAD_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="cal-confirm-lead">"Please Confirm" Ask <span className="muted" style={{ fontWeight: 400 }}>(when it's sent)</span></label>
+          <select id="cal-confirm-lead" value={settings.confirmationRequestLeadMinutes} onChange={(e) => setSettings((s) => s && { ...s, confirmationRequestLeadMinutes: Number(e.target.value) })}>
+            {CONFIRMATION_LEAD_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
           </select>
         </div>
         <div className="field">
@@ -513,6 +527,11 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
           <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
             Applies to every client-facing appointment notice — confirmation, reminders, and cancellation — not just reminders.
           </p>
+          {!smsConfigured && (
+            <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--amber)" }}>
+              ⚠ SMS isn't connected yet — picking "SMS only" or "Email + SMS" will still only deliver the email half. Texts silently won't send until Twilio is configured.
+            </p>
+          )}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             {CHANNEL_OPTIONS.map((o) => (
               <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
@@ -533,6 +552,11 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
           <p className="muted" style={{ margin: "2px 0 8px", fontSize: 12 }}>
             SMS only reaches staff/admins who have a phone number on their user account — anyone without one still gets email.
           </p>
+          {!smsConfigured && (
+            <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--amber)" }}>
+              ⚠ SMS isn't connected yet — same as above, the text half silently won't send until Twilio is configured.
+            </p>
+          )}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             {CHANNEL_OPTIONS.map((o) => (
               <label key={o.value} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>

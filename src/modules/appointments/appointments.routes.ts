@@ -168,12 +168,12 @@ export type AppointmentNoticeType =
   | "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled"
   | "Appointment Confirmation Request" | "Appointment Rescheduled" | "Appointment Completed";
 
-/** Fixed 24-hours-before lead time for the "please confirm" ask — deliberately
- * NOT part of the admin-editable REMINDER_LEAD_PRESETS list (no toggle; this
- * always fires), and tracked in its own v3_appointments column
- * (confirmation_request_sent_at) rather than reminder_lead_minutes_sent, since
- * 1440 (24h) is already a common value in that admin-configured array. */
-export const CONFIRMATION_REQUEST_LEAD_MINUTES = 1440;
+// The "please confirm" ask's lead time is admin-configurable (settings.confirmationRequestLeadMinutes,
+// appointmentSettings.ts — default 24h, matching the old hardcoded value)
+// but still always fires (no on/off toggle, unlike REMINDER_LEAD_PRESETS),
+// and still tracked in its own v3_appointments column
+// (confirmation_request_sent_at) rather than reminder_lead_minutes_sent, so
+// it can't collide with a same-valued reminder in that admin-configured array.
 
 /**
  * Builds the full bilingual PLAIN-TEXT body for logging/display (the
@@ -749,20 +749,23 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
 }
 
 /**
- * Sends the "please confirm your appointment" ask exactly once, ~24 hours
- * before each Scheduled appointment — a fixed lead time (CONFIRMATION_REQUEST_LEAD_MINUTES),
- * not one of the admin-configurable reminderLeadMinutes above, since this
- * always fires (no settings toggle) and is idempotency-tracked in its own
+ * Sends the "please confirm your appointment" ask exactly once, ahead of
+ * each Scheduled appointment by settings.confirmationRequestLeadMinutes
+ * (admin-configurable, default 24h — was hardcoded until this became a real
+ * setting). Still distinct from the admin-configurable reminderLeadMinutes
+ * list above: this always fires (no on/off toggle the way each reminder
+ * preset is individually checkable), and is idempotency-tracked in its own
  * column (confirmation_request_sent_at) rather than the shared
- * reminder_lead_minutes_sent array, to avoid colliding with a real 1-day
- * (1440-minute) reminder the admin may also have configured. Same 2-hour
- * window / hourly-sweep shape as runAppointmentReminders above. Client-only
- * (respects notify_client) — the team already gets a heads-up for this lead
- * time via notifyAppointmentStaff if 1440 happens to be one of their
+ * reminder_lead_minutes_sent array, so it can't collide with a same-valued
+ * reminder the admin also has configured. Same 2-hour window / hourly-sweep
+ * shape as runAppointmentReminders above. Client-only (respects
+ * notify_client) — the team already gets a heads-up for this lead time via
+ * notifyAppointmentStaff if the same value happens to be one of their
  * configured lead times; this doesn't duplicate that.
  */
 export async function runAppointmentConfirmationRequests(actorEmail: string, req?: Request): Promise<{ sent: number; failed: number; channelFailures: number }> {
-  const target = new Date(Date.now() + CONFIRMATION_REQUEST_LEAD_MINUTES * 60 * 1000);
+  const { confirmationRequestLeadMinutes } = await getAppointmentSettings();
+  const target = new Date(Date.now() + confirmationRequestLeadMinutes * 60 * 1000);
   const windowStart = new Date(target.getTime() - 60 * 60 * 1000);
   const windowEnd = new Date(target.getTime() + 60 * 60 * 1000);
   let sent = 0, failed = 0, channelFailures = 0;
@@ -1050,12 +1053,17 @@ appointmentsRouter.post("/:appointmentId/cancel", requireAuth, requireRole("admi
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
   await query(`UPDATE altax.v3_appointments SET status = 'Cancelled', updated_at = now() WHERE appointment_id = $1`, [appointmentId]);
 
+  const client = existing.client_id
+    ? await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [existing.client_id])
+    : null;
   if (existing.notify_client) {
-    const client = existing.client_id
-      ? await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [existing.client_id])
-      : null;
     await notifyAppointment({ ...existing, client_name: client?.client_name }, "Appointment Cancelled", req.user!.email, req);
   }
+  // This was the one appointment-change path that never told other staff — a
+  // client self-cancel, and both reschedule paths, all already notify the
+  // assigned staff/creator/admins; staff-initiated Cancel silently didn't.
+  // Excludes whoever just clicked Cancel, same as every other staff-notify call.
+  await notifyStaffOfAppointmentChange({ ...existing, client_name: client?.client_name }, "Cancelled", req, undefined, req.user!.email);
 
   await logAudit("Calendar", "CANCEL_APPOINTMENT", appointmentId, "Status", existing.status, "Cancelled",
     `Appointment "${existing.title}" cancelled by ${req.user!.email}.`, req.user!.email);

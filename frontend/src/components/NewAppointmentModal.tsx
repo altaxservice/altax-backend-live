@@ -5,6 +5,7 @@ import type { PortalUser } from "../api/types2";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { useSmsStatus } from "../hooks/useSmsStatus";
 
 function addMinutes(hhmm: string, minutes: number): string {
   const [h, m] = hhmm.split(":").map(Number);
@@ -48,6 +49,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
+  const { smsConfigured } = useSmsStatus();
   const isEditing = !!appointment;
   const today = defaultDate || new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState(() => appointment ? {
@@ -240,7 +242,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
           <div className="field">
             <label htmlFor="appt-notify">Notify</label>
             <select id="appt-notify" value={form.notifyClient ? "yes" : "no"} onChange={(e) => setForm((f) => ({ ...f, notifyClient: e.target.value === "yes" }))}>
-              <option value="yes">Email + SMS confirmation &amp; reminder</option>
+              <option value="yes">{smsConfigured ? "Email + SMS confirmation & reminder" : "Email confirmation & reminder (SMS not connected)"}</option>
               <option value="no">No — internal only</option>
             </select>
           </div>

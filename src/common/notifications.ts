@@ -30,6 +30,15 @@ if (!isProdRuntime) {
 
 export class NotConfiguredError extends Error {}
 
+// The frontend used to have no way to know these weren't connected — reminder
+// settings and channel pickers offered "SMS"/"WhatsApp" as if they worked,
+// while every actual send silently failed and was swallowed by a "best-effort"
+// try/catch. Exported so any picker/toggle can grey out or label the option
+// instead of implying it does something it can't.
+export function isEmailConfigured(): boolean { return Boolean(process.env.RESEND_API_KEY); }
+export function isSmsConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER); }
+export function isWhatsAppConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_WHATSAPP_FROM); }
+
 export interface EmailAttachment { filename: string; content: Buffer; contentType?: string }
 
 /**

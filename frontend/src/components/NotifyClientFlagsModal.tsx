@@ -4,6 +4,7 @@ import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { type ClientFlag, flagLabel } from "../utils/clientFlags";
+import { useSmsStatus } from "../hooks/useSmsStatus";
 
 interface NotifyPreview {
   subject: string;
@@ -28,6 +29,7 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
+  const { smsConfigured } = useSmsStatus();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -169,8 +171,13 @@ export function NotifyClientFlagsModal({ clientId, clientName, clientEmail, clie
                 <label htmlFor="notify-flags-channel">Send via</label>
                 <select id="notify-flags-channel" value={channel} onChange={(e) => setChannel(e.target.value as "Email" | "SMS")}>
                   <option value="Email">Email</option>
-                  <option value="SMS">SMS</option>
+                  <option value="SMS">{smsConfigured ? "SMS" : "SMS (not connected)"}</option>
                 </select>
+                {channel === "SMS" && !smsConfigured && (
+                  <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--amber)" }}>
+                    ⚠ SMS isn't connected yet — this send will fail. Switch to Email, or ask an admin to set up Twilio.
+                  </p>
+                )}
               </div>
               <div className="field">
                 <label htmlFor="notify-flags-sentto">{channel === "Email" ? "Email address" : "Phone number"}</label>

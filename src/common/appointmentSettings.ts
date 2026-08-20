@@ -44,6 +44,10 @@ export const DEFAULT_APPOINTMENT_SETTINGS = {
   // separate from gapMinutes (spacing between two DIFFERENT appointments).
   // Default 24 hours.
   minLeadMinutes: 1440,
+  // How far ahead the "please confirm you're coming" ask fires — was
+  // hardcoded (CONFIRMATION_REQUEST_LEAD_MINUTES) as the one non-configurable
+  // timing in this whole settings panel. Default 24h preserves old behavior.
+  confirmationRequestLeadMinutes: 1440,
   businessStartHour: 9,
   businessEndHour: 17,
   dayHours: { mon: NO_OVERRIDE, tue: NO_OVERRIDE, wed: NO_OVERRIDE, thu: NO_OVERRIDE, fri: NO_OVERRIDE, sat: NO_OVERRIDE, sun: NO_OVERRIDE },
@@ -84,6 +88,7 @@ export interface AppointmentSettings {
   slotMinutes: number;
   gapMinutes: number;
   minLeadMinutes: number;
+  confirmationRequestLeadMinutes: number;
   businessStartHour: number;
   businessEndHour: number;
   /** Optional per-weekday hour overrides. A day with startHour/endHour === null falls back to businessStartHour/businessEndHour. */
@@ -111,6 +116,7 @@ export async function getAppointmentSettings(): Promise<AppointmentSettings> {
     slotMinutes: row?.slot_minutes ?? d.slotMinutes,
     gapMinutes: row?.gap_minutes ?? d.gapMinutes,
     minLeadMinutes: row?.min_lead_minutes ?? d.minLeadMinutes,
+    confirmationRequestLeadMinutes: row?.confirmation_request_lead_minutes ?? d.confirmationRequestLeadMinutes,
     businessStartHour: row?.business_start_hour ?? d.businessStartHour,
     businessEndHour: row?.business_end_hour ?? d.businessEndHour,
     dayHours: row
@@ -158,6 +164,7 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
     location_map_url: fields.locationMapUrl ?? existing.locationMapUrl,
     policy_message_en: fields.policyMessageEn ?? existing.policyMessageEn,
     policy_message_ar: fields.policyMessageAr ?? existing.policyMessageAr,
+    confirmation_request_lead_minutes: fields.confirmationRequestLeadMinutes ?? existing.confirmationRequestLeadMinutes,
   };
   await query(
     `INSERT INTO altax.v3_appointment_settings
@@ -167,9 +174,9 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
         mon_start_hour, mon_end_hour, tue_start_hour, tue_end_hour, wed_start_hour, wed_end_hour,
         thu_start_hour, thu_end_hour, fri_start_hour, fri_end_hour, sat_start_hour, sat_end_hour,
         sun_start_hour, sun_end_hour, reminder_lead_minutes, staff_reminder_channel, client_reminder_channel,
-        min_lead_minutes, updated_at, updated_by)
+        min_lead_minutes, confirmation_request_lead_minutes, updated_at, updated_by)
      VALUES ('APPT-1', $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-             $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34, $35, now(), $36)
+             $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34, $35, $36, now(), $37)
      ON CONFLICT (id) DO UPDATE SET
        bookable_mon=$1, bookable_tue=$2, bookable_wed=$3, bookable_thu=$4, bookable_fri=$5, bookable_sat=$6, bookable_sun=$7,
        slot_minutes=$8, gap_minutes=$9, business_start_hour=$10, business_end_hour=$11, max_days_ahead=$12,
@@ -177,14 +184,14 @@ export async function updateAppointmentSettings(fields: Partial<Omit<Appointment
        mon_start_hour=$18, mon_end_hour=$19, tue_start_hour=$20, tue_end_hour=$21, wed_start_hour=$22, wed_end_hour=$23,
        thu_start_hour=$24, thu_end_hour=$25, fri_start_hour=$26, fri_end_hour=$27, sat_start_hour=$28, sat_end_hour=$29,
        sun_start_hour=$30, sun_end_hour=$31, reminder_lead_minutes=$32, staff_reminder_channel=$33, client_reminder_channel=$34,
-       min_lead_minutes=$35, updated_at = now(), updated_by=$36`,
+       min_lead_minutes=$35, confirmation_request_lead_minutes=$36, updated_at = now(), updated_by=$37`,
     [merged.bookable_mon, merged.bookable_tue, merged.bookable_wed, merged.bookable_thu, merged.bookable_fri, merged.bookable_sat, merged.bookable_sun,
       merged.slot_minutes, merged.gap_minutes, merged.business_start_hour, merged.business_end_hour, merged.max_days_ahead,
       merged.location_name, merged.location_address, merged.location_map_url, merged.policy_message_en, merged.policy_message_ar,
       dh.mon.startHour, dh.mon.endHour, dh.tue.startHour, dh.tue.endHour, dh.wed.startHour, dh.wed.endHour,
       dh.thu.startHour, dh.thu.endHour, dh.fri.startHour, dh.fri.endHour, dh.sat.startHour, dh.sat.endHour,
       dh.sun.startHour, dh.sun.endHour, merged.reminder_lead_minutes, merged.staff_reminder_channel, merged.client_reminder_channel,
-      merged.min_lead_minutes, fields.updatedBy]
+      merged.min_lead_minutes, merged.confirmation_request_lead_minutes, fields.updatedBy]
   );
 }
 

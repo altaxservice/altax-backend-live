@@ -7,6 +7,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { isEncryptionConfigured } from "../../common/encryption";
+import { isSmsConfigured, isWhatsAppConfigured } from "../../common/notifications";
 import { buildBackupObject, runDailyBackupEmail, isEncryptedBackup, decryptBackup } from "../../common/autoBackup";
 import { WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
 import { persistRotatedJwtSecret } from "../../common/jwtSecret";
@@ -849,6 +850,8 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
     ...managed,
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     coaAccounts,
+    smsConfigured: isSmsConfigured(),
+    whatsappConfigured: isWhatsAppConfigured(),
   });
 }));
 

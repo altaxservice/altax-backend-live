@@ -86,6 +86,7 @@ appointmentSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHan
     slotMinutes: num(body.slotMinutes, undefined),
     gapMinutes: num(body.gapMinutes, undefined),
     minLeadMinutes: num(body.minLeadMinutes, undefined),
+    confirmationRequestLeadMinutes: num(body.confirmationRequestLeadMinutes, undefined),
     businessStartHour: num(body.businessStartHour, undefined),
     businessEndHour: num(body.businessEndHour, undefined),
     dayHours: parseDayHours(body.dayHours) as any,

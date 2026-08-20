@@ -15,6 +15,9 @@ export interface WebOptions {
   communicationChannels: string[];
   clientFlagCategories: string[];
   coaAccounts: string[];
+  /** Whether TWILIO_* env vars are actually set server-side — false means every SMS/WhatsApp send silently fails. Use to grey out or label those options wherever they're offered, instead of implying they work. */
+  smsConfigured: boolean;
+  whatsappConfigured: boolean;
 }
 
 export interface PortalUser {
