@@ -1398,6 +1398,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
 
   let mdFilingOnTime: boolean | null = null;
   const mdLatePeriodEnds: string[] = [];
+  let mdCurrentPeriodEnd: string | null = null;
   let mdCurrentPeriodDueDate: string | null = null;
   let mdCurrentPeriodTaxDue = 0;
   let mdCurrentPeriodOnTime: boolean | null = null;
@@ -1417,6 +1418,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
       mdFilingOnTime = mdFiling.periods.every((p) => p.onTime);
       for (const p of mdFiling.periods) if (!p.onTime) mdLatePeriodEnds.push(p.end);
       const current = mdFiling.periods[mdFiling.periods.length - 1];
+      mdCurrentPeriodEnd = current.end;
       mdCurrentPeriodDueDate = current.dueDate;
       mdCurrentPeriodTaxDue = Number(current.taxDue) || 0;
       mdCurrentPeriodOnTime = current.onTime;
@@ -1498,7 +1500,7 @@ async function assembleSwotEngineInput(clientId: string, clientRow: any): Promis
     revenue: financials.totals.revenue, profit: financials.totals.profit, trendPct, startedFromZero,
     openTasks: ops.openTasks, balanceDue: ops.balanceDue, overdueInvoices,
     taxLiabilities: financials.taxLiabilities, cashBalance,
-    mdFilingOnTime, mdLatePeriodEnds, mdCurrentPeriodDueDate, mdCurrentPeriodTaxDue, mdCurrentPeriodOnTime,
+    mdFilingOnTime, mdLatePeriodEnds, mdCurrentPeriodEnd, mdCurrentPeriodDueDate, mdCurrentPeriodTaxDue, mdCurrentPeriodOnTime,
     mdCurrentPeriodAlreadyMarkedFiled,
     upcomingObligationDeadlines,
     budgetVariances,

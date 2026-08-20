@@ -67,6 +67,7 @@ export interface SwotEngineInput {
   // Current (most recent) filing period's own due date/tax due — separate
   // from mdLatePeriodEnds because this drives the *upcoming* (not yet late)
   // deadline warning below, not a past-due one.
+  mdCurrentPeriodEnd: string | null; // the actual period's last day — NOT the due date, which is ~20 days later
   mdCurrentPeriodDueDate: string | null;
   mdCurrentPeriodTaxDue: number;
   mdCurrentPeriodOnTime: boolean | null;
@@ -261,7 +262,7 @@ export function computeSwotFindings(input: SwotEngineInput): CandidateFinding[] 
     if (daysUntilDue >= 0 && daysUntilDue <= 14) {
       findings.push({
         category: "Weakness",
-        findingText: `Sales tax filing for the period ending ${input.mdCurrentPeriodDueDate} is due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.`,
+        findingText: `Sales tax filing for the period ending ${input.mdCurrentPeriodEnd || input.mdCurrentPeriodDueDate} is due in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.`,
         supportingData: `Tax due ${fmtMoney(input.mdCurrentPeriodTaxDue)}, due date ${input.mdCurrentPeriodDueDate}.`,
         businessImpact: "Missing the deadline triggers the 10% late penalty plus monthly interest.",
         priority: daysUntilDue <= input.alertThresholds.filingDeadlineDaysThreshold ? "Urgent" : "High",
