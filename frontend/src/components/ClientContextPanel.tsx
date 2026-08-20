@@ -79,6 +79,16 @@ export function ClientContextPanel() {
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
+  // Distinct from Client Note (about the client — preferences, follow-up)
+  // — this is for internal process tracking, e.g. "checked MDTAXCONNECT
+  // 8/20, filed through July" or MD Business Express Good Standing checks.
+  // Same activity log, same internal-only visibility (Activity Timeline is
+  // already staff-only), just its own activityType so it reads as its own
+  // "Firm Note" badge in Recent Notes instead of blending into Client Notes.
+  const [showAddFirmNote, setShowAddFirmNote] = useState(false);
+  const [firmNoteText, setFirmNoteText] = useState("");
+  const [savingFirmNote, setSavingFirmNote] = useState(false);
+  const [firmNoteError, setFirmNoteError] = useState<string | null>(null);
   const [showFlagHistory, setShowFlagHistory] = useState(false);
   const [flagHistory, setFlagHistory] = useState<ClientFlag[] | null>(null);
   const [panelWidth, setPanelWidth] = useState<number>(() => {
@@ -237,6 +247,27 @@ export function ClientContextPanel() {
       setNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
     } finally {
       setSavingNote(false);
+    }
+  }
+
+  async function handleAddFirmNote(e: FormEvent) {
+    e.preventDefault();
+    if (!clientId) return;
+    const note = firmNoteText.trim();
+    if (!note) { setFirmNoteError("Enter a note."); return; }
+    setFirmNoteError(null);
+    setSavingFirmNote(true);
+    try {
+      await api.post(`/clients/${clientId}/activity`, { activityType: "Firm Note", note });
+      setShowAddFirmNote(false);
+      setFirmNoteText("");
+      loadRecentActivity(clientId);
+      loadUnreadCounts(clientId);
+      toast("Firm note added.");
+    } catch (err) {
+      setFirmNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
+    } finally {
+      setSavingFirmNote(false);
     }
   }
 
@@ -445,9 +476,10 @@ export function ClientContextPanel() {
             )}
           </div>
 
-          {!showAddFlag && !showAddNote ? (
+          {!showAddFlag && !showAddNote && !showAddFirmNote ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(true); setNoteError(null); }}>+ Client Note</button>
+              <button type="button" className="btn btn-sm" onClick={() => { setShowAddFirmNote(true); setFirmNoteError(null); }}>+ Firm Note</button>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
               {flags && flags.length > 0 && (
                 <button type="button" className="btn btn-sm" onClick={() => setShowNotifyModal(true)}>
@@ -474,6 +506,23 @@ export function ClientContextPanel() {
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingNote}>{savingNote ? "Saving…" : "Save Note"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(false); setNoteError(null); setNoteText(""); }}>Cancel</button>
+              </div>
+            </form>
+          ) : showAddFirmNote ? (
+            <form onSubmit={handleAddFirmNote} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600 }}>Firm note — internal process tracking for {client.client_name}</div>
+              {firmNoteError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{firmNoteError}</div>}
+              <textarea
+                placeholder="e.g. Checked MDTAXCONNECT 8/20 — filed and paid through July. Checked MD Business Express — Good Standing, Annual Report filed."
+                value={firmNoteText}
+                onChange={(e) => setFirmNoteText(e.target.value)}
+                rows={3}
+                autoFocus
+                style={{ fontSize: 12.5, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={savingFirmNote}>{savingFirmNote ? "Saving…" : "Save Note"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => { setShowAddFirmNote(false); setFirmNoteError(null); setFirmNoteText(""); }}>Cancel</button>
               </div>
             </form>
           ) : (
