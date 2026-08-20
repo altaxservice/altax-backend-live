@@ -488,7 +488,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     // silently mark a period filed that wasn't.
     const ok = await confirmDialog({
       title: "Mark period filed?",
-      message: `Confirm the state actually received this filing${usePaidDate ? "/payment" : ""}. Period ${p.start} through ${p.end}, filed ${useFiledDate}${usePaidDate ? `, paid ${usePaidDate}` : " (payment not yet made)"}.${sendConfirmation ? " The client will be emailed a filing confirmation." : ""} This clears the period's Past Due flag.`,
+      message: `Confirm the state actually received this filing${usePaidDate ? "/payment" : ""}. Period ${fmtDate(p.start)} through ${fmtDate(p.end)}, filed ${fmtDate(useFiledDate)}${usePaidDate ? `, paid ${fmtDate(usePaidDate)}` : " (payment not yet made)"}.${sendConfirmation ? " The client will be emailed a filing confirmation." : ""} This clears the period's Past Due flag.`,
       confirmLabel: sendConfirmation ? "Save and Send" : "Save and Close",
     });
     if (!ok) return;
@@ -865,8 +865,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         </thead>
                         <tbody>
                           {mdFiling.periods.map((p) => (
-                            <tr key={`${p.start}-${p.end}`}>
-                              <td>{p.start} – {p.end}</td>
+                            <tr
+                              key={`${p.start}-${p.end}`}
+                              onClick={() => setPeriod({ start: p.start, end: p.end })}
+                              style={{ cursor: "pointer" }}
+                              title="View this period's actual sales entries below"
+                            >
+                              <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
                               <td>{fmtDate(p.dueDate)}</td>
                               <td className="muted">{fmtDate(p.targetFilingDate)}</td>
                               <td>{fmtMoney(p.taxDue)}</td>
@@ -876,7 +881,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                               <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
                               <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
                               <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
-                              <td>
+                              <td onClick={(e) => e.stopPropagation()}>
                                 {p.markedPaidDate ? (
                                   <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
                                     {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
@@ -933,6 +938,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         </tbody>
                       </table>
                     </div>
+                    <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Click any row to view that period's actual sales entries below.</p>
                     <div className="metric-grid metric-grid-3" style={{ marginTop: 12 }}>
                       <div className="metric"><div className="metric-label">Total Discount</div><div className="metric-value">− {fmtMoney(mdFiling.totals.discount)}</div></div>
                       <div className="metric"><div className="metric-label">Total Penalty + Interest</div><div className="metric-value">{fmtMoney(mdFiling.totals.penalty + mdFiling.totals.interest)}</div></div>

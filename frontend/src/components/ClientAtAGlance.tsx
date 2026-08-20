@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { useNotify } from "./ConfirmProvider";
 import { NewWorkItemModal } from "./NewWorkItemModal";
+import { fmtDateOnly as fmtDateNumeric } from "../utils/date";
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -600,7 +601,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                       const days = daysUntil(d.date);
                       return (
                         <div key={`${d.label}-${d.date}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                          <span>{d.label} — {d.date}</span>
+                          <span>{d.label} — {fmtDateNumeric(d.date)}</span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span className={`status-pill ${deadlinePillClass(days)}`}>{days < 0 ? "Overdue" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}</span>
                             {renderMarkDoneControl(d)}
