@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
+import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import type { Client } from "../api/types";
 
 /**
@@ -219,6 +220,10 @@ export function FirmReportPage() {
       <DocumentCollectionGapsSection />
 
       <ClientProfitabilitySection from={from} to={to} />
+
+      <MinimumFeeScheduleSection />
+
+      <FeeComplianceSection from={from} to={to} />
 
       <ClientListingSection />
 
@@ -693,6 +698,266 @@ function ClientProfitabilitySection({ from, to }: { from: string; to: string }) 
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+interface MinimumFeeRow {
+  min_fee_id: string; service_key: string; label: string; variant: string | null; base_fee: number;
+  per_unit_fee: number | null; per_unit_threshold: number | null; per_unit_label: string | null;
+  billing_cadence: string; active: boolean;
+}
+const FEE_SERVICE_OPTIONS = [
+  { key: "sales_tax", label: "Sales Tax Filing" },
+  { key: "payroll", label: "Payroll Processing" },
+  { key: "bookkeeping", label: "Bookkeeping" },
+  { key: "business_tax_prep", label: "Business Tax Return" },
+  { key: "personal_tax_prep", label: "Individual Tax Return" },
+  { key: "other", label: "Other" },
+];
+const EMPTY_FEE_FORM = {
+  serviceKey: "sales_tax", label: "", variant: "", baseFee: "", perUnitFee: "", perUnitThreshold: "", perUnitLabel: "", billingCadence: "monthly",
+};
+
+/**
+ * Real, admin-editable minimum-fee floors (item #21) — given directly by
+ * the user 2026-08-20 rather than sourced from the pre-existing Fee
+ * Schedule (checked, found too thin/stale to use). Backs
+ * FeeComplianceSection below. Sales Tax uses `variant` for its real
+ * fee-by-filing-frequency structure; Payroll uses the per-unit fields for
+ * its real base-covers-N-employees-then-$X-more structure; every other
+ * service is flat.
+ */
+function MinimumFeeScheduleSection() {
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const [fees, setFees] = useState<MinimumFeeRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_FEE_FORM);
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    api.get<{ minimumFees: MinimumFeeRow[] }>("/reports/minimum-fees")
+      .then((res) => setFees(res.minimumFees))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the fee schedule."));
+  }
+  useEffect(load, []);
+
+  function startAdd() {
+    setForm(EMPTY_FEE_FORM);
+    setEditingId(null);
+    setShowForm(true);
+  }
+  function startEdit(f: MinimumFeeRow) {
+    setForm({
+      serviceKey: f.service_key, label: f.label, variant: f.variant || "", baseFee: String(f.base_fee),
+      perUnitFee: f.per_unit_fee != null ? String(f.per_unit_fee) : "", perUnitThreshold: f.per_unit_threshold != null ? String(f.per_unit_threshold) : "",
+      perUnitLabel: f.per_unit_label || "", billingCadence: f.billing_cadence,
+    });
+    setEditingId(f.min_fee_id);
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        serviceKey: form.serviceKey, label: form.label || FEE_SERVICE_OPTIONS.find((o) => o.key === form.serviceKey)?.label || form.serviceKey,
+        variant: form.variant, baseFee: form.baseFee, perUnitFee: form.perUnitFee, perUnitThreshold: form.perUnitThreshold,
+        perUnitLabel: form.perUnitLabel, billingCadence: form.billingCadence,
+      };
+      if (editingId) await api.patch(`/reports/minimum-fees/${editingId}`, payload);
+      else await api.post("/reports/minimum-fees", payload);
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this fee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleActive(f: MinimumFeeRow) {
+    try {
+      await api.patch(`/reports/minimum-fees/${f.min_fee_id}`, { active: !f.active });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this fee.");
+    }
+  }
+
+  async function handleDelete(f: MinimumFeeRow) {
+    const ok = await confirmDialog({ title: "Delete minimum fee", message: `Delete the "${f.label}${f.variant ? ` — ${f.variant}` : ""}" fee? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/reports/minimum-fees/${f.min_fee_id}/delete`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this fee.");
+    }
+  }
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Minimum Fee Schedule</h2>
+        <div className="command-panel-note">Your real fee floors — edit these anytime, the Fee Compliance report below always reads the current values.</div>
+      </div>
+      <div style={{ padding: "0 16px 16px" }}>
+        {error && <ErrorBanner error={error} />}
+        {!showForm && <button type="button" className="btn" onClick={startAdd}>+ Add Fee</button>}
+
+        {showForm && (
+          <form onSubmit={handleSubmit} className="card" style={{ marginTop: 12, padding: 16 }}>
+            <div className="form-grid">
+              <div className="field">
+                <label htmlFor="fee-service">Service</label>
+                <select id="fee-service" value={form.serviceKey} onChange={(e) => setForm({ ...form, serviceKey: e.target.value, label: FEE_SERVICE_OPTIONS.find((o) => o.key === e.target.value)?.label || "" })}>
+                  {FEE_SERVICE_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="field"><label htmlFor="fee-label">Label</label><input id="fee-label" required value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Shown on the report" /></div>
+            </div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="fee-variant">Variant <span className="muted">(optional — e.g. Monthly/Quarterly/Semiannual for Sales Tax)</span></label><input id="fee-variant" value={form.variant} onChange={(e) => setForm({ ...form, variant: e.target.value })} /></div>
+              <div className="field"><label htmlFor="fee-cadence">Billing Cadence</label>
+                <select id="fee-cadence" value={form.billingCadence} onChange={(e) => setForm({ ...form, billingCadence: e.target.value })}>
+                  <option value="monthly">Monthly</option>
+                  <option value="annual">Annual</option>
+                  <option value="per_period">Per Filing Period</option>
+                </select>
+              </div>
+            </div>
+            <div className="field"><label htmlFor="fee-base">Base Fee ($)</label><input id="fee-base" type="number" step="0.01" required value={form.baseFee} onChange={(e) => setForm({ ...form, baseFee: e.target.value })} /></div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="fee-perunit">Per-Unit Fee ($) <span className="muted">(optional)</span></label><input id="fee-perunit" type="number" step="0.01" value={form.perUnitFee} onChange={(e) => setForm({ ...form, perUnitFee: e.target.value })} /></div>
+              <div className="field"><label htmlFor="fee-threshold">Base Covers Up To <span className="muted">(optional)</span></label><input id="fee-threshold" type="number" value={form.perUnitThreshold} onChange={(e) => setForm({ ...form, perUnitThreshold: e.target.value })} placeholder="e.g. 2" /></div>
+              <div className="field"><label htmlFor="fee-unitlabel">Unit Label <span className="muted">(optional)</span></label><input id="fee-unitlabel" value={form.perUnitLabel} onChange={(e) => setForm({ ...form, perUnitLabel: e.target.value })} placeholder="e.g. employee" /></div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Add Fee"}</button>
+              <button type="button" className="btn" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        <div className="table-scroll" style={{ marginTop: 12 }}>
+          <table>
+            <thead><tr><th scope="col">Service</th><th scope="col">Variant</th><th scope="col">Base Fee</th><th scope="col">Per Unit</th><th scope="col">Cadence</th><th scope="col">Active</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              {fees === null && <tr><td colSpan={7} className="muted">Loading…</td></tr>}
+              {fees !== null && fees.length === 0 && <tr><td colSpan={7} className="muted">No fees set yet.</td></tr>}
+              {fees?.map((f) => (
+                <tr key={f.min_fee_id} style={{ opacity: f.active ? 1 : 0.5 }}>
+                  <td>{f.label}</td>
+                  <td>{f.variant || "—"}</td>
+                  <td>{fmtMoney(f.base_fee)}</td>
+                  <td>{f.per_unit_fee != null ? `+${fmtMoney(f.per_unit_fee)}/${f.per_unit_label || "unit"} over ${f.per_unit_threshold ?? 0}` : "—"}</td>
+                  <td>{f.billing_cadence}</td>
+                  <td><button type="button" className="link-button" onClick={() => handleToggleActive(f)}>{f.active ? "Yes" : "No"}</button></td>
+                  <td>
+                    <button type="button" className="link-button" onClick={() => startEdit(f)}>Edit</button>
+                    {" · "}
+                    <button type="button" className="link-button" onClick={() => handleDelete(f)}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface FeeComplianceRow {
+  clientId: string; clientName: string; expectedMinimum: number; actualRevenue: number;
+  gap: number; status: "Below Minimum" | "At Minimum" | "Above Minimum" | "Not Enough Data"; servicesUsed: string[]; hasAnyRevenue: boolean;
+}
+
+/**
+ * Real production data (2026-08-20) showed this distinction matters a lot:
+ * of 131 service-enrolled clients compared, only 1 had actual revenue
+ * recorded AND fell below the floor — 124 had ZERO GL revenue recorded at
+ * all. Those are very different problems (a pricing issue vs. a billing/
+ * tracking gap), so the panel leads with the genuinely-underpriced list and
+ * treats the no-revenue group as its own, separately-labeled section
+ * instead of dumping both into one "red flag" list.
+ */
+function FeeComplianceSection({ from, to }: { from: string; to: string }) {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<FeeComplianceRow[] | null>(null);
+
+  useEffect(() => {
+    setRows(null);
+    api.get<{ clients: FeeComplianceRow[] }>(`/reports/fee-compliance?from=${from}&to=${to}`)
+      .then((res) => setRows(res.clients))
+      .catch(() => {});
+  }, [from, to]);
+
+  if (!rows) return null;
+  const underpriced = rows.filter((r) => r.status === "Below Minimum" && r.hasAnyRevenue);
+  const noRevenue = rows.filter((r) => !r.hasAnyRevenue);
+  const compliant = rows.filter((r) => r.hasAnyRevenue && r.status !== "Below Minimum");
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Fee Compliance</h2>
+        <div className="command-panel-note">
+          {rows.length} service-enrolled client{rows.length === 1 ? "" : "s"} compared against the fee schedule above, for this period.
+        </div>
+      </div>
+
+      <div style={{ padding: "0 16px 4px", fontWeight: 700, fontSize: 13, color: "var(--red)" }}>Below Minimum ({underpriced.length})</div>
+      {underpriced.length === 0 ? (
+        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>No client with recorded revenue is billing below their fee floor.</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Client</th><th scope="col">Expected Minimum</th><th scope="col">Actual Revenue</th><th scope="col">Gap</th></tr></thead>
+            <tbody>
+              {underpriced.map((r) => (
+                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
+                  <td>{r.clientName}</td>
+                  <td>{fmtMoney(r.expectedMinimum)}</td>
+                  <td>{fmtMoney(r.actualRevenue)}</td>
+                  <td style={{ color: "var(--red)", fontWeight: 700 }}>{fmtMoney(r.gap)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ padding: "12px 16px 4px", fontWeight: 700, fontSize: 13 }}>No Revenue Recorded ({noRevenue.length})</div>
+      <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>
+        These clients are enrolled in a billed service but have $0 GL revenue recorded for this period — a billing/tracking gap, not necessarily a pricing problem. Worth checking whether they're actually being invoiced.
+      </p>
+      {noRevenue.length > 0 && (
+        <details style={{ padding: "0 16px 12px" }}>
+          <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--muted)" }}>Show {noRevenue.length} client{noRevenue.length === 1 ? "" : "s"}</summary>
+          <div className="table-scroll" style={{ marginTop: 8 }}>
+            <table>
+              <thead><tr><th scope="col">Client</th><th scope="col">Services</th></tr></thead>
+              <tbody>
+                {noRevenue.map((r) => (
+                  <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
+                    <td>{r.clientName}</td>
+                    <td className="muted">{r.servicesUsed.join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
+      <p className="muted" style={{ padding: "12px 16px 12px", fontSize: 11 }}>{compliant.length} client{compliant.length === 1 ? "" : "s"} at or above their minimum.</p>
     </div>
   );
 }

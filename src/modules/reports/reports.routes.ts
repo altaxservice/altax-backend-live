@@ -1844,6 +1844,190 @@ reportsRouter.get("/client-profitability", requireAuth, requireRole("admin"), as
   res.json({ clients: await computeClientProfitability(rangeFrom, rangeTo) });
 }));
 
+// ---- Minimum Fee Schedule (item #21, Pricing & Fee Analysis) ----
+
+function feeIdSuffix(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const rand = Math.floor(100 + Math.random() * 900);
+  return `${ts}-${rand}`;
+}
+
+reportsRouter.get("/minimum-fees", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query<any>(`SELECT * FROM altax.v3_minimum_fees ORDER BY service_key, variant NULLS FIRST`);
+  res.json({ minimumFees: rows });
+}));
+
+reportsRouter.post("/minimum-fees", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const serviceKey = String(body.serviceKey || "").trim();
+  const label = String(body.label || "").trim();
+  const baseFee = Number(body.baseFee);
+  if (!serviceKey) return res.status(400).json({ error: "Service is required." });
+  if (!label) return res.status(400).json({ error: "Label is required." });
+  if (!Number.isFinite(baseFee) || baseFee < 0) return res.status(400).json({ error: "Base fee must be a non-negative number." });
+
+  const minFeeId = `MINFEE-${feeIdSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_minimum_fees
+       (min_fee_id, service_key, label, variant, base_fee, per_unit_fee, per_unit_threshold, per_unit_label, billing_cadence, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [
+      minFeeId, serviceKey, label, String(body.variant || "").trim() || null, baseFee,
+      body.perUnitFee !== undefined && body.perUnitFee !== "" ? Number(body.perUnitFee) : null,
+      body.perUnitThreshold !== undefined && body.perUnitThreshold !== "" ? Number(body.perUnitThreshold) : null,
+      String(body.perUnitLabel || "").trim() || null,
+      String(body.billingCadence || "monthly").trim(),
+      req.user!.email,
+    ]
+  );
+  await logAudit("MinimumFees", "CREATE", minFeeId, "", "", `${label} — ${fmtMoney(baseFee)}`, `Minimum fee added by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, minFeeId });
+}));
+
+reportsRouter.patch("/minimum-fees/:minFeeId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { minFeeId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_minimum_fees WHERE min_fee_id = $1`, [minFeeId]);
+  if (!existing) return res.status(404).json({ error: "Minimum fee not found." });
+
+  const body = req.body || {};
+  const next = {
+    label: body.label !== undefined ? String(body.label).trim() : existing.label,
+    variant: body.variant !== undefined ? (String(body.variant).trim() || null) : existing.variant,
+    baseFee: body.baseFee !== undefined ? Number(body.baseFee) : Number(existing.base_fee),
+    perUnitFee: body.perUnitFee !== undefined ? (body.perUnitFee === "" ? null : Number(body.perUnitFee)) : existing.per_unit_fee,
+    perUnitThreshold: body.perUnitThreshold !== undefined ? (body.perUnitThreshold === "" ? null : Number(body.perUnitThreshold)) : existing.per_unit_threshold,
+    perUnitLabel: body.perUnitLabel !== undefined ? (String(body.perUnitLabel).trim() || null) : existing.per_unit_label,
+    billingCadence: body.billingCadence !== undefined ? String(body.billingCadence).trim() : existing.billing_cadence,
+    active: body.active !== undefined ? Boolean(body.active) : existing.active,
+  };
+  if (!Number.isFinite(next.baseFee) || next.baseFee < 0) return res.status(400).json({ error: "Base fee must be a non-negative number." });
+
+  await query(
+    `UPDATE altax.v3_minimum_fees SET
+       label=$2, variant=$3, base_fee=$4, per_unit_fee=$5, per_unit_threshold=$6, per_unit_label=$7, billing_cadence=$8, active=$9, updated_at=now()
+     WHERE min_fee_id = $1`,
+    [minFeeId, next.label, next.variant, next.baseFee, next.perUnitFee, next.perUnitThreshold, next.perUnitLabel, next.billingCadence, next.active]
+  );
+  await logAudit("MinimumFees", "EDIT", minFeeId, "Base Fee", String(existing.base_fee), String(next.baseFee), `Minimum fee updated by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, minFeeId });
+}));
+
+reportsRouter.post("/minimum-fees/:minFeeId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { minFeeId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_minimum_fees WHERE min_fee_id = $1`, [minFeeId]);
+  if (!existing) return res.status(404).json({ error: "Minimum fee not found." });
+  await query(`DELETE FROM altax.v3_minimum_fees WHERE min_fee_id = $1`, [minFeeId]);
+  await logAudit("MinimumFees", "DELETE", minFeeId, "", "", "", `Minimum fee deleted by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+export type FeeComplianceStatus = "Below Minimum" | "At Minimum" | "Above Minimum" | "Not Enough Data";
+export interface FeeComplianceRow {
+  clientId: string; clientName: string; expectedMinimum: number; actualRevenue: number;
+  gap: number; status: FeeComplianceStatus; servicesUsed: string[]; hasAnyRevenue: boolean;
+}
+
+/**
+ * Compares real GL revenue per client against an EXPECTED MINIMUM built
+ * from which services the client is actually enrolled in
+ * (v3_clients.services[], matched against v3_minimum_fees.service_key) and
+ * this app's real fee schedule — not a per-invoice-line match (invoices
+ * aren't reliably categorized against these 5 service buckets), so this
+ * answers "given what they're signed up for, did their total recorded
+ * revenue at least clear the floor," not "was every single line item
+ * priced correctly." Sales Tax uses the client's own sales_tax_frequency
+ * to pick the right variant and to count how many filing periods fall in
+ * the window; Payroll uses their real active v3_employees count against
+ * the base_fee/per_unit_fee/per_unit_threshold structure, prorated by
+ * month; Bookkeeping is a flat monthly fee prorated by month; Business/
+ * Individual Tax Return are flat annual fees prorated by the fraction of a
+ * year the window covers. A client with services[] set but no matching
+ * active v3_minimum_fees row for what they're enrolled in is skipped
+ * (nothing to compare against), not silently counted as $0 expected.
+ *
+ * hasAnyRevenue distinguishes "genuinely underpriced" (some revenue
+ * recorded, still below the floor) from "no GL revenue recorded for this
+ * client at all" (a billing/tracking gap, not a pricing verdict) — real
+ * production data (2026-08-20) showed only 103 of 158 clients have ANY
+ * GL revenue this year at all, so this distinction matters: without it,
+ * "not billed" and "billed too little" would look identical.
+ */
+export async function computeFeeCompliance(from: string, to: string): Promise<FeeComplianceRow[]> {
+  await ensureCoaTypeCache();
+  const monthsInRange = Math.max(1, (new Date(`${to}T00:00:00Z`).getUTCFullYear() - new Date(`${from}T00:00:00Z`).getUTCFullYear()) * 12
+    + (new Date(`${to}T00:00:00Z`).getUTCMonth() - new Date(`${from}T00:00:00Z`).getUTCMonth()) + 1);
+
+  const [feeRows, clientRows, glRows, employeeRows] = await Promise.all([
+    query<any>(`SELECT * FROM altax.v3_minimum_fees WHERE active = true`),
+    query<any>(`SELECT client_id, client_name, services, sales_tax_frequency FROM altax.v3_clients WHERE services IS NOT NULL AND array_length(services, 1) > 0`),
+    query<any>(`SELECT client_id, account, debit, credit FROM altax.v3_gl_entries WHERE entry_date >= $1::date AND entry_date <= $2::date AND client_id IS NOT NULL`, [from, to]),
+    query<any>(`SELECT client_id, COUNT(*)::int AS count FROM altax.v3_employees WHERE lower(status) = 'active' GROUP BY client_id`),
+  ]);
+
+  const feesByServiceVariant = new Map<string, any>();
+  for (const f of feeRows) feesByServiceVariant.set(`${f.service_key}::${f.variant || ""}`, f);
+  const revenueByClient = new Map<string, number>();
+  for (const row of glRows) {
+    if (bucketAccount(row.account) !== "revenue") continue;
+    revenueByClient.set(row.client_id, (revenueByClient.get(row.client_id) || 0) + (Number(row.credit || 0) - Number(row.debit || 0)));
+  }
+  const employeeCountByClient = new Map(employeeRows.map((r: any) => [r.client_id, r.count]));
+
+  const rows: FeeComplianceRow[] = [];
+  for (const c of clientRows) {
+    const services: string[] = c.services || [];
+    let expectedMinimum = 0;
+    let hadAnyMatch = false;
+
+    for (const key of services) {
+      if (key === "sales_tax") {
+        const freq = String(c.sales_tax_frequency || "").trim();
+        const fee = feesByServiceVariant.get(`sales_tax::${freq}`);
+        if (!fee) continue;
+        hadAnyMatch = true;
+        const periodsPerYear = freq === "Monthly" ? 12 : freq === "Quarterly" ? 4 : freq === "Semiannual" ? 2 : 0;
+        const periodsInRange = periodsPerYear > 0 ? round2((periodsPerYear / 12) * monthsInRange) : 0;
+        expectedMinimum += Number(fee.base_fee) * periodsInRange;
+      } else if (key === "payroll") {
+        const fee = feesByServiceVariant.get("payroll::");
+        if (!fee) continue;
+        hadAnyMatch = true;
+        const employeeCount = Number(employeeCountByClient.get(c.client_id) || 0);
+        const extraUnits = fee.per_unit_threshold != null ? Math.max(0, employeeCount - Number(fee.per_unit_threshold)) : 0;
+        const monthlyFee = Number(fee.base_fee) + extraUnits * Number(fee.per_unit_fee || 0);
+        expectedMinimum += monthlyFee * monthsInRange;
+      } else if (key === "bookkeeping") {
+        const fee = feesByServiceVariant.get("bookkeeping::");
+        if (!fee) continue;
+        hadAnyMatch = true;
+        expectedMinimum += Number(fee.base_fee) * monthsInRange;
+      } else if (key === "business_tax_prep" || key === "personal_tax_prep") {
+        const fee = feesByServiceVariant.get(`${key}::`);
+        if (!fee) continue;
+        hadAnyMatch = true;
+        expectedMinimum += Number(fee.base_fee) * (monthsInRange / 12);
+      }
+    }
+
+    if (!hadAnyMatch) continue; // nothing in their service list has a fee schedule row — no basis for comparison
+    const actualRevenue = round2(revenueByClient.get(c.client_id) || 0);
+    expectedMinimum = round2(expectedMinimum);
+    const gap = round2(actualRevenue - expectedMinimum);
+    const status: FeeComplianceStatus = gap < -0.5 ? "Below Minimum" : gap > 0.5 ? "Above Minimum" : "At Minimum";
+    rows.push({ clientId: c.client_id, clientName: c.client_name, expectedMinimum, actualRevenue, gap, status, servicesUsed: services, hasAnyRevenue: revenueByClient.has(c.client_id) });
+  }
+  return rows.sort((a, b) => a.gap - b.gap);
+}
+
+reportsRouter.get("/fee-compliance", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json({ clients: await computeFeeCompliance(rangeFrom, rangeTo) });
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,
