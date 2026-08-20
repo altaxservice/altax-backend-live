@@ -633,6 +633,75 @@ billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin"
 }));
 
 /**
+ * Manual "Send Reminder" — separate from the automatic one-time reminder
+ * (reminders.routes.ts's runReminders, which fires once per invoice 3 days
+ * past due). Staff can send one anytime regardless of whether the automatic
+ * one already fired, at one of two tones: a plain "Reminder" or an "[Urgent]"
+ * one with a red accent banner (matching dashboardAlerts.ts's own [Urgent]
+ * subject-prefix convention and ClientSwotSection.tsx's red urgent-pill
+ * styling). Logs under its own PAYREM-MANUAL-* source_record_id so it never
+ * collides with, or gets blocked by, the automatic reminder's PAYREM-{invoiceId} key.
+ */
+billingRouter.post("/invoices/:invoiceId/send-reminder", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [req.params.invoiceId]);
+  if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  if (!(await canMutateInvoice(req.user!, invoice))) {
+    return res.status(403).json({ error: "You do not have access to this invoice." });
+  }
+  if (Number(invoice.balance_due) <= 0) return res.status(400).json({ error: "This invoice has no balance due." });
+
+  const urgency = String(req.body?.urgency || "reminder").trim();
+  if (!["reminder", "urgent"].includes(urgency)) {
+    return res.status(400).json({ error: `urgency must be "reminder" or "urgent".` });
+  }
+
+  const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]);
+  if (!client?.email) return res.status(400).json({ error: "This client has no email address on file." });
+
+  const { resolveTemplate } = await import("../templates/templates.routes");
+  const resolved = await resolveTemplate("Payment Reminder", invoice.client_id, "", "", {
+    balanceDue: `$${Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+  });
+  if (!resolved) return res.status(500).json({ error: "The Payment Reminder template is not available." });
+
+  const { sendEmail, NotConfiguredError } = await import("../../common/notifications");
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const { escapeHtml } = await import("../../common/html");
+  const subject = urgency === "urgent" ? `[Urgent] ${resolved.subject}` : resolved.subject;
+  const urgentBanner = urgency === "urgent"
+    ? `<div style="background:#fdecea;color:#7a1f1f;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-weight:700;font-size:13px;">⚠ Urgent — action needed</div>`
+    : "";
+  const html = await wrapEmailHtml(`${urgentBanner}<p style="margin:0;">${escapeHtml(resolved.message_english).replace(/\n/g, "<br>")}</p>`, req);
+
+  let sent = false;
+  let sendError: string | undefined;
+  let providerMessageId: string | null = null;
+  try {
+    const result = await sendEmail({ to: client.email, subject, html });
+    providerMessageId = result.providerMessageId;
+    sent = true;
+  } catch (err: any) {
+    sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
+  }
+
+  const status = sent ? "Saved + Sent" : `Saved — ${sendError}`;
+  const sourceRecordId = `PAYREM-MANUAL-${invoice.invoice_id}-${Date.now()}`;
+  await query(
+    `INSERT INTO altax.v3_communications
+       (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+     VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Reminders',$10,$11)`,
+    [`COM-${idSuffix()}`, invoice.client_id, client.client_name || null, subject,
+      resolved.message_english, resolved.message_arabic, client.email, req.user!.email, status, sourceRecordId, providerMessageId]
+  );
+  await logAudit("Billing", "SEND_PAYMENT_REMINDER", invoice.invoice_id, "", "", urgency,
+    `${urgency === "urgent" ? "Urgent" : "Payment"} reminder sent by ${req.user!.email}.`, req.user!.email);
+
+  if (!sent) return res.status(502).json({ ok: false, error: sendError });
+  res.json({ ok: true });
+}));
+
+/**
  * Get-or-create a public share link for an invoice — no payment processor or email
  * required, just an opaque token that unlocks read-only access to this one invoice
  * via GET /public/invoices/:token (see publicInvoice.routes.ts), matching how

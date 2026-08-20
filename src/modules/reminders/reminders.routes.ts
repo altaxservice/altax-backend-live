@@ -256,37 +256,46 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     }
   }
 
-  // --- Clients: one payment reminder per client with a positive unpaid invoice balance ---
-  const clientsOwing = await query<any>(
-    `SELECT c.client_id, c.client_name, c.email, COALESCE(SUM(i.balance_due), 0) AS balance_due
-       FROM altax.v3_clients c
-       JOIN altax.v3_invoices i ON i.client_id = c.client_id
+  // --- Clients: ONE payment reminder per invoice, ever, fired once that invoice
+  // is more than 3 days past its own due date. Previously this summed EVERY
+  // unpaid invoice into one client-level balance and re-fired daily (dedup key
+  // included today's date) — annoying, and gave staff no way to send one on
+  // demand. Per-invoice + a date-free dedup key (PAYREM-{invoiceId}) makes
+  // alreadySent()/sendAndLog()'s existing "fires once per key, forever"
+  // mechanics do the one-time work with no other changes needed. A separate
+  // manual "Send Reminder" action exists on the invoice itself (billing.routes.ts
+  // POST /invoices/:invoiceId/send-reminder) using its own PAYREM-MANUAL-* key,
+  // so staff can always send one regardless of whether this auto reminder has
+  // already fired for that invoice.
+  const overdueInvoices = await query<any>(
+    `SELECT i.invoice_id, i.client_id, i.balance_due, c.client_name, c.email
+       FROM altax.v3_invoices i
+       JOIN altax.v3_clients c ON c.client_id = i.client_id
       WHERE lower(i.status) NOT IN ('paid', 'void') AND i.balance_due > 0
-      GROUP BY c.client_id, c.client_name, c.email
-     HAVING COALESCE(SUM(i.balance_due), 0) > 0`
+        AND i.due_date IS NOT NULL AND i.due_date <= now() - interval '3 days'`
   );
 
-  for (const client of clientsOwing) {
+  for (const invoice of overdueInvoices) {
     try {
-      const sourceRecordId = `PAYREM-${client.client_id}-${today}`;
+      const sourceRecordId = `PAYREM-${invoice.invoice_id}`;
       if (await alreadySent(sourceRecordId)) { paymentSkipped++; continue; }
-      if (!client.email) { paymentSkipped++; continue; }
+      if (!invoice.email) { paymentSkipped++; continue; }
 
-      const resolved = await resolveTemplate("Payment Reminder", client.client_id, "", "", {
-        balanceDue: `$${Number(client.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      const resolved = await resolveTemplate("Payment Reminder", invoice.client_id, "", "", {
+        balanceDue: `$${Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       });
       if (!resolved) { paymentSkipped++; continue; }
 
       const result = await sendAndLog({
-        clientId: client.client_id, clientName: client.client_name || null, relatedTaskId: null,
+        clientId: invoice.client_id, clientName: invoice.client_name || null, relatedTaskId: null,
         subject: resolved.subject, bodyEnglish: resolved.message_english, bodyArabic: resolved.message_arabic,
-        sentTo: client.email, sourceRecordId, actorEmail,
+        sentTo: invoice.email, sourceRecordId, actorEmail,
       }, req);
       if (result.sent) paymentSent++; else if (result.alreadySent) paymentSkipped++; else paymentFailed++;
     } catch (err) {
       paymentFailed++;
       // eslint-disable-next-line no-console
-      console.error(`[runReminders] payment reminder failed for ${client.client_id}:`, err);
+      console.error(`[runReminders] payment reminder failed for invoice ${invoice.invoice_id}:`, err);
     }
   }
 

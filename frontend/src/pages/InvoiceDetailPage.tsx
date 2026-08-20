@@ -6,6 +6,7 @@ import type { Invoice, Payment } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { SendInvoiceModal } from "../components/SendInvoiceModal";
+import { SendReminderModal } from "../components/SendReminderModal";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
@@ -56,6 +57,7 @@ export function InvoiceDetailPage() {
   const [printingStatement, setPrintingStatement] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showSend, setShowSend] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
   const [sharing, setSharing] = useState(false);
   const { setSelectedClient } = useSelectedClient();
 
@@ -253,6 +255,9 @@ export function InvoiceDetailPage() {
               <button className="btn" onClick={() => setEditing(true)}>Edit</button>
               <button className="btn" disabled={sharing} onClick={handleShareLink}>{sharing ? "Creating…" : "Copy Share Link"}</button>
               <button className="btn btn-primary" onClick={() => setShowSend(true)}>Send</button>
+              {Number(invoice.balance_due) > 0 && (
+                <button className="btn" onClick={() => setShowReminder(true)}>Send Reminder</button>
+              )}
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -288,6 +293,10 @@ export function InvoiceDetailPage() {
           clientEmail={invoiceClient?.email || null}
           onClose={() => setShowSend(false)}
         />
+      )}
+
+      {showReminder && (
+        <SendReminderModal invoice={invoice} onClose={() => setShowReminder(false)} />
       )}
 
       {showPaymentForm && (
