@@ -56,6 +56,11 @@ export interface Client {
   email_allowed: boolean;
   w21099_enabled: boolean;
   preferred_language: string | null;
+  /** Manual external checks (MDTAXCONNECT / MD Business Express) — sql/095, latest-check-only. */
+  mdtaxconnect_verified_at: string | null;
+  mdtaxconnect_verified_by: string | null;
+  md_business_express_verified_at: string | null;
+  md_business_express_verified_by: string | null;
   updated_at: string | null;
   updated_by: string | null;
   [key: string]: unknown;

@@ -401,6 +401,65 @@ function MissingSalesTaxFilingsPanel() {
   );
 }
 
+interface VerificationDueClient {
+  clientId: string; clientName: string;
+  mdtaxconnectVerifiedAt: string | null; mdtaxconnectVerifiedBy: string | null;
+  mdBusinessExpressVerifiedAt: string | null; mdBusinessExpressVerifiedBy: string | null;
+}
+
+/**
+ * The direct answer to "I keep re-checking some clients on MDTAXCONNECT/MD
+ * Business Express and missing others" — a real queue, oldest-checked-first
+ * (backend already sorts it), instead of relying on memory for which MD
+ * clients still need a look. Clicking a row selects that client so the
+ * External Verification section in the sidebar (ClientContextPanel) is
+ * right there with a "Mark Checked" button — no separate page needed.
+ */
+function VerificationDuePanel() {
+  const navigate = useNavigate();
+  const { setSelectedClient } = useSelectedClient();
+  const [clients, setClients] = useState<VerificationDueClient[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ clients: VerificationDueClient[] }>("/clients/verification-due")
+      .then((res) => { if (!cancelled) setClients(res.clients); })
+      .catch(() => { if (!cancelled) setClients([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!clients || clients.length === 0) return null;
+  const go = (c: VerificationDueClient) => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); };
+
+  function staleLabel(at: string | null): string {
+    if (!at) return "never checked";
+    const days = Math.floor((Date.now() - new Date(`${at}T00:00:00`).getTime()) / 86400000);
+    return days === 0 ? "checked today" : `${days}d ago`;
+  }
+
+  return (
+    <CommandPanel
+      title="MD Verification Due"
+      note={`${clients.length} MD client${clients.length === 1 ? "" : "s"} whose MDTAXCONNECT or MD Business Express check is missing or over 30 days old, oldest first`}
+    >
+      <div className="attention-list">
+        {clients.slice(0, 10).map((c) => (
+          <div className="attention-item" key={c.clientId} onClick={() => go(c)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(c); } }}>
+            <div className="attention-main">
+              <div className="attention-title">{c.clientName}</div>
+              <div className="attention-meta">
+                <span>MDTAXCONNECT: {staleLabel(c.mdtaxconnectVerifiedAt)}</span>
+                <span>MD Business Express: {staleLabel(c.mdBusinessExpressVerifiedAt)}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {clients.length > 10 && <p className="muted" style={{ padding: "8px 16px", fontSize: 12.5 }}>+{clients.length - 10} more not shown.</p>}
+    </CommandPanel>
+  );
+}
+
 interface PendingGovFormReview {
   filing_id: string;
   form_type: string;
@@ -782,6 +841,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
       <div className="command-grid-alerts" style={{ marginBottom: 14 }}>
         <MissingSalesTaxFilingsPanel />
         <AtRiskClientsPanel />
+        <VerificationDuePanel />
       </div>
 
       <div className="command-grid">

@@ -10,6 +10,7 @@ import { useNotify } from "./ConfirmProvider";
 import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
 import { fmtDateTime } from "../utils/date";
+import { useAuth } from "../auth/AuthContext";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 const PANEL_WIDTH_MIN = 260;
@@ -51,6 +52,7 @@ function whereForActivity(a: ActivityEntry): string {
 }
 
 export function ClientContextPanel() {
+  const { user } = useAuth();
   const { clientId, clientName, setSelectedClient, panelHidden, setPanelHidden } = useSelectedClient();
   const navigate = useNavigate();
   const toast = useToast();
@@ -268,6 +270,29 @@ export function ClientContextPanel() {
       setFirmNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
     } finally {
       setSavingFirmNote(false);
+    }
+  }
+
+  const [verifying, setVerifying] = useState<string | null>(null);
+
+  /** "Mark Checked Today" for the MDTAXCONNECT/MD Business Express worklist — optimistic local update instead of a full client refetch. */
+  async function handleVerify(portal: "mdtaxconnect" | "md-business-express") {
+    if (!clientId) return;
+    setVerifying(portal);
+    try {
+      await api.post(`/clients/${clientId}/verify/${portal}`, {});
+      const today = new Date().toISOString().slice(0, 10);
+      setClient((prev) => prev && {
+        ...prev,
+        ...(portal === "mdtaxconnect"
+          ? { mdtaxconnect_verified_at: today, mdtaxconnect_verified_by: user?.email || null }
+          : { md_business_express_verified_at: today, md_business_express_verified_by: user?.email || null }),
+      });
+      toast("Marked checked today.");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not record this check.");
+    } finally {
+      setVerifying(null);
     }
   }
 
@@ -597,6 +622,38 @@ export function ClientContextPanel() {
             <ClientRow label="Sales Tax" value={client.sales_tax_frequency as string | null} />
             <ClientRow label="Service" value={client.service_type} />
           </div>
+
+          {/* MD-only — MDTAXCONNECT (sales tax) and MD Business Express (Annual
+              Report / Good Standing) are Maryland-specific portals staff check
+              manually outside this app. Replaces "check whichever clients I
+              remember" with a real dated record, backing the Command Center
+              worklist (sorted oldest-checked-first) so re-checking an
+              already-verified client or missing one entirely stops happening. */}
+          {client.state === "MD" && (
+            <div className="client-panel-section">
+              <div className="small-label">External Verification</div>
+              {([
+                { portal: "mdtaxconnect" as const, label: "MDTAXCONNECT (Sales Tax)", at: client.mdtaxconnect_verified_at, by: client.mdtaxconnect_verified_by },
+                { portal: "md-business-express" as const, label: "MD Business Express (Annual Report / Good Standing)", at: client.md_business_express_verified_at, by: client.md_business_express_verified_by },
+              ]).map(({ portal, label, at, by }) => {
+                const daysAgo = at ? Math.floor((Date.now() - new Date(`${at}T00:00:00`).getTime()) / 86400000) : null;
+                const stale = daysAgo === null || daysAgo > 30;
+                return (
+                  <div key={portal} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
+                    <div style={{ fontSize: 12 }}>
+                      <div>{label}</div>
+                      <div className="muted" style={{ fontSize: 11, color: stale ? "var(--red)" : undefined }}>
+                        {at ? `Checked ${daysAgo === 0 ? "today" : `${daysAgo}d ago`}${by ? ` by ${by}` : ""}` : "Never checked"}
+                      </div>
+                    </div>
+                    <button type="button" className="btn btn-sm" disabled={verifying === portal} onClick={() => handleVerify(portal)}>
+                      {verifying === portal ? "…" : "Mark Checked"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div style={{ margin: "10px 0" }}>
             <StatusBadge status={client.status} />

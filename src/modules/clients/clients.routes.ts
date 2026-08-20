@@ -233,6 +233,46 @@ clientsRouter.get("/flags", requireAuth, requireRole("admin", "staff"), asyncHan
 }));
 
 /**
+ * Firm-wide worklist for the manual MDTAXCONNECT/MD Business Express checks
+ * (sql/095) — every MD client whose sales-tax or annual-report/good-standing
+ * check is either missing entirely or more than 30 days old, oldest first.
+ * The whole point is to replace "check whichever clients I remember" with a
+ * real queue, so re-checking an already-verified client or missing one
+ * entirely stops happening. 30 days is a flat threshold, not tuned per
+ * client's actual filing frequency — simple starting point, revisit if it
+ * turns out too aggressive/lax in practice.
+ */
+clientsRouter.get("/verification-due", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const staffScope = isAdmin ? "" : `AND client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]))`;
+  const params = isAdmin ? [] : [Array.from(await getUserAliases(req.user!.email))];
+  const rows = await query<any>(
+    `SELECT client_id, client_name, mdtaxconnect_verified_at, mdtaxconnect_verified_by,
+            md_business_express_verified_at, md_business_express_verified_by,
+            GREATEST(
+              COALESCE(CURRENT_DATE - mdtaxconnect_verified_at, 999999),
+              COALESCE(CURRENT_DATE - md_business_express_verified_at, 999999)
+            ) AS max_days_since_verified
+       FROM altax.v3_clients
+      WHERE state = 'MD' AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))
+            ${staffScope}
+        AND (
+          mdtaxconnect_verified_at IS NULL OR mdtaxconnect_verified_at <= CURRENT_DATE - INTERVAL '30 days'
+          OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= CURRENT_DATE - INTERVAL '30 days'
+        )
+      ORDER BY max_days_since_verified DESC`,
+    params
+  );
+  res.json({
+    clients: rows.map((r: any) => ({
+      clientId: r.client_id, clientName: r.client_name,
+      mdtaxconnectVerifiedAt: r.mdtaxconnect_verified_at, mdtaxconnectVerifiedBy: r.mdtaxconnect_verified_by,
+      mdBusinessExpressVerifiedAt: r.md_business_express_verified_at, mdBusinessExpressVerifiedBy: r.md_business_express_verified_by,
+    })),
+  });
+}));
+
+/**
  * Firm-wide list of clients with no recorded completion for their most
  * recently due MD Annual Report — see complianceCalendar.ts's
  * computeUpcomingDeadlines for why this could never be seen before (it only
@@ -988,6 +1028,36 @@ clientsRouter.post("/:clientId/obligations/unmark-done", requireAuth, requireRol
 
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
   await cancelPaymentReminder("ObligationCompletion", `${clientId}:${source}:${dueDate}`, "Obligation un-marked");
+  res.json({ ok: true });
+}));
+
+/**
+ * External verification tracking — staff manually checks a client's real
+ * status on MDTAXCONNECT (sales tax filing/payment) and MD Business Express
+ * (Annual Report / Good Standing), outside this app entirely. Previously
+ * nothing recorded when a client was last checked, so staff kept re-checking
+ * some clients while missing others with no way to tell which was which. A
+ * one-click "Mark Checked Today" per portal (sql/095) is the whole feature —
+ * latest-check-only, matching v3_obligation_completions' "mark done" shape,
+ * not a full history log.
+ */
+const VERIFICATION_PORTALS: Record<string, { atColumn: string; byColumn: string }> = {
+  mdtaxconnect: { atColumn: "mdtaxconnect_verified_at", byColumn: "mdtaxconnect_verified_by" },
+  "md-business-express": { atColumn: "md_business_express_verified_at", byColumn: "md_business_express_verified_by" },
+};
+
+clientsRouter.post("/:clientId/verify/:portal", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, portal } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const cols = VERIFICATION_PORTALS[portal];
+  if (!cols) return res.status(400).json({ error: "Unrecognized verification portal." });
+
+  await query(
+    `UPDATE altax.v3_clients SET ${cols.atColumn} = CURRENT_DATE, ${cols.byColumn} = $2 WHERE client_id = $1`,
+    [clientId, req.user!.email]
+  );
+  await logAudit("Clients", "EXTERNAL_VERIFICATION_CHECKED", clientId, portal, "", new Date().toISOString().slice(0, 10),
+    `${portal} checked by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));
 
