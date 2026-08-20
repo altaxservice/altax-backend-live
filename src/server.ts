@@ -41,6 +41,7 @@ import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
 import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete, runAppointmentConfirmationRequests } from "./modules/appointments/appointments.routes";
+import { runPaymentDueReminders } from "./common/paymentReminders";
 import { runDailyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
@@ -384,6 +385,16 @@ console.log("Appointment auto-complete scheduled hourly.");
 cron.schedule("10 * * * *", runScheduledJob("Appointment Confirmation Requests", () => runAppointmentConfirmationRequests("System (Appointment Confirmation Request Job)")));
 // eslint-disable-next-line no-console
 console.log("Appointment confirmation requests scheduled hourly.");
+
+// "Your payment is due tomorrow" — fires once a filing/deposit is marked
+// filed with Save & Send and payment isn't recorded yet (MD Sales Tax, EFTPS/
+// obligation-completion deposits, task-tracked agency filings). Offset 40
+// minutes past the hour so it doesn't hit the DB alongside the other hourly
+// sweeps above (see runPaymentDueReminders's own doc comment for the
+// atomic-claim + re-verify-before-send design).
+cron.schedule("40 * * * *", runScheduledJob("Payment Due Reminders", () => runPaymentDueReminders("System (Payment Due Reminder Job)")));
+// eslint-disable-next-line no-console
+console.log("Payment due reminders scheduled hourly.");
 
 // Daily recurring-billing sweep — previously this only ran when a staff member
 // remembered to click "Run Recurring Billing," so a forgotten click meant a late

@@ -371,12 +371,21 @@ export interface MdFilingBreakdown {
  * trusted inside that branch, where computeMdFiling was genuinely called
  * with the real recorded filed/paid dates.
  */
-export type MdFilingPeriodStatus = "onTime" | "late" | "missing" | "notYetDue";
+export type MdFilingPeriodStatus = "onTime" | "late" | "filedPendingPayment" | "missing" | "notYetDue";
 
+/**
+ * "filedPendingPayment" (added for the Save & Send filing-confirmation
+ * feature) means staff genuinely filed this period but haven't recorded a
+ * payment yet — markedPaidDate is null while markedFiledDate is real. It's
+ * checked before the onTime/late branch since a filed-but-unpaid period's
+ * `onTime` field is a non-trustworthy placeholder (see computeMdFilingBreakdown),
+ * not a real on-time/late verdict.
+ */
 export function classifyMdFilingPeriod(
-  p: Pick<MdFilingPeriodResult, "markedFiledDate" | "dueDate" | "onTime">,
+  p: Pick<MdFilingPeriodResult, "markedFiledDate" | "markedPaidDate" | "dueDate" | "onTime">,
   asOfStr: string
 ): MdFilingPeriodStatus {
+  if (p.markedFiledDate !== null && p.markedPaidDate === null) return "filedPendingPayment";
   if (p.markedFiledDate !== null) return p.onTime ? "onTime" : "late";
   if (p.dueDate < asOfStr) return "missing";
   return "notYetDue";
@@ -386,9 +395,13 @@ export function classifyMdFilingPeriod(
  * Health-Score-shaped tri-state over a whole period list — deliberately the
  * same boolean|null contract computeClientHealthScore's mdFilingOnTime param
  * already takes, so wiring this in never requires a scoring signature change.
+ * "filedPendingPayment" periods fall into the final `null` (indeterminate)
+ * bucket alongside "notYetDue" by design — a filed-but-unpaid period isn't a
+ * compliance failure, it's in progress, so it doesn't move the score either
+ * direction until payment is actually recorded.
  */
 export function summarizeMdFilingOnTime(
-  periods: Pick<MdFilingPeriodResult, "markedFiledDate" | "dueDate" | "onTime">[],
+  periods: Pick<MdFilingPeriodResult, "markedFiledDate" | "markedPaidDate" | "dueDate" | "onTime">[],
   asOfStr: string
 ): boolean | null {
   const statuses = periods.map((p) => classifyMdFilingPeriod(p, asOfStr));
@@ -438,7 +451,11 @@ export async function computeMdFilingBreakdown(
   frequency: string | null | undefined,
   filedDateStr: string,
   paidDateStr: string,
-  recordedFilings?: Map<string, { filedDate: string; paidDate: string }>,
+  // paidDate is null when staff has marked this period filed but not yet
+  // paid (the Save & Send filing-confirmation feature) — a genuine recorded
+  // state, distinct from "no Mark Filed record exists at all" (recordedFilings
+  // has no entry for this period). See the filedPendingPayment branch below.
+  recordedFilings?: Map<string, { filedDate: string; paidDate: string | null }>,
   // When the caller already has a history-aware period grid (see
   // splitIntoMdFilingPeriodsForClient), pass it here instead of letting this
   // function re-derive periods from a single current `frequency` value —
@@ -488,6 +505,24 @@ export async function computeMdFilingBreakdown(
       .sort()
       .pop() ?? null;
     const filedDate = recorded?.filedDate ?? salesPaymentDate ?? filedDateStr;
+    // A genuinely-recorded-but-unpaid period (recorded.paidDate === null) must
+    // NOT fall through to salesPaymentDate/paidDateStr — that would fabricate
+    // a payment date for a period staff explicitly told the system hasn't
+    // been paid yet. computeMdFiling requires a real paid date to run its
+    // discount/penalty math, so this period skips it entirely; balanceDue/
+    // onTime below are non-trustworthy placeholders that must only ever be
+    // read through classifyMdFilingPeriod (which checks markedPaidDate first),
+    // never trusted directly, matching this file's existing "onTime alone is
+    // not a compliance signal" discipline.
+    if (recorded && recorded.paidDate === null) {
+      results.push({
+        taxDue, onTime: true, discount: 0, penalty: 0, penaltyRate: 0, interest: 0, interestRateMonthly: 0, monthsLate: 0, balanceDue: taxDue,
+        start: period.start, end: period.end, dueDate: period.dueDate,
+        targetFilingDate: mdFilingTargetDate(period.dueDate), filedDate, paidDate: filedDate,
+        markedFiledDate: recorded.filedDate, markedPaidDate: null,
+      });
+      continue;
+    }
     const paidDate = recorded?.paidDate ?? salesPaymentDate ?? paidDateStr;
     const result = await computeMdFiling(taxDue, period.dueDate, filedDate, paidDate);
     results.push({

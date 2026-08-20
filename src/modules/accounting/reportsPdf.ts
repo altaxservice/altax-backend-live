@@ -28,6 +28,7 @@ import { getFirmProfile, type FirmProfile } from "../../common/firmProfile";
 import { embedFirmLogo } from "../../common/pdfLogo";
 import { pdfSafeText } from "../../common/pdfText";
 import type { MdFilingResult } from "../../common/mdFiling";
+import { classifyMdFilingPeriod } from "../../common/mdFiling";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -545,7 +546,7 @@ export interface SalesTaxReportData {
   sales: SalesTaxSaleRow[];
   totals: { grossSales: number; taxDue: number; adjustments: number; saleCount: number };
   mdFiling?: {
-    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string })[];
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string; markedFiledDate: string | null; markedPaidDate: string | null })[];
     totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
     frequencyUsed: string | null;
     filedDate: string;
@@ -665,6 +666,7 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       c.text(48, y, "Filing frequency not set on client profile — shown as one combined period; verify against the client's actual filing schedule.", { size: 8, color: MUTED });
       y += 16;
     }
+    const todayStr = new Date().toISOString().slice(0, 10);
     for (const p of data.mdFiling.periods) {
       // A late period draws up to 9 lines (~136pt: header + 7 rows + the
       // period-header's own leading gap) after this check passes, so the
@@ -680,12 +682,20 @@ export async function generateSalesTaxPdf(data: SalesTaxReportData): Promise<Uin
       y += 6;
       c.text(48, y, `${fmtDate(p.start)} – ${fmtDate(p.end)}`, { size: 9, bold: true, color: TEAL });
       y += 14;
+      // A period genuinely filed-but-not-yet-paid (Save & Send, marked filed
+      // with no payment recorded) has non-trustworthy onTime/discount/penalty
+      // math — see computeMdFilingBreakdown's filedPendingPayment branch —
+      // so it gets its own row set instead of claiming a discount was earned
+      // or penalty/interest accrued on a payment date that doesn't exist yet.
+      const status = classifyMdFilingPeriod(p, todayStr);
       y = row(c, y, "Return due date", fmtDate(p.dueDate), { indent: true });
       y = row(c, y, "Target filing date (internal)", fmtDate(p.targetFilingDate), { indent: true });
       y = row(c, y, "Filed Date", fmtDate(p.filedDate), { indent: true });
-      y = row(c, y, "Payment Date", fmtDate(p.paidDate), { indent: true });
+      y = row(c, y, "Payment Date", status === "filedPendingPayment" ? "Not yet recorded" : fmtDate(p.paidDate), { indent: true });
       y = row(c, y, "Tax due", money(p.taxDue), { indent: true });
-      if (p.onTime) {
+      if (status === "filedPendingPayment") {
+        y = row(c, y, "Balance due (payment pending — discount/penalty not yet determined)", money(p.balanceDue), { bold: true, accent: true, indent: true });
+      } else if (p.onTime) {
         y = row(c, y, "Timely discount (Line 18)", `− ${money(p.discount)}`, { indent: true });
         y = row(c, y, "Balance due (Line 20)", money(p.balanceDue), { bold: true, accent: true, indent: true });
       } else {

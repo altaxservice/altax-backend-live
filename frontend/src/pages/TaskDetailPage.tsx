@@ -126,14 +126,23 @@ export function TaskDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.client_id, task?.client_name]);
 
-  async function handleSave(e: FormEvent) {
-    e.preventDefault();
+  /**
+   * "Save and Send" emails the client a filing confirmation (period/type/
+   * amount/dates) and, if no payment date is set yet, schedules a reminder
+   * for 9AM the day before the payment's due date — see tasks.routes.ts's
+   * PATCH handler and src/common/paymentReminders.ts. "Save and Close" is the
+   * previous plain-save behavior (also what pressing Enter in the form does,
+   * so accidentally hitting Enter never sends anything to a client).
+   */
+  async function handleSave(sendConfirmation: boolean, e?: FormEvent) {
+    e?.preventDefault();
     if (!taskId) return;
     setSaving(true);
     setSaveError(null);
     try {
       const payload: Record<string, unknown> = { ...form };
       payload.paymentRequired = form.paymentRequired === "true";
+      payload.notifyClient = sendConfirmation;
       await api.patch(`/tasks/${taskId}`, payload);
       setEditing(false);
       load();
@@ -234,7 +243,7 @@ export function TaskDetailPage() {
 
       {tab === "Details" && (
         editing ? (
-          <form onSubmit={handleSave} className="card" style={{ maxWidth: 560 }}>
+          <form onSubmit={(e) => handleSave(false, e)} className="card" style={{ maxWidth: 560 }}>
             {saveError && <ErrorBanner error={saveError} />}
             {EDITABLE_FIELDS.map((f) => (
               <div className="field" key={f.apiKey}>
@@ -276,8 +285,17 @@ export function TaskDetailPage() {
                 )}
               </div>
             ))}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="submit" className="btn" disabled={saving}>{saving ? "Saving…" : "Save and Close"}</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving || !form.filedDate || !task.client_id}
+                title={!task.client_id ? "This task has no client to notify." : !form.filedDate ? "Enter a Filed Date before sending a confirmation." : "Email the client a filing confirmation."}
+                onClick={() => handleSave(true)}
+              >
+                {saving ? "Sending…" : "Save and Send"}
+              </button>
               <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
             </div>
           </form>

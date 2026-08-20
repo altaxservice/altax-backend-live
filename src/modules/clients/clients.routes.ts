@@ -872,7 +872,15 @@ const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI"
  * obligation reminder once staff have actually handled it outside this
  * system (e.g. filed EFTPS via the real IRS site) — no Task Rules Agent
  * draft/approve/mark-paid detour required for something this lightweight.
- * See sql/057_obligation_completions.sql.
+ * See sql/057_obligation_completions.sql and sql/093 (amount/paid_date).
+ *
+ * amount and paidDate are both optional — paidDate omitted means "handled/
+ * filed, payment not yet made," matching MD Sales Tax's and Tasks' same
+ * filed/paid split. `notify: true` sends a filing-confirmation email
+ * immediately (only meaningful with a real amount) and, if paidDate is
+ * omitted, schedules the 24h-before-due-date reminder. For this table the
+ * stored due_date already IS the payment due date, unlike MD's separate
+ * return-due-date concept.
  */
 clientsRouter.post("/:clientId/obligations/mark-done", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
@@ -882,19 +890,85 @@ clientsRouter.post("/:clientId/obligations/mark-done", requireAuth, requireRole(
   const source = String(body.source || "").trim();
   const dueDate = String(body.dueDate || "").trim();
   const label = String(body.label || "").trim() || null;
+  const amountRaw = body.amount;
+  const amount = amountRaw !== undefined && amountRaw !== null && amountRaw !== "" && Number.isFinite(Number(amountRaw)) ? Number(amountRaw) : null;
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
   if (!OBLIGATION_MARK_DONE_SOURCES.has(source)) return res.status(400).json({ error: "Unrecognized obligation type." });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return res.status(400).json({ error: "dueDate must be YYYY-MM-DD." });
+  if (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) return res.status(400).json({ error: "paidDate must be YYYY-MM-DD." });
 
   const completedDate = new Date().toISOString().slice(0, 10);
   await query(
-    `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by, amount, paid_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      ON CONFLICT (client_id, source, due_date) DO UPDATE SET
-       label = EXCLUDED.label, completed_date = EXCLUDED.completed_date, completed_by = EXCLUDED.completed_by, completed_at = now()`,
-    [clientId, source, dueDate, label, completedDate, req.user!.email]
+       label = EXCLUDED.label, completed_date = EXCLUDED.completed_date, completed_by = EXCLUDED.completed_by, completed_at = now(),
+       amount = EXCLUDED.amount, paid_date = EXCLUDED.paid_date`,
+    [clientId, source, dueDate, label, completedDate, req.user!.email, amount, paidDate]
   );
   await logAudit("Clients", "OBLIGATION_MARKED_DONE", clientId, "obligation", "", `${source} (${dueDate})`,
-    `${label || source} (due ${dueDate}) marked done by ${req.user!.email}.`, req.user!.email);
+    `${label || source} (due ${dueDate}) marked done by ${req.user!.email}${paidDate ? `, paid ${paidDate}` : ""}.`, req.user!.email);
+
+  if (notify && amount !== null) {
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    if (clientContact) {
+      const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${clientId}:${source}:${dueDate}`;
+      await sendFilingConfirmation({
+        client: { clientId, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed) },
+        sourceRecordId, filingType: label || source, periodLabel: null,
+        filedDate: completedDate, amount, paymentDueDate: dueDate, paidDate, req,
+      });
+      if (!paidDate) {
+        const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+        await schedulePaymentReminder({
+          sourceSystem: "ObligationCompletion", sourceRecordId, clientId, filingType: label || source,
+          periodLabel: null, amount, paymentDueDate: dueDate, createdBy: req.user!.email,
+        });
+      }
+    }
+  }
+
+  res.json({ ok: true });
+}));
+
+/**
+ * Records the actual payment date for an obligation already marked done with
+ * no payment recorded yet (see mark-done above) — the second half of the
+ * filed/paid split. Cancels any pending payment-due reminder once payment is
+ * genuinely recorded.
+ */
+clientsRouter.post("/:clientId/obligations/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const body = req.body || {};
+  const source = String(body.source || "").trim();
+  const dueDate = String(body.dueDate || "").trim();
+  const paidDate = String(body.paidDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return res.status(400).json({ error: "dueDate and paidDate must be YYYY-MM-DD." });
+  }
+
+  const existing = await queryOne<any>(
+    `SELECT paid_date FROM altax.v3_obligation_completions WHERE client_id = $1 AND source = $2 AND due_date = $3::date`,
+    [clientId, source, dueDate]
+  );
+  if (!existing) return res.status(400).json({ error: "This obligation hasn't been marked done yet — mark it done first." });
+  if (existing.paid_date) return res.status(400).json({ error: "This obligation already has a payment recorded. Use Undo to correct it, then re-record." });
+
+  await query(
+    `UPDATE altax.v3_obligation_completions SET paid_date = $4 WHERE client_id = $1 AND source = $2 AND due_date = $3::date`,
+    [clientId, source, dueDate, paidDate]
+  );
+  await logAudit("Clients", "OBLIGATION_RECORD_PAYMENT", clientId, "obligation", "", `${source} (${dueDate}): paid ${paidDate}`,
+    `Payment for ${source} (due ${dueDate}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  const { cancelPaymentReminder } = await import("../../common/paymentReminders");
+  await cancelPaymentReminder("ObligationCompletion", `${clientId}:${source}:${dueDate}`, "Payment recorded");
+
   res.json({ ok: true });
 }));
 
@@ -911,6 +985,9 @@ clientsRouter.post("/:clientId/obligations/unmark-done", requireAuth, requireRol
   await query(`DELETE FROM altax.v3_obligation_completions WHERE client_id = $1 AND source = $2 AND due_date = $3::date`, [clientId, source, dueDate]);
   await logAudit("Clients", "OBLIGATION_UNMARKED_DONE", clientId, "obligation", "", `${source} (${dueDate})`,
     `${source} (due ${dueDate}) un-marked by ${req.user!.email}.`, req.user!.email);
+
+  const { cancelPaymentReminder } = await import("../../common/paymentReminders");
+  await cancelPaymentReminder("ObligationCompletion", `${clientId}:${source}:${dueDate}`, "Obligation un-marked");
   res.json({ ok: true });
 }));
 

@@ -208,18 +208,60 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   const [error, setError] = useState<string | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
   const [createTaskGap, setCreateTaskGap] = useState<{ taskType: string; dueDate: string } | null>(null);
+  // Inline "Mark Done" expansion (amount + optional paid date + Save and
+  // Close/Send) — one shared bit of state/render logic for both places this
+  // list appears (the alert-strip quick action and the full deadline list
+  // below), instead of duplicating the form twice in this file.
+  const [markDoneKey, setMarkDoneKey] = useState<string | null>(null);
+  const [markDoneAmount, setMarkDoneAmount] = useState("");
+  const [markDonePaidDate, setMarkDonePaidDate] = useState("");
 
-  async function handleMarkDone(d: Deadline) {
+  /**
+   * amount/paidDate are both optional; "Save and Send" (sendConfirmation)
+   * emails a filing confirmation (only meaningful with a real amount) and,
+   * if paidDate is blank, schedules a payment-due reminder — see
+   * clients.routes.ts's /obligations/mark-done doc comment.
+   */
+  async function handleMarkDone(d: Deadline, sendConfirmation: boolean) {
     const key = `${d.source}|${d.date}`;
     setMarkingDone(key);
     try {
-      await api.post(`/clients/${clientId}/obligations/mark-done`, { source: d.source, dueDate: d.date, label: d.label });
+      await api.post(`/clients/${clientId}/obligations/mark-done`, {
+        source: d.source, dueDate: d.date, label: d.label,
+        amount: markDoneAmount.trim() ? Number(markDoneAmount) : undefined,
+        paidDate: markDonePaidDate || undefined,
+        notify: sendConfirmation,
+      });
       setDash((prev) => (prev ? { ...prev, deadlines: prev.deadlines.filter((x) => `${x.source}|${x.date}` !== key) } : prev));
+      setMarkDoneKey(null);
+      setMarkDoneAmount("");
+      setMarkDonePaidDate("");
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not mark this as done.");
     } finally {
       setMarkingDone(null);
     }
+  }
+
+  function renderMarkDoneControl(d: Deadline) {
+    if (!d.source || !MARKABLE_DEADLINE_SOURCES.has(d.source)) return null;
+    const key = `${d.source}|${d.date}`;
+    if (markDoneKey !== key) {
+      return (
+        <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => { setMarkDoneKey(key); setMarkDoneAmount(""); setMarkDonePaidDate(""); }}>
+          Mark Done
+        </button>
+      );
+    }
+    return (
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <input type="number" step="0.01" placeholder="Amount (optional)" value={markDoneAmount} onChange={(e) => setMarkDoneAmount(e.target.value)} style={{ width: 110, padding: "2px 4px", fontSize: 11.5 }} />
+        <input type="date" title="Payment date (optional — leave blank if not yet paid)" value={markDonePaidDate} onChange={(e) => setMarkDonePaidDate(e.target.value)} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+        <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d, false)}>{markingDone === key ? "…" : "Save and Close"}</button>
+        <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d, true)}>{markingDone === key ? "…" : "Save and Send"}</button>
+        <button type="button" className="ghost-button btn-sm" onClick={() => { setMarkDoneKey(null); setMarkDoneAmount(""); setMarkDonePaidDate(""); }}>Cancel</button>
+      </div>
+    );
   }
 
   useEffect(() => {
@@ -426,16 +468,10 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                       : days === 0 ? "is due today"
                       : `is due in ${days} day${days === 1 ? "" : "s"}`;
                     const top = urgentDeadlines[0];
-                    const key = `${top.source}|${top.date}`;
-                    const markable = top.source && MARKABLE_DEADLINE_SOURCES.has(top.source);
                     return (
                       <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                         <span><strong>{top.label}</strong> {wording}.</span>
-                        {markable && (
-                          <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(top)}>
-                            {markingDone === key ? "…" : "Mark Done"}
-                          </button>
-                        )}
+                        {renderMarkDoneControl(top)}
                       </span>
                     );
                   })()}
@@ -562,18 +598,12 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {dash.deadlines.map((d) => {
                       const days = daysUntil(d.date);
-                      const key = `${d.source}|${d.date}`;
-                      const markable = d.source && MARKABLE_DEADLINE_SOURCES.has(d.source);
                       return (
                         <div key={`${d.label}-${d.date}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                           <span>{d.label} — {d.date}</span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span className={`status-pill ${deadlinePillClass(days)}`}>{days < 0 ? "Overdue" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}</span>
-                            {markable && (
-                              <button type="button" className="ghost-button btn-sm" disabled={markingDone === key} onClick={() => handleMarkDone(d)}>
-                                {markingDone === key ? "…" : "Mark Done"}
-                              </button>
-                            )}
+                            {renderMarkDoneControl(d)}
                           </div>
                         </div>
                       );

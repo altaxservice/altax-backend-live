@@ -1,0 +1,156 @@
+/**
+ * Shared client-facing email templates for the filing/payment confirmation +
+ * reminder system (Save & Send across MD Sales Tax, obligation-completion
+ * deposits like EFTPS, and task-tracked agency filings). Visual shape copied
+ * directly from paymentReceiptEmailHtml (billing.routes.ts) — same bilingual
+ * EN/AR label/value row table inside wrapEmailHtml — so this reads as part of
+ * the same system, not a bolted-on extra.
+ *
+ * Both send functions here own the consent check and the v3_communications
+ * log write, matching runClientMdSalesTaxDeadlineNotifications's pattern
+ * (clients.routes.ts) — centralized once so every caller (MD filing routes,
+ * obligation-completion routes, task routes, the reminder cron) doesn't have
+ * to repeat consent gating or dedup logging itself.
+ */
+import { Request } from "express";
+import crypto from "crypto";
+import { query } from "../config/db";
+import { wrapEmailHtml } from "./emailTemplate";
+import { sendEmail, recordNotificationFailure } from "./notifications";
+
+function idSuffix(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
+}
+
+function esc(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function fmtDate(v: string | null): string {
+  if (!v) return "—";
+  const d = new Date(`${String(v).slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+}
+function money2(n: number): string {
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function row(label: string, labelAr: string, value: string, boldValue = false): string {
+  return `
+    <tr>
+      <td style="padding:6px 0; color:#6b7280; font-size:13px;">${label} <bdi dir="rtl" style="color:#9ca3af;">/ ${labelAr}</bdi></td>
+      <td align="right" style="padding:6px 0; font-size:13px; ${boldValue ? "font-weight:700; font-size:15px;" : ""}">${value}</td>
+    </tr>`;
+}
+
+export interface FilingClientInfo {
+  clientId: string;
+  clientName: string;
+  email: string | null;
+  emailAllowed: boolean;
+}
+
+async function logFilingCommunication(
+  sourceSystem: string, sourceRecordId: string, client: FilingClientInfo, subject: string, bodyText: string, sentTo: string, status: "Sent" | "Failed"
+): Promise<void> {
+  await query(
+    `INSERT INTO altax.v3_communications
+       (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+        sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+     VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,$9,$10,NULL)`,
+    [`COM-${idSuffix()}`, client.clientId, client.clientName, subject, bodyText, sentTo, "System", status, sourceSystem, sourceRecordId]
+  );
+}
+
+export interface FilingConfirmationInput {
+  client: FilingClientInfo;
+  sourceRecordId: string; // same key used for the v3_payment_reminders row this filing schedules, if any
+  filingType: string;
+  periodLabel: string | null;
+  filedDate: string;
+  amount: number;
+  paymentDueDate: string;
+  paidDate: string | null;
+  req?: Request;
+}
+
+/** Body used both as the email HTML and (plain-text-ish) as the v3_communications log entry. */
+function filingConfirmationBody(input: FilingConfirmationInput): string {
+  return `
+    <p style="margin:0 0 18px;">This is a confirmation that we filed your ${esc(input.filingType)}${input.periodLabel ? ` for the period ${esc(input.periodLabel)}` : ""}. <bdi dir="rtl" style="color:#9ca3af;">/ هذا تأكيد بأننا قدمنا إقرارك${input.periodLabel ? " عن الفترة المذكورة" : ""}.</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Filing Type", "نوع الإقرار", esc(input.filingType))}
+          ${input.periodLabel ? row("Period", "الفترة", esc(input.periodLabel)) : ""}
+          ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filedDate))}
+          ${row("Amount", "المبلغ", money2(input.amount), true)}
+          ${input.paidDate ? row("Payment Date", "تاريخ الدفع", fmtDate(input.paidDate)) : row("Payment Due Date", "تاريخ استحقاق الدفع", fmtDate(input.paymentDueDate))}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">${input.paidDate ? "This filing is paid in full." : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email."} <bdi dir="rtl">${input.paidDate ? "تم دفع هذا الإقرار بالكامل." : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديك أي أسئلة، فقط قم بالرد على هذا البريد الإلكتروني."}</bdi></p>`;
+}
+
+/** Sends the immediate "we filed this" confirmation. Silent no-op (not a failure) when the client has no email consent on file, matching runClientMdSalesTaxDeadlineNotifications's convention. */
+export async function sendFilingConfirmation(input: FilingConfirmationInput): Promise<{ sent: boolean }> {
+  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
+  const subject = `Filing Confirmation — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
+  const body = filingConfirmationBody(input);
+  try {
+    const html = await wrapEmailHtml(body, input.req);
+    await sendEmail({ to: input.client.email, subject, html });
+    await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+    return { sent: true };
+  } catch (err) {
+    await recordNotificationFailure(`filingConfirmation:${input.sourceRecordId}`, err);
+    await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    return { sent: false };
+  }
+}
+
+export interface PaymentDueReminderInput {
+  client: FilingClientInfo;
+  sourceRecordId: string;
+  filingType: string;
+  periodLabel: string | null;
+  amount: number;
+  paymentDueDate: string;
+  req?: Request;
+}
+
+function paymentDueReminderBody(input: PaymentDueReminderInput): string {
+  return `
+    <p style="margin:0 0 18px;">Reminder — your payment for ${esc(input.filingType)}${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is due tomorrow. <bdi dir="rtl" style="color:#9ca3af;">/ تذكير — دفعتك مستحقة غداً.</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #b45309; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Filing Type", "نوع الإقرار", esc(input.filingType))}
+          ${input.periodLabel ? row("Period", "الفترة", esc(input.periodLabel)) : ""}
+          ${row("Amount Due", "المبلغ المستحق", money2(input.amount), true)}
+          ${row("Due Date", "تاريخ الاستحقاق", fmtDate(input.paymentDueDate), true)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">If this has already been paid, please disregard this message. <bdi dir="rtl">إذا كان قد تم دفع هذا المبلغ بالفعل، يرجى تجاهل هذه الرسالة.</bdi></p>`;
+}
+
+/** Sends the 9AM-ET-day-before payment-due reminder. Same consent gating and logging convention as sendFilingConfirmation. */
+export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Promise<{ sent: boolean }> {
+  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
+  const subject = `Reminder: Payment Due Tomorrow — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
+  const body = paymentDueReminderBody(input);
+  try {
+    const html = await wrapEmailHtml(body, input.req);
+    await sendEmail({ to: input.client.email, subject, html });
+    await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+    return { sent: true };
+  } catch (err) {
+    await recordNotificationFailure(`paymentDueReminder:${input.sourceRecordId}`, err);
+    await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    return { sent: false };
+  }
+}

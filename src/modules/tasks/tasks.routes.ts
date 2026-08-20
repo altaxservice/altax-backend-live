@@ -4,6 +4,8 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { canAccessClient, getUserAliases, isAssignedToUser } from "../../common/assignment";
 import { asyncHandler } from "../../common/asyncHandler";
+import { sendFilingConfirmation } from "../../common/filingConfirmationEmail";
+import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
 
 /**
  * Tasks module — Phase 3 slice, scoped to the operational core only:
@@ -497,6 +499,10 @@ async function archiveTask(taskId: string, reason: string, archivedBy: string): 
       task.source_system, task.source_record_id, archivedBy, reason]
   );
   await query(`DELETE FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+  // An archived/completed task shouldn't still trigger a "your payment is
+  // due" email later — cancel any reminder still Scheduled for it. Simpler
+  // than teaching the reminder cron to also check v3_archived_tasks.
+  await cancelPaymentReminder("Task", taskId, "Task archived");
 }
 
 /**
@@ -552,6 +558,40 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
       await logAudit("Tasks", "EDIT", taskId, col, String(oldValue ?? ""), String(newValue ?? ""),
         "Task edited from web app.", req.user!.email);
     }
+  }
+
+  // Save & Send for task-tracked filings/deposits (EFTPS etc.) — notifyClient
+  // is a request-only flag, never a DB column, so it's read separately from
+  // the TASK_UPDATABLE_FIELDS loop above. Only fires on the actual
+  // null -> real transition of filed_date, matching the "just filed this"
+  // moment, not every unrelated edit to an already-filed task.
+  const merged = { ...old, ...fields };
+  const filedJustSet = Object.prototype.hasOwnProperty.call(fields, "filed_date") && !old.filed_date && fields.filed_date;
+  if (req.body?.notifyClient === true && filedJustSet && merged.client_id && merged.payment_amount !== null && merged.payment_amount !== undefined) {
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [merged.client_id]);
+    if (clientContact) {
+      await sendFilingConfirmation({
+        client: { clientId: merged.client_id, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed) },
+        sourceRecordId: taskId, filingType: merged.task_name || merged.service_line || "Filing",
+        periodLabel: merged.period || null, filedDate: merged.filed_date, amount: Number(merged.payment_amount),
+        paymentDueDate: merged.agency_due_date, paidDate: merged.paid_date || null, req,
+      });
+      if (!merged.paid_date && merged.agency_due_date) {
+        await schedulePaymentReminder({
+          sourceSystem: "Task", sourceRecordId: taskId, clientId: merged.client_id,
+          filingType: merged.task_name || merged.service_line || "Filing", periodLabel: merged.period || null,
+          amount: Number(merged.payment_amount), paymentDueDate: merged.agency_due_date, createdBy: req.user!.email,
+        });
+      }
+    }
+  }
+
+  // Independently of notifyClient — whenever a real payment date lands on
+  // this task (regardless of who set it or why), any pending reminder for it
+  // is no longer needed.
+  const paidJustSet = Object.prototype.hasOwnProperty.call(fields, "paid_date") && !old.paid_date && fields.paid_date;
+  if (paidJustSet) {
+    await cancelPaymentReminder("Task", taskId, "Payment recorded");
   }
 
   let archived = false;

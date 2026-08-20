@@ -9,7 +9,7 @@ import { resolveTemplate, computeClientPeriodSummaryTable } from "../templates/t
 import { NON_TAXABLE_CATEGORY_ID } from "../../common/taxRates";
 import type { LedgerLine, ReportClientInfo, PayrollTaxRow, PayrollCheckRow } from "../accounting/reportsPdf";
 import type { MdFilingPeriod } from "../../common/mdFiling";
-import { summarizeMdFilingOnTime } from "../../common/mdFiling";
+import { summarizeMdFilingOnTime, classifyMdFilingPeriod } from "../../common/mdFiling";
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
@@ -784,8 +784,8 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
  * computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is exactly
  * the nil/no-data-yet case a "still needs to be filed" flag has to catch.
  */
-export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string }>> {
-  const rows = await query<{ period_end: string; filed_date: string; paid_date: string }>(
+export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null }>> {
+  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null }>(
     `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date
        FROM altax.v3_md_filing_payments
       WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
@@ -1661,15 +1661,25 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
 }));
 
 /**
- * Records that a specific MD filing period was actually filed/paid on a real
- * date — the only way the dashboard's "MD Sales & Use Tax (ending ...)" Past
- * Due flags and "MD Sales Tax Filing" upcoming deadline can ever clear (see
+ * Records that a specific MD filing period was actually filed on a real date
+ * — the only way the dashboard's "MD Sales & Use Tax (ending ...)" Past Due
+ * flags and "MD Sales Tax Filing" upcoming deadline can ever clear (see
  * computeClientFlags in clients.routes.ts and computeMdFilingForReport
  * above), since both are otherwise computed against today's date forever.
- * Snapshots taxDue/balanceDue/onTime at the recorded date so history stays
- * accurate even if this period's sales data is edited later.
+ * Snapshots taxDue at the recorded date so history stays accurate even if
+ * this period's sales data is edited later.
+ *
+ * paidDate is now OPTIONAL (was required in the same request as filedDate
+ * until the Save & Send filing-confirmation feature) — filing and paying are
+ * genuinely separate events; recording one shouldn't force fabricating the
+ * other. When paidDate is omitted, balance_due/on_time are left NULL rather
+ * than computed against a made-up payment date (see computeMdFilingBreakdown's
+ * filedPendingPayment branch) until record-payment below fills them in for
+ * real. `notify: true` sends the client a filing-confirmation email
+ * immediately and, if payment isn't recorded yet, schedules the 24h-before-
+ * due-date reminder (see src/common/paymentReminders.ts).
  */
-reportsRouter.post("/md-filing/:clientId/mark-paid", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
   if (client.state !== "MD") return res.status(400).json({ error: "This client is not MD-based." });
@@ -1678,17 +1688,19 @@ reportsRouter.post("/md-filing/:clientId/mark-paid", requireAuth, requireRole("a
   const periodStart = String(body.periodStart || "").trim();
   const periodEnd = String(body.periodEnd || "").trim();
   const filedDate = String(body.filedDate || "").trim();
-  const paidDate = String(body.paidDate || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)
-    || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
-    return res.status(400).json({ error: "periodStart, periodEnd, filedDate, and paidDate must all be YYYY-MM-DD." });
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
+    return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD (paidDate too, if provided)." });
   }
 
   const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
   const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, periodStart, periodEnd);
   const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
   const dueDate = mdDueDateForPeriod(periodEnd);
-  const result = await computeMdFiling(taxDue, dueDate, filedDate, paidDate);
+  const result = paidDate ? await computeMdFiling(taxDue, dueDate, filedDate, paidDate) : null;
 
   await query(
     `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by)
@@ -1696,11 +1708,76 @@ reportsRouter.post("/md-filing/:clientId/mark-paid", requireAuth, requireRole("a
      ON CONFLICT (client_id, period_end) DO UPDATE SET
        period_start = EXCLUDED.period_start, filed_date = EXCLUDED.filed_date, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
        balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now()`,
-    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result.balanceDue, result.onTime, req.user!.email]
+    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email]
   );
-  await logAudit("Accounting", "MD_FILING_MARK_PAID", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}, paid ${paidDate}`,
-    `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}, paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
-  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
+  await logAudit("Accounting", "MD_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
+    `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
+
+  if (notify) {
+    const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
+    const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+    const sourceRecordId = `${client.clientId}:${periodEnd}`;
+    await sendFilingConfirmation({
+      client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed) },
+      sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: `${periodStart} – ${periodEnd}`,
+      filedDate, amount: taxDue, paymentDueDate: dueDate, paidDate, req,
+    });
+    if (!paidDate) {
+      const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+      await schedulePaymentReminder({
+        sourceSystem: "MdFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Sales & Use Tax",
+        periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email,
+      });
+    }
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result?.onTime ?? null, balanceDue: result?.balanceDue ?? null });
+}));
+
+/**
+ * Records the actual payment date for a period already marked filed (see
+ * mark-filed above) — the second half of the filed/paid split. Requires an
+ * existing filed row with no payment recorded yet; use unmark-paid below to
+ * correct a mistaken date rather than silently overwriting a real one.
+ * Cancels any pending payment-due reminder for this period once payment is
+ * genuinely recorded.
+ */
+reportsRouter.post("/md-filing/:clientId/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "MD") return res.status(400).json({ error: "This client is not MD-based." });
+
+  const body = req.body || {};
+  const periodEnd = String(body.periodEnd || "").trim();
+  const paidDate = String(body.paidDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return res.status(400).json({ error: "periodEnd and paidDate must be YYYY-MM-DD." });
+  }
+
+  const existing = await queryOne<any>(
+    `SELECT period_start, filed_date, paid_date, tax_due FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
+  if (existing.paid_date) return res.status(400).json({ error: "This period already has a payment recorded. Use unmark-paid to correct it, then re-record." });
+
+  const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
+  const dueDate = mdDueDateForPeriod(periodEnd);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const taxDue = Number(existing.tax_due);
+  const result = await computeMdFiling(taxDue, dueDate, filedDateStr, paidDate);
+
+  await query(
+    `UPDATE altax.v3_md_filing_payments SET paid_date = $3, balance_due = $4, on_time = $5 WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, paidDate, result.balanceDue, result.onTime]
+  );
+  await logAudit("Accounting", "MD_FILING_RECORD_PAYMENT", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
+    `Payment for MD sales tax filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  const { cancelPaymentReminder } = await import("../../common/paymentReminders");
+  await cancelPaymentReminder("MdFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");
+
+  res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
 }));
 
 /** Reverses a mark-paid entry (staff correcting a mistaken date) — the period goes back to being computed live against today, same as before it was ever marked. */
@@ -1751,13 +1828,21 @@ reportsRouter.get("/csv/sales-tax/:clientId", requireAuth, requireRole("admin", 
     rows.push(["", "", "", "", ""]);
     rows.push(["Filing date", "", "", "", mdFiling.filedDate]);
     rows.push(["Payment date", "", "", "", mdFiling.paidDate]);
+    const todayStr = new Date().toISOString().slice(0, 10);
     for (const p of mdFiling.periods) {
       rows.push(["", "", "", "", ""]);
       rows.push([`Period ${p.start} to ${p.end}`, "", "", "", ""]);
       rows.push(["Return due date", "", "", "", p.dueDate]);
       rows.push(["Target filing date (internal)", "", "", "", p.targetFilingDate]);
       rows.push(["Tax due", "", "", "", p.taxDue.toFixed(2)]);
-      if (p.onTime) {
+      // Same reasoning as reportsPdf.ts's per-period render: a filed-but-not-
+      // yet-paid period's onTime/discount/penalty math is a non-trustworthy
+      // placeholder, not a real verdict — see computeMdFilingBreakdown.
+      const status = classifyMdFilingPeriod(p, todayStr);
+      if (status === "filedPendingPayment") {
+        rows.push(["Payment status", "", "", "", "Filed — payment not yet recorded"]);
+        rows.push(["Balance due (discount/penalty pending payment)", "", "", "", p.balanceDue.toFixed(2)]);
+      } else if (p.onTime) {
         rows.push(["Timely discount", "", "", "", (-p.discount).toFixed(2)]);
         rows.push(["Balance due", "", "", "", p.balanceDue.toFixed(2)]);
       } else {
