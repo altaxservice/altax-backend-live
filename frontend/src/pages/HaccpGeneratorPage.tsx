@@ -359,6 +359,11 @@ export function HaccpGeneratorPage() {
         setSavedPlanId(res.planId);
         toast("HACCP plan generated.");
       }
+      // Any new custom items just saved to this plan were also just added to
+      // the reusable library server-side — refetch so they're immediately
+      // checkable in "Choose From Previously Added Items" without a reload.
+      api.get<HaccpOptions>("/haccp/options").then(setOptions).catch(() => {});
+      loadPlans();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save this HACCP plan.");
     } finally {
@@ -566,28 +571,35 @@ export function HaccpGeneratorPage() {
               </div>
             </div>
           ))}
-          {(options?.customMenuItems || []).length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
-                Choose From Previously Added Items
-                <span className="muted" style={{ fontWeight: 400 }}> — only applies to this plan, not the master checklist above</span>
-              </div>
-              <input
-                value={savedItemSearch} onChange={(e) => setSavedItemSearch(e.target.value)}
-                placeholder="Search previously typed items…" style={{ maxWidth: 280, padding: "5px 9px", fontSize: 12.5, marginBottom: 6 }}
-              />
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", maxHeight: 140, overflowY: "auto" }}>
-                {(options?.customMenuItems || [])
-                  .filter((label) => label.toLowerCase().includes(savedItemSearch.trim().toLowerCase()))
-                  .map((label) => (
-                    <label key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
-                      <input type="checkbox" checked={selectedMenu.has(label)} onChange={() => toggleMenu(label)} />
-                      {label}
-                    </label>
-                  ))}
-              </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+              Choose From Previously Added Items
+              <span className="muted" style={{ fontWeight: 400 }}> — only applies to this plan, not the master checklist above</span>
             </div>
-          )}
+            {(options?.customMenuItems || []).length === 0 ? (
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                Empty for now — nothing's been typed or pasted into a plan yet. Every item you add below (single, pasted, or from Copy Items) is
+                saved here automatically, so the next plan can just check it off instead of retyping it.
+              </p>
+            ) : (
+              <>
+                <input
+                  value={savedItemSearch} onChange={(e) => setSavedItemSearch(e.target.value)}
+                  placeholder="Search previously typed items…" style={{ maxWidth: 280, padding: "5px 9px", fontSize: 12.5, marginBottom: 6 }}
+                />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", maxHeight: 140, overflowY: "auto" }}>
+                  {(options?.customMenuItems || [])
+                    .filter((label) => label.toLowerCase().includes(savedItemSearch.trim().toLowerCase()))
+                    .map((label) => (
+                      <label key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                        <input type="checkbox" checked={selectedMenu.has(label)} onChange={() => toggleMenu(label)} />
+                        {label}
+                      </label>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
           {customMenuItems.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Added Items</div>
