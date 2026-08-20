@@ -259,6 +259,18 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     return { start, end };
   });
+  // The useState initializer above only runs once, on this component's first
+  // mount — so a second flag link clicked while the Sales tab was already
+  // open (same client, or the page just never unmounted between clicks) had
+  // no effect: `period` stayed wherever it was, and the click silently did
+  // nothing instead of jumping to that flag's period. This re-applies
+  // initialFrom/initialTo any time they actually change, not just on mount.
+  useEffect(() => {
+    if (initialFrom && initialTo && /^\d{4}-\d{2}-\d{2}$/.test(initialFrom) && /^\d{4}-\d{2}-\d{2}$/.test(initialTo)) {
+      setPeriod({ start: initialFrom, end: initialTo });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFrom, initialTo]);
   const [mdFiledDate, setMdFiledDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdPaidDate, setMdPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [mdFiling, setMdFiling] = useState<{
