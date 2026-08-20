@@ -1572,6 +1572,70 @@ reportsRouter.get("/staff-capacity", requireAuth, requireRole("admin"), asyncHan
   res.json({ capacityHoursPerWeek: DEFAULT_CAPACITY_HOURS_PER_WEEK, staff: await computeStaffCapacity(rangeFrom, rangeTo) });
 }));
 
+const RECURRING_MIN_DISTINCT_MONTHS = 3;
+
+export interface RecurringRevenue {
+  mrr: number; arr: number;
+  recurringClientCount: number; oneTimeClientCount: number;
+  recurringRevenueTotal: number; oneTimeRevenueTotal: number;
+  recurringPctOfTotal: number | null;
+  windowFrom: string; windowTo: string;
+}
+
+/**
+ * No "is this client a recurring engagement" flag exists anywhere in
+ * v3_clients — service_type/services are what work they do, not how it's
+ * billed. Rather than guess a business rule (which services "count" as
+ * recurring is a real policy call, not a data fact), this classifies
+ * empirically off actual GL revenue history: a client with revenue posted
+ * in RECURRING_MIN_DISTINCT_MONTHS (3) or more separate months over the
+ * trailing 12 months is "recurring" — their billing pattern repeats,
+ * regardless of what service line it's under; everyone else (a single tax
+ * return, a one-off registration) is "one-time." Always a trailing-12-month
+ * window ending today, not the page's own from/to picker — MRR/ARR are
+ * run-rate metrics ("as of now"), not a period comparison.
+ */
+export async function computeRecurringRevenue(): Promise<RecurringRevenue> {
+  await ensureCoaTypeCache();
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1).toISOString().slice(0, 10);
+
+  const rows = await query<any>(
+    `SELECT client_id, to_char(entry_date, 'YYYY-MM') AS month, account, debit, credit
+       FROM altax.v3_gl_entries WHERE entry_date >= $1::date AND entry_date <= $2::date`,
+    [from, to]
+  );
+  const byClient = new Map<string, { months: Set<string>; total: number }>();
+  for (const row of rows) {
+    if (!row.client_id || bucketAccount(row.account) !== "revenue") continue;
+    const revenue = Number(row.credit || 0) - Number(row.debit || 0);
+    const entry = byClient.get(row.client_id) || { months: new Set<string>(), total: 0 };
+    if (revenue !== 0) entry.months.add(row.month);
+    entry.total += revenue;
+    byClient.set(row.client_id, entry);
+  }
+
+  let recurringClientCount = 0, oneTimeClientCount = 0, recurringRevenueTotal = 0, oneTimeRevenueTotal = 0;
+  for (const { months, total } of byClient.values()) {
+    if (months.size >= RECURRING_MIN_DISTINCT_MONTHS) { recurringClientCount++; recurringRevenueTotal += total; }
+    else { oneTimeClientCount++; oneTimeRevenueTotal += total; }
+  }
+  const totalRevenue = recurringRevenueTotal + oneTimeRevenueTotal;
+  const mrr = round2(recurringRevenueTotal / 12);
+
+  return {
+    mrr, arr: round2(mrr * 12),
+    recurringClientCount, oneTimeClientCount,
+    recurringRevenueTotal: round2(recurringRevenueTotal), oneTimeRevenueTotal: round2(oneTimeRevenueTotal),
+    recurringPctOfTotal: totalRevenue > 0 ? round2((recurringRevenueTotal / totalRevenue) * 100) : null,
+    windowFrom: from, windowTo: to,
+  };
+}
+
+reportsRouter.get("/recurring-revenue", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json(await computeRecurringRevenue());
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,

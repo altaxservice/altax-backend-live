@@ -208,6 +208,8 @@ export function FirmReportPage() {
         </div>
       </div>
 
+      <RecurringRevenueSection />
+
       <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
@@ -393,6 +395,49 @@ export function FirmReportPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface RecurringRevenue {
+  mrr: number; arr: number;
+  recurringClientCount: number; oneTimeClientCount: number;
+  recurringRevenueTotal: number; oneTimeRevenueTotal: number;
+  recurringPctOfTotal: number | null;
+  windowFrom: string; windowTo: string;
+}
+
+/**
+ * Trailing-12-month MRR/ARR — independent of the page's own From/To picker
+ * (a run-rate metric, not a period comparison), so it's its own
+ * self-fetching section rather than reusing the page's from/to state.
+ */
+function RecurringRevenueSection() {
+  const [data, setData] = useState<RecurringRevenue | null>(null);
+
+  useEffect(() => {
+    api.get<RecurringRevenue>("/reports/recurring-revenue").then(setData).catch(() => {});
+  }, []);
+
+  if (!data) return null;
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Recurring Revenue</h2>
+        <div className="command-panel-note">
+          Trailing 12 months ({data.windowFrom} to {data.windowTo}). A client counts as "recurring" if they posted revenue in 3+ separate months in that window — an empirical read of actual billing pattern, not a manually-tagged contract type.
+        </div>
+      </div>
+      <div className="metric-grid" style={{ padding: 16 }}>
+        <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">MRR</div><div className="metric-value">{fmtMoney(data.mrr)}</div></div>
+        <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">ARR</div><div className="metric-value">{fmtMoney(data.arr)}</div></div>
+        <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Recurring Clients</div><div className="metric-value">{data.recurringClientCount}</div></div>
+        <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">One-Time Clients</div><div className="metric-value">{data.oneTimeClientCount}</div></div>
+      </div>
+      <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
+        {data.recurringPctOfTotal !== null ? `${data.recurringPctOfTotal}% of revenue` : "Revenue"} from recurring clients ({fmtMoney(data.recurringRevenueTotal)}) vs {fmtMoney(data.oneTimeRevenueTotal)} from one-time engagements.
+      </p>
     </div>
   );
 }
