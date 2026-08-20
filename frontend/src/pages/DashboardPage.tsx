@@ -269,6 +269,23 @@ interface AtRiskClient {
 }
 
 /**
+ * The Sales tab's initialFrom/initialTo query params (AccountingPage.tsx)
+ * expect a real date range, but /clients/flags only ever gives us the
+ * missing period's END date, not its start (the source query doesn't track
+ * it — see clients.routes.ts). A year-wide lookback safely contains the
+ * missing period regardless of the client's actual filing frequency
+ * (monthly/quarterly/semiannual/annual), so the period the row is actually
+ * about is guaranteed to be on screen rather than requiring a second click
+ * to widen the date range after landing on the tab.
+ */
+function mdSalesTaxDeepLink(clientId: string, periodEnd: string): string {
+  const end = new Date(`${periodEnd}T00:00:00Z`);
+  const from = new Date(end);
+  from.setUTCDate(from.getUTCDate() - 370);
+  return `/accounting?client=${clientId}&tab=Sales&from=${from.toISOString().slice(0, 10)}&to=${periodEnd}`;
+}
+
+/**
  * UX-001 (hard audit 2026-08-13) — flags were previously visible only by
  * opening one client's own panel at a time; nothing showed which clients
  * across the whole firm had actually crossed into risk. Backed by
@@ -288,7 +305,18 @@ function AtRiskClientsPanel() {
 
   if (!clients || clients.length === 0) return null;
 
-  const go = (c: AtRiskClient) => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); };
+  // Land on the exact reason the row is showing, not just the client's
+  // generic page — the unfiled-period case has a real destination (the Sales
+  // tab, scoped to that period); everything else this panel can flag
+  // (overdue balance, agency obligations, payroll/bookkeeping gaps, missing
+  // compliance tasks, manual flags) renders in one place, Account Flags on
+  // the At a Glance tab, so those go straight there via the #account-flags
+  // anchor (see ClientDetailPage.tsx) instead of the bare client page.
+  const go = (c: AtRiskClient) => {
+    setSelectedClient(c.clientId, c.clientName);
+    if (c.mdSalesTaxUnfiledPeriodEnd) return navigate(mdSalesTaxDeepLink(c.clientId, c.mdSalesTaxUnfiledPeriodEnd));
+    navigate(`/clients/${c.clientId}#account-flags`);
+  };
 
   const salesTaxUnfiledCount = clients.filter((c) => c.mdSalesTaxUnfiledPeriodEnd).length;
 
@@ -347,7 +375,7 @@ function MissingSalesTaxFilingsPanel() {
   }, []);
 
   if (!clients || clients.length === 0) return null;
-  const go = (c: AtRiskClient) => navigate(`/accounting?client=${c.clientId}&tab=Sales`);
+  const go = (c: AtRiskClient) => navigate(mdSalesTaxDeepLink(c.clientId, c.mdSalesTaxUnfiledPeriodEnd!));
 
   return (
     <CommandPanel

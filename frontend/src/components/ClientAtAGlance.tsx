@@ -326,7 +326,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
       </div>
 
       {flags && flags.length > 0 && (
-        <div className="card" style={{ marginBottom: 16 }}>
+        <div id="account-flags" className="card" style={{ marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Account Flags</h2>
           <div className="metric-grid">
             <div>

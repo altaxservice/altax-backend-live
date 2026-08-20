@@ -530,6 +530,19 @@ export function ClientDetailPage() {
     setTab("Vault & Payment Methods");
   }, [location.hash, client]);
 
+  // Command Center's At-Risk Clients panel deep-links here (/clients/:id#account-flags)
+  // instead of landing on the generic client page with no further context —
+  // Account Flags already lives on the default "At a Glance" tab, so this just
+  // scrolls to it once flags have loaded (flags fetch async inside
+  // ClientAtAGlance, hence the short delay rather than scrolling immediately).
+  useEffect(() => {
+    if (location.hash !== "#account-flags" || !client || tab !== "At a Glance") return;
+    const t = setTimeout(() => {
+      document.getElementById("account-flags")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [location.hash, client, tab]);
+
   // Lets other pages deep-link straight to a tab, e.g. Task Detail's
   // "All Client Documents" button -> /clients/:id?tab=Documents.
   const tabParam = searchParams.get("tab");
