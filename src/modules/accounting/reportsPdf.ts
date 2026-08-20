@@ -969,6 +969,261 @@ export async function generateArAgingPdf(data: ArAgingReportData): Promise<Uint8
   return doc.save();
 }
 
+export interface ClientListingRow {
+  clientId: string; clientName: string; ein: string | null; entityType: string | null;
+  status: string | null; assignedTo: string | null; address: string | null;
+}
+export interface ClientListingReportData {
+  rows: ClientListingRow[];
+  detailed: boolean;
+  maskEin: boolean;
+}
+
+/**
+ * Last-4-visible EIN mask, e.g. "12-3456789" -> "**-***6789" — keeps the
+ * dash in place (cosmetic only) and masks every digit except the last 4, the
+ * common convention for a "sensitive but still distinguishable" identifier
+ * on a printed roster that might leave the office.
+ */
+function maskEinDigits(ein: string): string {
+  const digits = ein.replace(/\D/g, "");
+  if (digits.length <= 4) return ein.replace(/\d/g, "*");
+  const visible = digits.slice(-4);
+  const maskedDigits = "*".repeat(digits.length - 4) + visible;
+  let i = 0;
+  return ein.replace(/\d/g, () => maskedDigits[i++]);
+}
+
+/**
+ * Firm-wide client roster — internal analytics, not a client deliverable
+ * (same firm-letterhead framing as AR Aging/Firm Overview above). "Listing"
+ * is just Code + Name; "Detailed" adds EIN (optionally masked), entity type,
+ * status, and assigned staff. No REPORT_ROW_CAP here — unlike a transaction
+ * log this is a bounded-by-nature list (a firm's own client count, not
+ * unbounded ledger activity), and clipping the very report whose purpose is
+ * "list every client" would silently drop real clients from their own
+ * roster.
+ */
+export async function generateClientListingPdf(data: ClientListingReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const reportTitle = data.detailed ? "Client Detailed Listing" : "Client Listing";
+  setPdfTitle(doc, [reportTitle, fmtDate(new Date())]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  let y = drawFirmHeader(page, c, reportTitle.toUpperCase(), `${data.rows.length} client${data.rows.length === 1 ? "" : "s"}`, profile, logo);
+
+  const L = 48, R = PAGE_W - 48;
+  // Detailed columns: Code | Name | EIN | Entity Type | Status | Assigned To.
+  const colCode = L, colName = L + 60, colEin = L + 210, colEntity = L + 290, colStatus = L + 380, colAssigned = L + 440;
+
+  function drawColumnHeaders(): number {
+    c.text(colCode, y, "CODE", { size: 8, bold: true, color: MUTED });
+    c.text(data.detailed ? colName : colCode + 60, y, "NAME", { size: 8, bold: true, color: MUTED });
+    if (data.detailed) {
+      c.text(colEin, y, "EIN", { size: 8, bold: true, color: MUTED });
+      c.text(colEntity, y, "ENTITY TYPE", { size: 8, bold: true, color: MUTED });
+      c.text(colStatus, y, "STATUS", { size: 8, bold: true, color: MUTED });
+      c.text(colAssigned, y, "ASSIGNED TO", { size: 8, bold: true, color: MUTED });
+    }
+    y += 6;
+    c.line(L, y, R, y, LINE, 0.75);
+    return y + 14;
+  }
+  y = drawColumnHeaders();
+
+  if (!data.rows.length) {
+    emptyNote(c, y);
+  } else {
+    for (const r of data.rows) {
+      if (y > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+        y = drawColumnHeaders();
+      }
+      c.text(colCode, y, r.clientId, { size: 9 });
+      c.text(data.detailed ? colName : colCode + 60, y, r.clientName.slice(0, data.detailed ? 32 : 70), { size: 9 });
+      if (data.detailed) {
+        const einDisplay = r.ein ? (data.maskEin ? maskEinDigits(r.ein) : r.ein) : "—";
+        c.text(colEin, y, einDisplay, { size: 8.5, color: MUTED });
+        c.text(colEntity, y, (r.entityType || "—").slice(0, 16), { size: 8.5, color: MUTED });
+        c.text(colStatus, y, r.status || "—", { size: 8.5, color: MUTED });
+        c.text(colAssigned, y, (r.assignedTo || "—").slice(0, 18), { size: 8.5, color: MUTED });
+      }
+      y += 14;
+    }
+  }
+
+  drawFooter(c, profile.firmName, "Internal firm analytics — not a client-facing document.");
+  return doc.save();
+}
+
+export interface FirmInsightsReportData {
+  from: string; to: string;
+  revenueByServiceType: { serviceType: string; revenue: number; pctOfTotal: number }[];
+  clientConcentration: { clientName: string; revenue: number; pctOfTotal: number }[];
+  concentrationRisk: { top5Pct: number; top10Pct: number };
+  mdOnTimeFilingRate: { onTime: number; late: number; missing: number; filedPendingPayment: number; notYetDue: number; pct: number | null };
+  filingCompliance: {
+    onTime: number; late: number; missing: number; notYetDue: number; pct: number | null;
+    byServiceLine: { serviceLine: string; onTime: number; late: number; missing: number; pct: number | null }[];
+  };
+  estimateWinRate: { won: number; lost: number; stillOpen: number; winRatePct: number | null };
+  clientGrowth: { monthly: { month: string; newClients: number; likelyBulkImport: boolean }[]; activeClientCountNow: number };
+  staffUtilization: { name: string; totalHours: number; billableHours: number; billablePct: number }[];
+}
+
+/**
+ * A print-friendly version of the Firm Report dashboard (FirmReportPage.tsx)
+ * — that page only ever had CSV/Excel export until now, no viewable/
+ * printable document. Same section order as the on-screen panels and the
+ * CSV export's sections, condensed into compact tables so all 6-7 pieces
+ * plausibly fit a handful of pages instead of one per metric.
+ */
+export async function generateFirmInsightsPdf(data: FirmInsightsReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  setPdfTitle(doc, ["Firm Report", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  const logo = await embedFirmLogo(doc, profile);
+  let y = drawFirmHeader(page, c, "FIRM REPORT", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile, logo);
+
+  async function breakIfNeeded(minRoom: number) {
+    if (y > PAGE_H - minRoom) {
+      drawFooter(c, profile.firmName);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+  }
+
+  // --- Summary tiles ---
+  const tiles: [string, string][] = [
+    ["MD On-Time Rate", data.mdOnTimeFilingRate.pct !== null ? `${data.mdOnTimeFilingRate.pct}%` : "—"],
+    ["Filing Compliance", data.filingCompliance.pct !== null ? `${data.filingCompliance.pct}%` : "—"],
+    ["Estimate Win Rate", data.estimateWinRate.winRatePct !== null ? `${data.estimateWinRate.winRatePct}%` : "—"],
+    ["Active Clients", String(data.clientGrowth.activeClientCountNow)],
+  ];
+  const tileW = (PAGE_W - 96 - 3 * 10) / 4;
+  tiles.forEach(([label, value], i) => {
+    const x = 48 + i * (tileW + 10);
+    c.rect(x, y, tileW, 40, TEAL_TINT);
+    c.text(x + 8, y + 15, label.toUpperCase(), { size: 6.5, bold: true, color: MUTED });
+    c.text(x + 8, y + 31, value, { size: 13, bold: true });
+  });
+  y += 56;
+
+  // --- Revenue by Service Type ---
+  y = sectionLabel(c, y, "Revenue by Service Type");
+  const L = 48, R = PAGE_W - 48;
+  c.text(L, y, "Service Type", { size: 8, bold: true, color: MUTED });
+  c.text(R - 100, y, "Revenue", { size: 8, bold: true, color: MUTED, align: "right" });
+  c.text(R, y, "% of Total", { size: 8, bold: true, color: MUTED, align: "right" });
+  y += 6; c.line(L, y, R, y, LINE, 0.75); y += 13;
+  for (const r of data.revenueByServiceType) {
+    await breakIfNeeded(75);
+    c.text(L, y, r.serviceType, { size: 9 });
+    c.text(R - 100, y, money(r.revenue), { size: 9, align: "right" });
+    c.text(R, y, `${r.pctOfTotal}%`, { size: 9, align: "right" });
+    y += 13;
+  }
+  y += 10;
+
+  // --- Client Concentration ---
+  await breakIfNeeded(90);
+  y = sectionLabel(c, y, `Client Concentration — Top 5: ${data.concentrationRisk.top5Pct}%, Top 10: ${data.concentrationRisk.top10Pct}%`);
+  c.text(L, y, "Client", { size: 8, bold: true, color: MUTED });
+  c.text(R - 100, y, "Revenue", { size: 8, bold: true, color: MUTED, align: "right" });
+  c.text(R, y, "% of Total", { size: 8, bold: true, color: MUTED, align: "right" });
+  y += 6; c.line(L, y, R, y, LINE, 0.75); y += 13;
+  for (const cl of data.clientConcentration) {
+    await breakIfNeeded(75);
+    c.text(L, y, cl.clientName.slice(0, 45), { size: 9 });
+    c.text(R - 100, y, money(cl.revenue), { size: 9, align: "right" });
+    c.text(R, y, `${cl.pctOfTotal}%`, { size: 9, align: "right" });
+    y += 13;
+  }
+  y += 10;
+
+  // --- MD On-Time Filing Rate ---
+  await breakIfNeeded(60);
+  y = sectionLabel(c, y, "MD On-Time Filing Rate (Maryland Sales Tax only)");
+  c.text(L, y, `On-Time: ${data.mdOnTimeFilingRate.pct !== null ? `${data.mdOnTimeFilingRate.pct}%` : "—"}   ·   On Time: ${data.mdOnTimeFilingRate.onTime}   ·   Late: ${data.mdOnTimeFilingRate.late}   ·   Missing: ${data.mdOnTimeFilingRate.missing}`, { size: 9 });
+  y += 12;
+  c.text(L, y, `${data.mdOnTimeFilingRate.filedPendingPayment} filed with payment pending, ${data.mdOnTimeFilingRate.notYetDue} not yet due — neither counts toward the rate.`, { size: 8, color: MUTED });
+  y += 20;
+
+  // --- Firm-Wide Filing Compliance ---
+  await breakIfNeeded(90);
+  y = sectionLabel(c, y, "Firm-Wide Filing Compliance (every agency — federal, other states, payroll)");
+  c.text(L, y, `On-Time: ${data.filingCompliance.pct !== null ? `${data.filingCompliance.pct}%` : "—"}   ·   On Time: ${data.filingCompliance.onTime}   ·   Late: ${data.filingCompliance.late}   ·   Missing: ${data.filingCompliance.missing}`, { size: 9 });
+  y += 16;
+  if (data.filingCompliance.byServiceLine.length) {
+    c.text(L, y, "Service Line", { size: 8, bold: true, color: MUTED });
+    c.text(R - 80, y, "On-Time", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(R - 40, y, "Late", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(R, y, "Missing", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6; c.line(L, y, R, y, LINE, 0.75); y += 13;
+    for (const s of data.filingCompliance.byServiceLine) {
+      await breakIfNeeded(75);
+      c.text(L, y, s.serviceLine.slice(0, 40), { size: 9 });
+      c.text(R - 80, y, s.pct !== null ? `${s.pct}%` : "—", { size: 9, align: "right" });
+      c.text(R - 40, y, String(s.late), { size: 9, align: "right", color: s.late > 0 ? rgb(0.7, 0.15, 0.15) : INK });
+      c.text(R, y, String(s.missing), { size: 9, align: "right", color: s.missing > 0 ? rgb(0.7, 0.15, 0.15) : INK });
+      y += 13;
+    }
+  }
+  y += 10;
+
+  // --- Estimate Win Rate ---
+  await breakIfNeeded(60);
+  y = sectionLabel(c, y, "Estimate Win Rate");
+  c.text(L, y, `Win Rate: ${data.estimateWinRate.winRatePct !== null ? `${data.estimateWinRate.winRatePct}%` : "—"}   ·   Won: ${data.estimateWinRate.won}   ·   Lost: ${data.estimateWinRate.lost}   ·   Still Open: ${data.estimateWinRate.stillOpen}`, { size: 9 });
+  y += 20;
+
+  // --- Client Growth ---
+  await breakIfNeeded(90);
+  y = sectionLabel(c, y, `Client Growth (${data.clientGrowth.activeClientCountNow} active clients today)`);
+  c.text(L, y, "Month", { size: 8, bold: true, color: MUTED });
+  c.text(R, y, "New Clients", { size: 8, bold: true, color: MUTED, align: "right" });
+  y += 6; c.line(L, y, R, y, LINE, 0.75); y += 13;
+  for (const m of data.clientGrowth.monthly) {
+    await breakIfNeeded(75);
+    c.text(L, y, m.month, { size: 9 });
+    c.text(R, y, `${m.newClients}${m.likelyBulkImport ? "  (bulk import)" : ""}`, { size: 9, align: "right", color: m.likelyBulkImport ? MUTED : INK });
+    y += 13;
+  }
+  y += 10;
+
+  // --- Staff Utilization ---
+  await breakIfNeeded(90);
+  y = sectionLabel(c, y, "Staff Utilization");
+  if (!data.staffUtilization.length) {
+    emptyNote(c, y);
+  } else {
+    c.text(L, y, "Staff", { size: 8, bold: true, color: MUTED });
+    c.text(R - 140, y, "Total Hours", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(R - 70, y, "Billable Hours", { size: 8, bold: true, color: MUTED, align: "right" });
+    c.text(R, y, "Billable %", { size: 8, bold: true, color: MUTED, align: "right" });
+    y += 6; c.line(L, y, R, y, LINE, 0.75); y += 13;
+    for (const s of data.staffUtilization) {
+      await breakIfNeeded(75);
+      c.text(L, y, s.name, { size: 9 });
+      c.text(R - 140, y, String(s.totalHours), { size: 9, align: "right" });
+      c.text(R - 70, y, String(s.billableHours), { size: 9, align: "right" });
+      c.text(R, y, `${s.billablePct}%`, { size: 9, align: "right" });
+      y += 13;
+    }
+  }
+
+  drawFooter(c, profile.firmName, "Internal firm analytics — not a client-facing document.");
+  return doc.save();
+}
+
 export interface ClientSwotReportData {
   client: ReportClientInfo;
   asOfLabel: string;

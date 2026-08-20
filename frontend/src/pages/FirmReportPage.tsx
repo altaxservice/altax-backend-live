@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, downloadFile, buildFilename } from "../api/client";
+import { api, downloadFile, viewFile, printFile, buildFilename } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import type { Client } from "../api/types";
 
 /**
  * Firm-wide health metrics for AL TAX SERVICE itself — not a client report.
@@ -59,6 +60,20 @@ export function FirmReportPage() {
     }
   }
 
+  async function handlePdf(mode: "view" | "download" | "print") {
+    setExporting(`pdf-${mode}`);
+    try {
+      const path = `/reports/pdf/firm-insights?from=${from}&to=${to}`;
+      if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
+      else await downloadFile(path, buildFilename(["Firm Report", `${from} to ${to}`], "pdf"));
+    } catch {
+      setError("Could not generate the Firm Report PDF.");
+    } finally {
+      setExporting(null);
+    }
+  }
+
   return (
     <div>
       <p className="muted" style={{ marginBottom: 16, maxWidth: 720 }}>
@@ -79,6 +94,15 @@ export function FirmReportPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn" disabled={exporting !== null} onClick={() => handlePdf("view")}>
+              {exporting === "pdf-view" ? "Opening…" : "View / Print"}
+            </button>
+            <button type="button" className="btn" disabled={exporting !== null} onClick={() => handlePdf("print")}>
+              {exporting === "pdf-print" ? "Printing…" : "Print"}
+            </button>
+            <button type="button" className="btn" disabled={exporting !== null} onClick={() => handlePdf("download")}>
+              {exporting === "pdf-download" ? "Generating…" : "Download PDF"}
+            </button>
             <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleExport("csv")}>
               {exporting === "csv" ? "Exporting…" : "Export CSV"}
             </button>
@@ -88,6 +112,8 @@ export function FirmReportPage() {
           </div>
         </div>
       </div>
+
+      <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
       {!insights && !error && <div className="spinner-wrap">Loading Firm Report…</div>}
@@ -244,6 +270,127 @@ export function FirmReportPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Client Listing / Client Detailed Listing — a printable firm-wide client
+ * roster, modeled on a payroll platform's own "Reports" screen (Report
+ * Group: Firm -> Client Listing / Client Detailed Listing): a client picker
+ * with search + status filter, a Mask Federal ID toggle for the Detailed
+ * variant (which is the only one that shows EIN at all), and the same
+ * View/Print/Download trio every other PDF report in this app uses.
+ */
+function ClientListingSection() {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Active");
+  const [reportType, setReportType] = useState<"listing" | "detailed">("listing");
+  const [maskEin, setMaskEin] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ clients: Client[] }>("/clients")
+      .then((r) => {
+        setClients(r.clients);
+        setSelected(new Set(r.clients.filter((c) => String(c.status || "") === "Active").map((c) => c.client_id)));
+      })
+      .catch(() => {});
+  }, []);
+
+  const statuses = useMemo(() => Array.from(new Set(clients.map((c) => String(c.status || "")).filter(Boolean))).sort(), [clients]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return clients.filter((c) => {
+      if (statusFilter !== "all" && String(c.status || "") !== statusFilter) return false;
+      if (q && !c.client_name.toLowerCase().includes(q) && !c.client_id.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [clients, search, statusFilter]);
+
+  function toggleClient(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function pdfPath() {
+    const detailed = reportType === "detailed" ? "1" : "0";
+    const mask = maskEin ? "1" : "0";
+    const clientIds = selected.size ? `&clientIds=${encodeURIComponent(Array.from(selected).join(","))}` : "";
+    return `/reports/pdf/client-listing?detailed=${detailed}&maskEin=${mask}${clientIds}`;
+  }
+
+  const reportTitle = reportType === "detailed" ? "Client Detailed Listing" : "Client Listing";
+
+  async function handleRun(mode: "view" | "download" | "print") {
+    if (selected.size === 0) { setError("Select at least one client."); return; }
+    setBusy(mode);
+    setError(null);
+    try {
+      if (mode === "view") await viewFile(pdfPath());
+      else if (mode === "print") await printFile(pdfPath());
+      else await downloadFile(pdfPath(), buildFilename([reportTitle, new Date().toISOString().slice(0, 10)], "pdf"));
+    } catch {
+      setError(`Could not generate the ${reportTitle}.`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Client Listing</h2>
+        <div className="command-panel-note">A printable client roster — pick a report type, choose which clients to include, then view, print, or download.</div>
+      </div>
+      <div style={{ padding: "0 16px 16px" }}>
+        {error && <ErrorBanner error={error} />}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
+          <button type="button" className={`btn btn-sm ${reportType === "listing" ? "btn-primary" : ""}`} onClick={() => setReportType("listing")}>Client Listing</button>
+          <button type="button" className={`btn btn-sm ${reportType === "detailed" ? "btn-primary" : ""}`} onClick={() => setReportType("detailed")}>Client Detailed Listing</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients…" style={{ maxWidth: 220 }} />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 150 }}>
+            <option value="all">Any status</option>
+            {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(filtered.map((c) => c.client_id)))}>Select shown ({filtered.length})</button>
+          <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set(clients.map((c) => c.client_id)))}>Select all ({clients.length})</button>
+          <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+
+        <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 8, marginBottom: 12 }}>
+          {filtered.map((c) => (
+            <label key={c.client_id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "3px 0" }}>
+              <input type="checkbox" checked={selected.has(c.client_id)} onChange={() => toggleClient(c.client_id)} />
+              {c.client_name} <span className="muted" style={{ fontSize: 11 }}>({c.client_id})</span>
+            </label>
+          ))}
+          {filtered.length === 0 && <p className="muted" style={{ margin: 0 }}>No clients match.</p>}
+        </div>
+
+        {reportType === "detailed" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
+            <input type="checkbox" checked={maskEin} onChange={(e) => setMaskEin(e.target.checked)} />
+            Mask Federal ID (show only the last 4 digits)
+          </label>
+        )}
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn" disabled={busy !== null} onClick={() => handleRun("view")}>{busy === "view" ? "Opening…" : "View / Print"}</button>
+          <button type="button" className="btn" disabled={busy !== null} onClick={() => handleRun("print")}>{busy === "print" ? "Printing…" : "Print"}</button>
+          <button type="button" className="btn" disabled={busy !== null} onClick={() => handleRun("download")}>{busy === "download" ? "Generating…" : "Download PDF"}</button>
+        </div>
+        <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>{selected.size} client{selected.size === 1 ? "" : "s"} selected for the {reportTitle}.</p>
+      </div>
     </div>
   );
 }
