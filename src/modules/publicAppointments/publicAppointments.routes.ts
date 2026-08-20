@@ -280,6 +280,18 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   if (!name || !startTime) {
     return res.status(400).json({ error: "Name and a time slot are required." });
   }
+  // The <input type="email"> on the booking page doesn't actually catch this
+  // — the HTML5 email constraint allows a single-label domain with no dot
+  // (it exists to support things like intranet addresses), so "user@gmailcom"
+  // passes browser validation and only fails later, silently, when the
+  // confirmation/reminder email actually tries to send (caught this from a
+  // real booking: "md14366775@gmailcom" sailed through the form, then every
+  // reminder for that appointment failed with Resend's "Invalid `to` field").
+  // Requiring at least one dot after the @ catches the typo at booking time,
+  // when the visitor can still fix it, instead of days later in a failure log.
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "That doesn't look like a valid email address — please double-check it." });
+  }
   // Either channel alone is fine (a prospect who'd rather not share an email
   // can leave it blank), but the page promises "we'll confirm by email and
   // text" — allowing BOTH to be blank silently breaks that promise: nothing
