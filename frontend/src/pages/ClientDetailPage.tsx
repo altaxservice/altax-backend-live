@@ -205,12 +205,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -1184,6 +1184,10 @@ export function ClientDetailPage() {
                 />
               </div>
             </Fragment>
+          )}
+
+          {tab === "Notices" && canSeeStaffTabs && (
+            <NoticesSection clientId={client.client_id} />
           )}
 
           {tab === "Permits & Compliance" && canSeeStaffTabs && (
@@ -2207,6 +2211,171 @@ interface HaccpPlanRow {
  * links straight back into it via ?planId= rather than making staff search
  * for it again.
  */
+interface NoticeRow {
+  notice_id: string; client_id: string; agency: string; notice_type: string; tax_period: string | null;
+  amount: number | null; received_date: string; response_deadline: string | null; assigned_to: string | null;
+  status: string; response_filed_date: string | null; follow_up_date: string | null; resolution: string | null; notes: string | null;
+}
+const NOTICE_STATUSES = ["Open", "Response Filed", "Resolved"];
+const EMPTY_NOTICE_FORM = {
+  agency: "", noticeType: "", taxPeriod: "", amount: "", receivedDate: new Date().toISOString().slice(0, 10),
+  responseDeadline: "", assignedTo: "", responseFiledDate: "", followUpDate: "", resolution: "", notes: "",
+};
+
+/** IRS/state notice tracking (Firm Command Center gap analysis, item #24) — backed by GET/POST/PATCH /clients/:clientId/notices (notices.routes.ts). */
+function NoticesSection({ clientId }: { clientId: string }) {
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const [notices, setNotices] = useState<NoticeRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_NOTICE_FORM);
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    api.get<{ notices: NoticeRow[] }>(`/clients/${clientId}/notices`)
+      .then((res) => setNotices(res.notices))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load notices."));
+  }
+  useEffect(load, [clientId]);
+
+  function startAdd() {
+    setForm(EMPTY_NOTICE_FORM);
+    setEditingId(null);
+    setShowForm(true);
+  }
+  function startEdit(n: NoticeRow) {
+    setForm({
+      agency: n.agency, noticeType: n.notice_type, taxPeriod: n.tax_period || "", amount: n.amount != null ? String(n.amount) : "",
+      receivedDate: n.received_date.slice(0, 10), responseDeadline: n.response_deadline ? n.response_deadline.slice(0, 10) : "",
+      assignedTo: n.assigned_to || "", responseFiledDate: n.response_filed_date ? n.response_filed_date.slice(0, 10) : "",
+      followUpDate: n.follow_up_date ? n.follow_up_date.slice(0, 10) : "", resolution: n.resolution || "", notes: n.notes || "",
+    });
+    setEditingId(n.notice_id);
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        agency: form.agency, noticeType: form.noticeType, taxPeriod: form.taxPeriod, amount: form.amount,
+        receivedDate: form.receivedDate, responseDeadline: form.responseDeadline, assignedTo: form.assignedTo,
+        responseFiledDate: form.responseFiledDate, followUpDate: form.followUpDate, resolution: form.resolution, notes: form.notes,
+      };
+      if (editingId) await api.patch(`/clients/${clientId}/notices/${editingId}`, payload);
+      else await api.post(`/clients/${clientId}/notices`, payload);
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this notice.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStatusChange(n: NoticeRow, status: string) {
+    try {
+      await api.patch(`/clients/${clientId}/notices/${n.notice_id}`, { status });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
+    }
+  }
+
+  async function handleDelete(n: NoticeRow) {
+    const ok = await confirmDialog({ title: "Delete notice", message: `Delete this ${n.agency} — ${n.notice_type} notice? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/clients/${clientId}/notices/${n.notice_id}/delete`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this notice.");
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="command-panel">
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Notices</h2>
+        <div className="command-panel-note">IRS/state notices — track agency, type, period, amount, and the response deadline separately from the general task list.</div>
+      </div>
+      <div style={{ padding: "0 16px 16px" }}>
+        {error && <ErrorBanner error={error} />}
+        {!showForm && <button type="button" className="btn" onClick={startAdd}>+ Add Notice</button>}
+
+        {showForm && (
+          <form onSubmit={handleSubmit} className="card" style={{ marginTop: 12, padding: 16 }}>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="notice-agency">Agency</label><input id="notice-agency" required value={form.agency} onChange={(e) => setForm({ ...form, agency: e.target.value })} placeholder="IRS, Comptroller of Maryland, ..." /></div>
+              <div className="field"><label htmlFor="notice-type">Notice Type</label><input id="notice-type" required value={form.noticeType} onChange={(e) => setForm({ ...form, noticeType: e.target.value })} placeholder="CP2000, Balance Due, ..." /></div>
+            </div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="notice-period">Tax Period</label><input id="notice-period" value={form.taxPeriod} onChange={(e) => setForm({ ...form, taxPeriod: e.target.value })} placeholder="2025, Q3 2026, ..." /></div>
+              <div className="field"><label htmlFor="notice-amount">Amount</label><input id="notice-amount" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
+            </div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="notice-received">Received Date</label><input id="notice-received" type="date" required value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} /></div>
+              <div className="field"><label htmlFor="notice-deadline">Response Deadline</label><input id="notice-deadline" type="date" value={form.responseDeadline} onChange={(e) => setForm({ ...form, responseDeadline: e.target.value })} /></div>
+            </div>
+            <div className="field"><label htmlFor="notice-assigned">Assigned To</label><input id="notice-assigned" value={form.assignedTo} onChange={(e) => setForm({ ...form, assignedTo: e.target.value })} placeholder="Staff email" /></div>
+            {editingId && (
+              <div className="form-grid">
+                <div className="field"><label htmlFor="notice-response-filed">Response Filed Date</label><input id="notice-response-filed" type="date" value={form.responseFiledDate} onChange={(e) => setForm({ ...form, responseFiledDate: e.target.value })} /></div>
+                <div className="field"><label htmlFor="notice-followup">Follow-Up Date</label><input id="notice-followup" type="date" value={form.followUpDate} onChange={(e) => setForm({ ...form, followUpDate: e.target.value })} /></div>
+              </div>
+            )}
+            {editingId && <div className="field"><label htmlFor="notice-resolution">Resolution</label><textarea id="notice-resolution" rows={2} value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })} /></div>}
+            <div className="field"><label htmlFor="notice-notes">Notes</label><textarea id="notice-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Add Notice"}</button>
+              <button type="button" className="btn" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        <div className="table-scroll" style={{ marginTop: 12 }}>
+          <table>
+            <thead><tr><th scope="col">Agency</th><th scope="col">Type</th><th scope="col">Period</th><th scope="col">Amount</th><th scope="col">Received</th><th scope="col">Deadline</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              {notices === null && <tr><td colSpan={8} className="muted">Loading…</td></tr>}
+              {notices !== null && notices.length === 0 && <tr><td colSpan={8} className="muted">No notices logged.</td></tr>}
+              {notices?.map((n) => {
+                const overdue = n.status !== "Resolved" && n.response_deadline && n.response_deadline.slice(0, 10) < today;
+                return (
+                  <tr key={n.notice_id}>
+                    <td>{n.agency}</td>
+                    <td>{n.notice_type}</td>
+                    <td>{n.tax_period || "—"}</td>
+                    <td>{n.amount != null ? `$${Number(n.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+                    <td>{fmtDate(n.received_date)}</td>
+                    <td style={{ color: overdue ? "var(--red)" : undefined, fontWeight: overdue ? 700 : undefined }}>{n.response_deadline ? fmtDate(n.response_deadline) : "—"}{overdue ? " (overdue)" : ""}</td>
+                    <td>
+                      <select value={n.status} onChange={(e) => handleStatusChange(n, e.target.value)} style={{ fontSize: 12.5 }}>
+                        {NOTICE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <button type="button" className="link-button" onClick={() => startEdit(n)}>Edit</button>
+                      {" · "}
+                      <button type="button" className="link-button" onClick={() => handleDelete(n)}>Delete</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HealthPermitsSection({ clientId }: { clientId: string }) {
   const navigate = useNavigate();
   const { user } = useAuth();

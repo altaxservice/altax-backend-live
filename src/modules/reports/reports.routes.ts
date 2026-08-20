@@ -1437,7 +1437,7 @@ export interface ManagementException {
  * As-of-today only (no from/to) — this reports current risk, not a period.
  */
 export async function computeManagementExceptions(): Promise<ManagementException[]> {
-  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow] = await Promise.all([
+  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow, noticesOverdueRow, noticesDueSoonRow] = await Promise.all([
     computeArAging(),
     computeFirmWideMdSalesTaxMissedFilings(),
     queryOne<any>(
@@ -1455,6 +1455,15 @@ export async function computeManagementExceptions(): Promise<ManagementException
       `SELECT COUNT(*)::int AS count, COALESCE(SUM(balance_due), 0) AS total FROM altax.v3_invoices
         WHERE lower(status) NOT IN ('paid', 'void') AND balance_due > 0
           AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_notices
+        WHERE status <> 'Resolved' AND response_deadline IS NOT NULL AND response_deadline::date < CURRENT_DATE`
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_notices
+        WHERE status <> 'Resolved' AND response_deadline IS NOT NULL
+          AND response_deadline::date >= CURRENT_DATE AND response_deadline::date <= CURRENT_DATE + INTERVAL '7 days'`
     ),
   ]);
 
@@ -1496,6 +1505,14 @@ export async function computeManagementExceptions(): Promise<ManagementException
   const verificationDue = Number(verificationRow?.count || 0);
   if (verificationDue > 0) {
     items.push({ severity: "warning", label: "MD portal verification overdue", count: verificationDue, detail: `${verificationDue} MD client(s) not checked in MDTAXCONNECT/MD Business Express in 30+ days.`, link: "/clients" });
+  }
+  const noticesOverdue = Number(noticesOverdueRow?.count || 0);
+  if (noticesOverdue > 0) {
+    items.push({ severity: "critical", label: "IRS/state notice response deadlines missed", count: noticesOverdue, detail: `${noticesOverdue} open notice(s) past their response deadline.`, link: "/clients" });
+  }
+  const noticesDueSoon = Number(noticesDueSoonRow?.count || 0);
+  if (noticesDueSoon > 0) {
+    items.push({ severity: "warning", label: "IRS/state notice deadlines within 7 days", count: noticesDueSoon, detail: `${noticesDueSoon} open notice(s) due to respond within a week.`, link: "/clients" });
   }
 
   const order: Record<string, number> = { critical: 0, warning: 1 };
