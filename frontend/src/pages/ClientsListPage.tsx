@@ -15,7 +15,7 @@ import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, INDUSTRY_CATEGORIES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
@@ -23,7 +23,7 @@ import { useFormDraft } from "../hooks/useFormDraft";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
-  clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", services: [] as string[],
+  clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", industryCategory: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
   mdWithholdingFrequency: "", mduiEnabled: false, mdUiEmployerId: "", mdUiTaxRate: "", mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
@@ -123,6 +123,9 @@ export function ClientsListPage() {
   const [serviceFilter, setServiceFilter] = useStickyState("clients.service", "all");
   const [payrollProviderFilter, setPayrollProviderFilter] = useStickyState("clients.payrollProvider", "all");
   const [labelFilter, setLabelFilter] = useStickyState("clients.label", "all");
+  const [stateFilter, setStateFilter] = useStickyState("clients.state", "all");
+  const [industryFilter, setIndustryFilter] = useStickyState("clients.industry", "all");
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [quickTab, setQuickTab] = useStickyState("clients.tab", "all");
   const [sortKey, setSortKey] = useStickyState<SortKey>("clients.sortKey", "client_name");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
@@ -367,6 +370,11 @@ export function ClientsListPage() {
     [clients]
   );
   const statuses = useMemo(() => Array.from(new Set((clients || []).map((c) => c.status).filter(Boolean))) as string[], [clients]);
+  const clientStates = useMemo(() => Array.from(new Set((clients || []).map((c) => c.state).filter(Boolean))) as string[], [clients]);
+  const industries = useMemo(
+    () => Array.from(new Set([...INDUSTRY_CATEGORIES, ...(clients || []).map((c) => c.industry_category).filter(Boolean) as string[]])),
+    [clients]
+  );
   // Label names, not label_ids, since that's what the FilterBar select renders
   // as both the option value and its display text — safe because label names
   // are firm-unique (sql/030_labels.sql: uq_v3_labels_name).
@@ -382,6 +390,8 @@ export function ClientsListPage() {
       if (serviceFilter !== "all" && String(c.service_type || "") !== serviceFilter) return false;
       if (payrollProviderFilter !== "all" && String(c.payroll_system || "") !== payrollProviderFilter) return false;
       if (labelFilter !== "all" && !(clientLabels[c.client_id] || []).some((l) => l.name === labelFilter)) return false;
+      if (stateFilter !== "all" && String(c.state || "") !== stateFilter) return false;
+      if (industryFilter !== "all" && String(c.industry_category || "") !== industryFilter) return false;
       const tab = QUICK_TABS.find((t) => t.key === quickTab);
       if (tab && !tab.test(c)) return false;
       if (q && ![c.client_name, c.client_id, c.email, c.phone, c.assigned_to].some((v) => String(v || "").toLowerCase().includes(q))) return false;
@@ -394,12 +404,36 @@ export function ClientsListPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return rows;
-  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, clientLabels, quickTab, sortKey, sortDir]);
+  }, [clients, search, statusFilter, ownerFilter, typeFilter, serviceFilter, payrollProviderFilter, labelFilter, stateFilter, industryFilter, clientLabels, quickTab, sortKey, sortDir]);
 
   // Lets ClientDetailPage's Previous/Next paging step through whatever
   // filtered/sorted order is currently on screen — see utils/listNav.ts.
   useEffect(() => {
     saveListOrder("clients", filtered.map((c) => c.client_id));
+  }, [filtered]);
+
+  /**
+   * The "report by category" part — counts within whatever's currently
+   * filtered/searched, not the whole roster, so narrowing to e.g. "Active"
+   * first and then opening this shows the breakdown of just active clients.
+   * Grouped by the 4 dimensions a firm owner actually asked about: state,
+   * industry, service type, and staff assignment.
+   */
+  const breakdowns = useMemo(() => {
+    function groupBy(getKey: (c: Client) => string | null | undefined): { key: string; count: number }[] {
+      const counts = new Map<string, number>();
+      for (const c of filtered) {
+        const key = getKey(c) || "(not set)";
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return Array.from(counts.entries()).map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
+    }
+    return {
+      byState: groupBy((c) => c.state),
+      byIndustry: groupBy((c) => c.industry_category),
+      byService: groupBy((c) => c.service_type),
+      byOwner: groupBy((c) => c.assigned_to),
+    };
   }, [filtered]);
 
   function toggleSort(key: SortKey) {
@@ -418,6 +452,7 @@ export function ClientsListPage() {
       [
         { key: "client_id", label: "Client ID" }, { key: "client_name", label: "Client Name" },
         { key: "client_type", label: "Type" }, { key: "entity_type", label: "Entity Type" },
+        { key: "state", label: "State" }, { key: "industry_category", label: "Industry" },
         { key: "email", label: "Email" }, { key: "phone", label: "Phone" },
         { key: "assigned_to", label: "Owner" }, { key: "service_type", label: "Service" },
         { key: "sales_tax_frequency", label: "Sales Tax Frequency" }, { key: "payroll_frequency", label: "Payroll Frequency" },
@@ -447,18 +482,57 @@ export function ClientsListPage() {
           { label: "Service", value: serviceFilter, options: services, onChange: setServiceFilter },
           { label: "Payroll Provider", value: payrollProviderFilter, options: payrollProviders, onChange: setPayrollProviderFilter },
           { label: "Label", value: labelFilter, options: labelNames, onChange: setLabelFilter },
+          { label: "State", value: stateFilter, options: clientStates, onChange: setStateFilter },
+          { label: "Industry", value: industryFilter, options: industries, onChange: setIndustryFilter },
         ]}
         onRefresh={handleRefresh}
         refreshing={refreshing}
         onExportCsv={handleExport}
       />
-      <div className="quick-tabs" style={{ margin: "0 0 16px" }}>
-        {QUICK_TABS.map((t) => (
-          <button key={t.key} type="button" className={`quick-tab ${quickTab === t.key ? "active" : ""}`} onClick={() => setQuickTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
+      <div className="quick-tabs" style={{ margin: "0 0 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", flexWrap: "wrap" }}>
+          {QUICK_TABS.map((t) => (
+            <button key={t.key} type="button" className={`quick-tab ${quickTab === t.key ? "active" : ""}`} onClick={() => setQuickTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="btn btn-sm" onClick={() => setShowBreakdown((v) => !v)}>
+          {showBreakdown ? "Hide Breakdown" : "Show Breakdown by Category"}
+        </button>
       </div>
+
+      {/* The "report by category" view — counts within whatever's currently
+          filtered above, across state/industry/service/owner. Reuses the
+          filters instead of being a separate report, so "MD clients only,
+          broken down by industry" is just: set the State filter, open this. */}
+      {showBreakdown && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 10 }}>
+            Breakdown of the {filtered.length} client{filtered.length === 1 ? "" : "s"} currently shown (adjust the filters above to narrow this)
+          </div>
+          <div className="metric-grid">
+            {([
+              { title: "By State", rows: breakdowns.byState },
+              { title: "By Industry", rows: breakdowns.byIndustry },
+              { title: "By Service Type", rows: breakdowns.byService },
+              { title: "By Owner", rows: breakdowns.byOwner },
+            ]).map(({ title, rows }) => (
+              <div key={title}>
+                <div className="small-label" style={{ marginBottom: 6 }}>{title}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 220, overflowY: "auto" }}>
+                  {rows.map((r) => (
+                    <div key={r.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, gap: 8 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.key}</span>
+                      <span className="muted" style={{ flexShrink: 0 }}>{r.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && <ErrorBanner error={error} />}
 
@@ -620,6 +694,13 @@ export function ClientsListPage() {
                         onChange={(e) => { setServiceTypeOther(e.target.value); setForm((f) => ({ ...f, serviceType: e.target.value })); }}
                       />
                     )}
+                  </div>
+                  <div className="field">
+                    <label htmlFor="nc-industry">Industry</label>
+                    <input id="nc-industry" list="nc-industry-list" value={form.industryCategory} onChange={(e) => setForm((f) => ({ ...f, industryCategory: e.target.value }))} />
+                    <datalist id="nc-industry-list">
+                      {INDUSTRY_CATEGORIES.map((o) => <option key={o} value={o} />)}
+                    </datalist>
                   </div>
                 </div>
               </section>

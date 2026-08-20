@@ -5,6 +5,18 @@ export const US_STATES = [
 ];
 export const ENTITY_TYPES = ["LLC", "S-Corp", "C-Corp", "Partnership", "Sole Proprietorship", "Nonprofit", "Individual"];
 export const SERVICE_TYPES = ["Full Service", "Bookkeeping Only", "Tax Only", "Payroll Only", "Sales Tax Only", "Permits & Licensing Only", "Consulting"];
+// v3_clients.industry_category is "advisory only, not enforced" (see its schema
+// comment) — a free-text column, no DB constraint — so this list is a starting
+// point for the <select>, not a hard rule; a client can still be saved with a
+// custom typed value via the "Other…" option. Not a single client had this set
+// before this list existed (confirmed against production: 158/158 blank), so
+// there was no existing free-text data this needed to reconcile with.
+export const INDUSTRY_CATEGORIES = [
+  "Convenience Store / Grocery", "Restaurant / Carryout / Food Service", "Smoke Shop / Tobacco / Vape",
+  "Retail (Other)", "Construction / Contracting", "Professional Services", "Medical / Healthcare",
+  "Real Estate", "Automotive", "Salon / Personal Care", "Transportation / Logistics",
+  "Technology / IT Services", "Nonprofit",
+];
 // "Semiannual" was missing even though it's a real stored value on 14 live clients'
 // sales_tax_frequency — the <select> silently showed blank for them instead of their
 // actual frequency (same class of casing/coverage bug as PAYROLL_FREQS below).
