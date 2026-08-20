@@ -4,7 +4,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit, logClientActivity } from "../../common/audit";
-import { sendEmail, sendSms, NotConfiguredError, parseEmailList } from "../../common/notifications";
+import { sendEmail, sendSms, NotConfiguredError, parseEmailList, recordNotificationFailure } from "../../common/notifications";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { resolveTemplate } from "../templates/templates.routes";
 import { publicBaseUrl } from "../../common/publicUrl";
@@ -560,10 +560,10 @@ async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     if (r.email) {
-      try { await sendEmail({ to: r.email, subject, html: await wrapEmailHtml(html, req) }); } catch { /* best-effort */ }
+      try { await sendEmail({ to: r.email, subject, html: await wrapEmailHtml(html, req) }); } catch (err) { await recordNotificationFailure(`notifyAssignedStaff:email:${appt.appointment_id}`, err); }
     }
     if (r.phone) {
-      try { await sendSms({ to: r.phone, body: smsBody }); } catch { /* best-effort */ }
+      try { await sendSms({ to: r.phone, body: smsBody }); } catch (err) { await recordNotificationFailure(`notifyAssignedStaff:sms:${appt.appointment_id}`, err); }
     }
   }
 }
@@ -605,10 +605,10 @@ export async function notifyStaffOfAppointmentChange(
   for (const { email, phone } of recipients.values()) {
     if (excludeLower && email && email.toLowerCase() === excludeLower) continue;
     if ((settings.staffReminderChannel === "email" || settings.staffReminderChannel === "both") && email) {
-      try { await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) }); } catch { /* best-effort */ }
+      try { await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) }); } catch (err) { await recordNotificationFailure(`notifyStaffOfAppointmentChange:email:${appt.appointment_id}`, err); }
     }
     if ((settings.staffReminderChannel === "sms" || settings.staffReminderChannel === "both") && phone) {
-      try { await sendSms({ to: phone, body: smsBody }); } catch { /* best-effort */ }
+      try { await sendSms({ to: phone, body: smsBody }); } catch (err) { await recordNotificationFailure(`notifyStaffOfAppointmentChange:sms:${appt.appointment_id}`, err); }
     }
   }
 }
@@ -865,8 +865,9 @@ export async function runAppointmentAutoComplete(actorEmail: string, req?: Reque
     if (r.notify_client) {
       try {
         await notifyAppointment({ ...r, client_name: clientNameById.get(r.client_id) }, "Appointment Completed", actorEmail, req);
-      } catch {
-        // best-effort — the status flip above already succeeded and is logged
+      } catch (err) {
+        // the status flip above already succeeded and is logged separately — this only records the notice failure
+        await recordNotificationFailure(`runAppointmentAutoComplete:${r.appointment_id}`, err);
       }
     }
   }

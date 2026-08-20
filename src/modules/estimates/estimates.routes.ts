@@ -6,7 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { computeTotals, feeItemsFor, linesFromFeeItems, resolveLineAmounts, type EstimateLine } from "./estimates.service";
 import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
-import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
 
 /**
@@ -697,10 +697,7 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
         html: await wrapEmailHtml(body, req),
       });
     } catch (err) {
-      if (!(err instanceof NotConfiguredError)) {
-        // eslint-disable-next-line no-console
-        console.error(`Estimate-conversion welcome email failed for ${est.email}:`, err);
-      }
+      await recordNotificationFailure(`estimates:welcome-email:${est.estimate_id}`, err);
     }
   }
 

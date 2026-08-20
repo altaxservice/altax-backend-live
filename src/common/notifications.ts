@@ -9,6 +9,7 @@
 import { Resend } from "resend";
 import twilio from "twilio";
 import { publicBaseUrl } from "./publicUrl";
+import { logAudit } from "./audit";
 
 // Unlike the database (see config/db.ts's DATABASE_URL_DEV split), there's no
 // separate dev/prod credential for Resend/Twilio — whatever's in .env is live.
@@ -38,6 +39,32 @@ export class NotConfiguredError extends Error {}
 export function isEmailConfigured(): boolean { return Boolean(process.env.RESEND_API_KEY); }
 export function isSmsConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER); }
 export function isWhatsAppConfigured(): boolean { return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_WHATSAPP_FROM); }
+
+/**
+ * The communications audit (2026-08-19) found that best-effort notification
+ * catch blocks across the app were inconsistent — some console.error'd,
+ * some wrote their own one-off logAudit entry, several (notifyStaffOfAppointmentChange's
+ * SMS/email catches) logged nothing at all. A genuine failure in any of these was
+ * invisible unless someone happened to be tailing server logs. This is the single
+ * place every one of those catch blocks should call instead: it always logs to the
+ * server console, and — unless the failure is just an unconfigured provider (expected
+ * state, already surfaced separately via isEmailConfigured()/isSmsConfigured()) — it
+ * also writes one queryable "module: Notifications, action: SEND_FAILED" audit row so
+ * Fix Center's "Recent notification failures" check (system.routes.ts) can find it.
+ * Never throws: a failure recording a failure must not cascade into a bigger one.
+ */
+export async function recordNotificationFailure(source: string, err: unknown): Promise<void> {
+  if (err instanceof NotConfiguredError) return;
+  const message = err instanceof Error ? err.message : String(err);
+  // eslint-disable-next-line no-console
+  console.error(`[notification] ${source} failed:`, err);
+  try {
+    await logAudit("Notifications", "SEND_FAILED", source, "", "", message, `${source} failed: ${message}`, "System");
+  } catch (logErr) {
+    // eslint-disable-next-line no-console
+    console.error(`[notification] recordNotificationFailure could not write audit log for ${source}:`, logErr);
+  }
+}
 
 export interface EmailAttachment { filename: string; content: Buffer; contentType?: string }
 

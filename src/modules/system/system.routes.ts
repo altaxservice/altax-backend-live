@@ -396,6 +396,27 @@ systemRouter.get("/diagnostics", requireAuth, requireRole("admin", "staff"), asy
     checks.push({ id: "withholding-tax-year", label: "Payroll withholding bracket tables", status: "ok", detail: `Federal, MD, VA, DC, and DE withholding bracket tables are verified current for tax year ${WITHHOLDING_TAX_YEAR}.` });
   }
 
+  // Communications audit (2026-08-19) found best-effort notification catch blocks
+  // scattered across the app with inconsistent (or no) failure visibility — some
+  // console.error'd, some wrote a one-off audit entry, some (notifyStaffOfAppointmentChange's
+  // SMS/email sends) logged nothing at all. Every one of those sites now routes through
+  // notifications.ts's recordNotificationFailure(), which always writes one queryable
+  // "module: Notifications, action: SEND_FAILED" audit row (unless the failure is just an
+  // unconfigured provider, which is expected state and already surfaced by the sms/email
+  // checks above) — plus the two pre-existing ad hoc FAILED actions (auth OTP, billing
+  // payment receipts), which already land in the same table. This check is the single
+  // place staff can see every notification that failed to deliver in the last 7 days,
+  // instead of needing to notice it in server logs or on a specific record.
+  const recentNotificationFailures = await query<any>(
+    `SELECT module, action, record_id, note, logged_at FROM altax.v3_audit_log
+      WHERE logged_at > now() - interval '7 days'
+        AND ((module = 'Notifications' AND action = 'SEND_FAILED') OR action IN ('EMAIL_OTP_SEND_FAILED', 'PAYMENT_RECEIPT_EMAIL_FAILED'))
+      ORDER BY logged_at DESC`
+  );
+  checks.push(recentNotificationFailures.length === 0
+    ? { id: "notification-failures", label: "Notification deliveries (last 7 days)", status: "ok", detail: "No email/SMS notification failed to send in the last 7 days." }
+    : { id: "notification-failures", label: "Notification deliveries (last 7 days)", status: "warning", detail: `${recentNotificationFailures.length} notification(s) failed to send in the last 7 days: ${recentNotificationFailures.slice(0, 5).map((f: any) => `${f.record_id || f.module} — ${f.note} (${new Date(f.logged_at).toLocaleDateString()})`).join("; ")}${recentNotificationFailures.length > 5 ? "…" : ""}. The underlying action (payment, filing, appointment, etc.) already succeeded — only the notice about it failed. Whoever's listed as the recipient in each record above may not know something is waiting on them; consider following up directly.` });
+
   // --- Service Type / Services Provided vs. the granular per-obligation flags ---
   // Confirmed by direct investigation (2026-08-09): "Service Type" (Full Service,
   // Sales Tax Only, etc.) and "Services Provided" (the checkbox list) are NOT

@@ -8,7 +8,7 @@ import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
 import { decryptClientPii, decryptValue, encryptValue } from "../../common/encryption";
 import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
-import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
 import { publicBaseUrl } from "../../common/publicUrl";
 import {
@@ -357,10 +357,7 @@ govFormsRouter.post("/employee/:employeeId/send", requireAuth, requireRole("admi
       </div>`;
     await sendEmail({ to: employee.email, subject: `${FORM_LABELS[formType]} — please complete and sign`, html });
   } catch (err) {
-    if (!(err instanceof NotConfiguredError)) {
-      // eslint-disable-next-line no-console
-      console.error(`Gov form portal-send notification failed for ${employee.email}:`, err);
-    }
+    await recordNotificationFailure(`govForms:portal-send:${filingId}`, err);
   }
   res.status(201).json({ ok: true, filingId });
 }));
@@ -450,10 +447,7 @@ async function notifyGovFormReviewRequested(filing: any, requestedBy: string): P
     try {
       await sendEmail({ to: admin.email, subject: `Review requested — ${label} for ${subject}`, html });
     } catch (err) {
-      if (!(err instanceof NotConfiguredError)) {
-        // eslint-disable-next-line no-console
-        console.error(`Gov form review-requested notification failed for ${admin.email}:`, err);
-      }
+      await recordNotificationFailure(`govForms:review-requested:${filing.filing_id}`, err);
     }
   }
 }
@@ -480,10 +474,7 @@ async function notifyGovFormReviewDecision(filing: any, decision: "approved" | "
   try {
     await sendEmail({ to: preparer.email, subject: `${decision === "approved" ? "Approved" : "Rejected"} — ${label} for ${subject}`, html });
   } catch (err) {
-    if (!(err instanceof NotConfiguredError)) {
-      // eslint-disable-next-line no-console
-      console.error(`Gov form review-decision notification failed for ${preparer.email}:`, err);
-    }
+    await recordNotificationFailure(`govForms:review-decision:${filing.filing_id}`, err);
   }
 }
 
@@ -814,8 +805,7 @@ govFormsRouter.post("/:filingId/request-review", requireAuth, requireRole("admin
   try {
     await notifyGovFormReviewRequested(filing, req.user!.email);
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("notifyGovFormReviewRequested failed:", err);
+    await recordNotificationFailure(`govForms:review-requested-wrapper:${filing.filing_id}`, err);
   }
   res.json({ ok: true });
 }));
@@ -841,8 +831,7 @@ govFormsRouter.post("/:filingId/review", requireAuth, requireRole("admin"), asyn
   try {
     await notifyGovFormReviewDecision(filing, decision as "approved" | "rejected", note, req.user!.email);
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("notifyGovFormReviewDecision failed:", err);
+    await recordNotificationFailure(`govForms:review-decision-wrapper:${filing.filing_id}`, err);
   }
   res.json({ ok: true });
 }));

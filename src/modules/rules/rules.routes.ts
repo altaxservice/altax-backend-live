@@ -5,7 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { normalizeText } from "../../common/assignment";
-import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
 
 /**
@@ -485,10 +485,7 @@ async function notifyStaffOfNewTaskBatches(created: { draftId: string; ruleId: s
     try {
       await sendEmail({ to: r.email, subject: `${created.length} new task batch${created.length === 1 ? "" : "es"} awaiting review`, html });
     } catch (err) {
-      if (!(err instanceof NotConfiguredError)) {
-        // eslint-disable-next-line no-console
-        console.error(`Task Rules Agent batch notification failed for ${r.email}:`, err);
-      }
+      await recordNotificationFailure(`rules:agent-batch-digest:${r.email}`, err);
     }
   }
 }
@@ -579,8 +576,7 @@ export async function runTaskRulesAgentSweep(actorEmail: string, opts: { runDate
     try {
       await notifyStaffOfNewTaskBatches(created);
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[runTaskRulesAgentSweep] notifyStaffOfNewTaskBatches failed:", err);
+      await recordNotificationFailure("rules:agent-batch-digest-wrapper", err);
     }
   }
 
