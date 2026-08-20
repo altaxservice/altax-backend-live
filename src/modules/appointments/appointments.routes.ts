@@ -11,6 +11,7 @@ import { publicBaseUrl } from "../../common/publicUrl";
 import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS, type StaffReminderChannel } from "../../common/appointmentSettings";
 import { escapeHtml } from "../../common/html";
 import { alertAdmins } from "../../common/adminAlerts";
+import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -237,7 +238,8 @@ export function buildAppointmentEmailHtml(
   includeDetails: boolean, manageUrl: string,
   settings: Awaited<ReturnType<typeof getAppointmentSettings>> | null,
   durationMinutes: number,
-  hero: { title: string; startDate: Date; noticeType: AppointmentNoticeType; bookUrl: string }
+  hero: { title: string; startDate: Date; noticeType: AppointmentNoticeType; bookUrl: string },
+  calendarButtonHtml = ""
 ): string {
   const englishHtml = escapeHtml(resolved.message_english).replace(/\n/g, "<br>");
   const arabicHtml = escapeHtml(resolved.message_arabic).replace(/\n/g, "<br>");
@@ -349,6 +351,7 @@ export function buildAppointmentEmailHtml(
     <div dir="rtl" style="text-align:right;">${arabicHtml}</div>
     ${detailsHtml}
     ${ctaHtml}
+    ${calendarButtonHtml}
   `;
 }
 
@@ -463,12 +466,22 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     let providerMessageId: string | null = null;
     try {
       if (channel === "Email") {
+        // "Add to Calendar" only makes sense for a still-upcoming appointment —
+        // includeDetails is already exactly that gate (false for Cancelled/Completed).
+        const calendarInput = includeDetails ? {
+          uid: appt.appointment_id, title: appt.title || "Appointment",
+          startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined,
+        } : null;
+        const calendarButtonHtml = calendarInput ? buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "gold" }) : "";
         const html = buildAppointmentEmailHtml(resolvedTemplate, includeDetails, manageUrl, includeDetails ? settings : null, durationMinutes,
-          { title: appt.title || "Appointment", startDate: start, noticeType: templateName, bookUrl });
+          { title: appt.title || "Appointment", startDate: start, noticeType: templateName, bookUrl }, calendarButtonHtml);
         // "Invite Others" guests are CC'd on the same confirmation/reminder/
         // cancellation email the primary contact gets — no separate send
         // path, no portal account, matching the existing Cc/Bcc convention.
-        const result = await sendEmail({ to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req) });
+        const result = await sendEmail({
+          to, cc: parseEmailList(appt.guest_emails), subject: resolvedTemplate.subject, html: await wrapEmailHtml(html, req),
+          attachments: calendarInput ? [buildIcsAttachment(calendarInput)] : undefined,
+        });
         providerMessageId = result.providerMessageId;
       } else {
         // SMS stays short — a purpose-built one-liner, not the multi-paragraph
@@ -533,6 +546,30 @@ async function resolveStaffRecipients(appt: any): Promise<Map<string, { email: s
 }
 
 /**
+ * Shared shape for the internal staff appointment notices below — the
+ * dark-header-band + table style already established elsewhere in this app
+ * (e.g. govForms.routes.ts's notifyGovFormReviewRequested), applied here so
+ * these 3 staff notices stop being the last plain-<p>-tag emails left in the
+ * appointments system. `rows` values are expected to already be
+ * escaped/formatted by the caller — this only lays them out.
+ */
+function buildStaffApptNoticeHtml(opts: { color: string; label: string; title: string; who: string; rows: { label: string; value: string }[]; calendarButtonHtml?: string }): string {
+  return `
+    <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div style="background:${opts.color};color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">${escapeHtml(opts.label)}</div>
+        <div style="font-size:19px;font-weight:800;margin-top:4px;">${escapeHtml(opts.title)} — ${escapeHtml(opts.who)}</div>
+      </div>
+      <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          ${opts.rows.map((r) => `<tr><td style="padding:5px 0;color:#666;width:80px;">${escapeHtml(r.label)}</td><td style="padding:5px 0;font-weight:700;">${r.value}</td></tr>`).join("")}
+        </table>
+        ${opts.calendarButtonHtml || ""}
+      </div>
+    </div>`;
+}
+
+/**
  * Immediate "you've been assigned this appointment" heads-up — fired once,
  * right when a reassignment happens, unlike notifyAppointmentStaff's lead-time
  * reminders below. Only the newly assigned staff member (looked up the same
@@ -550,8 +587,16 @@ async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
   const start = new Date(appt.start_time);
   const who = appt.contact_name || appt.client_name || "a contact";
   const subject = `You've been assigned: ${appt.title || "Appointment"} with ${who}`;
-  const html = `<p>You've been assigned to <strong>${escapeHtml(appt.title || "Appointment")}</strong> with ${escapeHtml(who)}.</p>
-    <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
+  // Always an upcoming, real appointment (never fires on cancel), so calendar support is unconditional here.
+  const calendarInput = { uid: appt.appointment_id, title: appt.title || "Appointment", startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined };
+  const html = buildStaffApptNoticeHtml({
+    color: "#0f5132", label: "You've Been Assigned", title: appt.title || "Appointment", who,
+    rows: [
+      { label: "When", value: `${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}` },
+      ...(appt.location ? [{ label: "Where", value: escapeHtml(appt.location) }] : []),
+    ],
+    calendarButtonHtml: buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "green" }),
+  });
   const smsBody = `AL TAX SERVICE: You've been assigned — ${appt.title || "Appointment"} with ${who} on ${fmtDate(start)} at ${fmtTime(start)}${appt.location ? ` (${appt.location})` : ""}.`;
 
   const seen = new Set<string>();
@@ -560,7 +605,7 @@ async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     if (r.email) {
-      try { await sendEmail({ to: r.email, subject, html: await wrapEmailHtml(html, req) }); } catch (err) { await recordNotificationFailure(`notifyAssignedStaff:email:${appt.appointment_id}`, err); }
+      try { await sendEmail({ to: r.email, subject, html: await wrapEmailHtml(html, req), attachments: [buildIcsAttachment(calendarInput)] }); } catch (err) { await recordNotificationFailure(`notifyAssignedStaff:email:${appt.appointment_id}`, err); }
     }
     if (r.phone) {
       try { await sendSms({ to: r.phone, body: smsBody }); } catch (err) { await recordNotificationFailure(`notifyAssignedStaff:sms:${appt.appointment_id}`, err); }
@@ -597,15 +642,26 @@ export async function notifyStaffOfAppointmentChange(
       : `New time: ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`;
   const label = kind === "Cancelled" ? "Client cancelled" : "Appointment rescheduled";
   const subject = `${label}: ${appt.title || "Appointment"} with ${who}`;
-  const html = `<p><strong>${escapeHtml(label)}</strong> — ${escapeHtml(appt.title || "Appointment")} with ${escapeHtml(who)}</p>
-    <p>${escapeHtml(detailLine)}${appt.assigned_to ? ` &middot; Assigned to ${escapeHtml(appt.assigned_to)}` : ""}</p>`;
+  // Only Rescheduled has anything to add to a calendar — a cancellation
+  // removes the appointment, nothing new to invite anyone to.
+  const calendarInput = kind === "Rescheduled"
+    ? { uid: appt.appointment_id, title: appt.title || "Appointment", startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined }
+    : null;
+  const html = buildStaffApptNoticeHtml({
+    color: kind === "Cancelled" ? "#7a1f1f" : "#1f2937", label, title: appt.title || "Appointment", who,
+    rows: [
+      { label: "Details", value: escapeHtml(detailLine) },
+      ...(appt.assigned_to ? [{ label: "Assigned", value: escapeHtml(appt.assigned_to) }] : []),
+    ],
+    calendarButtonHtml: calendarInput ? buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "green" }) : "",
+  });
   const smsBody = `AL TAX SERVICE: ${label} — ${appt.title || "Appointment"} with ${who}. ${detailLine}`;
 
   const excludeLower = excludeIdentifier ? excludeIdentifier.toLowerCase() : null;
   for (const { email, phone } of recipients.values()) {
     if (excludeLower && email && email.toLowerCase() === excludeLower) continue;
     if ((settings.staffReminderChannel === "email" || settings.staffReminderChannel === "both") && email) {
-      try { await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) }); } catch (err) { await recordNotificationFailure(`notifyStaffOfAppointmentChange:email:${appt.appointment_id}`, err); }
+      try { await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req), attachments: calendarInput ? [buildIcsAttachment(calendarInput)] : undefined }); } catch (err) { await recordNotificationFailure(`notifyStaffOfAppointmentChange:email:${appt.appointment_id}`, err); }
     }
     if ((settings.staffReminderChannel === "sms" || settings.staffReminderChannel === "both") && phone) {
       try { await sendSms({ to: phone, body: smsBody }); } catch (err) { await recordNotificationFailure(`notifyStaffOfAppointmentChange:sms:${appt.appointment_id}`, err); }
@@ -621,9 +677,17 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
   const who = appt.contact_name || appt.client_name || "a contact";
   const lead = leadLabel(leadMinutes);
   const subject = `Reminder — ${lead}: ${appt.title || "Appointment"} with ${who}`;
-  const html = `<p>${escapeHtml(lead)} — <strong>${escapeHtml(appt.title || "Appointment")}</strong></p>
-    <p>${escapeHtml(who)}${appt.assigned_to ? ` &middot; Assigned to ${escapeHtml(appt.assigned_to)}` : ""}</p>
-    <p>${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}${appt.location ? ` &middot; ${escapeHtml(appt.location)}` : ""}</p>`;
+  // Only ever called for a Scheduled appointment ahead of it — calendar support is unconditional here.
+  const calendarInput = { uid: appt.appointment_id, title: appt.title || "Appointment", startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined };
+  const html = buildStaffApptNoticeHtml({
+    color: "#1f2937", label: `Reminder — ${lead}`, title: appt.title || "Appointment", who,
+    rows: [
+      { label: "When", value: `${escapeHtml(fmtDate(start))} at ${escapeHtml(fmtTime(start))}` },
+      ...(appt.location ? [{ label: "Where", value: escapeHtml(appt.location) }] : []),
+      ...(appt.assigned_to ? [{ label: "Assigned", value: escapeHtml(appt.assigned_to) }] : []),
+    ],
+    calendarButtonHtml: buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "green" }),
+  });
   const smsBody = `AL TAX SERVICE: ${lead} — ${appt.title || "Appointment"} with ${who} on ${fmtDate(start)} at ${fmtTime(start)}${appt.location ? ` (${appt.location})` : ""}.`;
 
   // Unlike notifyAppointment (client-facing), these internal heads-up sends are
@@ -634,7 +698,7 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
   for (const { email, phone } of recipients.values()) {
     if ((channel === "email" || channel === "both") && email) {
       try {
-        await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req) });
+        await sendEmail({ to: email, subject, html: await wrapEmailHtml(html, req), attachments: [buildIcsAttachment(calendarInput)] });
       } catch (err: any) {
         failures.push(`Staff email to ${email}: ${err?.message || "send failed"}`);
       }

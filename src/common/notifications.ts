@@ -84,7 +84,7 @@ export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[
     from, to: [opts.to], subject: opts.subject, html: opts.html,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
-    attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+    attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
   });
   if (result.error) throw new Error(result.error.message || "Resend rejected this email.");
   return { providerMessageId: result.data?.id || null };

@@ -22,6 +22,7 @@ import { createAppointment, notifyAppointment, notifyStaffOfAppointmentChange } 
 import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
 import { listAppointmentTypes, resolveAppointmentDuration } from "../../common/appointmentTypes";
 import { escapeHtml } from "../../common/html";
+import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
 
 export const publicAppointmentsRouter = Router();
 
@@ -388,6 +389,13 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     const badge = isReturning
       ? `<span style="background:#e6f4ea;color:#1e7e34;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">RETURNING CLIENT</span>`
       : `<span style="background:#fff4e5;color:#a15c00;padding:3px 10px;border-radius:10px;font-size:12px;font-weight:700;">NEW PROSPECT</span>`;
+    // No appt.location here — the public form doesn't collect one, so the
+    // firm's own configured location (Calendar Settings) stands in for it.
+    const calendarInput = {
+      uid: appointmentId, title: `${appointmentTypeName || "Consultation"} with ${name}`,
+      startISO: startTime, endISO: endTime, location: `${settings.locationName}, ${settings.locationAddress}`,
+    };
+    const calendarButtonHtml = buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "green" });
     // Loud, high-contrast top band with the date/time front and center — the
     // one thing a plain paragraph list buried: an admin scanning a phone
     // notification, or skimming an inbox, previously had to read past the
@@ -406,6 +414,7 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
             <tr><td style="padding:5px 0;color:#666;">Email</td><td style="padding:5px 0;">${email ? escapeHtml(email) : "not provided"}</td></tr>
           </table>
           ${reason ? `<div style="margin-top:14px;padding:10px 12px;background:#f7f7f5;border-radius:8px;font-size:13.5px;"><strong>Notes:</strong><br>${escapeHtml(reason).replace(/\n/g, "<br>")}</div>` : ""}
+          ${calendarButtonHtml}
           <p style="color:#999;font-size:11.5px;margin:16px 0 0;">Booked via the public /book page &middot; ${escapeHtml(appointmentId)}</p>
         </div>
       </div>
@@ -415,7 +424,7 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
     // admins never learned a new consultation was booked online.
     for (const admin of admins) {
       try {
-        await sendEmail({ to: admin.email, subject: `📅 ${whenShort} — ${name} booked online (${isReturning ? "Existing Client" : "New Prospect"})`, html });
+        await sendEmail({ to: admin.email, subject: `📅 ${whenShort} — ${name} booked online (${isReturning ? "Existing Client" : "New Prospect"})`, html, attachments: [buildIcsAttachment(calendarInput)] });
       } catch (err) {
         if (!(err instanceof NotConfiguredError)) {
           // eslint-disable-next-line no-console
