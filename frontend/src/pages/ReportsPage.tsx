@@ -102,6 +102,8 @@ interface FirmInsights {
   concentrationRisk: { top5Pct: number; top10Pct: number };
   mdOnTimeFilingRate: { onTime: number; late: number; missing: number; filedPendingPayment: number; notYetDue: number; total: number; pct: number | null };
   estimateWinRate: { won: number; lost: number; stillOpen: number; totalCreated: number; winRatePct: number | null };
+  clientGrowth: { monthly: { month: string; newClients: number; likelyBulkImport: boolean }[]; activeClientCountNow: number; note: string };
+  staffUtilization: { email: string; name: string; totalHours: number; billableHours: number; billablePct: number; approvedHours: number }[];
 }
 
 function fmtMoney(v: unknown): string {
@@ -863,6 +865,54 @@ export function ReportsPage() {
                                   <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Won</div><div className="metric-value">{firmInsights.estimateWinRate.won}</div></div>
                                   <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Lost</div><div className="metric-value">{firmInsights.estimateWinRate.lost}</div></div>
                                   <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Still Open</div><div className="metric-value">{firmInsights.estimateWinRate.stillOpen}</div></div>
+                                </div>
+                              </div>
+
+                              <div className="command-panel">
+                                <div className="command-panel-header">
+                                  <h2 className="command-panel-title">Client Growth</h2>
+                                  <div className="command-panel-note">{firmInsights.clientGrowth.activeClientCountNow} active clients today</div>
+                                </div>
+                                <div className="table-scroll">
+                                  <table>
+                                    <thead><tr><th scope="col">Month</th><th scope="col">New Clients</th></tr></thead>
+                                    <tbody>
+                                      {firmInsights.clientGrowth.monthly.map((m) => (
+                                        <tr key={m.month}>
+                                          <td>{m.month}</td>
+                                          <td>
+                                            {m.newClients}
+                                            {m.likelyBulkImport && (
+                                              <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>likely bulk import, not real growth</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                                <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>{firmInsights.clientGrowth.note}</p>
+                              </div>
+
+                              <div className="command-panel">
+                                <div className="command-panel-header">
+                                  <h2 className="command-panel-title">Staff Utilization</h2>
+                                  <div className="command-panel-note">Hours logged in Time Tracking for this window</div>
+                                </div>
+                                <div className="table-scroll">
+                                  <table>
+                                    <thead><tr><th scope="col">Staff</th><th scope="col">Total Hours</th><th scope="col">Billable Hours</th><th scope="col">Billable %</th></tr></thead>
+                                    <tbody>
+                                      {firmInsights.staffUtilization.length === 0 && (
+                                        <tr><td colSpan={4} className="muted">No time entries logged in this window.</td></tr>
+                                      )}
+                                      {firmInsights.staffUtilization.map((s) => (
+                                        <tr key={s.email}>
+                                          <td>{s.name}</td><td>{s.totalHours}</td><td>{s.billableHours}</td><td>{s.billablePct}%</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
                               </div>
                             </div>

@@ -267,7 +267,67 @@ export async function computeFirmInsights(from: string, to: string) {
     winRatePct: won + lost > 0 ? round2((won / (won + lost)) * 100) : null,
   };
 
-  return { revenueByServiceType, clientConcentration, concentrationRisk: { top5Pct, top10Pct }, mdOnTimeFilingRate, estimateWinRate };
+  // --- Client Growth: created_at reflects when a client record entered this
+  // system, which for most of the client base was a single bulk data-migration
+  // event rather than organic acquisition. Rather than present that as a fake
+  // growth spike, any month whose new-client count is anomalously high is
+  // flagged so the UI can visually separate "real" months from the migration. ---
+  const newClientRows = await query<any>(
+    `SELECT date_trunc('month', created_at)::date AS month, count(*)::int AS count
+       FROM altax.v3_clients WHERE created_at >= $1::date AND created_at <= ($2::date + interval '1 day')
+      GROUP BY 1 ORDER BY 1`,
+    [from, to]
+  );
+  const BULK_IMPORT_THRESHOLD = 20;
+  const clientGrowthMonthly = newClientRows.map((r: any) => ({
+    month: new Date(r.month).toISOString().slice(0, 7),
+    newClients: r.count,
+    likelyBulkImport: r.count >= BULK_IMPORT_THRESHOLD,
+  }));
+  const activeClientCountRow = await queryOne<any>(
+    `SELECT count(*)::int AS count FROM altax.v3_clients WHERE status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived')`
+  );
+  const clientGrowth = {
+    monthly: clientGrowthMonthly,
+    activeClientCountNow: activeClientCountRow?.count ?? 0,
+    note: "Months flagged likelyBulkImport had an unusually large jump in new client records and most likely reflect a one-time data migration, not real client acquisition — exclude those months when reading this as a growth trend.",
+  };
+
+  // --- Staff Utilization: hours logged per staff member, from real time-entry
+  // history (v3_time_entries) — unlike client growth, this has no bulk-import
+  // artifact, so it's a genuine trend from day one. ---
+  const timeRows = await query<any>(
+    `SELECT user_email, hours, billable, status FROM altax.v3_time_entries
+      WHERE entry_date >= $1::date AND entry_date <= $2::date`,
+    [from, to]
+  );
+  const byStaff = new Map<string, { totalHours: number; billableHours: number; approvedHours: number }>();
+  for (const r of timeRows) {
+    const entry = byStaff.get(r.user_email) || { totalHours: 0, billableHours: 0, approvedHours: 0 };
+    const hours = Number(r.hours || 0);
+    entry.totalHours += hours;
+    if (r.billable) entry.billableHours += hours;
+    if (r.status === "Approved") entry.approvedHours += hours;
+    byStaff.set(r.user_email, entry);
+  }
+  const staffEmails = Array.from(byStaff.keys());
+  const staffMeta = staffEmails.length
+    ? await query<any>(`SELECT email, name FROM altax.v3_users WHERE email = ANY($1::text[])`, [staffEmails])
+    : [];
+  const staffNameByEmail = new Map(staffMeta.map((u: any) => [u.email, u.name]));
+  const staffUtilization = Array.from(byStaff.entries())
+    .map(([email, s]) => ({
+      email, name: staffNameByEmail.get(email) || email,
+      totalHours: round2(s.totalHours), billableHours: round2(s.billableHours),
+      billablePct: s.totalHours > 0 ? round2((s.billableHours / s.totalHours) * 100) : 0,
+      approvedHours: round2(s.approvedHours),
+    }))
+    .sort((a, b) => b.totalHours - a.totalHours);
+
+  return {
+    revenueByServiceType, clientConcentration, concentrationRisk: { top5Pct, top10Pct },
+    mdOnTimeFilingRate, estimateWinRate, clientGrowth, staffUtilization,
+  };
 }
 
 reportsRouter.get("/firm-insights", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
