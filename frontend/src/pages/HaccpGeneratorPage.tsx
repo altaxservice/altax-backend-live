@@ -11,7 +11,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate"; hasCookStep: boolean; hasHotHolding: boolean; description: string }
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
-interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[] }
+interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[] }
 interface HaccpPlanRow {
   plan_id: string; client_id: string | null; business_name: string; business_type_key: string;
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
@@ -106,6 +106,7 @@ export function HaccpGeneratorPage() {
   const [bulkMenuInput, setBulkMenuInput] = useState("");
   const [copyFromPlanId, setCopyFromPlanId] = useState("");
   const [copyingItems, setCopyingItems] = useState(false);
+  const [savedItemSearch, setSavedItemSearch] = useState("");
   // Most requests are just "give me the HACCP food-safety plan" — the
   // license/permit application section below is a much bigger form (owner
   // home address, waste hauler, tobacco license, certified food managers,
@@ -565,6 +566,28 @@ export function HaccpGeneratorPage() {
               </div>
             </div>
           ))}
+          {(options?.customMenuItems || []).length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                Choose From Previously Added Items
+                <span className="muted" style={{ fontWeight: 400 }}> — only applies to this plan, not the master checklist above</span>
+              </div>
+              <input
+                value={savedItemSearch} onChange={(e) => setSavedItemSearch(e.target.value)}
+                placeholder="Search previously typed items…" style={{ maxWidth: 280, padding: "5px 9px", fontSize: 12.5, marginBottom: 6 }}
+              />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", maxHeight: 140, overflowY: "auto" }}>
+                {(options?.customMenuItems || [])
+                  .filter((label) => label.toLowerCase().includes(savedItemSearch.trim().toLowerCase()))
+                  .map((label) => (
+                    <label key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                      <input type="checkbox" checked={selectedMenu.has(label)} onChange={() => toggleMenu(label)} />
+                      {label}
+                    </label>
+                  ))}
+              </div>
+            </div>
+          )}
           {customMenuItems.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Added Items</div>

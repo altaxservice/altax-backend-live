@@ -59,10 +59,32 @@ async function resolveHaccpTemplate(businessTypeKey: string): Promise<ResolvedHa
   return { businessTypeKey, title: builtIn.title, body: builtIn.body, active: true, source: "Built-in default" };
 }
 
-/** Everything the generator form needs in one call: business types, menu checklist, equipment checklist. */
+/** Everything the generator form needs in one call: business types, menu checklist, equipment checklist, and the reusable custom-item library (see sql/089_haccp_custom_menu_items.sql). */
 haccpRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
-  res.json({ businessTypes: HACCP_BUSINESS_TYPES, menuCategories: HACCP_MENU_CATEGORIES, equipmentItems: HACCP_EQUIPMENT_ITEMS });
+  const customItems = await query<{ label: string }>(`SELECT label FROM altax.v3_haccp_custom_menu_items ORDER BY label ASC`);
+  res.json({
+    businessTypes: HACCP_BUSINESS_TYPES, menuCategories: HACCP_MENU_CATEGORIES, equipmentItems: HACCP_EQUIPMENT_ITEMS,
+    customMenuItems: customItems.map((r) => r.label),
+  });
 }));
+
+/**
+ * Called from POST/PATCH /plans below whenever a saved plan's
+ * selected_menu_items includes a label not in the master checklist — grows
+ * the reusable library (v3_haccp_custom_menu_items) automatically, no extra
+ * staff action needed, same "every plan makes the next one easier" idea as
+ * Copy Items From Another Plan.
+ */
+async function saveCustomMenuItemsToLibrary(selectedMenuItems: string[], actorEmail: string): Promise<void> {
+  const knownKeys = new Set(HACCP_MENU_CATEGORIES.flatMap((cat) => cat.items.map((i) => i.key)));
+  const customLabels = selectedMenuItems.filter((v) => v.trim() && !knownKeys.has(v));
+  for (const label of customLabels) {
+    await query(
+      `INSERT INTO altax.v3_haccp_custom_menu_items (label, created_by) VALUES ($1, $2) ON CONFLICT (label) DO NOTHING`,
+      [label, actorEmail]
+    );
+  }
+}
 
 /** GET effective HACCP templates (built-in + overrides resolved), for the admin editor. */
 haccpRouter.get("/templates", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
@@ -316,6 +338,7 @@ haccpRouter.post("/plans", requireAuth, requireRole("admin", "staff"), asyncHand
   if (clientId) {
     await logClientActivity(clientId, "Health Permit Application Created", `"${businessName}" (${input.jurisdiction}) started by ${req.user!.email}.`, req.user!.email);
   }
+  await saveCustomMenuItemsToLibrary(input.selectedMenuItems, req.user!.email);
 
   res.status(201).json({ ok: true, planId });
 }));
@@ -370,6 +393,7 @@ haccpRouter.patch("/plans/:planId", requireAuth, requireRole("admin", "staff"), 
   if (clientId) {
     await logClientActivity(clientId, "Health Permit Application Updated", `"${businessName}" updated by ${req.user!.email}.`, req.user!.email);
   }
+  await saveCustomMenuItemsToLibrary(input.selectedMenuItems, req.user!.email);
 
   res.json({ ok: true, planId: req.params.planId });
 }));
