@@ -101,6 +101,10 @@ interface FirmInsights {
   clientConcentration: { clientId: string; clientName: string; revenue: number; pctOfTotal: number }[];
   concentrationRisk: { top5Pct: number; top10Pct: number };
   mdOnTimeFilingRate: { onTime: number; late: number; missing: number; filedPendingPayment: number; notYetDue: number; total: number; pct: number | null };
+  filingCompliance: {
+    onTime: number; late: number; missing: number; notYetDue: number; total: number; pct: number | null;
+    byServiceLine: { serviceLine: string; onTime: number; late: number; missing: number; pct: number | null }[];
+  };
   estimateWinRate: { won: number; lost: number; stillOpen: number; totalCreated: number; winRatePct: number | null };
   clientGrowth: { monthly: { month: string; newClients: number; likelyBulkImport: boolean }[]; activeClientCountNow: number; note: string };
   staffUtilization: { email: string; name: string; totalHours: number; billableHours: number; billablePct: number; approvedHours: number }[];
@@ -876,6 +880,40 @@ export function ReportsPage() {
                                 </div>
                                 <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
                                   {firmInsights.mdOnTimeFilingRate.filedPendingPayment} filed with payment still pending, {firmInsights.mdOnTimeFilingRate.notYetDue} not yet due — neither counts toward the rate above.
+                                </p>
+                              </div>
+
+                              <div className="command-panel">
+                                <div className="command-panel-header">
+                                  <h2 className="command-panel-title">Firm-Wide Filing Compliance</h2>
+                                  <div className="command-panel-note">Every task with an agency due date in this window — federal, other states, payroll, not just MD sales tax</div>
+                                </div>
+                                <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
+                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On-Time Rate</div><div className="metric-value">{firmInsights.filingCompliance.pct !== null ? `${firmInsights.filingCompliance.pct}%` : "—"}</div></div>
+                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On Time</div><div className="metric-value">{firmInsights.filingCompliance.onTime}</div></div>
+                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Late</div><div className="metric-value" style={{ color: firmInsights.filingCompliance.late > 0 ? "var(--red)" : undefined }}>{firmInsights.filingCompliance.late}</div></div>
+                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Missing</div><div className="metric-value" style={{ color: firmInsights.filingCompliance.missing > 0 ? "var(--red)" : undefined }}>{firmInsights.filingCompliance.missing}</div></div>
+                                </div>
+                                {firmInsights.filingCompliance.byServiceLine.length > 0 && (
+                                  <div className="table-scroll">
+                                    <table>
+                                      <thead><tr><th scope="col">Service Line</th><th scope="col">On-Time Rate</th><th scope="col">On Time</th><th scope="col">Late</th><th scope="col">Missing</th></tr></thead>
+                                      <tbody>
+                                        {firmInsights.filingCompliance.byServiceLine.map((s) => (
+                                          <tr key={s.serviceLine}>
+                                            <td>{s.serviceLine}</td>
+                                            <td>{s.pct !== null ? `${s.pct}%` : "—"}</td>
+                                            <td>{s.onTime}</td>
+                                            <td style={{ color: s.late > 0 ? "var(--red)" : undefined }}>{s.late}</td>
+                                            <td style={{ color: s.missing > 0 ? "var(--red)" : undefined }}>{s.missing}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                                <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
+                                  {firmInsights.filingCompliance.notYetDue} not yet due — doesn't count toward the rate above.
                                 </p>
                               </div>
 

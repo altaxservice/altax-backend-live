@@ -254,6 +254,57 @@ export async function computeFirmInsights(from: string, to: string) {
     pct: decidedTotal > 0 ? round2((onTime / decidedTotal) * 100) : null,
   };
 
+  // --- Firm-Wide Filing Compliance: every task with a real agency due date —
+  // federal, other states, payroll deposits, etc. — not just MD sales tax
+  // (which keeps its own deeper penalty/discount-aware metric above). Same
+  // on-time/late/missing classification shape as classifyMdFilingPeriod,
+  // generalized: a task's "completed date" is its Filed Date if staff set
+  // one, else (for a task that reached Completed status without ever
+  // recording a Filed Date — about half of real archived tasks) the date it
+  // was archived, since completing a task auto-archives it in this app. Open
+  // v3_tasks rows are never "Completed" by definition (completion
+  // auto-archives), so they only ever carry a real completedDate when staff
+  // set Filed Date early without the task being done yet. ---
+  const complianceRows = await query<any>(
+    `SELECT service_line, agency_due_date, filed_date, NULL::timestamptz AS archived_at
+       FROM altax.v3_tasks WHERE agency_due_date IS NOT NULL AND agency_due_date >= $1::date AND agency_due_date <= $2::date
+     UNION ALL
+     SELECT service_line, agency_due_date, filed_date, archived_at
+       FROM altax.v3_archived_tasks WHERE agency_due_date IS NOT NULL AND agency_due_date >= $1::date AND agency_due_date <= $2::date`,
+    [from, to]
+  );
+  let cOnTime = 0, cLate = 0, cMissing = 0, cNotYetDue = 0;
+  const byServiceLineMap = new Map<string, { onTime: number; late: number; missing: number }>();
+  for (const r of complianceRows) {
+    const dueDate = new Date(r.agency_due_date).toISOString().slice(0, 10);
+    const completedDate = r.filed_date
+      ? new Date(r.filed_date).toISOString().slice(0, 10)
+      : r.archived_at ? new Date(r.archived_at).toISOString().slice(0, 10) : null;
+    const status: "onTime" | "late" | "missing" | "notYetDue" =
+      completedDate !== null ? (completedDate <= dueDate ? "onTime" : "late") : dueDate < to ? "missing" : "notYetDue";
+    if (status === "onTime") cOnTime++;
+    else if (status === "late") cLate++;
+    else if (status === "missing") cMissing++;
+    else cNotYetDue++;
+    if (status !== "notYetDue") {
+      const line = r.service_line || "(not set)";
+      const entry = byServiceLineMap.get(line) || { onTime: 0, late: 0, missing: 0 };
+      entry[status] += 1;
+      byServiceLineMap.set(line, entry);
+    }
+  }
+  const cDecidedTotal = cOnTime + cLate + cMissing;
+  const filingCompliance = {
+    onTime: cOnTime, late: cLate, missing: cMissing, notYetDue: cNotYetDue, total: cDecidedTotal,
+    pct: cDecidedTotal > 0 ? round2((cOnTime / cDecidedTotal) * 100) : null,
+    byServiceLine: Array.from(byServiceLineMap.entries())
+      .map(([serviceLine, s]) => {
+        const decided = s.onTime + s.late + s.missing;
+        return { serviceLine, onTime: s.onTime, late: s.late, missing: s.missing, pct: decided > 0 ? round2((s.onTime / decided) * 100) : null };
+      })
+      .sort((a, b) => (a.pct ?? -1) - (b.pct ?? -1)),
+  };
+
   // --- Estimate Win Rate ---
   const estimateRows = await query<any>(
     `SELECT status FROM altax.v3_estimates WHERE estimate_date >= $1::date AND estimate_date <= $2::date`,
@@ -326,7 +377,7 @@ export async function computeFirmInsights(from: string, to: string) {
 
   return {
     revenueByServiceType, clientConcentration, concentrationRisk: { top5Pct, top10Pct },
-    mdOnTimeFilingRate, estimateWinRate, clientGrowth, staffUtilization,
+    mdOnTimeFilingRate, filingCompliance, estimateWinRate, clientGrowth, staffUtilization,
   };
 }
 
@@ -362,6 +413,16 @@ reportsRouter.get("/csv/firm-insights", requireAuth, requireRole("admin"), async
     insights.mdOnTimeFilingRate.onTime, insights.mdOnTimeFilingRate.late, insights.mdOnTimeFilingRate.missing,
     insights.mdOnTimeFilingRate.filedPendingPayment, insights.mdOnTimeFilingRate.notYetDue,
   ]);
+  rows.push([]);
+
+  rows.push(["Firm-Wide Filing Compliance (all agencies — federal, state, payroll)"]);
+  rows.push(["On-Time Rate", "On Time", "Late", "Missing", "Not Yet Due"]);
+  rows.push([
+    insights.filingCompliance.pct !== null ? `${insights.filingCompliance.pct}%` : "—",
+    insights.filingCompliance.onTime, insights.filingCompliance.late, insights.filingCompliance.missing, insights.filingCompliance.notYetDue,
+  ]);
+  rows.push(["Service Line", "On-Time Rate", "On Time", "Late", "Missing"]);
+  for (const s of insights.filingCompliance.byServiceLine) rows.push([s.serviceLine, s.pct !== null ? `${s.pct}%` : "—", s.onTime, s.late, s.missing]);
   rows.push([]);
 
   rows.push(["Estimate Win Rate"]);
