@@ -8,6 +8,9 @@ import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
 import { decryptClientPii, decryptValue, encryptValue } from "../../common/encryption";
 import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
+import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { escapeHtml } from "../../common/html";
+import { publicBaseUrl } from "../../common/publicUrl";
 import {
   generateGovForm, CLIENT_GOV_FORM_TYPES, EMPLOYEE_GOV_FORM_TYPES,
   FORM2553_TAX_YEAR_TYPES, W9_TAX_CLASSIFICATIONS, W4_FILING_STATUSES,
@@ -336,6 +339,29 @@ govFormsRouter.post("/employee/:employeeId/send", requireAuth, requireRole("admi
   );
   await logAudit("Tools", "SEND_GOV_FORM_TO_EMPLOYEE", filingId, "form_type", "", formType,
     `${FORM_LABELS[formType]} sent to ${employee.employee_name}'s portal to complete and sign, by ${req.user!.email}.`, req.user!.email);
+  // Previously nothing told the employee a form was waiting — they'd only
+  // discover it by logging into the portal on their own. Best-effort: the
+  // filing is already created and usable even if this email fails.
+  try {
+    const base = publicBaseUrl(req);
+    const html = `
+      <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+        <div style="background:#0f5132;color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">Action Needed</div>
+          <div style="font-size:19px;font-weight:800;margin-top:4px;">${escapeHtml(FORM_LABELS[formType])} to complete</div>
+        </div>
+        <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
+          <p style="margin:0 0 14px;">Hi ${escapeHtml(employee.employee_name || "there")}, a ${escapeHtml(FORM_LABELS[formType])} is waiting for you to fill out and sign in your employee portal.</p>
+          ${base ? `<p style="margin:0;"><a href="${base}/my-tax-forms" style="display:inline-block;background:#0f5132;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:700;">Open My Tax Forms</a></p>` : ""}
+        </div>
+      </div>`;
+    await sendEmail({ to: employee.email, subject: `${FORM_LABELS[formType]} — please complete and sign`, html });
+  } catch (err) {
+    if (!(err instanceof NotConfiguredError)) {
+      // eslint-disable-next-line no-console
+      console.error(`Gov form portal-send notification failed for ${employee.email}:`, err);
+    }
+  }
   res.status(201).json({ ok: true, filingId });
 }));
 
@@ -380,6 +406,85 @@ async function loadFiling(req: AuthedRequest, filingId: string) {
     if (!employee || !(await canAccessClient(req.user!, employee.client_id))) return "forbidden";
   }
   return { ...filing, form_data: decryptFormData(filing.form_data) };
+}
+
+/** Best-effort display name for a filing's subject — used only in notification text, never as a security check. */
+async function filingSubjectName(filing: any): Promise<string> {
+  if (filing.client_id) {
+    const c = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [filing.client_id]);
+    if (c?.client_name) return c.client_name;
+  }
+  if (filing.employee_id) {
+    const e = await queryOne<any>(`SELECT employee_name FROM altax.v3_employees WHERE employee_id = $1`, [filing.employee_id]);
+    if (e?.employee_name) return e.employee_name;
+  }
+  return filing.filing_id;
+}
+
+/**
+ * TAX-004 maker-checker had no notification on either end — the reviewing
+ * admin never found out something was waiting on them, and the preparer
+ * never found out their filing was approved/rejected, except by checking
+ * manually. Same simple internal-notification shape as the public-booking
+ * admin email elsewhere in this app: plain HTML, per-recipient try/catch so
+ * one bad address doesn't block the rest, NotConfiguredError swallowed
+ * quietly (no Resend key configured just means no email, not an error to
+ * surface to the user who took the action).
+ */
+async function notifyGovFormReviewRequested(filing: any, requestedBy: string): Promise<void> {
+  const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
+  const subject = await filingSubjectName(filing);
+  const label = FORM_LABELS[filing.form_type] || filing.form_type;
+  const html = `
+    <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div style="background:#1f2937;color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">Review Requested</div>
+        <div style="font-size:19px;font-weight:800;margin-top:4px;">${escapeHtml(label)} — ${escapeHtml(subject)}</div>
+      </div>
+      <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
+        <p style="margin:0 0 10px;">${escapeHtml(requestedBy)} sent this filing for review before submitting it.</p>
+        <p style="color:#999;font-size:11.5px;margin:14px 0 0;">Filing ${escapeHtml(filing.filing_id)}</p>
+      </div>
+    </div>`;
+  for (const admin of admins) {
+    try {
+      await sendEmail({ to: admin.email, subject: `Review requested — ${label} for ${subject}`, html });
+    } catch (err) {
+      if (!(err instanceof NotConfiguredError)) {
+        // eslint-disable-next-line no-console
+        console.error(`Gov form review-requested notification failed for ${admin.email}:`, err);
+      }
+    }
+  }
+}
+
+async function notifyGovFormReviewDecision(filing: any, decision: "approved" | "rejected", note: string | null, reviewedBy: string): Promise<void> {
+  if (!filing.review_requested_by) return;
+  const preparer = await queryOne<any>(`SELECT email FROM altax.v3_users WHERE email = $1 AND active = true`, [filing.review_requested_by]);
+  if (!preparer?.email) return;
+  const subject = await filingSubjectName(filing);
+  const label = FORM_LABELS[filing.form_type] || filing.form_type;
+  const color = decision === "approved" ? "#0f5132" : "#7a1f1f";
+  const html = `
+    <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div style="background:${color};color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">Filing ${decision === "approved" ? "Approved" : "Rejected"}</div>
+        <div style="font-size:19px;font-weight:800;margin-top:4px;">${escapeHtml(label)} — ${escapeHtml(subject)}</div>
+      </div>
+      <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
+        <p style="margin:0 0 10px;">${escapeHtml(reviewedBy)} ${decision} this filing.${decision === "approved" ? " It can now be submitted." : ""}</p>
+        ${note ? `<div style="margin-top:10px;padding:10px 12px;background:#f7f7f5;border-radius:8px;font-size:13.5px;"><strong>Note:</strong><br>${escapeHtml(note).replace(/\n/g, "<br>")}</div>` : ""}
+        <p style="color:#999;font-size:11.5px;margin:14px 0 0;">Filing ${escapeHtml(filing.filing_id)}</p>
+      </div>
+    </div>`;
+  try {
+    await sendEmail({ to: preparer.email, subject: `${decision === "approved" ? "Approved" : "Rejected"} — ${label} for ${subject}`, html });
+  } catch (err) {
+    if (!(err instanceof NotConfiguredError)) {
+      // eslint-disable-next-line no-console
+      console.error(`Gov form review-decision notification failed for ${preparer.email}:`, err);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +811,12 @@ govFormsRouter.post("/:filingId/request-review", requireAuth, requireRole("admin
   );
   await logAudit("Tools", "REQUEST_GOV_FORM_REVIEW", filing.filing_id, "review_status", filing.review_status || "", "pending_review",
     `${FORM_LABELS[filing.form_type] || filing.form_type} sent for admin review by ${req.user!.email} before submission.`, req.user!.email);
+  try {
+    await notifyGovFormReviewRequested(filing, req.user!.email);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("notifyGovFormReviewRequested failed:", err);
+  }
   res.json({ ok: true });
 }));
 
@@ -727,6 +838,12 @@ govFormsRouter.post("/:filingId/review", requireAuth, requireRole("admin"), asyn
   );
   await logAudit("Tools", "REVIEW_GOV_FORM", filing.filing_id, "review_status", "pending_review", decision,
     `${FORM_LABELS[filing.form_type] || filing.form_type} review ${decision} by ${req.user!.email}${note ? `: ${note}` : "."}`, req.user!.email);
+  try {
+    await notifyGovFormReviewDecision(filing, decision as "approved" | "rejected", note, req.user!.email);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("notifyGovFormReviewDecision failed:", err);
+  }
   res.json({ ok: true });
 }));
 

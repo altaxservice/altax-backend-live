@@ -518,6 +518,47 @@ async function invoiceEmailHtml(opts: {
   return wrapEmailHtml(body, opts.req);
 }
 
+/**
+ * No "payment received" confirmation existed anywhere — recording a manual
+ * payment or a Sales Receipt updated the invoice and posted the GL entry,
+ * but the client was never told their payment actually landed. Same
+ * building blocks as invoiceEmailHtml above (bilingual EN/AR, same visual
+ * shape) so it reads as part of the same system, not a bolted-on extra.
+ */
+async function paymentReceiptEmailHtml(opts: {
+  invoiceId: string; paymentDate: string | null; amount: number; method: string; balanceDue: number; req?: AuthedRequest;
+}): Promise<string> {
+  const { wrapEmailHtml } = await import("../../common/emailTemplate");
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const fmtDate = (v: string | null) => {
+    if (!v) return "—";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  };
+  const money2 = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const row = (label: string, labelAr: string, value: string, boldValue = false) => `
+    <tr>
+      <td style="padding:6px 0; color:#6b7280; font-size:13px;">${label} <bdi dir="rtl" style="color:#9ca3af;">/ ${labelAr}</bdi></td>
+      <td align="right" style="padding:6px 0; font-size:13px; ${boldValue ? "font-weight:700; font-size:15px;" : ""}">${value}</td>
+    </tr>`;
+  const body = `
+    <p style="margin:0 0 18px;">Thank you — we've received your payment. <bdi dir="rtl" style="color:#9ca3af;">/ شكراً — تم استلام دفعتك.</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Invoice #", "رقم الفاتورة", esc(opts.invoiceId))}
+          ${row("Payment Date", "تاريخ الدفع", fmtDate(opts.paymentDate))}
+          ${row("Amount Received", "المبلغ المستلم", money2(opts.amount), true)}
+          ${row("Method", "طريقة الدفع", esc(opts.method))}
+          ${row("Remaining Balance", "الرصيد المتبقي", money2(opts.balanceDue))}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">${opts.balanceDue > 0 ? "This is a partial payment — the balance above is still outstanding." : "This invoice is now paid in full."} <bdi dir="rtl">${opts.balanceDue > 0 ? "هذه دفعة جزئية — الرصيد أعلاه لا يزال مستحقاً." : "تم دفع هذه الفاتورة بالكامل."}</bdi></p>`;
+  return wrapEmailHtml(body, opts.req);
+}
+
 billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [req.params.invoiceId]);
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
@@ -1007,6 +1048,36 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   await logAudit("Billing", "RECORD_PAYMENT", paymentId, "InvoiceID", "", req.params.invoiceId,
     `Payment recorded by ${req.user!.email}.`, req.user!.email);
 
+  // Receipt email — best-effort by necessity (the payment itself is already
+  // committed above; a failed receipt shouldn't undo a real payment), but
+  // the failure is still logged to the audit trail instead of silently
+  // swallowed, so "did the client get told" is answerable later.
+  const clientForReceipt = invoice.client_id ? await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]) : null;
+  if (clientForReceipt?.email) {
+    try {
+      const { sendEmail } = await import("../../common/notifications");
+      await sendEmail({
+        to: clientForReceipt.email,
+        subject: `Payment received — Invoice ${req.params.invoiceId}`,
+        html: await paymentReceiptEmailHtml({
+          invoiceId: req.params.invoiceId, paymentDate: paymentDate || new Date().toISOString().slice(0, 10),
+          amount, method: String(body.method || "Manual").trim(), balanceDue: balance, req,
+        }),
+      });
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
+        [`COM-${idSuffix()}`, invoice.client_id, await getClientName(invoice.client_id),
+          `Payment received — Invoice ${req.params.invoiceId}`, `Payment of ${money(amount)} received.`, clientForReceipt.email]
+      );
+    } catch (err: any) {
+      await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", paymentId, "", "", err?.message || "Send failed",
+        `Payment receipt email to ${clientForReceipt.email} failed for invoice ${req.params.invoiceId}: ${err?.message || "unknown error"}.`, "System");
+    }
+  }
+
   res.status(201).json({ ok: true, paymentId, invoiceId: req.params.invoiceId, amountPaid: newPaid, balanceDue: balance, status });
 }));
 
@@ -1074,6 +1145,33 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
 
   await logAudit("Billing", "CREATE_SALES_RECEIPT", invoiceId, "", "", String(amount),
     `Sales receipt created by ${req.user!.email}.`, req.user!.email);
+
+  // Same best-effort receipt email as the regular payment-recording route above.
+  const clientForReceipt = await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (clientForReceipt?.email) {
+    try {
+      const { sendEmail } = await import("../../common/notifications");
+      await sendEmail({
+        to: clientForReceipt.email,
+        subject: `Payment received — Invoice ${invoiceId}`,
+        html: await paymentReceiptEmailHtml({
+          invoiceId, paymentDate: invoiceDate || new Date().toISOString().slice(0, 10),
+          amount, method: String(body.method || "Manual").trim(), balanceDue: 0, req,
+        }),
+      });
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
+        [`COM-${idSuffix()}`, clientId, await getClientName(clientId),
+          `Payment received — Invoice ${invoiceId}`, `Payment of ${money(amount)} received.`, clientForReceipt.email]
+      );
+    } catch (err: any) {
+      await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", paymentId, "", "", err?.message || "Send failed",
+        `Payment receipt email to ${clientForReceipt.email} failed for invoice ${invoiceId}: ${err?.message || "unknown error"}.`, "System");
+    }
+  }
 
   res.status(201).json({ ok: true, invoiceId, paymentId, amount });
 }));

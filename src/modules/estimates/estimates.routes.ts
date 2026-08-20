@@ -6,6 +6,8 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { computeTotals, feeItemsFor, linesFromFeeItems, resolveLineAmounts, type EstimateLine } from "./estimates.service";
 import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
+import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { escapeHtml } from "../../common/html";
 
 /**
  * Tools → Fee Schedule + Estimates.
@@ -677,6 +679,30 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
 
   await logAudit("Tools", "CONVERT_ESTIMATE", estimateId, "client_id", "", clientId,
     `Estimate converted to client ${clientId} by ${req.user!.email}.`, req.user!.email);
+
+  // Previously silent — a prospect who'd just approved an estimate and was
+  // converted to a client got no confirmation of it at all, even though the
+  // very next step in this same route (Send Invoice) already emails them.
+  // Best-effort: the conversion itself already committed above.
+  if (est.email) {
+    try {
+      const { wrapEmailHtml } = await import("../../common/emailTemplate");
+      const body = `
+        <p style="margin:0 0 18px;">Welcome to AL Tax Service! <bdi dir="rtl" style="color:#9ca3af;">/ مرحباً بكم في AL Tax Service!</bdi></p>
+        <p style="margin:0 0 14px;">Thank you for approving your estimate — <strong>${escapeHtml(est.business_name)}</strong> is now set up as a client with us${invoiceId ? ", and your invoice is on its way separately" : ""}. We're looking forward to working with you.</p>
+        <p style="margin:0; color:#6b7280; font-size:12.5px;">If you have any questions in the meantime, just reply to this email. <bdi dir="rtl">إذا كانت لديك أي أسئلة، فقط قم بالرد على هذا البريد الإلكتروني.</bdi></p>`;
+      await sendEmail({
+        to: est.email,
+        subject: `Welcome to AL Tax Service, ${est.business_name}!`,
+        html: await wrapEmailHtml(body, req),
+      });
+    } catch (err) {
+      if (!(err instanceof NotConfiguredError)) {
+        // eslint-disable-next-line no-console
+        console.error(`Estimate-conversion welcome email failed for ${est.email}:`, err);
+      }
+    }
+  }
 
   res.json({ ok: true, clientId, invoiceId });
 }));

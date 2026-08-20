@@ -5,6 +5,8 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { normalizeText } from "../../common/assignment";
+import { sendEmail, NotConfiguredError } from "../../common/notifications";
+import { escapeHtml } from "../../common/html";
 
 /**
  * Task Rules & Batches module — completes Phase 3. Ported from alTaxPortalSaveTaskRule,
@@ -14,9 +16,12 @@ import { normalizeText } from "../../common/assignment";
  * financial calculation — unlike Phase 7's Accounting engines, it doesn't fall under the
  * plan's "no test fixtures, no migration" rule, so it's safe to port alongside CRUD.
  *
+ * alTaxV5NotifyStaffTaskBatch_ is now ported (below, as notifyStaffOfNewTaskBatches) —
+ * email infra exists throughout this backend now, so the original "no email infra"
+ * reasoning no longer applies. It only fires for the unattended nightly sweep, not a
+ * staff-initiated "Run Agent Now", since that caller already sees the result in the UI.
+ *
  * Deliberately NOT ported:
- * - alTaxV5NotifyStaffTaskBatch_: emails staff about newly assigned batch tasks. No email
- *   infra exists in this backend (same reasoning as every other notification skipped).
  * - alTaxV5EnsureQuarterlyMDWithholdingRule_: legacy auto-seeds one specific hardcoded rule
  *   as a side effect of nearly every task-creation call. That's a one-time bootstrapping
  *   concern from the old system, not something a clean Node reimplementation should quietly
@@ -448,6 +453,47 @@ export async function isTaskRulesAgentAutoRunEnabled(): Promise<boolean> {
 }
 
 /**
+ * One digest email per sweep run (not one per batch) to every active
+ * admin/staff user, matching the SWOT Findings Sweep / Monthly Management
+ * Summary convention already used elsewhere in this app. Best-effort:
+ * the drafts themselves are already committed by the time this runs, so a
+ * failed send here never loses or blocks any created draft.
+ */
+async function notifyStaffOfNewTaskBatches(created: { draftId: string; ruleId: string; taskType: string; periodLabel: string; dueDate: string }[]): Promise<void> {
+  if (created.length === 0) return;
+  const recipients = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) IN ('admin','staff') AND email IS NOT NULL AND email <> ''`);
+  if (recipients.length === 0) return;
+
+  const rows = created
+    .map((c) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.taskType)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.periodLabel)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;">${escapeHtml(c.dueDate)}</td></tr>`)
+    .join("");
+  const html = `
+    <div style="max-width:520px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+      <div style="background:#1f2937;color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
+        <div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;opacity:0.85;">Task Rules Agent</div>
+        <div style="font-size:19px;font-weight:800;margin-top:4px;">${created.length} new task batch${created.length === 1 ? "" : "es"} awaiting review</div>
+      </div>
+      <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
+        <p style="margin:0 0 12px;">The nightly Task Rules Agent sweep drafted the following batch${created.length === 1 ? "" : "es"}. Review and create them from Task Rules &amp; Batches.</p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr><th style="text-align:left;padding:6px 10px;border-bottom:2px solid #ddd;">Task Type</th><th style="text-align:left;padding:6px 10px;border-bottom:2px solid #ddd;">Period</th><th style="text-align:left;padding:6px 10px;border-bottom:2px solid #ddd;">Due Date</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  for (const r of recipients) {
+    try {
+      await sendEmail({ to: r.email, subject: `${created.length} new task batch${created.length === 1 ? "" : "es"} awaiting review`, html });
+    } catch (err) {
+      if (!(err instanceof NotConfiguredError)) {
+        // eslint-disable-next-line no-console
+        console.error(`Task Rules Agent batch notification failed for ${r.email}:`, err);
+      }
+    }
+  }
+}
+
+/**
  * The sweep: for every active rule with an auto-schedulable frequency
  * (Monthly/Quarterly/Semiannual/Annual with a due_day set — see
  * computeDuePeriod), computes the most recently completed period and its due
@@ -526,6 +572,15 @@ export async function runTaskRulesAgentSweep(actorEmail: string, opts: { runDate
       errors.push(`${rule.task_type || rule.rule_id}: ${err?.message || "Unexpected error drafting this rule."}`);
       // eslint-disable-next-line no-console
       console.error(`[runTaskRulesAgentSweep] rule ${rule.rule_id} failed:`, err);
+    }
+  }
+
+  if (created.length > 0 && actorEmail.startsWith("System (")) {
+    try {
+      await notifyStaffOfNewTaskBatches(created);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[runTaskRulesAgentSweep] notifyStaffOfNewTaskBatches failed:", err);
     }
   }
 
