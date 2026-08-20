@@ -205,12 +205,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Vault & Payment Methods", "Tax Forms"];
+const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -1188,6 +1188,10 @@ export function ClientDetailPage() {
 
           {tab === "Notices" && canSeeStaffTabs && (
             <NoticesSection clientId={client.client_id} />
+          )}
+
+          {tab === "Tax Return Production" && canSeeStaffTabs && (
+            <TaxReturnProductionSection clientId={client.client_id} defaultReturnType={client.business_return_type as string | null} />
           )}
 
           {tab === "Permits & Compliance" && canSeeStaffTabs && (
@@ -2368,6 +2372,161 @@ function NoticesSection({ clientId }: { clientId: string }) {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface TaxReturnRow {
+  tax_return_id: string; client_id: string; tax_year: number; return_type: string; status: string;
+  preparer: string | null; reviewer: string | null; extension_filed: boolean; due_date: string | null;
+  filed_date: string | null; accepted_date: string | null; rejection_reason: string | null; notes: string | null;
+}
+const TAX_RETURN_STATUSES = [
+  "Not Started", "Documents Requested", "Documents Received", "In Preparation", "Missing Information",
+  "Review", "Client Approval", "E-file Ready", "Filed", "Accepted", "Rejected", "Completed",
+];
+const EMPTY_TAX_RETURN_FORM = {
+  taxYear: String(new Date().getFullYear() - 1), returnType: "", preparer: "", reviewer: "",
+  extensionFiled: false, dueDate: "", notes: "",
+};
+
+/** Tax Return Production tracking (Firm Command Center gap analysis, item #8) — confirmed with the user this workflow was never tracked anywhere before. Backed by GET/POST/PATCH /clients/:clientId/tax-returns (taxReturns.routes.ts). */
+function TaxReturnProductionSection({ clientId, defaultReturnType }: { clientId: string; defaultReturnType: string | null }) {
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const [returns, setReturns] = useState<TaxReturnRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_TAX_RETURN_FORM, returnType: defaultReturnType && defaultReturnType !== "N/A" ? defaultReturnType : "" });
+  const [saving, setSaving] = useState(false);
+
+  function load() {
+    api.get<{ taxReturns: TaxReturnRow[] }>(`/clients/${clientId}/tax-returns`)
+      .then((res) => setReturns(res.taxReturns))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load tax returns."));
+  }
+  useEffect(load, [clientId]);
+
+  function startAdd() {
+    setForm({ ...EMPTY_TAX_RETURN_FORM, returnType: defaultReturnType && defaultReturnType !== "N/A" ? defaultReturnType : "" });
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/clients/${clientId}/tax-returns`, {
+        taxYear: Number(form.taxYear), returnType: form.returnType, preparer: form.preparer, reviewer: form.reviewer,
+        extensionFiled: form.extensionFiled, dueDate: form.dueDate, notes: form.notes,
+      });
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not start tracking this return.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStatusChange(r: TaxReturnRow, status: string) {
+    if (status === "Rejected" && !r.rejection_reason) {
+      const reason = window.prompt("Rejection reason (required):");
+      if (!reason || !reason.trim()) return;
+      try {
+        await api.patch(`/clients/${clientId}/tax-returns/${r.tax_return_id}`, { status, rejectionReason: reason.trim() });
+        load();
+      } catch (err) {
+        await notify(err instanceof ApiError ? err.message : "Could not update status.");
+      }
+      return;
+    }
+    try {
+      await api.patch(`/clients/${clientId}/tax-returns/${r.tax_return_id}`, { status });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update status.");
+    }
+  }
+
+  async function handleDelete(r: TaxReturnRow) {
+    const ok = await confirmDialog({ title: "Delete tax return tracking", message: `Delete tracking for the ${r.tax_year} ${r.return_type} return? This can't be undone.`, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/clients/${clientId}/tax-returns/${r.tax_return_id}/delete`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this return.");
+    }
+  }
+
+  return (
+    <div className="command-panel">
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Tax Return Production</h2>
+        <div className="command-panel-note">One row per tax year — tracks the return through preparation, not just whether a generic task exists for it.</div>
+      </div>
+      <div style={{ padding: "0 16px 16px" }}>
+        {error && <ErrorBanner error={error} />}
+        {!showForm && <button type="button" className="btn" onClick={startAdd}>+ Start Tracking a Return</button>}
+
+        {showForm && (
+          <form onSubmit={handleSubmit} className="card" style={{ marginTop: 12, padding: 16 }}>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="taxrtn-year">Tax Year</label><input id="taxrtn-year" type="number" required value={form.taxYear} onChange={(e) => setForm({ ...form, taxYear: e.target.value })} /></div>
+              <div className="field">
+                <label htmlFor="taxrtn-type">Return Type</label>
+                <input id="taxrtn-type" list="taxrtn-type-options" required value={form.returnType} onChange={(e) => setForm({ ...form, returnType: e.target.value })} />
+                <datalist id="taxrtn-type-options">{RETURN_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="taxrtn-preparer">Preparer</label><input id="taxrtn-preparer" value={form.preparer} onChange={(e) => setForm({ ...form, preparer: e.target.value })} placeholder="Staff email" /></div>
+              <div className="field"><label htmlFor="taxrtn-reviewer">Reviewer</label><input id="taxrtn-reviewer" value={form.reviewer} onChange={(e) => setForm({ ...form, reviewer: e.target.value })} placeholder="Staff email" /></div>
+            </div>
+            <div className="form-grid">
+              <div className="field"><label htmlFor="taxrtn-due">Due Date</label><input id="taxrtn-due" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></div>
+              <div className="field" style={{ display: "flex", alignItems: "flex-end", paddingBottom: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input type="checkbox" checked={form.extensionFiled} onChange={(e) => setForm({ ...form, extensionFiled: e.target.checked })} /> Extension filed
+                </label>
+              </div>
+            </div>
+            <div className="field"><label htmlFor="taxrtn-notes">Notes</label><textarea id="taxrtn-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Start Tracking"}</button>
+              <button type="button" className="btn" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        <div className="table-scroll" style={{ marginTop: 12 }}>
+          <table>
+            <thead><tr><th scope="col">Year</th><th scope="col">Type</th><th scope="col">Preparer</th><th scope="col">Reviewer</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              {returns === null && <tr><td colSpan={7} className="muted">Loading…</td></tr>}
+              {returns !== null && returns.length === 0 && <tr><td colSpan={7} className="muted">No returns tracked yet.</td></tr>}
+              {returns?.map((r) => (
+                <tr key={r.tax_return_id}>
+                  <td>{r.tax_year}</td>
+                  <td>{r.return_type}{r.extension_filed ? " (ext.)" : ""}</td>
+                  <td>{r.preparer || "—"}</td>
+                  <td>{r.reviewer || "—"}</td>
+                  <td>{r.due_date ? fmtDateOnly(r.due_date) : "—"}</td>
+                  <td>
+                    <select value={r.status} onChange={(e) => handleStatusChange(r, e.target.value)} style={{ fontSize: 12.5 }}>
+                      {TAX_RETURN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    {r.status === "Rejected" && r.rejection_reason && <div className="muted" style={{ fontSize: 11 }}>{r.rejection_reason}</div>}
+                  </td>
+                  <td><button type="button" className="link-button" onClick={() => handleDelete(r)}>Delete</button></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -210,6 +210,8 @@ export function FirmReportPage() {
 
       <RecurringRevenueSection />
 
+      <TaxReturnProductionSummary />
+
       <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
@@ -438,6 +440,51 @@ function RecurringRevenueSection() {
       <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
         {data.recurringPctOfTotal !== null ? `${data.recurringPctOfTotal}% of revenue` : "Revenue"} from recurring clients ({fmtMoney(data.recurringRevenueTotal)}) vs {fmtMoney(data.oneTimeRevenueTotal)} from one-time engagements.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Firm-wide production board — status counts across every tracked return
+ * (excludes Accepted/Completed by default, same "active work only" framing
+ * as the Management Exception Report). This workflow was never tracked in
+ * this system before this feature — counts will be genuinely zero
+ * everywhere until staff start using the new "Tax Return Production" tab
+ * on each client's profile.
+ */
+function TaxReturnProductionSummary() {
+  const navigate = useNavigate();
+  const [data, setData] = useState<{ counts: Record<string, number>; statuses: string[] } | null>(null);
+
+  useEffect(() => {
+    api.get<{ counts: Record<string, number>; statuses: string[] }>("/clients/tax-returns/summary").then(setData).catch(() => {});
+  }, []);
+
+  if (!data) return null;
+  const total = Object.values(data.counts).reduce((s, n) => s + n, 0);
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Tax Return Production</h2>
+        <div className="command-panel-note">
+          {total} active return{total === 1 ? "" : "s"} being tracked, by stage. Start tracking a return from a client's "Tax Return Production" tab.
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead><tr>{data.statuses.map((s) => <th scope="col" key={s}>{s}</th>)}</tr></thead>
+          <tbody>
+            <tr>
+              {data.statuses.map((s) => (
+                <td key={s} style={{ cursor: data.counts[s] > 0 ? "pointer" : undefined, fontWeight: data.counts[s] > 0 ? 700 : undefined }} onClick={() => data.counts[s] > 0 && navigate("/clients")}>
+                  {data.counts[s]}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

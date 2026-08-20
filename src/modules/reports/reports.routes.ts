@@ -1437,7 +1437,7 @@ export interface ManagementException {
  * As-of-today only (no from/to) — this reports current risk, not a period.
  */
 export async function computeManagementExceptions(): Promise<ManagementException[]> {
-  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow, noticesOverdueRow, noticesDueSoonRow] = await Promise.all([
+  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow, noticesOverdueRow, noticesDueSoonRow, overdueReturnsRow] = await Promise.all([
     computeArAging(),
     computeFirmWideMdSalesTaxMissedFilings(),
     queryOne<any>(
@@ -1464,6 +1464,10 @@ export async function computeManagementExceptions(): Promise<ManagementException
       `SELECT COUNT(*)::int AS count FROM altax.v3_notices
         WHERE status <> 'Resolved' AND response_deadline IS NOT NULL
           AND response_deadline::date >= CURRENT_DATE AND response_deadline::date <= CURRENT_DATE + INTERVAL '7 days'`
+    ),
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_tax_returns
+        WHERE status NOT IN ('Accepted', 'Completed') AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`
     ),
   ]);
 
@@ -1513,6 +1517,10 @@ export async function computeManagementExceptions(): Promise<ManagementException
   const noticesDueSoon = Number(noticesDueSoonRow?.count || 0);
   if (noticesDueSoon > 0) {
     items.push({ severity: "warning", label: "IRS/state notice deadlines within 7 days", count: noticesDueSoon, detail: `${noticesDueSoon} open notice(s) due to respond within a week.`, link: "/clients" });
+  }
+  const overdueReturns = Number(overdueReturnsRow?.count || 0);
+  if (overdueReturns > 0) {
+    items.push({ severity: "critical", label: "Tax returns past their due date, not yet filed", count: overdueReturns, detail: `${overdueReturns} return(s) still in production past their due date.`, link: "/clients" });
   }
 
   const order: Record<string, number> = { critical: 0, warning: 1 };
