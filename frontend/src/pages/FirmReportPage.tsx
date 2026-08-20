@@ -28,6 +28,14 @@ interface FirmInsights {
   staffUtilization: { email: string; name: string; totalHours: number; billableHours: number; billablePct: number; approvedHours: number }[];
 }
 
+interface FirmHealthScore {
+  score: number;
+  band: "Green" | "Yellow" | "Red";
+  components: { label: string; points: number; maxPoints: number; detail: string }[];
+}
+
+const BAND_COLOR: Record<string, string> = { Green: "var(--teal)", Yellow: "#b8860b", Red: "var(--red)" };
+
 function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
@@ -38,6 +46,7 @@ export function FirmReportPage() {
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [insights, setInsights] = useState<FirmInsights | null>(null);
+  const [healthScore, setHealthScore] = useState<FirmHealthScore | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -47,6 +56,10 @@ export function FirmReportPage() {
     api.get<FirmInsights>(`/reports/firm-insights?from=${from}&to=${to}`)
       .then(setInsights)
       .catch(() => setError("Could not load the Firm Report."));
+    setHealthScore(null);
+    api.get<FirmHealthScore>(`/reports/firm-health-score?from=${from}&to=${to}`)
+      .then(setHealthScore)
+      .catch(() => {});
   }, [from, to]);
 
   async function handleExport(format: "csv" | "xlsx") {
@@ -112,6 +125,34 @@ export function FirmReportPage() {
           </div>
         </div>
       </div>
+
+      {healthScore && (
+        <div className="command-panel" style={{ marginBottom: 16 }}>
+          <div className="command-panel-header">
+            <h2 className="command-panel-title">Firm Health Score</h2>
+            <div className="command-panel-note">One composite number combining profitability, revenue trend, AR aging, filing compliance, overdue work, and staff utilization — always shown with the breakdown, never as a bare number.</div>
+          </div>
+          <div style={{ display: "flex", gap: 20, alignItems: "center", padding: "0 16px 16px", flexWrap: "wrap" }}>
+            <div style={{ textAlign: "center", minWidth: 96 }}>
+              <div style={{ fontSize: 40, fontWeight: 800, color: BAND_COLOR[healthScore.band] }}>{healthScore.score}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: BAND_COLOR[healthScore.band] }}>{healthScore.band.toUpperCase()}</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <table>
+                <tbody>
+                  {healthScore.components.map((c) => (
+                    <tr key={c.label}>
+                      <td style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{c.label}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{c.points} / {c.maxPoints}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>{c.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ClientListingSection />
 

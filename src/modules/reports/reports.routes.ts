@@ -985,6 +985,110 @@ export function computeClientHealthScore(params: {
   return { score, band, components };
 }
 
+/**
+ * Firm-wide composite health score — same transparent points-+-components
+ * shape as computeClientHealthScore (never shown as a bare number, always
+ * with the breakdown), but scoring the FIRM's own condition instead of one
+ * client's: profitability, revenue trend, AR aging, and task backlog reuse
+ * that function's exact tiering (rescaled to fit this score's own weights);
+ * Filing Compliance swaps in the firm-wide, all-agency figure
+ * (computeFirmInsights.filingCompliance, not the MD-only per-client one)
+ * since a firm-level score should reflect every jurisdiction, not just MD;
+ * Staff Utilization is new here, with no per-client equivalent. Any
+ * dimension with no decided data yet (e.g. no time entries logged) gets
+ * full credit with a "not enough data" note, same "don't penalize what
+ * can't be measured yet" convention computeClientHealthScore already uses
+ * for mdFilingOnTime === null.
+ */
+export interface FirmHealthScore { score: number; band: "Green" | "Yellow" | "Red"; components: HealthScoreComponent[] }
+
+export async function computeFirmHealthScore(from: string, to: string): Promise<FirmHealthScore> {
+  const [summary, arAging, insights, taskRow] = await Promise.all([
+    computeFirmSummary(from, to),
+    computeArAging(),
+    computeFirmInsights(from, to),
+    queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived')) AS open_count,
+         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived') AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE) AS overdue_count
+       FROM altax.v3_tasks`
+    ),
+  ]);
+  const { trendPct } = computeRevenueTrend(summary.months);
+  const netMarginPct = summary.totals.revenue > 0 ? Math.round((summary.totals.profit / summary.totals.revenue) * 1000) / 10 : null;
+
+  const components: HealthScoreComponent[] = [];
+
+  let profPts = 0;
+  let profDetail = "No revenue recorded in this window.";
+  if (netMarginPct !== null) {
+    if (netMarginPct >= 15) { profPts = 25; profDetail = `Net margin ${netMarginPct}% (healthy, ≥15%).`; }
+    else if (netMarginPct >= 5) { profPts = 17; profDetail = `Net margin ${netMarginPct}% (moderate, 5-15%).`; }
+    else if (netMarginPct >= 0) { profPts = 8; profDetail = `Net margin ${netMarginPct}% (thin, 0-5%).`; }
+    else { profPts = 0; profDetail = `Net margin ${netMarginPct}% (net loss).`; }
+  }
+  components.push({ label: "Profitability", points: profPts, maxPoints: 25, detail: profDetail });
+
+  let trendPts = 9;
+  let trendDetail = "Revenue roughly flat over the period.";
+  if (trendPct !== null) {
+    if (trendPct >= 10) { trendPts = 15; trendDetail = `Revenue up ${trendPct}% over the period.`; }
+    else if (trendPct <= -10) { trendPts = 0; trendDetail = `Revenue down ${Math.abs(trendPct)}% over the period.`; }
+    else { trendPts = 9; trendDetail = `Revenue roughly flat (${trendPct >= 0 ? "+" : ""}${trendPct}%).`; }
+  }
+  components.push({ label: "Revenue Trend", points: trendPts, maxPoints: 15, detail: trendDetail });
+
+  let arPts = 15;
+  let arDetail = "No overdue receivables.";
+  if (arAging.totals.d90Plus > 0) { arPts = 0; arDetail = `${fmtMoney(arAging.totals.d90Plus)} over 90 days past due, firm-wide.`; }
+  else if (arAging.totals.d61_90 > 0) { arPts = 5; arDetail = `${fmtMoney(arAging.totals.d61_90)} in the 61-90 day bucket, firm-wide.`; }
+  else if (arAging.totals.total > 0) { arPts = 10; arDetail = `${fmtMoney(arAging.totals.total)} overdue, within 60 days, firm-wide.`; }
+  components.push({ label: "AR Aging", points: arPts, maxPoints: 15, detail: arDetail });
+
+  let compPts = 20;
+  let compDetail = "No decided filing periods in this window.";
+  if (insights.filingCompliance.pct !== null) {
+    compPts = Math.round((insights.filingCompliance.pct / 100) * 20);
+    compDetail = `${insights.filingCompliance.pct}% on-time across every agency (${insights.filingCompliance.late} late, ${insights.filingCompliance.missing} missing).`;
+  }
+  components.push({ label: "Filing Compliance", points: compPts, maxPoints: 20, detail: compDetail });
+
+  const openCount = Number(taskRow?.open_count || 0);
+  const overdueCount = Number(taskRow?.overdue_count || 0);
+  const overduePct = openCount > 0 ? (overdueCount / openCount) * 100 : 0;
+  let workPts = 15;
+  let workDetail = "No open work.";
+  if (openCount > 0) {
+    if (overduePct >= 25) { workPts = 0; workDetail = `${overdueCount} of ${openCount} open tasks are overdue (${Math.round(overduePct)}%).`; }
+    else if (overduePct >= 10) { workPts = 5; workDetail = `${overdueCount} of ${openCount} open tasks are overdue (${Math.round(overduePct)}%).`; }
+    else if (overdueCount > 0) { workPts = 10; workDetail = `${overdueCount} of ${openCount} open tasks are overdue (${Math.round(overduePct)}%).`; }
+    else { workPts = 15; workDetail = `${openCount} open tasks, none overdue.`; }
+  }
+  components.push({ label: "Overdue Work", points: workPts, maxPoints: 15, detail: workDetail });
+
+  const staffWithHours = insights.staffUtilization.filter((s) => s.totalHours > 0);
+  let staffPts = 10;
+  let staffDetail = "Not enough time-tracking data yet.";
+  if (staffWithHours.length > 0) {
+    const avgBillablePct = staffWithHours.reduce((sum, s) => sum + s.billablePct, 0) / staffWithHours.length;
+    if (avgBillablePct >= 70) { staffPts = 10; staffDetail = `${Math.round(avgBillablePct)}% average billable time across ${staffWithHours.length} staff.`; }
+    else if (avgBillablePct >= 40) { staffPts = 6; staffDetail = `${Math.round(avgBillablePct)}% average billable time across ${staffWithHours.length} staff.`; }
+    else { staffPts = 3; staffDetail = `${Math.round(avgBillablePct)}% average billable time across ${staffWithHours.length} staff.`; }
+  }
+  components.push({ label: "Staff Utilization", points: staffPts, maxPoints: 10, detail: staffDetail });
+
+  const score = components.reduce((s, c) => s + c.points, 0);
+  const band: "Green" | "Yellow" | "Red" = score >= 75 ? "Green" : score >= 50 ? "Yellow" : "Red";
+  return { score, band, components };
+}
+
+reportsRouter.get("/firm-health-score", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json(await computeFirmHealthScore(rangeFrom, rangeTo));
+}));
+
 reportsRouter.get("/ar-aging", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   res.json(await computeArAging());
 }));
