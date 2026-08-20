@@ -73,16 +73,31 @@ haccpRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHan
  * selected_menu_items includes a label not in the master checklist — grows
  * the reusable library (v3_haccp_custom_menu_items) automatically, no extra
  * staff action needed, same "every plan makes the next one easier" idea as
- * Copy Items From Another Plan.
+ * Copy Items From Another Plan. One bulk INSERT (unnest) instead of one
+ * per label — a menu with ~100 items was previously ~100 sequential
+ * round-trips. Never allowed to fail the actual plan save: this is a
+ * convenience side-effect, not the thing the user is here to do, so any
+ * error here is logged and swallowed rather than surfacing as a 500 that
+ * would otherwise lose a completely valid, already-saved plan.
  */
 async function saveCustomMenuItemsToLibrary(selectedMenuItems: string[], actorEmail: string): Promise<void> {
   const knownKeys = new Set(HACCP_MENU_CATEGORIES.flatMap((cat) => cat.items.map((i) => i.key)));
-  const customLabels = selectedMenuItems.filter((v) => v.trim() && !knownKeys.has(v));
-  for (const label of customLabels) {
+  // Matches the label column's VARCHAR(255) — without this, one overly long
+  // pasted line would throw and (before this fix) take the whole save down.
+  const customLabels = selectedMenuItems
+    .map((v) => v.trim().slice(0, 255))
+    .filter((v, i, arr) => v && !knownKeys.has(v) && arr.indexOf(v) === i);
+  if (customLabels.length === 0) return;
+  try {
     await query(
-      `INSERT INTO altax.v3_haccp_custom_menu_items (label, created_by) VALUES ($1, $2) ON CONFLICT (label) DO NOTHING`,
-      [label, actorEmail]
+      `INSERT INTO altax.v3_haccp_custom_menu_items (label, created_by)
+         SELECT * FROM unnest($1::text[], $2::text[])
+       ON CONFLICT (label) DO NOTHING`,
+      [customLabels, customLabels.map(() => actorEmail)]
     );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[haccp] saveCustomMenuItemsToLibrary failed (plan itself already saved fine):", err);
   }
 }
 
