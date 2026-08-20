@@ -1644,6 +1644,77 @@ reportsRouter.get("/recurring-revenue", requireAuth, requireRole("admin"), async
   res.json(await computeRecurringRevenue());
 }));
 
+export interface QualityControlRow { type: string; count: number; totalDecided: number; rejectionRatePct: number | null; recentNotes: string[] }
+export interface QualityControl {
+  govFormRejections: QualityControlRow[];
+  taxReturnRejections: QualityControlRow[];
+  totalRejections: number;
+  note: string;
+}
+
+/**
+ * "The objective should be process improvement, not just employee scoring"
+ * (the user's own spec) — grouped by form/return TYPE, not by who
+ * prepared or reviewed it, even though both source tables carry that
+ * info. Built from two real existing rejection signals rather than a new
+ * complaint-tracking system invented from scratch:
+ *  - v3_gov_form_filings.review_status = 'rejected' — an OPT-IN internal
+ *    maker-checker step (sql/074); staff choose whether to route a filing
+ *    through review at all, so rejectionRatePct is rejections ÷ every
+ *    filing that WAS reviewed (approved or rejected), not ÷ every filing
+ *    ever created — most filings never go through this step.
+ *  - v3_tax_returns.status = 'Rejected' (this session's new tracking) — an
+ *    actual agency e-file rejection, not an internal catch.
+ * All-time, not a from/to window — both sources are low-volume enough
+ * right now that a period filter would mostly just show zeros.
+ */
+export async function computeQualityControl(): Promise<QualityControl> {
+  const [govRows, govReviewedRow, taxRows, taxTotalRow] = await Promise.all([
+    query<any>(
+      `SELECT form_type, review_note FROM altax.v3_gov_form_filings WHERE review_status = 'rejected' ORDER BY reviewed_at DESC`
+    ),
+    query<any>(
+      `SELECT form_type, COUNT(*)::int AS count FROM altax.v3_gov_form_filings WHERE review_status IN ('approved', 'rejected') GROUP BY form_type`
+    ),
+    query<any>(
+      `SELECT return_type, rejection_reason FROM altax.v3_tax_returns WHERE status = 'Rejected' ORDER BY updated_at DESC`
+    ),
+    query<any>(
+      `SELECT return_type, COUNT(*)::int AS count FROM altax.v3_tax_returns GROUP BY return_type`
+    ),
+  ]);
+
+  function buildRows(rejectedRows: any[], totalRows: any[], typeKey: string, noteKey: string): QualityControlRow[] {
+    const totalByType = new Map(totalRows.map((r: any) => [r[typeKey], r.count]));
+    const byType = new Map<string, { count: number; notes: string[] }>();
+    for (const r of rejectedRows) {
+      const entry = byType.get(r[typeKey]) || { count: 0, notes: [] };
+      entry.count++;
+      if (r[noteKey] && entry.notes.length < 3) entry.notes.push(r[noteKey]);
+      byType.set(r[typeKey], entry);
+    }
+    return Array.from(byType.entries())
+      .map(([type, { count, notes }]) => {
+        const totalDecided = Number(totalByType.get(type) || count);
+        return { type, count, totalDecided, rejectionRatePct: totalDecided > 0 ? round2((count / totalDecided) * 100) : null, recentNotes: notes };
+      })
+      .sort((a, b) => b.count - a.count);
+  }
+
+  const govFormRejections = buildRows(govRows, govReviewedRow, "form_type", "review_note");
+  const taxReturnRejections = buildRows(taxRows, taxTotalRow, "return_type", "rejection_reason");
+
+  return {
+    govFormRejections, taxReturnRejections,
+    totalRejections: govRows.length + taxRows.length,
+    note: "Grouped by form/return type, not by staff — the goal is spotting a recurring process problem, not scoring individuals. All-time, not a period window.",
+  };
+}
+
+reportsRouter.get("/quality-control", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json(await computeQualityControl());
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,

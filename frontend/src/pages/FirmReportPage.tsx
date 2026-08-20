@@ -212,6 +212,8 @@ export function FirmReportPage() {
 
       <TaxReturnProductionSummary />
 
+      <QualityControlSection />
+
       <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
@@ -485,6 +487,60 @@ function TaxReturnProductionSummary() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+interface QualityControlRow { type: string; count: number; totalDecided: number; rejectionRatePct: number | null; recentNotes: string[] }
+interface QualityControl { govFormRejections: QualityControlRow[]; taxReturnRejections: QualityControlRow[]; totalRejections: number; note: string }
+
+/**
+ * Grouped by form/return TYPE, not by staff — see the note the API itself
+ * returns (`data.note`) and the backend comment on computeQualityControl:
+ * this is about spotting a recurring process problem, not scoring
+ * individuals. Real signals only (gov-form internal-review rejections,
+ * tax-return e-file rejections) — no invented complaint-tracking.
+ */
+function QualityControlSection() {
+  const [data, setData] = useState<QualityControl | null>(null);
+
+  useEffect(() => {
+    api.get<QualityControl>("/reports/quality-control").then(setData).catch(() => {});
+  }, []);
+
+  if (!data) return null;
+
+  function renderTable(rows: QualityControlRow[], emptyLabel: string) {
+    if (rows.length === 0) return <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>{emptyLabel}</p>;
+    return (
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th scope="col">Type</th><th scope="col">Rejections</th><th scope="col">Rejection Rate</th><th scope="col">Recent Notes</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.type}>
+                <td>{r.type}</td>
+                <td>{r.count} of {r.totalDecided}</td>
+                <td>{r.rejectionRatePct !== null ? `${r.rejectionRatePct}%` : "—"}</td>
+                <td className="muted" style={{ fontSize: 12 }}>{r.recentNotes.join(" · ") || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Quality Control</h2>
+        <div className="command-panel-note">{data.note}</div>
+      </div>
+      <div style={{ padding: "0 16px 4px", fontWeight: 700, fontSize: 13 }}>Government Form Filings (internal review rejections)</div>
+      {renderTable(data.govFormRejections, "No rejections — either everything passed review, or no filing has gone through the optional review step yet.")}
+      <div style={{ padding: "12px 16px 4px", fontWeight: 700, fontSize: 13 }}>Tax Returns (agency e-file rejections)</div>
+      {renderTable(data.taxReturnRejections, "No rejections tracked yet.")}
     </div>
   );
 }
