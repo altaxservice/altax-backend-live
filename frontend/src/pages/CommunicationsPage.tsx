@@ -11,6 +11,18 @@ import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
 
+/**
+ * Every composer on this page now uses explicit "Save and Close" / "Save and
+ * Send" submit buttons (matching the same pattern already used for filing/
+ * payment confirmations in ClientAtAGlance) instead of a "Send now" checkbox
+ * paired with one ambiguous button — reads which button was actually clicked
+ * off the submit event's submitter, so the form keeps native required-field
+ * validation instead of switching every button to type="button".
+ */
+function submitAction(e: FormEvent<HTMLFormElement>): string | undefined {
+  return ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.dataset.action;
+}
+
 /** Reads a File into the { filename, contentBase64, contentType } shape the communications endpoints accept. Email-only — attachments are dropped for SMS/WhatsApp server-side. */
 async function fileToAttachment(file: File): Promise<{ filename: string; contentBase64: string; contentType?: string }> {
   return { filename: file.name, contentBase64: await fileToBase64(file), contentType: file.type || undefined };
@@ -268,7 +280,6 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
   const [recipients, setRecipients] = useState<Set<string>>(new Set());
   const [subject, setSubject] = useState("Firm staff message");
   const [channels, setChannels] = useState<string[]>(["Email"]);
-  const [sendNow, setSendNow] = useState(true);
   const [message, setMessage] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -293,8 +304,9 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
     setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const sendNow = submitAction(e) !== "close";
     if (recipients.size === 0) { setError("Select at least one staff recipient."); return; }
     if (channels.length === 0) { setError("Choose at least one channel."); return; }
     if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
@@ -375,11 +387,11 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
         <div className="field"><label htmlFor="comm-staff-message">Message</label><textarea id="comm-staff-message" rows={3} required value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Write the staff message or task update here." /></div>
         <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
-          <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
-          Send now (Email attempts real delivery; Phone and Portal Note always just save a log entry)
-        </label>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Staff Message"}</button>
+        <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery on Email; Phone and Portal Note always just save a log entry either way.</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="submit" data-action="close" className="btn" disabled={saving}>{saving ? "Saving…" : "Save and Close"}</button>
+          <button type="submit" data-action="send" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Save and Send"}</button>
+        </div>
       </form>
       {viewingMsg && (
         <div className="card" style={{ margin: "0 16px 12px" }}>
@@ -447,7 +459,6 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const [messageEnglish, setMessageEnglish] = useState("");
   const [messageArabic, setMessageArabic] = useState("");
   const [channels, setChannels] = useState<string[]>(["Email"]);
-  const [sendNow, setSendNow] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -515,8 +526,9 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
     setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const sendNow = submitAction(e) !== "close";
     if (selected.size === 0) { setError("Select at least one client."); return; }
     if (channels.length === 0) { setError("Choose at least one channel."); return; }
     if (!messageEnglish.trim() && !messageArabic.trim()) { setError("Enter a message."); return; }
@@ -647,11 +659,11 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
           </label>
         )}
         <ChannelCheckboxes selected={channels} onToggle={toggleChannel} options={BULK_CHANNELS} />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
-          <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
-          Send now (attempts real delivery to every selected, opted-in client)
-        </label>
-        <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? `Sending to ${selected.size}…` : `Send to ${selected.size} Client(s)`}</button>
+        <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery to every selected, opted-in client; Save and Close just logs the message.</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="submit" data-action="close" className="btn" disabled={saving}>{saving ? "Saving…" : `Save and Close (${selected.size})`}</button>
+          <button type="submit" data-action="send" className="btn btn-primary" disabled={saving}>{saving ? `Sending to ${selected.size}…` : `Save and Send (${selected.size})`}</button>
+        </div>
       </form>
     </Panel>
   );
@@ -671,7 +683,6 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
   // actual send. This lets staff pick it as the send target instead of only
   // ever reaching the primary contact on file.
   const [sendToEmail, setSendToEmail] = useState(client.email || "");
-  const [sendNow, setSendNow] = useState(true);
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sensitiveAttachment, setSensitiveAttachment] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -731,7 +742,7 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     setChannels((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
-  async function send(channelsOverride?: string[]) {
+  async function send(sendNow: boolean, channelsOverride?: string[]) {
     const targetChannels = channelsOverride || channels;
     if (targetChannels.length === 0) { setError("Choose at least one channel."); return; }
     if (attachment && attachment.size > MAX_UPLOAD_BYTES) { setError(`That file is too large (${(attachment.size / 1024 / 1024).toFixed(1)}MB).`); return; }
@@ -766,9 +777,11 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    await send();
+    const action = submitAction(e);
+    if (action === "portal-note") await send(false, ["Portal Note"]);
+    else await send(action !== "close");
   }
 
   return (
@@ -827,13 +840,11 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
             </label>
           )}
           <ChannelCheckboxes selected={channels} onToggle={toggleChannel} />
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 12px" }}>
-            <input type="checkbox" checked={sendNow} onChange={(e) => setSendNow(e.target.checked)} />
-            Send now (Email attempts real delivery; Phone and Portal Note always just save a log entry)
-          </label>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Send / Save Client Message"}</button>
-            <button type="button" className="btn" disabled={saving} onClick={() => send(["Portal Note"])}>Save Portal Note Only</button>
+          <p className="muted" style={{ fontSize: 11, margin: "4px 0 12px" }}>Save and Send attempts real delivery on Email; Phone and Portal Note always just save a log entry either way.</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="submit" data-action="close" className="btn" disabled={saving}>{saving ? "Saving…" : "Save and Close"}</button>
+            <button type="submit" data-action="send" className="btn btn-primary" disabled={saving}>{saving ? "Sending…" : "Save and Send"}</button>
+            <button type="submit" data-action="portal-note" className="btn" disabled={saving}>Save Portal Note Only</button>
           </div>
         </form>
       </Panel>
