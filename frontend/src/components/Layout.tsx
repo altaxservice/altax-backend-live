@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -64,6 +64,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck },
   { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
   { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench },
+  { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
   { to: "/labels", label: "Labels", roles: ["admin"], group: "Firm", icon: Tag },

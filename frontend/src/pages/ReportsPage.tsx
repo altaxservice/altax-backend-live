@@ -96,20 +96,6 @@ interface FirmSummary {
   activeClientCount: number | null;
 }
 
-interface FirmInsights {
-  revenueByServiceType: { serviceType: string; revenue: number; pctOfTotal: number }[];
-  clientConcentration: { clientId: string; clientName: string; revenue: number; pctOfTotal: number }[];
-  concentrationRisk: { top5Pct: number; top10Pct: number };
-  mdOnTimeFilingRate: { onTime: number; late: number; missing: number; filedPendingPayment: number; notYetDue: number; total: number; pct: number | null };
-  filingCompliance: {
-    onTime: number; late: number; missing: number; notYetDue: number; total: number; pct: number | null;
-    byServiceLine: { serviceLine: string; onTime: number; late: number; missing: number; pct: number | null }[];
-  };
-  estimateWinRate: { won: number; lost: number; stillOpen: number; totalCreated: number; winRatePct: number | null };
-  clientGrowth: { monthly: { month: string; newClients: number; likelyBulkImport: boolean }[]; activeClientCountNow: number; note: string };
-  staffUtilization: { email: string; name: string; totalHours: number; billableHours: number; billablePct: number; approvedHours: number }[];
-}
-
 function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00";
@@ -152,8 +138,6 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [firmSummary, setFirmSummary] = useState<FirmSummary | null>(null);
   const [firmError, setFirmError] = useState<string | null>(null);
-  const [firmInsights, setFirmInsights] = useState<FirmInsights | null>(null);
-  const [firmInsightsError, setFirmInsightsError] = useState<string | null>(null);
   const [paychecks, setPaychecks] = useState<ReportPaycheck[]>([]);
   const [payrollLoading, setPayrollLoading] = useState(false);
   const [employeeFilter, setEmployeeFilter] = useState(""); // "" = All Employees
@@ -211,17 +195,6 @@ export function ReportsPage() {
     api.get<FirmSummary>(`/reports/firm-summary?from=${from}&to=${to}${clientQuery}`)
       .then(setFirmSummary)
       .catch(() => setFirmError(clientId === FIRM_WIDE ? "Could not load the firm-wide overview." : "Could not load this client's overview."));
-  }, [user, tab, clientId, from, to]);
-
-  // Only meaningful firm-wide — revenue-by-service-type and client
-  // concentration don't mean anything scoped to a single client.
-  useEffect(() => {
-    if (user?.role !== "admin" || tab !== "Financial Overview" || clientId !== FIRM_WIDE) return;
-    setFirmInsights(null);
-    setFirmInsightsError(null);
-    api.get<FirmInsights>(`/reports/firm-insights?from=${from}&to=${to}`)
-      .then(setFirmInsights)
-      .catch(() => setFirmInsightsError("Could not load the Firm Report."));
   }, [user, tab, clientId, from, to]);
 
   // FIRM_WIDE only makes sense on the Financial Overview tab. If the user picked
@@ -524,17 +497,6 @@ export function ReportsPage() {
     }
   }
 
-  async function handleFirmInsightsCsv(format: "csv" | "xlsx" = "csv") {
-    setReportBusy(`insights-${format}`);
-    try {
-      await downloadFile(`/reports/csv/firm-insights?from=${from}&to=${to}&format=${format}`, buildFilename(["Firm Report", `${from} to ${to}`], format));
-    } catch (err) {
-      await notify(err instanceof ApiError ? err.message : "Could not export this data.");
-    } finally {
-      setReportBusy(null);
-    }
-  }
-
   /**
    * "Email Report" — fetches the exact same PDF Preview/Print already generates,
    * then hands it to the same /communications send path the Communications page
@@ -810,177 +772,6 @@ export function ReportsPage() {
                         </div>
                       </div>
 
-                      {isFirmWide && (
-                        <>
-                          {firmInsightsError && <ErrorBanner error={firmInsightsError} />}
-                          {!firmInsights && !firmInsightsError && <div className="spinner-wrap">Loading Firm Report…</div>}
-                          {firmInsights && (
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 16, flexWrap: "wrap", gap: 8 }}>
-                              <h2 className="command-panel-title" style={{ margin: 0 }}>Firm Report</h2>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmInsightsCsv("csv")}>
-                                  {reportBusy === "insights-csv" ? "Exporting…" : "Export CSV"}
-                                </button>
-                                <button type="button" className="btn" disabled={reportBusy !== null} onClick={() => handleFirmInsightsCsv("xlsx")}>
-                                  {reportBusy === "insights-xlsx" ? "Exporting…" : "Export Excel"}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                          {firmInsights && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Revenue by Service Type</h2>
-                                  <div className="command-panel-note">Grouped by each client's own Service Type — a client's revenue isn't split across sub-services</div>
-                                </div>
-                                <div className="table-scroll">
-                                  <table>
-                                    <thead><tr><th scope="col">Service Type</th><th scope="col">Revenue</th><th scope="col">% of Total</th></tr></thead>
-                                    <tbody>
-                                      {firmInsights.revenueByServiceType.map((r) => (
-                                        <tr key={r.serviceType}><td>{r.serviceType}</td><td>{fmtMoney(r.revenue)}</td><td>{r.pctOfTotal}%</td></tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Client Concentration</h2>
-                                  <div className="command-panel-note">
-                                    Top 5: {firmInsights.concentrationRisk.top5Pct}% of revenue &middot; Top 10: {firmInsights.concentrationRisk.top10Pct}%
-                                  </div>
-                                </div>
-                                <div className="table-scroll">
-                                  <table>
-                                    <thead><tr><th scope="col">Client</th><th scope="col">Revenue</th><th scope="col">% of Total</th></tr></thead>
-                                    <tbody>
-                                      {firmInsights.clientConcentration.map((c) => (
-                                        <tr key={c.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${c.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${c.clientId}`); } }}>
-                                          <td>{c.clientName}</td><td>{fmtMoney(c.revenue)}</td><td>{c.pctOfTotal}%</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">MD On-Time Filing Rate</h2>
-                                  <div className="command-panel-note">Every MD sales tax period due in this window, across every MD client</div>
-                                </div>
-                                <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On-Time Rate</div><div className="metric-value">{firmInsights.mdOnTimeFilingRate.pct !== null ? `${firmInsights.mdOnTimeFilingRate.pct}%` : "—"}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On Time</div><div className="metric-value">{firmInsights.mdOnTimeFilingRate.onTime}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Late</div><div className="metric-value" style={{ color: firmInsights.mdOnTimeFilingRate.late > 0 ? "var(--red)" : undefined }}>{firmInsights.mdOnTimeFilingRate.late}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Missing</div><div className="metric-value" style={{ color: firmInsights.mdOnTimeFilingRate.missing > 0 ? "var(--red)" : undefined }}>{firmInsights.mdOnTimeFilingRate.missing}</div></div>
-                                </div>
-                                <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
-                                  {firmInsights.mdOnTimeFilingRate.filedPendingPayment} filed with payment still pending, {firmInsights.mdOnTimeFilingRate.notYetDue} not yet due — neither counts toward the rate above.
-                                </p>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Firm-Wide Filing Compliance</h2>
-                                  <div className="command-panel-note">Every task with an agency due date in this window — federal, other states, payroll, not just MD sales tax</div>
-                                </div>
-                                <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On-Time Rate</div><div className="metric-value">{firmInsights.filingCompliance.pct !== null ? `${firmInsights.filingCompliance.pct}%` : "—"}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">On Time</div><div className="metric-value">{firmInsights.filingCompliance.onTime}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Late</div><div className="metric-value" style={{ color: firmInsights.filingCompliance.late > 0 ? "var(--red)" : undefined }}>{firmInsights.filingCompliance.late}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Missing</div><div className="metric-value" style={{ color: firmInsights.filingCompliance.missing > 0 ? "var(--red)" : undefined }}>{firmInsights.filingCompliance.missing}</div></div>
-                                </div>
-                                {firmInsights.filingCompliance.byServiceLine.length > 0 && (
-                                  <div className="table-scroll">
-                                    <table>
-                                      <thead><tr><th scope="col">Service Line</th><th scope="col">On-Time Rate</th><th scope="col">On Time</th><th scope="col">Late</th><th scope="col">Missing</th></tr></thead>
-                                      <tbody>
-                                        {firmInsights.filingCompliance.byServiceLine.map((s) => (
-                                          <tr key={s.serviceLine}>
-                                            <td>{s.serviceLine}</td>
-                                            <td>{s.pct !== null ? `${s.pct}%` : "—"}</td>
-                                            <td>{s.onTime}</td>
-                                            <td style={{ color: s.late > 0 ? "var(--red)" : undefined }}>{s.late}</td>
-                                            <td style={{ color: s.missing > 0 ? "var(--red)" : undefined }}>{s.missing}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                )}
-                                <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>
-                                  {firmInsights.filingCompliance.notYetDue} not yet due — doesn't count toward the rate above.
-                                </p>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Estimate Win Rate</h2>
-                                  <div className="command-panel-note">Of estimates that reached a decision (Approved or Declined) in this window</div>
-                                </div>
-                                <div className="metric-grid" style={{ padding: 16, gridTemplateColumns: "repeat(2, minmax(0,1fr))" }}>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Win Rate</div><div className="metric-value">{firmInsights.estimateWinRate.winRatePct !== null ? `${firmInsights.estimateWinRate.winRatePct}%` : "—"}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Won</div><div className="metric-value">{firmInsights.estimateWinRate.won}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Lost</div><div className="metric-value">{firmInsights.estimateWinRate.lost}</div></div>
-                                  <div className="metric" style={{ boxShadow: "none" }}><div className="metric-label">Still Open</div><div className="metric-value">{firmInsights.estimateWinRate.stillOpen}</div></div>
-                                </div>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Client Growth</h2>
-                                  <div className="command-panel-note">{firmInsights.clientGrowth.activeClientCountNow} active clients today</div>
-                                </div>
-                                <div className="table-scroll">
-                                  <table>
-                                    <thead><tr><th scope="col">Month</th><th scope="col">New Clients</th></tr></thead>
-                                    <tbody>
-                                      {firmInsights.clientGrowth.monthly.map((m) => (
-                                        <tr key={m.month}>
-                                          <td>{m.month}</td>
-                                          <td>
-                                            {m.newClients}
-                                            {m.likelyBulkImport && (
-                                              <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>likely bulk import, not real growth</span>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                                <p className="muted" style={{ fontSize: 11, padding: "0 16px 12px" }}>{firmInsights.clientGrowth.note}</p>
-                              </div>
-
-                              <div className="command-panel">
-                                <div className="command-panel-header">
-                                  <h2 className="command-panel-title">Staff Utilization</h2>
-                                  <div className="command-panel-note">Hours logged in Time Tracking for this window</div>
-                                </div>
-                                <div className="table-scroll">
-                                  <table>
-                                    <thead><tr><th scope="col">Staff</th><th scope="col">Total Hours</th><th scope="col">Billable Hours</th><th scope="col">Billable %</th></tr></thead>
-                                    <tbody>
-                                      {firmInsights.staffUtilization.length === 0 && (
-                                        <tr><td colSpan={4} className="muted">No time entries logged in this window.</td></tr>
-                                      )}
-                                      {firmInsights.staffUtilization.map((s) => (
-                                        <tr key={s.email}>
-                                          <td>{s.name}</td><td>{s.totalHours}</td><td>{s.billableHours}</td><td>{s.billablePct}%</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
                     </>
                   )}
                 </>

@@ -31,6 +31,7 @@ import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
 import { MaintenanceManualPage } from "./pages/MaintenanceManualPage";
 import { FirmSettingsPage } from "./pages/FirmSettingsPage";
+import { FirmReportPage } from "./pages/FirmReportPage";
 import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { ListSettingsPage } from "./pages/ListSettingsPage";
 import { LabelsPage } from "./pages/LabelsPage";
@@ -94,6 +95,7 @@ function App() {
                 <Route path="/users" element={<UsersPage />} />
                 <Route path="/security" element={<SecurityPage />} />
                 <Route path="/firm-settings" element={<FirmSettingsPage />} />
+                <Route path="/firm-report" element={<FirmReportPage />} />
                 <Route path="/firm-portals" element={<FirmPortalsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
                 <Route path="/labels" element={<LabelsPage />} />
