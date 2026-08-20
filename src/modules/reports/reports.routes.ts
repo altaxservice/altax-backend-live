@@ -1781,6 +1781,69 @@ reportsRouter.get("/document-collection-gaps", requireAuth, requireRole("admin")
   res.json(await computeDocumentCollectionGaps());
 }));
 
+export type ProfitabilityTier = "Highly Profitable" | "Normal" | "Low Margin" | "Unprofitable";
+export interface ClientProfitabilityRow {
+  clientId: string; clientName: string; revenue: number; directCosts: number; profit: number;
+  marginPct: number | null; arBalance: number; tier: ProfitabilityTier;
+}
+
+/**
+ * Deliberately simplified per the user's own explicit choice (2026-08-20,
+ * asked directly rather than guessing): Revenue - Direct Costs only, no
+ * staff-time cost allocation — that needs a $/hour methodology decision
+ * (flat rate? per-person?) the user chose to skip rather than answer right
+ * now. "Direct Costs" = every GL entry bucketed expense/COGS and posted
+ * under that CLIENT's own client_id (bucketFor via ensureCoaTypeCache) —
+ * real costs actually attributed to serving them, not an allocated share
+ * of firm overhead. Tiers are a reasonable default (not requested by the
+ * user, easy to adjust): >=20% Highly Profitable, 10-20% Normal, 0-10% Low
+ * Margin, <0 Unprofitable.
+ */
+export async function computeClientProfitability(from: string, to: string): Promise<ClientProfitabilityRow[]> {
+  await ensureCoaTypeCache();
+  const [glRows, arAging, clientRows] = await Promise.all([
+    query<any>(
+      `SELECT client_id, account, debit, credit FROM altax.v3_gl_entries
+        WHERE entry_date >= $1::date AND entry_date <= $2::date AND client_id IS NOT NULL`,
+      [from, to]
+    ),
+    computeArAging(),
+    query<any>(`SELECT client_id, client_name FROM altax.v3_clients`),
+  ]);
+  const clientNameById = new Map(clientRows.map((c: any) => [c.client_id, c.client_name]));
+  const arByClient = new Map(arAging.rows.map((r: any) => [r.clientId, r.total]));
+
+  const byClient = new Map<string, { revenue: number; costs: number }>();
+  for (const row of glRows) {
+    const entry = byClient.get(row.client_id) || { revenue: 0, costs: 0 };
+    const bucket = bucketAccount(row.account);
+    if (bucket === "revenue") entry.revenue += Number(row.credit || 0) - Number(row.debit || 0);
+    else if (bucket === "expense") entry.costs += Number(row.debit || 0) - Number(row.credit || 0);
+    byClient.set(row.client_id, entry);
+  }
+
+  const rows: ClientProfitabilityRow[] = [];
+  for (const [clientId, { revenue, costs }] of byClient) {
+    if (revenue === 0 && costs === 0) continue;
+    const profit = revenue - costs;
+    const marginPct = revenue > 0 ? round2((profit / revenue) * 100) : null;
+    const tier: ProfitabilityTier = marginPct === null ? "Unprofitable" : marginPct >= 20 ? "Highly Profitable" : marginPct >= 10 ? "Normal" : marginPct >= 0 ? "Low Margin" : "Unprofitable";
+    rows.push({
+      clientId, clientName: (clientNameById.get(clientId) as string) || clientId,
+      revenue: round2(revenue), directCosts: round2(costs), profit: round2(profit), marginPct,
+      arBalance: round2(Number(arByClient.get(clientId) || 0)), tier,
+    });
+  }
+  return rows.sort((a, b) => b.profit - a.profit);
+}
+
+reportsRouter.get("/client-profitability", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { from, to } = defaultFirmSummaryRange();
+  const rangeFrom = String(req.query.from || "").slice(0, 10) || from;
+  const rangeTo = String(req.query.to || "").slice(0, 10) || to;
+  res.json({ clients: await computeClientProfitability(rangeFrom, rangeTo) });
+}));
+
 /**
  * Income/COGS/Expense are period-flow accounts — they reset every fiscal year, so a P&L
  * legitimately only wants the activity strictly between `from` and `to`. Assets,

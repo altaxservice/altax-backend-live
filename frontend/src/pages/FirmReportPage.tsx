@@ -218,6 +218,8 @@ export function FirmReportPage() {
 
       <DocumentCollectionGapsSection />
 
+      <ClientProfitabilitySection from={from} to={to} />
+
       <ClientListingSection />
 
       {error && <ErrorBanner error={error} />}
@@ -628,6 +630,67 @@ function DocumentCollectionGapsSection() {
             </tbody>
           </table>
           {data.rows.length > 30 && <p className="muted" style={{ padding: "8px 16px", fontSize: 11 }}>+{data.rows.length - 30} more not shown.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ProfitabilityTier = "Highly Profitable" | "Normal" | "Low Margin" | "Unprofitable";
+interface ClientProfitabilityRow {
+  clientId: string; clientName: string; revenue: number; directCosts: number; profit: number;
+  marginPct: number | null; arBalance: number; tier: ProfitabilityTier;
+}
+const TIER_COLOR: Record<ProfitabilityTier, string> = {
+  "Highly Profitable": "var(--teal)", "Normal": "var(--ink)", "Low Margin": "#b8860b", "Unprofitable": "var(--red)",
+};
+
+/**
+ * Simplified per the user's own explicit choice (2026-08-20): revenue minus
+ * direct GL-posted costs only, no staff-time cost allocation — they chose
+ * to skip that rather than pick a costing methodology right now. Uses the
+ * page's own From/To period, unlike the fixed-window sections above.
+ */
+function ClientProfitabilitySection({ from, to }: { from: string; to: string }) {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<ClientProfitabilityRow[] | null>(null);
+
+  useEffect(() => {
+    setRows(null);
+    api.get<{ clients: ClientProfitabilityRow[] }>(`/reports/client-profitability?from=${from}&to=${to}`)
+      .then((res) => setRows(res.clients))
+      .catch(() => {});
+  }, [from, to]);
+
+  if (!rows) return null;
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <h2 className="command-panel-title">Client Profitability</h2>
+        <div className="command-panel-note">
+          Revenue minus direct costs posted to each client's own GL activity — no staff-time cost allocation (skipped by choice, since that needs a $/hour methodology decision first).
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>No client GL activity in this window.</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Client</th><th scope="col">Revenue</th><th scope="col">Direct Costs</th><th scope="col">Profit</th><th scope="col">Margin</th><th scope="col">Tier</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
+                  <td>{r.clientName}</td>
+                  <td>{fmtMoney(r.revenue)}</td>
+                  <td>{fmtMoney(r.directCosts)}</td>
+                  <td style={{ fontWeight: 700, color: r.profit >= 0 ? undefined : "var(--red)" }}>{fmtMoney(r.profit)}</td>
+                  <td>{r.marginPct !== null ? `${r.marginPct}%` : "—"}</td>
+                  <td><span style={{ color: TIER_COLOR[r.tier], fontWeight: 700 }}>{r.tier}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
