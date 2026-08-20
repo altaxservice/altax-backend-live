@@ -193,7 +193,10 @@ function emptyNote(c: Cursor, y: number): number {
 export interface LedgerLine { account: string; debit: number; credit: number }
 
 export interface PLReportData {
-  client: ReportClientInfo;
+  // Null client = firm-wide roll-up across every client's GL activity (internal
+  // analytics, same firm-letterhead framing as AR Aging/Firm Overview) rather
+  // than one client's own P&L (client letterhead, meant for their records).
+  client: ReportClientInfo | null;
   from: string; to: string;
   income: LedgerLine[]; cogs: LedgerLine[]; expenses: LedgerLine[];
   totalIncome: number; totalCogs: number; grossProfit: number; totalExpenses: number; netIncome: number;
@@ -201,12 +204,18 @@ export interface PLReportData {
 
 export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  setPdfTitle(doc, [data.client.clientName, "P&L", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
+  setPdfTitle(doc, [data.client?.clientName || "Firm-Wide", "P&L", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const { c } = await newPage(doc, font, bold);
+  const { page, c } = await newPage(doc, font, bold);
   const profile = await getFirmProfile();
-  let y = drawHeader(c, data.client, "PROFIT AND LOSS", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+  let y: number;
+  if (data.client) {
+    y = drawHeader(c, data.client, "PROFIT AND LOSS", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile.firmName);
+  } else {
+    const logo = await embedFirmLogo(doc, profile);
+    y = drawFirmHeader(page, c, "FIRM-WIDE PROFIT AND LOSS", `${fmtDate(data.from)} – ${fmtDate(data.to)}`, profile, logo);
+  }
 
   y = sectionLabel(c, y, "Income");
   if (!data.income.length) y = emptyNote(c, y);
@@ -233,12 +242,12 @@ export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   y += 16;
   y = row(c, y, "Net Income", money(data.netIncome), { bold: true, accent: true });
 
-  drawFooter(c, profile.firmName);
+  drawFooter(c, profile.firmName, data.client ? undefined : "Internal firm analytics — not a client-facing document.");
   return doc.save();
 }
 
 export interface BalanceSheetReportData {
-  client: ReportClientInfo;
+  client: ReportClientInfo | null;
   from: string; to: string;
   assets: LedgerLine[]; liabilities: LedgerLine[];
   totalAssets: number; totalLiabilities: number; totalEquity: number;
@@ -246,12 +255,18 @@ export interface BalanceSheetReportData {
 
 export async function generateBalanceSheetPdf(data: BalanceSheetReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  setPdfTitle(doc, [data.client.clientName, "Balance Sheet", `As of ${fmtDate(data.to)}`]);
+  setPdfTitle(doc, [data.client?.clientName || "Firm-Wide", "Balance Sheet", `As of ${fmtDate(data.to)}`]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const { c } = await newPage(doc, font, bold);
+  const { page, c } = await newPage(doc, font, bold);
   const profile = await getFirmProfile();
-  let y = drawHeader(c, data.client, "BALANCE SHEET", `As of ${fmtDate(data.to)}`, profile.firmName);
+  let y: number;
+  if (data.client) {
+    y = drawHeader(c, data.client, "BALANCE SHEET", `As of ${fmtDate(data.to)}`, profile.firmName);
+  } else {
+    const logo = await embedFirmLogo(doc, profile);
+    y = drawFirmHeader(page, c, "FIRM-WIDE BALANCE SHEET", `As of ${fmtDate(data.to)}`, profile, logo);
+  }
 
   y = sectionLabel(c, y, "Assets");
   if (!data.assets.length) y = emptyNote(c, y);
@@ -274,7 +289,7 @@ export async function generateBalanceSheetPdf(data: BalanceSheetReportData): Pro
   c.rect(48, y - 12, PAGE_W - 96, 22, TEAL_TINT);
   y = row(c, y, "Total Liabilities + Equity", money(data.totalLiabilities + data.totalEquity), { bold: true, accent: true });
 
-  drawFooter(c, profile.firmName);
+  drawFooter(c, profile.firmName, data.client ? undefined : "Internal firm analytics — not a client-facing document.");
   return doc.save();
 }
 

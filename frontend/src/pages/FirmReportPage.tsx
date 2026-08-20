@@ -73,6 +73,22 @@ export function FirmReportPage() {
     }
   }
 
+  async function handleStatementPdf(kind: "pl" | "balance-sheet", mode: "view" | "download" | "print") {
+    const key = `${kind}-${mode}`;
+    setExporting(key);
+    try {
+      const path = `/reports/pdf/${kind}?from=${from}&to=${to}`;
+      const label = kind === "pl" ? "Firm-Wide P&L" : "Firm-Wide Balance Sheet";
+      if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
+      else await downloadFile(path, buildFilename([label, `${from} to ${to}`], "pdf"));
+    } catch {
+      setError(`Could not generate the ${kind === "pl" ? "P&L" : "Balance Sheet"}.`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   async function handlePdf(mode: "view" | "download" | "print") {
     setExporting(`pdf-${mode}`);
     try {
@@ -153,6 +169,31 @@ export function FirmReportPage() {
           </div>
         </div>
       )}
+
+      <div className="command-panel" style={{ marginBottom: 16 }}>
+        <div className="command-panel-header">
+          <h2 className="command-panel-title">Financial Statements</h2>
+          <div className="command-panel-note">Firm-wide P&L and Balance Sheet — every client's GL activity rolled into one statement, for the period above.</div>
+        </div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", padding: "0 16px 16px" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Profit &amp; Loss</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("pl", "view")}>{exporting === "pl-view" ? "Opening…" : "View / Print"}</button>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("pl", "print")}>{exporting === "pl-print" ? "Printing…" : "Print"}</button>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("pl", "download")}>{exporting === "pl-download" ? "Generating…" : "Download PDF"}</button>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Balance Sheet</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("balance-sheet", "view")}>{exporting === "balance-sheet-view" ? "Opening…" : "View / Print"}</button>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("balance-sheet", "print")}>{exporting === "balance-sheet-print" ? "Printing…" : "Print"}</button>
+              <button type="button" className="btn" disabled={exporting !== null} onClick={() => handleStatementPdf("balance-sheet", "download")}>{exporting === "balance-sheet-download" ? "Generating…" : "Download PDF"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <ClientListingSection />
 
