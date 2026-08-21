@@ -13,6 +13,8 @@ import { summarizeMdFilingOnTime, classifyMdFilingPeriod } from "../../common/md
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
+import { computeClientFlags } from "../clients/clients.routes";
+import { computeClientComplianceTimeline, computeClientComplianceScore } from "../clients/complianceTimeline";
 import { SERVICE_LABEL } from "../contracts/contractContent";
 import { buildXlsxBuffer } from "../../common/xlsxWriter";
 
@@ -2140,12 +2142,14 @@ async function loadEmployeeSummaryForPeriod(clientId: string, from: string, to: 
  * compute* function in this file already uses.
  */
 export async function computeClientDashboard(clientId: string) {
-  const clientRow = await queryOne<any>(
+  const clientRow = decryptClientPii(await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation,
-            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled
+            eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled,
+            state_tax_id, secretary_of_state_id, cra_registration_number, md_ui_employer_id, md_ui_tax_rate,
+            company_contact_title, company_contact_address, payroll_frequency, payroll_system, notes
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
-  );
+  ));
   if (!clientRow) return null;
   const reportClient: ReportClientInfo = {
     clientId: clientRow.client_id, clientName: clientRow.client_name, ein: clientRow.ein,
@@ -2293,6 +2297,22 @@ reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("adm
   );
   const result = await computeClientDashboard(clientId);
   if (!result || !profileRow) return res.status(404).json({ error: "Client not found." });
+  const cr = result.clientRow;
+
+  let flags: any[] = [];
+  let complianceScore: any = null;
+  if (variant === "at-a-glance") {
+    const flagsResult = await computeClientFlags(clientId);
+    flags = flagsResult.flags;
+    const timeline = await computeClientComplianceTimeline(clientId, cr);
+    complianceScore = computeClientComplianceScore(timeline, flagsResult.gaps);
+  }
+  let salesTaxFrequencyEffectiveFrom: string | null = null;
+  if (variant === "profile" && cr.sales_tax_frequency) {
+    const history = await loadSalesTaxFrequencyHistory(clientId);
+    const current = history.find((h) => h.effectiveTo === null) || history[history.length - 1];
+    salesTaxFrequencyEffectiveFrom = current ? current.effectiveFrom : null;
+  }
 
   const { generateClientProfilePdf } = await import("../accounting/reportsPdf");
   const pdfBytes = await generateClientProfilePdf({
@@ -2306,6 +2326,20 @@ reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("adm
     preferredContact: profileRow.preferred_contact || null, preferredLanguage: profileRow.preferred_language,
     smsAllowed: Boolean(profileRow.sms_allowed), emailAllowed: Boolean(profileRow.email_allowed),
     portalEnabled: Boolean(profileRow.portal_enabled), referralSource: profileRow.referral_source,
+    // Business Tax IDs, Owner/Responsible Party, Payroll/Sales Tax/Tax Prep detail, Notes —
+    // straight off computeClientDashboard's already-decrypted clientRow, not a second query.
+    // Owner SSN is deliberately never included in a printed document.
+    stateTaxId: cr.state_tax_id, secretaryOfStateId: cr.secretary_of_state_id, craRegistrationNumber: cr.cra_registration_number,
+    mdUiEmployerId: cr.md_ui_employer_id, mdUiTaxRate: cr.md_ui_tax_rate != null ? Number(cr.md_ui_tax_rate) : null,
+    ownerTitle: cr.company_contact_title, ownerAddress: cr.company_contact_address,
+    payrollFrequency: cr.payroll_frequency, payrollSystem: cr.payroll_system,
+    eftpsEnabled: Boolean(cr.eftps_enabled), mduiEnabled: Boolean(cr.mdui_enabled), w21099Enabled: Boolean(cr.w21099_enabled),
+    mdWithholdingFrequency: cr.md_withholding_frequency,
+    salesTaxFrequencyEffectiveFrom,
+    businessReturnType: cr.business_return_type, mdAnnualReportEnabled: Boolean(cr.md_annual_report_enabled),
+    notes: cr.notes,
+    flags: flags.map((f: any) => ({ label: f.flagType, note: f.note, color: f.color })),
+    complianceScore,
     ...result.data,
   }, variant);
 

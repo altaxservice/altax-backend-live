@@ -573,7 +573,7 @@ function nextFlagId(): string {
   return `FLAG-${ts}-${Math.floor(100 + Math.random() * 900)}`;
 }
 
-interface ClientFlag {
+export interface ClientFlag {
   flagId: string | null;
   /** Stable identity for per-send selection in the Notify Client modal — computed flag
    * types (BalancePastDue/AgencyPastDue) have flagId: null, so flagId alone can't address
@@ -643,7 +643,7 @@ interface ClientFlagsResult {
   gaps: { payrollGap: PayrollCadenceGap | null; bookkeepingGap: BookkeepingStaleness | null; missingTaskGaps: MissingComplianceTaskGap[] };
 }
 
-async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> {
+export async function computeClientFlags(clientId: string): Promise<ClientFlagsResult> {
   const flags: ClientFlag[] = [];
 
   const overdue = await queryOne<any>(

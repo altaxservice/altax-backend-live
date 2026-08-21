@@ -288,6 +288,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
 
   return (
     <div>
+      {headerActions}
       {complianceScore && (
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -458,7 +459,6 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
 
           {!loading && dash && (
             <>
-              {headerActions}
               {showAlert && (
                 <div className="alert-strip">
                   {dash.health.band === "Red" && <span>Health score is <strong>{dash.health.score}</strong> (Red) — see the breakdown below.</span>}

@@ -1516,6 +1516,19 @@ export interface ClientProfileReportData {
   budgetVsActual: { accountName: string; budget: number; actual: number; variance: number }[];
   budgetPeriodLabel: string;
   deadlines: { label: string; date: string; source: string }[];
+  // Business Tax IDs, Owner/Responsible Party, Payroll/Sales Tax/Tax Prep detail —
+  // "profile" variant only. Owner SSN is deliberately never included here.
+  stateTaxId: string | null; secretaryOfStateId: string | null; craRegistrationNumber: string | null;
+  mdUiEmployerId: string | null; mdUiTaxRate: number | null;
+  ownerTitle: string | null; ownerAddress: string | null;
+  payrollFrequency: string | null; payrollSystem: string | null;
+  eftpsEnabled: boolean; mduiEnabled: boolean; w21099Enabled: boolean; mdWithholdingFrequency: string | null;
+  salesTaxFrequencyEffectiveFrom: string | null;
+  businessReturnType: string | null; mdAnnualReportEnabled: boolean;
+  notes: string | null;
+  // Account Flags + Compliance Score — "at-a-glance" variant only.
+  flags: { label: string; note: string | null; color: "red" | "green" | "amber" }[];
+  complianceScore: { score: number; band: "Green" | "Yellow" | "Red"; currentlyOverdueCount: number; components: { label: string; points: number; maxPoints: number; detail: string }[] } | null;
 }
 
 const HEALTH_BAND_COLOR: Record<string, ReturnType<typeof rgb>> = { Green: TEAL, Yellow: rgb(0.72, 0.55, 0.05), Red: rgb(0.7, 0.15, 0.15) };
@@ -1579,12 +1592,97 @@ export async function generateClientProfilePdf(data: ClientProfileReportData, va
     y = row(c, y, "Email Enabled", data.emailAllowed ? "Yes" : "No");
     y = row(c, y, "Portal Enabled", data.portalEnabled ? "Yes" : "No");
     if (data.referralSource) y = row(c, y, "Referral Source", data.referralSource);
+    y += 4;
+
+    if (data.stateTaxId || data.secretaryOfStateId || data.craRegistrationNumber || data.mdUiEmployerId || data.mdUiTaxRate != null || data.client.ein) {
+      await breakIfNeeded(120);
+      y = sectionLabel(c, y, "Business Tax IDs");
+      if (data.client.ein) y = row(c, y, "EIN", data.client.ein);
+      if (data.stateTaxId) y = row(c, y, "State Tax ID", data.stateTaxId);
+      if (data.secretaryOfStateId) y = row(c, y, "Secretary of State / SDAT ID", data.secretaryOfStateId);
+      if (data.craRegistrationNumber) y = row(c, y, "Central Registration No.", data.craRegistrationNumber);
+      if (data.mdUiEmployerId) y = row(c, y, "MD UI Employer ID", data.mdUiEmployerId);
+      if (data.mdUiTaxRate != null) y = row(c, y, "MD UI Tax Rate", `${data.mdUiTaxRate}%`);
+      y += 4;
+    }
+
+    if (data.companyContactName || data.ownerTitle || data.ownerAddress) {
+      await breakIfNeeded(100);
+      y = sectionLabel(c, y, "Owner / Responsible Party");
+      if (data.companyContactName) y = row(c, y, "Name", data.companyContactName);
+      if (data.ownerTitle) y = row(c, y, "Title", data.ownerTitle);
+      if (data.companyContactEmail) y = row(c, y, "Email", data.companyContactEmail);
+      if (data.companyContactPhone) y = row(c, y, "Phone", data.companyContactPhone);
+      if (data.ownerAddress) y = row(c, y, "Address", data.ownerAddress);
+      y += 4;
+    }
+
+    if (data.payrollFrequency || data.payrollSystem || data.eftpsEnabled || data.mduiEnabled || data.w21099Enabled || data.mdWithholdingFrequency) {
+      await breakIfNeeded(120);
+      y = sectionLabel(c, y, "Payroll Details");
+      if (data.payrollFrequency) y = row(c, y, "Frequency", data.payrollFrequency);
+      if (data.payrollSystem) y = row(c, y, "Provider", data.payrollSystem);
+      if (data.mdWithholdingFrequency) y = row(c, y, "MD Withholding Frequency", data.mdWithholdingFrequency);
+      y = row(c, y, "EFTPS Enabled", data.eftpsEnabled ? "Yes" : "No");
+      y = row(c, y, "MD UI Enabled", data.mduiEnabled ? "Yes" : "No");
+      y = row(c, y, "W-2/1099 Enabled", data.w21099Enabled ? "Yes" : "No");
+      y += 4;
+    }
+
+    if (data.client.salesTaxFrequency || data.salesTaxFrequencyEffectiveFrom) {
+      await breakIfNeeded(80);
+      y = sectionLabel(c, y, "Sales Tax Details");
+      if (data.client.salesTaxFrequency) y = row(c, y, "Frequency", data.client.salesTaxFrequency);
+      if (data.salesTaxFrequencyEffectiveFrom) y = row(c, y, "Effective From", fmtDate(data.salesTaxFrequencyEffectiveFrom));
+      y += 4;
+    }
+
+    if (data.businessReturnType) {
+      await breakIfNeeded(60);
+      y = sectionLabel(c, y, "Tax Preparation Details");
+      y = row(c, y, "Business Return Type", data.businessReturnType);
+      y += 4;
+    }
+
+    await breakIfNeeded(60);
+    y = sectionLabel(c, y, "Business Compliance");
+    y = row(c, y, "MD Annual Report Enabled", data.mdAnnualReportEnabled ? "Yes" : "No");
+    y += 4;
+
+    if (data.notes) {
+      await breakIfNeeded(80);
+      y = sectionLabel(c, y, "Notes");
+      for (const line of wrapText(data.notes, font, 9, PAGE_W - 96)) {
+        await breakIfNeeded(40);
+        c.text(48, y, line, { size: 9 });
+        y += 12;
+      }
+    }
 
     drawFooter(c, profile.firmName);
     return doc.save();
   }
 
-  y = sectionLabel(c, y, "Client Health Score");
+  if (data.flags.length > 0) {
+    y = sectionLabel(c, y, "Account Flags");
+    const flagColor: Record<string, ReturnType<typeof rgb>> = { red: rgb(0.7, 0.15, 0.15), amber: rgb(0.72, 0.55, 0.05), green: TEAL };
+    for (const f of data.flags) {
+      await breakIfNeeded(40);
+      c.text(56, y, f.label, { size: 9, bold: true, color: flagColor[f.color] || INK });
+      y += 12;
+      if (f.note) {
+        for (const line of wrapText(f.note, font, 8.5, PAGE_W - 112)) {
+          await breakIfNeeded(30);
+          c.text(64, y, line, { size: 8.5, color: MUTED });
+          y += 11;
+        }
+      }
+    }
+    y += 6;
+  }
+
+  await breakIfNeeded(140);
+  y = sectionLabel(c, y, "Business Health Score");
   const bandColor = HEALTH_BAND_COLOR[data.health.band] || INK;
   c.text(48, y, `${data.health.score} / 100`, { size: 20, bold: true, color: bandColor });
   c.text(48 + 90, y - 5, data.health.band.toUpperCase(), { size: 10, bold: true, color: bandColor });
@@ -1596,6 +1694,24 @@ export async function generateClientProfilePdf(data: ClientProfileReportData, va
     y += 13;
   }
   y += 6;
+
+  if (data.complianceScore) {
+    await breakIfNeeded(140);
+    const cs = data.complianceScore;
+    y = sectionLabel(c, y, "Compliance Score");
+    const csColor = HEALTH_BAND_COLOR[cs.band] || INK;
+    c.text(48, y, `${cs.score} / 100`, { size: 20, bold: true, color: csColor });
+    c.text(48 + 90, y - 5, cs.band.toUpperCase(), { size: 10, bold: true, color: csColor });
+    y += 20;
+    for (const comp of cs.components) {
+      await breakIfNeeded(40);
+      c.text(56, y, `${comp.label}: ${comp.points}/${comp.maxPoints}`, { size: 9, bold: true });
+      y += 12;
+      c.text(64, y, comp.detail, { size: 8.5, color: MUTED });
+      y += 13;
+    }
+    y += 6;
+  }
 
   await breakIfNeeded(140);
   y = sectionLabel(c, y, `Financial Summary (${fmtDate(data.period.from)} – ${fmtDate(data.period.to)})`);
@@ -1617,6 +1733,15 @@ export async function generateClientProfilePdf(data: ClientProfileReportData, va
   y = row(c, y, "61-90 Days", money(data.arAging.d61_90), { accent: data.arAging.d61_90 > 0 });
   y = row(c, y, "90+ Days", money(data.arAging.d90Plus), { bold: data.arAging.d90Plus > 0, accent: data.arAging.d90Plus > 0 });
   y = row(c, y, "Total Outstanding", money(data.arAging.total), { bold: true });
+  y += 8;
+
+  await breakIfNeeded(100);
+  y = sectionLabel(c, y, "Ratios");
+  const pct = (v: number | null) => (v === null ? "N/A" : `${v.toFixed(1)}%`);
+  y = row(c, y, "Net Margin", pct(data.ratios.netMarginPct));
+  y = row(c, y, "Gross Margin", pct(data.ratios.grossMarginPct));
+  y = row(c, y, "Days Sales Outstanding", data.ratios.dso === null ? "N/A" : `${Math.round(data.ratios.dso)} days`);
+  y = row(c, y, "A/R 90+ Days", pct(data.ratios.ar90PlusPct));
   y += 8;
 
   if (data.budgetVsActual.length > 0) {
