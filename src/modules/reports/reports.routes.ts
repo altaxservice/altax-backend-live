@@ -13,6 +13,7 @@ import { summarizeMdFilingOnTime, classifyMdFilingPeriod } from "../../common/md
 import { getDashboardAlertSettings, updateDashboardAlertSettings } from "../clients/dashboardAlerts";
 import { runMonthlyManagementSummary } from "../clients/monthlyManagementSummary";
 import { computeUpcomingDeadlines } from "../clients/complianceCalendar";
+import { SERVICE_LABEL } from "../contracts/contractContent";
 import { buildXlsxBuffer } from "../../common/xlsxWriter";
 
 /**
@@ -2283,7 +2284,9 @@ reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("adm
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
   const profileRow = await queryOne<any>(
-    `SELECT phone, email, company_contact_name, company_contact_email, company_contact_phone, status, assigned_to, service_type, industry_category
+    `SELECT phone, email, company_contact_name, company_contact_email, company_contact_phone, status, assigned_to, service_type, industry_category,
+            client_type, entity_type, date_of_formation, state, services, preferred_contact, preferred_language,
+            sms_allowed, email_allowed, portal_enabled, referral_source
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -2296,6 +2299,12 @@ reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("adm
     phone: profileRow.phone, email: profileRow.email,
     companyContactName: profileRow.company_contact_name, companyContactEmail: profileRow.company_contact_email, companyContactPhone: profileRow.company_contact_phone,
     status: profileRow.status, assignedTo: profileRow.assigned_to, serviceType: profileRow.service_type, industryCategory: profileRow.industry_category,
+    clientType: profileRow.client_type, entityType: profileRow.entity_type,
+    dateOfFormation: profileRow.date_of_formation ? new Date(profileRow.date_of_formation).toISOString().slice(0, 10) : null,
+    state: profileRow.state, services: (profileRow.services || []).map((k: string) => SERVICE_LABEL[k] || k),
+    preferredContact: profileRow.preferred_contact || null, preferredLanguage: profileRow.preferred_language,
+    smsAllowed: Boolean(profileRow.sms_allowed), emailAllowed: Boolean(profileRow.email_allowed),
+    portalEnabled: Boolean(profileRow.portal_enabled), referralSource: profileRow.referral_source,
     ...result.data,
   });
 

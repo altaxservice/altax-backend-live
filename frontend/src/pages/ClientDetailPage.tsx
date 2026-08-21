@@ -945,14 +945,6 @@ export function ClientDetailPage() {
             ))}
           </div>
 
-          {(tab === "At a Glance" || tab === "Profile") && canSeeStaffTabs && (
-            <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("view")}>{profilePdfBusy === "view" ? "Opening…" : "View / Print PDF"}</button>
-              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("print")}>{profilePdfBusy === "print" ? "Printing…" : "Print"}</button>
-              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("download")}>{profilePdfBusy === "download" ? "Generating…" : "Download PDF"}</button>
-            </div>
-          )}
-
           {tab === "At a Glance" && canSeeStaffTabs && (
             <ClientAtAGlance
               clientId={client.client_id}
@@ -962,6 +954,13 @@ export function ClientDetailPage() {
               complianceTimeline={complianceTimeline}
               onNavigateTab={(t) => { setTab(t as DetailTab); setSearchParams({ tab: t }, { replace: true }); }}
               onFlagsChanged={loadFlags}
+              headerActions={
+                <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("view")}>{profilePdfBusy === "view" ? "Opening…" : "View / Print PDF"}</button>
+                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("print")}>{profilePdfBusy === "print" ? "Printing…" : "Print"}</button>
+                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("download")}>{profilePdfBusy === "download" ? "Generating…" : "Download PDF"}</button>
+                </div>
+              }
             />
           )}
 
@@ -995,7 +994,9 @@ export function ClientDetailPage() {
                 />
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h2 style={{ fontSize: 15, margin: 0 }}>Profile</h2>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {canSeeStaffTabs && <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("view")}>{profilePdfBusy === "view" ? "Opening…" : "View / Print PDF"}</button>}
+                    {canSeeStaffTabs && <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("download")}>{profilePdfBusy === "download" ? "Generating…" : "Download PDF"}</button>}
                     {isAdmin && <button className="btn btn-sm" onClick={handleInvite}>Send Portal Invitation</button>}
                     {isAdmin && <button className="btn btn-sm" onClick={() => setEmailChangeOpen(true)}>Change Sign-In Email</button>}
                     {canEdit && <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit</button>}

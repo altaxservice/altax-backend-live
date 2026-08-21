@@ -186,7 +186,7 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
  *   GL-derived estimates (no bank feed or vendor-bill subledger exists in
  *   this app) — always labeled as such per dataLimitations from the API.
  */
-export function ClientAtAGlance({ clientId, summary, flags, complianceScore, complianceTimeline, onNavigateTab, onFlagsChanged }: {
+export function ClientAtAGlance({ clientId, summary, flags, complianceScore, complianceTimeline, onNavigateTab, onFlagsChanged, headerActions }: {
   clientId: string;
   summary: ClientSummary | null;
   flags: ClientFlag[] | null;
@@ -197,6 +197,8 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
    * creating a task from a Missing Compliance Task gap so that gap's flag
    * disappears as soon as the real fix exists. */
   onFlagsChanged: () => void;
+  /** Rendered at the top of the loaded view (e.g. the Client Profile PDF View/Print/Download row) — lives inside this tab's own content, not floating above it. */
+  headerActions?: ReactNode;
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -456,6 +458,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
 
           {!loading && dash && (
             <>
+              {headerActions}
               {showAlert && (
                 <div className="alert-strip">
                   {dash.health.band === "Red" && <span>Health score is <strong>{dash.health.score}</strong> (Red) — see the breakdown below.</span>}

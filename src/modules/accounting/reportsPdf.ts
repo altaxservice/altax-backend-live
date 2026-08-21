@@ -1503,6 +1503,9 @@ export interface ClientProfileReportData {
   phone: string | null; email: string | null;
   companyContactName: string | null; companyContactEmail: string | null; companyContactPhone: string | null;
   status: string | null; assignedTo: string | null; serviceType: string | null; industryCategory: string | null;
+  clientType: string | null; entityType: string | null; dateOfFormation: string | null; state: string | null;
+  services: string[]; preferredContact: string | null; preferredLanguage: string | null;
+  smsAllowed: boolean; emailAllowed: boolean; portalEnabled: boolean; referralSource: string | null;
   period: { from: string; to: string };
   financials: { revenue: number; expenses: number; grossProfit: number; netProfit: number; cogs: number };
   cashBalance: number; apEstimate: number; taxLiabilities: number;
@@ -1543,18 +1546,33 @@ export async function generateClientProfilePdf(data: ClientProfileReportData): P
     }
   }
 
+  y = sectionLabel(c, y, "Profile");
+  if (data.clientType) y = row(c, y, "Client Type", data.clientType);
+  if (data.entityType) y = row(c, y, "Entity Type", data.entityType);
+  if (data.dateOfFormation) y = row(c, y, "Date of Formation", fmtDate(data.dateOfFormation));
+  if (data.state) y = row(c, y, "State", data.state);
+  if (data.status) y = row(c, y, "Status", data.status);
+  if (data.serviceType) y = row(c, y, "Service Type", data.serviceType);
+  if (data.services.length) y = row(c, y, "Services Provided", data.services.join(", "));
+  if (data.industryCategory) y = row(c, y, "Industry", data.industryCategory);
+  y += 4;
+
+  await breakIfNeeded(140);
   y = sectionLabel(c, y, "Contact & Assignment");
   if (data.phone) y = row(c, y, "Phone", data.phone);
   if (data.email) y = row(c, y, "Email", data.email);
   if (data.companyContactName) y = row(c, y, "Owner Contact", `${data.companyContactName}${data.companyContactPhone ? ` — ${data.companyContactPhone}` : ""}${data.companyContactEmail ? ` — ${data.companyContactEmail}` : ""}`);
-  if (data.status) y = row(c, y, "Status", data.status);
   if (data.assignedTo) y = row(c, y, "Assigned To", data.assignedTo);
-  if (data.serviceType) y = row(c, y, "Service Type", data.serviceType);
-  if (data.industryCategory) y = row(c, y, "Industry", data.industryCategory);
+  if (data.preferredContact) y = row(c, y, "Preferred Contact", data.preferredContact);
+  if (data.preferredLanguage) y = row(c, y, "Preferred Language", data.preferredLanguage);
+  y = row(c, y, "SMS Enabled", data.smsAllowed ? "Yes" : "No");
+  y = row(c, y, "Email Enabled", data.emailAllowed ? "Yes" : "No");
+  y = row(c, y, "Portal Enabled", data.portalEnabled ? "Yes" : "No");
+  if (data.referralSource) y = row(c, y, "Referral Source", data.referralSource);
   y += 8;
 
   await breakIfNeeded(140);
-  y = sectionLabel(c, y, "Firm Health Score");
+  y = sectionLabel(c, y, "Client Health Score");
   const bandColor = HEALTH_BAND_COLOR[data.health.band] || INK;
   c.text(48, y, `${data.health.score} / 100`, { size: 20, bold: true, color: bandColor });
   c.text(48 + 90, y - 5, data.health.band.toUpperCase(), { size: 10, bold: true, color: bandColor });
