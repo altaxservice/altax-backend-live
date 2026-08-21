@@ -1498,6 +1498,126 @@ export async function generateClientValueReportPdf(data: ClientValueReportData):
   return doc.save();
 }
 
+export interface ClientProfileReportData {
+  client: ReportClientInfo;
+  phone: string | null; email: string | null;
+  companyContactName: string | null; companyContactEmail: string | null; companyContactPhone: string | null;
+  status: string | null; assignedTo: string | null; serviceType: string | null; industryCategory: string | null;
+  period: { from: string; to: string };
+  financials: { revenue: number; expenses: number; grossProfit: number; netProfit: number; cogs: number };
+  cashBalance: number; apEstimate: number; taxLiabilities: number;
+  arAging: { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number };
+  payrollCost: number;
+  ratios: { netMarginPct: number | null; grossMarginPct: number | null; dso: number | null; ar90PlusPct: number | null };
+  health: { score: number; band: "Green" | "Yellow" | "Red"; components: { label: string; points: number; maxPoints: number; detail: string }[] };
+  budgetVsActual: { accountName: string; budget: number; actual: number; variance: number }[];
+  budgetPeriodLabel: string;
+  deadlines: { label: string; date: string; source: string }[];
+}
+
+const HEALTH_BAND_COLOR: Record<string, ReturnType<typeof rgb>> = { Green: TEAL, Yellow: rgb(0.72, 0.55, 0.05), Red: rgb(0.7, 0.15, 0.15) };
+
+/**
+ * Staff-facing printable summary of the "At a Glance" tab + basic profile
+ * fields — neither had a print/PDF option before (the earlier downloadFile()
+ * audit only checked for a missing view/print PAIR on existing download
+ * buttons, which never catches a screen with no download button at all).
+ * Client letterhead (drawHeader), same as every other per-client statement
+ * in this file — internal staff reference, not itself a client deliverable
+ * (the Annual Value Report above is the client-facing equivalent).
+ */
+export async function generateClientProfilePdf(data: ClientProfileReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "Client Profile"]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let { page, c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "CLIENT PROFILE", `As of ${fmtDate(new Date())}`, profile.firmName);
+
+  async function breakIfNeeded(minRoom: number) {
+    if (y > PAGE_H - minRoom) {
+      drawFooter(c, profile.firmName);
+      ({ page, c } = await newPage(doc, font, bold));
+      y = 60;
+    }
+  }
+
+  y = sectionLabel(c, y, "Contact & Assignment");
+  if (data.phone) y = row(c, y, "Phone", data.phone);
+  if (data.email) y = row(c, y, "Email", data.email);
+  if (data.companyContactName) y = row(c, y, "Owner Contact", `${data.companyContactName}${data.companyContactPhone ? ` — ${data.companyContactPhone}` : ""}${data.companyContactEmail ? ` — ${data.companyContactEmail}` : ""}`);
+  if (data.status) y = row(c, y, "Status", data.status);
+  if (data.assignedTo) y = row(c, y, "Assigned To", data.assignedTo);
+  if (data.serviceType) y = row(c, y, "Service Type", data.serviceType);
+  if (data.industryCategory) y = row(c, y, "Industry", data.industryCategory);
+  y += 8;
+
+  await breakIfNeeded(140);
+  y = sectionLabel(c, y, "Firm Health Score");
+  const bandColor = HEALTH_BAND_COLOR[data.health.band] || INK;
+  c.text(48, y, `${data.health.score} / 100`, { size: 20, bold: true, color: bandColor });
+  c.text(48 + 90, y - 5, data.health.band.toUpperCase(), { size: 10, bold: true, color: bandColor });
+  y += 20;
+  for (const comp of data.health.components) {
+    c.text(56, y, `${comp.label}: ${comp.points}/${comp.maxPoints}`, { size: 9, bold: true });
+    y += 12;
+    c.text(64, y, comp.detail, { size: 8.5, color: MUTED });
+    y += 13;
+  }
+  y += 6;
+
+  await breakIfNeeded(140);
+  y = sectionLabel(c, y, `Financial Summary (${fmtDate(data.period.from)} – ${fmtDate(data.period.to)})`);
+  y = row(c, y, "Revenue", money(data.financials.revenue));
+  y = row(c, y, "Expenses", money(data.financials.expenses));
+  y = row(c, y, "Gross Profit", money(data.financials.grossProfit));
+  y = row(c, y, "Net Profit", money(data.financials.netProfit), { bold: true, accent: true });
+  y = row(c, y, "Estimated Cash Balance", money(data.cashBalance));
+  y = row(c, y, "Estimated A/P", money(data.apEstimate));
+  y = row(c, y, "Tax Liabilities Outstanding", money(data.taxLiabilities));
+  if (data.payrollCost > 0) y = row(c, y, "Payroll Cost (period)", money(data.payrollCost));
+  y += 8;
+
+  await breakIfNeeded(120);
+  y = sectionLabel(c, y, "A/R Aging");
+  y = row(c, y, "Current", money(data.arAging.current));
+  y = row(c, y, "1-30 Days", money(data.arAging.d1_30));
+  y = row(c, y, "31-60 Days", money(data.arAging.d31_60));
+  y = row(c, y, "61-90 Days", money(data.arAging.d61_90), { accent: data.arAging.d61_90 > 0 });
+  y = row(c, y, "90+ Days", money(data.arAging.d90Plus), { bold: data.arAging.d90Plus > 0, accent: data.arAging.d90Plus > 0 });
+  y = row(c, y, "Total Outstanding", money(data.arAging.total), { bold: true });
+  y += 8;
+
+  if (data.budgetVsActual.length > 0) {
+    await breakIfNeeded(100);
+    y = sectionLabel(c, y, `Budget vs Actual (${data.budgetPeriodLabel})`);
+    for (const b of data.budgetVsActual.slice(0, 10)) {
+      await breakIfNeeded(60);
+      c.text(48, y, b.accountName, { size: 9 });
+      c.text(PAGE_W - 48, y, `${money(b.actual)} vs ${money(b.budget)} (${b.variance >= 0 ? "+" : ""}${money(b.variance)})`, { size: 9, align: "right", color: Math.abs(b.variance) > 0 ? (b.variance < 0 ? rgb(0.7, 0.15, 0.15) : TEAL) : MUTED });
+      y += 14;
+    }
+    y += 6;
+  }
+
+  await breakIfNeeded(100);
+  y = sectionLabel(c, y, "Upcoming Deadlines");
+  if (!data.deadlines.length) {
+    y = emptyNote(c, y);
+  } else {
+    for (const d of data.deadlines) {
+      await breakIfNeeded(60);
+      c.text(48, y, d.label, { size: 9 });
+      c.text(PAGE_W - 48, y, `${fmtDate(d.date)} — ${d.source}`, { size: 9, align: "right", color: MUTED });
+      y += 14;
+    }
+  }
+
+  drawFooter(c, profile.firmName, "Internal staff reference — cash/A/P figures are ledger-derived estimates, not a live bank feed.");
+  return doc.save();
+}
+
 export interface CalculatorSalesTaxLine { categoryName: string; taxableAmount: number; rate: number; taxAmount: number }
 export interface CalculatorSalesTaxMdFiling {
   dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string; onTime: boolean;

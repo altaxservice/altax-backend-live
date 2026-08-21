@@ -261,6 +261,7 @@ export function ClientDetailPage() {
   const [complianceScore, setComplianceScore] = useState<ClientComplianceScore | null>(null);
   const [complianceTimeline, setComplianceTimeline] = useState<ComplianceTimelineLane[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [profilePdfBusy, setProfilePdfBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
@@ -645,6 +646,22 @@ export function ClientDetailPage() {
     }
   }
 
+  /** Backs the View/Print/Download trio shown on both "At a Glance" and "Profile" — neither had a print/PDF option before, since the earlier downloadFile() audit only checked existing download buttons for a missing view/print pair, not screens with no download button at all. */
+  async function handleProfilePdf(mode: "view" | "download" | "print") {
+    if (!client) return;
+    setProfilePdfBusy(mode);
+    try {
+      const path = `/reports/pdf/client-profile/${client.client_id}`;
+      if (mode === "view") await viewFile(path);
+      else if (mode === "print") await printFile(path);
+      else await downloadFile(path, buildFilename([client.client_name, "Client Profile"], "pdf"));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not generate the Client Profile PDF.");
+    } finally {
+      setProfilePdfBusy(null);
+    }
+  }
+
   if (error) return <ErrorBanner error={error} />;
   if (!client) return <div className="spinner-wrap">Loading…</div>;
 
@@ -927,6 +944,14 @@ export function ClientDetailPage() {
               </button>
             ))}
           </div>
+
+          {(tab === "At a Glance" || tab === "Profile") && canSeeStaffTabs && (
+            <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("view")}>{profilePdfBusy === "view" ? "Opening…" : "View / Print PDF"}</button>
+              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("print")}>{profilePdfBusy === "print" ? "Printing…" : "Print"}</button>
+              <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("download")}>{profilePdfBusy === "download" ? "Generating…" : "Download PDF"}</button>
+            </div>
+          )}
 
           {tab === "At a Glance" && canSeeStaffTabs && (
             <ClientAtAGlance

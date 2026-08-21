@@ -2129,17 +2129,23 @@ async function loadEmployeeSummaryForPeriod(clientId: string, from: string, to: 
  * (Financial Overview, AR Aging, client-summary) — staff still see
  * operations-only data via the existing /clients/:clientId/summary route.
  */
-reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const { clientId } = req.params;
-  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
-
+/**
+ * Extracted so the "At a Glance" JSON route and the Client Profile PDF
+ * below can share the exact same computation instead of the PDF
+ * re-deriving (and risking drift from) these numbers a second way. Returns
+ * null when the client doesn't exist — callers decide how to respond
+ * (404 JSON vs. a PDF error), access-checking stays the caller's job too
+ * (canAccessClient), same division of responsibility every other
+ * compute* function in this file already uses.
+ */
+export async function computeClientDashboard(clientId: string) {
   const clientRow = await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation,
             eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
-  if (!clientRow) return res.status(404).json({ error: "Client not found." });
+  if (!clientRow) return null;
   const reportClient: ReportClientInfo = {
     clientId: clientRow.client_id, clientName: clientRow.client_name, ein: clientRow.ein,
     address: clientRow.address, state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
@@ -2234,23 +2240,69 @@ reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin
     completedKeys,
   });
 
-  res.json({
-    period: { from, to },
-    financials: {
-      revenue: financials.totals.revenue, expenses: financials.totals.expenses,
-      grossProfit: round2(financials.totals.revenue - cogs), netProfit: financials.totals.profit,
-      cogs, months: financials.months,
+  return {
+    clientRow, reportClient,
+    data: {
+      period: { from, to },
+      financials: {
+        revenue: financials.totals.revenue, expenses: financials.totals.expenses,
+        grossProfit: round2(financials.totals.revenue - cogs), netProfit: financials.totals.profit,
+        cogs, months: financials.months,
+      },
+      cashBalance, apEstimate, taxLiabilities: financials.taxLiabilities,
+      arAging, payrollCost: payroll.totalCost,
+      ratios, health,
+      budgetVsActual, budgetPeriodLabel: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+      deadlines,
+      dataLimitations: [
+        "Cash Balance and Accounts Payable are estimates derived from recorded ledger (GL) activity, not a live bank feed or vendor-bill subledger.",
+        "Current Ratio, Quick Ratio, and Debt-to-Equity are not shown — this system doesn't track a complete liabilities/equity picture, and a ratio built on partial data would be misleading.",
+      ],
     },
-    cashBalance, apEstimate, taxLiabilities: financials.taxLiabilities,
-    arAging, payrollCost: payroll.totalCost,
-    ratios, health,
-    budgetVsActual, budgetPeriodLabel: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
-    deadlines,
-    dataLimitations: [
-      "Cash Balance and Accounts Payable are estimates derived from recorded ledger (GL) activity, not a live bank feed or vendor-bill subledger.",
-      "Current Ratio, Quick Ratio, and Debt-to-Equity are not shown — this system doesn't track a complete liabilities/equity picture, and a ratio built on partial data would be misleading.",
-    ],
+  };
+}
+
+reportsRouter.get("/client-dashboard/:clientId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const result = await computeClientDashboard(clientId);
+  if (!result) return res.status(404).json({ error: "Client not found." });
+  res.json(result.data);
+}));
+
+/**
+ * Client Profile / At a Glance — printable summary combining the client's
+ * own profile fields with the exact same financial/health/AR/deadline data
+ * the on-screen "At a Glance" tab shows (computeClientDashboard above).
+ * Neither "At a Glance" nor "Profile" had any print/PDF option before —
+ * the earlier downloadFile() audit only checked for a missing view/print
+ * PAIR on existing download buttons, which never catches a screen with no
+ * download button at all (the exact gap the user flagged).
+ */
+reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const profileRow = await queryOne<any>(
+    `SELECT phone, email, company_contact_name, company_contact_email, company_contact_phone, status, assigned_to, service_type, industry_category
+       FROM altax.v3_clients WHERE client_id = $1`,
+    [clientId]
+  );
+  const result = await computeClientDashboard(clientId);
+  if (!result || !profileRow) return res.status(404).json({ error: "Client not found." });
+
+  const { generateClientProfilePdf } = await import("../accounting/reportsPdf");
+  const pdfBytes = await generateClientProfilePdf({
+    client: result.reportClient,
+    phone: profileRow.phone, email: profileRow.email,
+    companyContactName: profileRow.company_contact_name, companyContactEmail: profileRow.company_contact_email, companyContactPhone: profileRow.company_contact_phone,
+    status: profileRow.status, assignedTo: profileRow.assigned_to, serviceType: profileRow.service_type, industryCategory: profileRow.industry_category,
+    ...result.data,
   });
+
+  await logAudit("Reports", "GENERATE_CLIENT_PROFILE_PDF", clientId, "", "", "", `Client Profile PDF generated by ${req.user!.email}.`, req.user!.email);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="ClientProfile_${clientId}.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 }));
 
 /**
