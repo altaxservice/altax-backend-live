@@ -51,6 +51,7 @@ export function TaskCalendarPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [showNewAppt, setShowNewAppt] = useState(false);
   const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
+  const [hoveredApptId, setHoveredApptId] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ tasks: Task[] }>("/tasks")
@@ -199,7 +200,7 @@ export function TaskCalendarPage() {
                     role="button"
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedDay(key); } }}
                     style={{
-                      minHeight: 64, borderRadius: 8, padding: 6, cursor: "pointer",
+                      position: "relative", minHeight: 64, borderRadius: 8, padding: 6, cursor: "pointer",
                       border: isSelected ? "2px solid var(--teal)" : isToday ? "1px solid var(--teal)" : "1px solid var(--line)",
                       background: hasContent ? "var(--surface-2, #f8fafc)" : "transparent",
                     }}
@@ -211,21 +212,52 @@ export function TaskCalendarPage() {
                           {dayTasks.length} due{overdueCount > 0 ? ` · ${overdueCount} overdue` : ""}
                         </span>
                       )}
-                      {dayAppts.length > 0 && (() => {
-                        // Purple means "still needs attention" (at least one Scheduled
-                        // appointment that day); once every appointment that day has
-                        // wrapped up (auto-completed or cancelled), the chip turns green
-                        // to match the same "done" signal Completed badges use elsewhere.
-                        const allDone = dayAppts.every((a) => a.status !== "Scheduled");
+                      {/* One small chip per appointment (not an aggregate count) so each
+                          can be hovered for a detail preview and clicked straight into its
+                          own edit view — capped at 2 visible + overflow, since day cells are
+                          only 64px tall and a busy day can easily have 5+ appointments. */}
+                      {dayAppts.slice(0, 2).map((a) => {
+                        const done = a.status !== "Scheduled";
+                        const isHovered = hoveredApptId === a.appointment_id;
                         return (
-                          <span
-                            className="status-pill"
-                            style={{ fontSize: 10, background: allDone ? "var(--green-soft)" : "var(--purple-soft)", color: allDone ? "var(--green)" : "var(--purple)" }}
+                          <div
+                            key={a.appointment_id}
+                            onMouseEnter={() => setHoveredApptId(a.appointment_id)}
+                            onMouseLeave={() => setHoveredApptId((id) => (id === a.appointment_id ? null : id))}
+                            onClick={(e) => { e.stopPropagation(); setEditingAppt(a); }}
+                            style={{
+                              position: "relative", fontSize: 10, lineHeight: "14px", padding: "1px 5px", borderRadius: 4,
+                              background: done ? "var(--green-soft)" : "var(--purple-soft)", color: done ? "var(--green)" : "var(--purple)",
+                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}
                           >
-                            {dayAppts.length} appt{dayAppts.length === 1 ? "" : "s"}
-                          </span>
+                            {fmtApptTime(a)} {a.client_name || a.contact_name || a.title}
+                            {isHovered && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 20, width: 220,
+                                  background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 8,
+                                  boxShadow: "var(--shadow)", padding: "10px 12px", whiteSpace: "normal", color: "var(--ink)", cursor: "default",
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>{a.appointment_type_name || a.title}</div>
+                                <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+                                  {fmtApptTime(a)} – {new Date(a.end_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                                </div>
+                                {(a.client_name || a.contact_name) && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>With:</strong> {a.client_name || a.contact_name}</div>}
+                                {a.assigned_to && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>Assigned:</strong> {a.assigned_to}</div>}
+                                {a.location && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>Location:</strong> {a.location}</div>}
+                                <div style={{ marginTop: 2, marginBottom: a.notes ? 4 : 0 }}><StatusBadge status={a.status} /></div>
+                                {a.notes && <div className="muted" style={{ fontSize: 10.5 }}>{a.notes}</div>}
+                              </div>
+                            )}
+                          </div>
                         );
-                      })()}
+                      })}
+                      {dayAppts.length > 2 && (
+                        <span className="muted" style={{ fontSize: 10 }}>+{dayAppts.length - 2} more</span>
+                      )}
                     </div>
                   </div>
                 );
