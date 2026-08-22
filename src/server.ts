@@ -258,10 +258,18 @@ app.get("*", (req, res, next) => {
 app.use(rateLimit({ name: "api-general", windowMs: 5 * 60 * 1000, max: 900 }));
 
 app.use("/auth", authRouter);
-app.use("/clients", clientsRouter);
+// ownershipTransferRouter/noticesRouter/taxReturnsRouter mount BEFORE clientsRouter:
+// clientsRouter's GET /:clientId and /:clientId/summary are wildcard catch-alls that
+// otherwise shadow these routers' literal firm-wide paths (GET /clients/notices,
+// /clients/tax-returns, /clients/tax-returns/summary) — Express matches "notices" or
+// "tax-returns" as a clientId and never reaches the real handler. Found live: the Firm
+// Report page's Tax Return Production panel was crashing the whole page because
+// /clients/tax-returns/summary was silently resolving to computeClientOpsSummary("tax-returns", ...)
+// instead of the real tax-returns/summary handler, returning a shape with no `counts` field.
 app.use("/clients", ownershipTransferRouter);
 app.use("/clients", noticesRouter);
 app.use("/clients", taxReturnsRouter);
+app.use("/clients", clientsRouter);
 app.use("/users", usersRouter);
 app.use("/estimates", estimatesRouter);
 app.use("/poa-forms", poaFormsRouter);
