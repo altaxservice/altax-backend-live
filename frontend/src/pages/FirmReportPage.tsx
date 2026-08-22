@@ -911,11 +911,14 @@ function FeeComplianceSection({ from, to }: { from: string; to: string }) {
         <div className="command-panel-note">
           {rows.length} service-enrolled client{rows.length === 1 ? "" : "s"} compared against the fee schedule above, for this period.
         </div>
+        <div className="command-panel-note" style={{ marginTop: 4 }}>
+          "Actual Revenue" below is each client's own recorded business revenue (their sales, tracked as part of your bookkeeping service for them) — not the fees they pay AL TAX SERVICE, which this app doesn't yet track consistently enough to compare against. Read this as a bookkeeping-coverage check ("is this client's revenue actually being recorded"), not a verified billing audit, until real invoice/payment history exists.
+        </div>
       </div>
 
       <div style={{ padding: "0 16px 4px", fontWeight: 700, fontSize: 13, color: "var(--red)" }}>Below Minimum ({underpriced.length})</div>
       {underpriced.length === 0 ? (
-        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>No client with recorded revenue is billing below their fee floor.</p>
+        <p className="muted" style={{ padding: "0 16px 12px", fontSize: 12.5 }}>No client with recorded business revenue falls below their fee floor — expected, since a real business's own sales revenue is almost always far larger than a service fee. This check rarely catches anything on its own.</p>
       ) : (
         <div className="table-scroll">
           <table>
@@ -957,7 +960,7 @@ function FeeComplianceSection({ from, to }: { from: string; to: string }) {
         </details>
       )}
 
-      <p className="muted" style={{ padding: "12px 16px 12px", fontSize: 11 }}>{compliant.length} client{compliant.length === 1 ? "" : "s"} at or above their minimum.</p>
+      <p className="muted" style={{ padding: "12px 16px 12px", fontSize: 11 }}>{compliant.length} client{compliant.length === 1 ? "" : "s"} have recorded business revenue above their fee floor — not proof they're actually paying you correctly, just that their own books show activity.</p>
     </div>
   );
 }
