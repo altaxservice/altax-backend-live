@@ -250,15 +250,15 @@ clientsRouter.get("/verification-due", requireAuth, requireRole("admin", "staff"
     `SELECT client_id, client_name, mdtaxconnect_verified_at, mdtaxconnect_verified_by,
             md_business_express_verified_at, md_business_express_verified_by,
             GREATEST(
-              COALESCE(CURRENT_DATE - mdtaxconnect_verified_at, 999999),
-              COALESCE(CURRENT_DATE - md_business_express_verified_at, 999999)
+              COALESCE(CURRENT_DATE - mdtaxconnect_verified_at::date, 999999),
+              COALESCE(CURRENT_DATE - md_business_express_verified_at::date, 999999)
             ) AS max_days_since_verified
        FROM altax.v3_clients
       WHERE state = 'MD' AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))
             ${staffScope}
         AND (
-          mdtaxconnect_verified_at IS NULL OR mdtaxconnect_verified_at <= CURRENT_DATE - INTERVAL '30 days'
-          OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= CURRENT_DATE - INTERVAL '30 days'
+          mdtaxconnect_verified_at IS NULL OR mdtaxconnect_verified_at <= NOW() - INTERVAL '30 days'
+          OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= NOW() - INTERVAL '30 days'
         )
       ORDER BY max_days_since_verified DESC`,
     params
@@ -1053,10 +1053,10 @@ clientsRouter.post("/:clientId/verify/:portal", requireAuth, requireRole("admin"
   if (!cols) return res.status(400).json({ error: "Unrecognized verification portal." });
 
   await query(
-    `UPDATE altax.v3_clients SET ${cols.atColumn} = CURRENT_DATE, ${cols.byColumn} = $2 WHERE client_id = $1`,
+    `UPDATE altax.v3_clients SET ${cols.atColumn} = NOW(), ${cols.byColumn} = $2 WHERE client_id = $1`,
     [clientId, req.user!.email]
   );
-  await logAudit("Clients", "EXTERNAL_VERIFICATION_CHECKED", clientId, portal, "", new Date().toISOString().slice(0, 10),
+  await logAudit("Clients", "EXTERNAL_VERIFICATION_CHECKED", clientId, portal, "", new Date().toISOString(),
     `${portal} checked by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));

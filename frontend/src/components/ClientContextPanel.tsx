@@ -9,7 +9,7 @@ import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
-import { fmtDateTime } from "../utils/date";
+import { fmtDateTime, daysSince, fmtCheckedAt } from "../utils/date";
 import { useAuth } from "../auth/AuthContext";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
@@ -636,14 +636,14 @@ export function ClientContextPanel() {
                 { portal: "mdtaxconnect" as const, label: "MDTAXCONNECT (Sales Tax)", at: client.mdtaxconnect_verified_at, by: client.mdtaxconnect_verified_by },
                 { portal: "md-business-express" as const, label: "MD Business Express (Annual Report / Good Standing)", at: client.md_business_express_verified_at, by: client.md_business_express_verified_by },
               ]).map(({ portal, label, at, by }) => {
-                const daysAgo = at ? Math.floor((Date.now() - new Date(`${at}T00:00:00`).getTime()) / 86400000) : null;
+                const daysAgo = daysSince(at);
                 const stale = daysAgo === null || daysAgo > 30;
                 return (
                   <div key={portal} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "4px 0" }}>
                     <div style={{ fontSize: 12 }}>
                       <div>{label}</div>
                       <div className="muted" style={{ fontSize: 11, color: stale ? "var(--red)" : undefined }}>
-                        {at ? `Checked ${daysAgo === 0 ? "today" : `${daysAgo}d ago`}${by ? ` by ${by}` : ""}` : "Never checked"}
+                        {at ? `Checked ${fmtCheckedAt(at)}${by ? ` by ${by}` : ""}` : "Never checked"}
                       </div>
                     </div>
                     <button type="button" className="btn btn-sm" disabled={verifying === portal} onClick={() => handleVerify(portal)}>

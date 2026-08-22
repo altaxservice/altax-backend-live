@@ -49,3 +49,38 @@ export function fmtDateTime(value: unknown): string {
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString(undefined, { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
+
+/**
+ * Calendar-day difference between a real timestamp and now — for staleness
+ * bucketing (e.g. "over 30 days since last check"). Compares local calendar
+ * dates, not a raw ms diff, so a check made at 11pm yesterday reads as
+ * "1 day ago" rather than rounding to "0" from a same-24h-window diff.
+ */
+export function daysSince(value: unknown): number | null {
+  if (!value) return null;
+  const d = new Date(value as string);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((startOfToday.getTime() - startOfThat.getTime()) / 86400000);
+}
+
+/**
+ * "today at 2:15 PM" / "yesterday at 9:03 AM" / "Aug 19 at 9:03 AM (3d ago)" —
+ * for real check-in timestamps (external verification "Mark Checked", etc.)
+ * where the exact time matters (which of two same-day checks is current) as
+ * much as the at-a-glance recency does. Callers prepend their own label
+ * ("Checked ...", "MDTAXCONNECT: ...").
+ */
+export function fmtCheckedAt(value: unknown): string {
+  if (!value) return "Never checked";
+  const d = new Date(value as string);
+  if (Number.isNaN(d.getTime())) return "Never checked";
+  const diffDays = daysSince(value)!;
+  const timeStr = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (diffDays <= 0) return `today at ${timeStr}`;
+  if (diffDays === 1) return `yesterday at ${timeStr}`;
+  const dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${dateStr} at ${timeStr} (${diffDays}d ago)`;
+}

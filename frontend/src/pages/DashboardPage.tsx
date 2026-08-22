@@ -9,7 +9,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
-import { fmtDateOnly as fmtDate, daysUntil } from "../utils/date";
+import { fmtDateOnly as fmtDate, daysUntil, fmtCheckedAt } from "../utils/date";
 import { TASK_STATUSES, isOpenTask, isOverdue, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
@@ -492,9 +492,7 @@ function VerificationDuePanel() {
   const go = (c: VerificationDueClient) => { setSelectedClient(c.clientId, c.clientName); navigate(`/clients/${c.clientId}`); };
 
   function staleLabel(at: string | null): string {
-    if (!at) return "never checked";
-    const days = Math.floor((Date.now() - new Date(`${at}T00:00:00`).getTime()) / 86400000);
-    return days === 0 ? "checked today" : `${days}d ago`;
+    return at ? fmtCheckedAt(at) : "never checked";
   }
 
   return (
