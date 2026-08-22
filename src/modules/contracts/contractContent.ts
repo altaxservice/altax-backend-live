@@ -48,6 +48,41 @@ export const FIRM_SERVICES: FirmService[] = [
 export const SERVICE_LABEL: Record<string, string> = Object.fromEntries(FIRM_SERVICES.map((s) => [s.key, s.label]));
 
 /**
+ * Auto-derives the legacy single-select Service Type label from the granular
+ * Services Provided checkboxes, so the two can never drift out of sync again.
+ * Before this, service_type was a fully independent, manually-set column —
+ * confirmed live 2026-08-22 that 78 of 152 active clients were labeled "Full
+ * Service" while missing most of the services actually checked (one had
+ * zero services checked at all). service_type is no longer accepted as a
+ * standalone field on client create/update (see UPDATABLE_FIELDS in
+ * clients.routes.ts) — it's recomputed here whenever `services` changes.
+ * Mirror of frontend/src/utils/clientOptions.ts's deriveServiceType (kept in
+ * sync manually, same convention as FIRM_SERVICES/SERVICE_TYPES above it).
+ */
+export function deriveServiceType(services: string[] | null | undefined): string | null {
+  const keys = services || [];
+  if (keys.length === 0) return null;
+  const hasBookkeeping = keys.includes("bookkeeping");
+  const hasPayroll = keys.includes("payroll");
+  const hasSalesTax = keys.includes("sales_tax");
+  const hasTaxPrep = keys.includes("business_tax_prep") || keys.includes("personal_tax_prep") || keys.includes("tax_prep");
+  const hasPermits = keys.includes("permits_licenses");
+  const hasConsulting = keys.includes("consulting");
+  const corePillars = [hasBookkeeping, hasPayroll, hasSalesTax, hasTaxPrep].filter(Boolean).length;
+
+  if (corePillars >= 3) return "Full Service";
+  if (corePillars === 1 && !hasPermits && !hasConsulting) {
+    if (hasBookkeeping) return "Bookkeeping Only";
+    if (hasPayroll) return "Payroll Only";
+    if (hasSalesTax) return "Sales Tax Only";
+    return "Tax Only";
+  }
+  if (corePillars === 0 && hasPermits && !hasConsulting) return "Permits & Licensing Only";
+  if (corePillars === 0 && hasConsulting && !hasPermits) return "Consulting";
+  return "Custom";
+}
+
+/**
  * Services that involve applying to a government agency on the client's
  * behalf — formation filings, permits/licenses, and SNAP retailer
  * authorization. Checking any of these auto-generates the Authorization to

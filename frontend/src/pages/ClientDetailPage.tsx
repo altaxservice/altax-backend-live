@@ -16,7 +16,7 @@ import { useAuth } from "../auth/AuthContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, INDUSTRY_CATEGORIES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
@@ -93,7 +93,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !showEntityType(f) },
       { key: "date_of_formation", apiKey: "dateOfFormation", label: "Date of Formation", kind: "date", hidden: (f) => !isBusiness(f) },
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
-      { key: "service_type", apiKey: "serviceType", label: "Service Type", kind: "select", options: SERVICE_TYPES },
+      // Service Type is NOT editable here — it's auto-derived from the Services
+      // Provided checkboxes below (see the "Client Identity" custom-render block
+      // further down) and just displayed for reference. Used to be its own
+      // independently-set dropdown; confirmed live 2026-08-22 that 78 of 152
+      // active clients were labeled "Full Service" while missing most of what
+      // was actually checked, because nothing ever kept the two in sync.
       { key: "industry_category", apiKey: "industryCategory", label: "Industry", kind: "text", suggestions: INDUSTRY_CATEGORIES },
     ],
   },
@@ -868,6 +873,11 @@ export function ClientDetailPage() {
                           </>
                         )}
                         <div className="form-grid-3">{visibleFields.map(renderEditField)}</div>
+                        {section.title === "Client Identity" && (
+                          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>
+                            Service Type: <strong>{deriveServiceType(form.services as string[]) || "—"}</strong> (from the Services Provided checkboxes below, not set directly)
+                          </p>
+                        )}
                         {section.title === "Contact & Address" && (
                           <>
                             <div className="ac-subcard-title" style={{ marginTop: 14 }}>{isBusiness(form) ? "Business Address" : "Address"}</div>

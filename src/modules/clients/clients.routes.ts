@@ -8,7 +8,7 @@ import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/encryption";
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
-import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL } from "../contracts/contractContent";
+import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL, deriveServiceType } from "../contracts/contractContent";
 import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
 import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
@@ -2251,12 +2251,17 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   companyContactState: { column: "company_contact_state" },
   companyContactZipCode: { column: "company_contact_zip_code" },
   clientType: { column: "client_type" },
-  serviceType: { column: "service_type" },
+  // service_type (the legacy single-select) is deliberately NOT in this map —
+  // it's no longer settable independently. It's auto-derived from `services`
+  // below (see deriveServiceType, applied in the POST/PATCH handlers) after a
+  // real production mismatch: 78 of 152 active clients were labeled "Full
+  // Service" while missing most of what was actually checked, because nothing
+  // ever kept the two in sync.
+  //
   // Granular, multi-select firm service lines (tax_prep, bookkeeping, payroll,
   // sales_tax, formation, immigration, consulting) — drives contract suggestions
-  // on the client profile (see contracts.routes.ts). Independent of the legacy
-  // single-select serviceType above. A plain JS array is passed straight through
-  // to the TEXT[] column; the pg driver serializes it automatically.
+  // on the client profile (see contracts.routes.ts). A plain JS array is passed
+  // straight through to the TEXT[] column; the pg driver serializes it automatically.
   services: { column: "services" },
   w21099Enabled: { column: "w21099_enabled", boolean: true },
   preferredLanguage: { column: "preferred_language" },
@@ -2402,6 +2407,11 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     values.push("Active");
     placeholders.push(`$${values.length}`);
   }
+  if (Array.isArray(body.services)) {
+    columns.push("service_type");
+    values.push(deriveServiceType(body.services));
+    placeholders.push(`$${values.length}`);
+  }
 
   await query(
     `INSERT INTO altax.v3_clients (${columns.join(", ")}) VALUES (${placeholders.join(",")})`,
@@ -2472,6 +2482,10 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
           : body[key];
       }
     }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(fields, "services")) {
+    fields.service_type = deriveServiceType(Array.isArray(fields.services) ? fields.services : []);
   }
 
   if (Object.keys(fields).length === 0) {

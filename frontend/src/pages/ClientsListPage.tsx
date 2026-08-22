@@ -15,7 +15,7 @@ import { UploadFileModal } from "../components/UploadFileModal";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
-import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, INDUSTRY_CATEGORIES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, SERVICE_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
@@ -23,7 +23,7 @@ import { useFormDraft } from "../hooks/useFormDraft";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
-  clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", serviceType: "", industryCategory: "", services: [] as string[],
+  clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", industryCategory: "", services: [] as string[],
   salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
   mdWithholdingFrequency: "", mduiEnabled: false, mdUiEmployerId: "", mdUiTaxRate: "", mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
@@ -146,10 +146,9 @@ export function ClientsListPage() {
   const [quickAuthForms, setQuickAuthForms] = useState<string[]>([]);
   const [govFormTypes, setGovFormTypes] = useState<{ value: string; label: string }[]>([]);
   const [authFormTypes, setAuthFormTypes] = useState<{ value: string; label: string }[]>([]);
-  // Free-text escapes for the two fixed lists on this form — the firm keeps hitting
+  // Free-text escape for the fixed Services Provided list — the firm keeps hitting
   // engagements that don't map onto a predefined option, and previously the only
   // way to add one was a code change.
-  const [serviceTypeOther, setServiceTypeOther] = useState("");
   const [customServices, setCustomServices] = useState<string[]>([]);
   const [newCustomService, setNewCustomService] = useState("");
 
@@ -193,7 +192,7 @@ export function ClientsListPage() {
   // time (it's an inline page section, not a stack of modals per record).
   const { pendingDraft: pendingClientDraft, draftChecked: clientDraftChecked, saveDraft: saveClientDraft, clearDraft: clearClientDraft, dismissPendingDraft: dismissClientDraft } = useFormDraft<{
     form: typeof EMPTY_CLIENT_FORM; createPortalNow: boolean; quickGovForms: string[]; quickAuthForms: string[];
-    serviceTypeOther: string; customServices: string[]; newCustomService: string;
+    customServices: string[]; newCustomService: string;
   }>(showForm ? "add-client" : null);
 
   function restoreClientDraft() {
@@ -203,7 +202,6 @@ export function ClientsListPage() {
     setCreatePortalNow(d.createPortalNow);
     setQuickGovForms(d.quickGovForms);
     setQuickAuthForms(d.quickAuthForms);
-    setServiceTypeOther(d.serviceTypeOther);
     setCustomServices(d.customServices);
     setNewCustomService(d.newCustomService);
     dismissClientDraft();
@@ -211,9 +209,9 @@ export function ClientsListPage() {
 
   useEffect(() => {
     if (!clientDraftChecked || pendingClientDraft) return;
-    saveClientDraft({ form, createPortalNow, quickGovForms, quickAuthForms, serviceTypeOther, customServices, newCustomService });
+    saveClientDraft({ form, createPortalNow, quickGovForms, quickAuthForms, customServices, newCustomService });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientDraftChecked, pendingClientDraft, form, createPortalNow, quickGovForms, quickAuthForms, serviceTypeOther, customServices, newCustomService]);
+  }, [clientDraftChecked, pendingClientDraft, form, createPortalNow, quickGovForms, quickAuthForms, customServices, newCustomService]);
 
   const canCreate = user?.role === "admin" || user?.role === "staff";
   const { allLabels, byEntity: clientLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabels("client");
@@ -288,7 +286,6 @@ export function ClientsListPage() {
       setCreatePortalNow(false);
       setCustomServices([]);
       setNewCustomService("");
-      setServiceTypeOther("");
       setQuickGovForms([]);
       setQuickAuthForms([]);
       clearClientDraft();
@@ -676,24 +673,13 @@ export function ClientsListPage() {
                     </select>
                   </div>
                   <div className="field">
-                    <label htmlFor="nc-service">Service Type</label>
-                    <select id="nc-service" value={SERVICE_TYPES.includes(form.serviceType) || !form.serviceType ? form.serviceType : "__other"} onChange={(e) => {
-                      if (e.target.value === "__other") { setForm((f) => ({ ...f, serviceType: serviceTypeOther })); return; }
-                      setServiceTypeOther("");
-                      setForm((f) => ({ ...f, serviceType: e.target.value }));
-                    }}>
-                      <option value="">Select…</option>
-                      {SERVICE_TYPES.map((o) => <option key={o}>{o}</option>)}
-                      <option value="__other">Other…</option>
-                    </select>
-                    {!!form.serviceType && !SERVICE_TYPES.includes(form.serviceType) && (
-                      <input
-                        style={{ marginTop: 6 }}
-                        placeholder="Describe this service type"
-                        value={form.serviceType}
-                        onChange={(e) => { setServiceTypeOther(e.target.value); setForm((f) => ({ ...f, serviceType: e.target.value })); }}
-                      />
-                    )}
+                    <label>Service Type</label>
+                    {/* Not editable here — auto-derived from the Services Provided checkboxes
+                        below, so it can never drift out of sync with them (see
+                        deriveServiceType in clientOptions.ts and the 2026-08-22 fix: 78 of 152
+                        active clients were labeled "Full Service" while missing most of what
+                        was actually checked, because this used to be its own independent field). */}
+                    <div style={{ padding: "8px 0", fontSize: 13.5 }}>{deriveServiceType(form.services) || <span className="muted">Set once you check services below</span>}</div>
                   </div>
                   <div className="field">
                     <label htmlFor="nc-industry">Industry</label>

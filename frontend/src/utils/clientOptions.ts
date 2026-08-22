@@ -114,6 +114,39 @@ export const FIRM_SERVICES: { key: string; label: string; legacy?: boolean }[] =
 export const INDIVIDUAL_SERVICE_KEYS = ["personal_tax_prep", "immigration", "consulting"];
 
 /**
+ * Auto-derives the legacy single-select Service Type label from the granular
+ * Services Provided checkboxes — used to show a live preview as staff check
+ * boxes, before saving. Mirror of deriveServiceType in
+ * src/modules/contracts/contractContent.ts (backend), which is the one that
+ * actually gets saved; kept in sync manually, same convention as
+ * FIRM_SERVICES/SERVICE_TYPES above. Service Type is no longer a field staff
+ * set directly — see the 2026-08-22 fix (78 of 152 active clients were
+ * labeled "Full Service" while missing most of what was actually checked).
+ */
+export function deriveServiceType(services: string[] | null | undefined): string | null {
+  const keys = services || [];
+  if (keys.length === 0) return null;
+  const hasBookkeeping = keys.includes("bookkeeping");
+  const hasPayroll = keys.includes("payroll");
+  const hasSalesTax = keys.includes("sales_tax");
+  const hasTaxPrep = keys.includes("business_tax_prep") || keys.includes("personal_tax_prep") || keys.includes("tax_prep");
+  const hasPermits = keys.includes("permits_licenses");
+  const hasConsulting = keys.includes("consulting");
+  const corePillars = [hasBookkeeping, hasPayroll, hasSalesTax, hasTaxPrep].filter(Boolean).length;
+
+  if (corePillars >= 3) return "Full Service";
+  if (corePillars === 1 && !hasPermits && !hasConsulting) {
+    if (hasBookkeeping) return "Bookkeeping Only";
+    if (hasPayroll) return "Payroll Only";
+    if (hasSalesTax) return "Sales Tax Only";
+    return "Tax Only";
+  }
+  if (corePillars === 0 && hasPermits && !hasConsulting) return "Permits & Licensing Only";
+  if (corePillars === 0 && hasConsulting && !hasPermits) return "Consulting";
+  return "Custom";
+}
+
+/**
  * The checkbox list for "check a new service" — excludes legacy keys, EXCEPT
  * a legacy key a given client already has checked stays visible for that
  * client (so it can still be seen/unchecked; nobody has to lose or
