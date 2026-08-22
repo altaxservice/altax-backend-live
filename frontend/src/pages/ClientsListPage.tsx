@@ -24,8 +24,8 @@ import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 
 const EMPTY_CLIENT_FORM = {
   clientName: "", dbaName: "", status: "Active", clientType: "Business", entityType: "", dateOfFormation: "", state: "", industryCategory: "", services: [] as string[],
-  salesTaxFrequency: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false,
-  mdWithholdingFrequency: "", mduiEnabled: false, mdUiEmployerId: "", mdUiTaxRate: "", mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
+  salesTaxFrequency: "", salesTaxRegisteredSince: "", payrollEnabled: false, payrollFrequency: "", payrollSystem: "", eftpsEnabled: false, eftpsRegisteredSince: "",
+  mdWithholdingFrequency: "", mdWithholdingRegisteredSince: "", mduiEnabled: false, mduiRegisteredSince: "", mdUiEmployerId: "", mdUiTaxRate: "", mdAnnualReportEnabled: false, businessReturnType: "", w21099Enabled: false,
   assignedTo: "", email: "", phone: "", streetAddress: "", city: "", zipCode: "",
   preferredLanguage: "English", smsAllowed: false, emailAllowed: true, preferredContact: "Email",
   ein: "", stateTaxId: "", secretaryOfStateId: "", craRegistrationNumber: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
@@ -926,14 +926,29 @@ export function ClientsListPage() {
                         {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
                       </select>
                     </div>
+                    {/* Optional — when known, keeps the Compliance Timeline/Account
+                        Flags from treating periods before this client actually had
+                        the obligation as "missing". See sql/102_obligation_registered_since.sql. */}
+                    <div className="field">
+                      <label htmlFor="nc-mdw-reg">MD Withholding Registered Since</label>
+                      <input id="nc-mdw-reg" type="date" value={form.mdWithholdingRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mdWithholdingRegisteredSince: e.target.value }))} />
+                    </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.eftpsEnabled} onChange={(e) => setForm((f) => ({ ...f, eftpsEnabled: e.target.checked }))} />
                       EFTPS enabled
                     </label>
+                    <div className="field">
+                      <label htmlFor="nc-eftps-reg">EFTPS Registered Since</label>
+                      <input id="nc-eftps-reg" type="date" value={form.eftpsRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, eftpsRegisteredSince: e.target.value }))} />
+                    </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.mduiEnabled} onChange={(e) => setForm((f) => ({ ...f, mduiEnabled: e.target.checked }))} />
                       MD UI enabled
                     </label>
+                    <div className="field">
+                      <label htmlFor="nc-mdui-reg">MD UI Registered Since</label>
+                      <input id="nc-mdui-reg" type="date" value={form.mduiRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, mduiRegisteredSince: e.target.value }))} />
+                    </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 6 }}>
                       <input type="checkbox" checked={form.w21099Enabled} onChange={(e) => setForm((f) => ({ ...f, w21099Enabled: e.target.checked }))} />
                       W-2 / 1099 enabled
@@ -950,6 +965,10 @@ export function ClientsListPage() {
                         <option value="">Select…</option>
                         {FREQ_OPTIONS.map((o) => <option key={o}>{o}</option>)}
                       </select>
+                    </div>
+                    <div className="field">
+                      <label htmlFor="nc-stf-reg">Registered Since</label>
+                      <input id="nc-stf-reg" type="date" value={form.salesTaxRegisteredSince} onChange={(e) => setForm((f) => ({ ...f, salesTaxRegisteredSince: e.target.value }))} />
                     </div>
                   </div>
                 </div>

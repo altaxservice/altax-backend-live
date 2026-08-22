@@ -188,6 +188,17 @@ export function taskLabelsLikelyMatch(a: string, b: string): boolean {
 const MISSING_TASK_TRIGGER_COLUMNS = new Set(["eftps_enabled", "md_withholding_frequency", "mdui_enabled", "business_return_type"]);
 export const MISSING_TASK_MATCH_WINDOW_DAYS = 5;
 
+// A confirmed registered-since date (see sql/102_obligation_registered_since.sql)
+// is a hard fact, not a heuristic — never flag a period as "missing" before it.
+// business_return_type has no equivalent column: there's no natural
+// "registered since" concept for annual tax prep, and Annual-frequency rules
+// are already excluded by relevantMissingTaskRules above.
+const REGISTERED_SINCE_COLUMN: Record<string, string> = {
+  eftps_enabled: "eftps_registered_since",
+  md_withholding_frequency: "md_withholding_registered_since",
+  mdui_enabled: "mdui_registered_since",
+};
+
 export interface MissingComplianceTaskGap { ruleId: string; taskType: string; periodLabel: string; dueDate: string }
 
 // Real production data check (2026-08-17): Annual-frequency rules in this
@@ -231,6 +242,9 @@ export async function computeClientMissingComplianceTaskGaps(clientId: string, c
     if (!clientMatchesRule(clientRow, rule)) continue;
     const period = computeDuePeriod(rule, asOf);
     if (!period || period.dueDate >= asOfStr) continue; // not yet due — nothing to check
+    const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
+    const registeredSince = isoDate(clientRow[REGISTERED_SINCE_COLUMN[col] || ""]);
+    if (registeredSince && period.dueDate < registeredSince) continue; // obligation didn't exist yet
     candidates.push({ rule, period });
   }
   if (candidates.length === 0) return [];
@@ -274,6 +288,9 @@ export async function computeFirmWideMissingComplianceTaskGaps(asOf: Date = new 
       if (!clientMatchesRule(client, rule)) continue;
       const period = computeDuePeriod(rule, asOf);
       if (!period || period.dueDate >= asOfStr) continue;
+      const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
+      const registeredSince = isoDate(client[REGISTERED_SINCE_COLUMN[col] || ""]);
+      if (registeredSince && period.dueDate < registeredSince) continue; // obligation didn't exist yet
       candidates.push({ clientId: client.client_id, clientName: client.client_name, rule, period });
     }
   }

@@ -2146,7 +2146,11 @@ export async function computeClientDashboard(clientId: string) {
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation,
             eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled,
             state_tax_id, secretary_of_state_id, cra_registration_number, md_ui_employer_id, md_ui_tax_rate,
-            company_contact_title, company_contact_address, payroll_frequency, payroll_system, notes
+            company_contact_title, company_contact_address, payroll_frequency, payroll_system, notes,
+            sales_tax_registered_since::date::text AS sales_tax_registered_since,
+            eftps_registered_since::date::text AS eftps_registered_since,
+            md_withholding_registered_since::date::text AS md_withholding_registered_since,
+            mdui_registered_since::date::text AS mdui_registered_since
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   ));

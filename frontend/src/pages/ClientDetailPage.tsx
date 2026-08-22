@@ -162,8 +162,17 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       { key: "payroll_frequency", apiKey: "payrollFrequency", label: "Payroll Frequency", kind: "select", options: PAYROLL_FREQS, hidden: (f) => !showPayrollFrequency(f) },
       { key: "payroll_system", apiKey: "payrollSystem", label: "Payroll Provider", kind: "select", options: PAYROLL_PROVIDERS, hidden: (f) => !showPayrollSystem(f) },
       { key: "md_withholding_frequency", apiKey: "mdWithholdingFrequency", label: "MD Withholding Frequency", kind: "select", options: FREQ_OPTIONS, hidden: (f) => !showMdWithholding(f) },
+      // Optional, explicitly staff-entered — NOT the same as Date of Formation.
+      // A client can be formed before actually registering for/enrolling in a
+      // given obligation. Leave blank if unknown: nothing changes (existing
+      // fallback logic keeps working), but a real date here stops the
+      // Compliance Timeline/Account Flags from treating periods before this
+      // date as "missing." See sql/102_obligation_registered_since.sql.
+      { key: "md_withholding_registered_since", apiKey: "mdWithholdingRegisteredSince", label: "MD Withholding Registered Since", kind: "date", hidden: (f) => !showMdWithholding(f) },
       { key: "eftps_enabled", apiKey: "eftpsEnabled", label: "EFTPS Enabled", kind: "checkbox", hidden: (f) => !showEftps(f) },
+      { key: "eftps_registered_since", apiKey: "eftpsRegisteredSince", label: "EFTPS Registered Since", kind: "date", hidden: (f) => !showEftps(f) },
       { key: "mdui_enabled", apiKey: "mduiEnabled", label: "MD UI Enabled", kind: "checkbox", hidden: (f) => !showMdui(f) },
+      { key: "mdui_registered_since", apiKey: "mduiRegisteredSince", label: "MD UI Registered Since", kind: "date", hidden: (f) => !showMdui(f) },
       { key: "w21099_enabled", apiKey: "w21099Enabled", label: "W-2 / 1099 Enabled", kind: "checkbox", hidden: (f) => !showW21099(f) },
     ],
   },
@@ -179,6 +188,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // staff happens to click Save," so this has to be a value staff can
       // set explicitly rather than always just "today."
       { key: "sales_tax_frequency_effective_date", apiKey: "salesTaxFrequencyEffectiveDate", label: "Frequency Effective Date", kind: "date", hidden: (f) => !showSalesTaxDetails(f) },
+      // Different from Frequency Effective Date above (which tracks when the
+      // CURRENT frequency began, and can change over time as MD reassigns
+      // it) — this is the one-time fact of when the sales tax obligation
+      // itself first existed. Optional; leave blank if unknown. See
+      // sql/102_obligation_registered_since.sql.
+      { key: "sales_tax_registered_since", apiKey: "salesTaxRegisteredSince", label: "Registered Since", kind: "date", hidden: (f) => !showSalesTaxDetails(f) },
     ],
   },
   {

@@ -51,10 +51,10 @@ export interface TimelinePeriod { periodLabel: string; dueDate: string; status: 
 export type ComplianceObligationType = "MD Sales Tax" | "EFTPS" | "MD Withholding" | "MD UI";
 export interface ComplianceTimelineLane { obligationType: ComplianceObligationType; periods: TimelinePeriod[] }
 
-const TASK_RULE_LANES: { obligationType: ComplianceObligationType; triggerColumn: string }[] = [
-  { obligationType: "EFTPS", triggerColumn: "eftps_enabled" },
-  { obligationType: "MD Withholding", triggerColumn: "md_withholding_frequency" },
-  { obligationType: "MD UI", triggerColumn: "mdui_enabled" },
+const TASK_RULE_LANES: { obligationType: ComplianceObligationType; triggerColumn: string; registeredSinceColumn: string }[] = [
+  { obligationType: "EFTPS", triggerColumn: "eftps_enabled", registeredSinceColumn: "eftps_registered_since" },
+  { obligationType: "MD Withholding", triggerColumn: "md_withholding_frequency", registeredSinceColumn: "md_withholding_registered_since" },
+  { obligationType: "MD UI", triggerColumn: "mdui_enabled", registeredSinceColumn: "mdui_registered_since" },
 ];
 
 function periodsPerRule(frequency: unknown, monthsBack: number): number {
@@ -100,7 +100,12 @@ async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBac
   const earliestSale = await earliestSaleDate(clientId);
   const to = asOf.toISOString().slice(0, 10);
   const fromDate = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - monthsBack, 1));
-  const from = earliestSale && fromDate.toISOString().slice(0, 10) < earliestSale ? earliestSale : fromDate.toISOString().slice(0, 10);
+  let from = earliestSale && fromDate.toISOString().slice(0, 10) < earliestSale ? earliestSale : fromDate.toISOString().slice(0, 10);
+  // A confirmed registration date is a hard fact, not a heuristic — always
+  // wins over the evidence-based floor above. See
+  // sql/102_obligation_registered_since.sql.
+  const registeredSince = isoDate(clientRow.sales_tax_registered_since);
+  if (registeredSince && registeredSince > from) from = registeredSince;
   const reportClient: ReportClientInfo = {
     clientId, clientName: "", ein: null, address: null,
     state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
@@ -127,7 +132,7 @@ interface ClientTaskRow { taskName: string; dueDate: string; status: string; fil
 async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack: number, asOf: Date): Promise<ComplianceTimelineLane[]> {
   const allRules = relevantMissingTaskRules(await query<any>(`SELECT * FROM altax.v3_task_rules WHERE active = true`));
 
-  type RulePeriods = { obligationType: ComplianceObligationType; periods: ReturnType<typeof computeDuePeriodsBack> };
+  type RulePeriods = { obligationType: ComplianceObligationType; registeredSince: string | null; periods: ReturnType<typeof computeDuePeriodsBack> };
   const candidateLanes: RulePeriods[] = [];
   for (const lane of TASK_RULE_LANES) {
     const rule = allRules.find((r: any) => {
@@ -138,7 +143,7 @@ async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack
     const count = periodsPerRule(rule.frequency, monthsBack);
     if (count <= 0) continue;
     const periods = computeDuePeriodsBack(rule, asOf, count);
-    if (periods.length > 0) candidateLanes.push({ obligationType: lane.obligationType, periods });
+    if (periods.length > 0) candidateLanes.push({ obligationType: lane.obligationType, registeredSince: isoDate(clientRow[lane.registeredSinceColumn]), periods });
   }
   if (candidateLanes.length === 0) return [];
 
@@ -146,10 +151,16 @@ async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack
   // "missing" further back than the earliest task this client has ever had
   // on record (any type — a cheap, robust proxy for "when did this system
   // start tracking this client's filings"), falling back to the client's own
-  // created_at only if it has never had a single task yet.
-  const floor = (await earliestTaskEvidenceDate(clientId)) ?? isoDate(clientRow.created_at);
+  // created_at only if it has never had a single task yet. A confirmed
+  // registered-since date (per lane — see sql/102_obligation_registered_since.sql)
+  // is a hard fact, not a heuristic, so it always wins over the evidence
+  // floor when it's later.
+  const evidenceFloor = (await earliestTaskEvidenceDate(clientId)) ?? isoDate(clientRow.created_at);
   const rulePeriodsByLane = candidateLanes
-    .map((lane) => ({ ...lane, periods: floor ? lane.periods.filter((p) => p.dueDate >= floor) : lane.periods }))
+    .map((lane) => {
+      const floor = lane.registeredSince && (!evidenceFloor || lane.registeredSince > evidenceFloor) ? lane.registeredSince : evidenceFloor;
+      return { ...lane, periods: floor ? lane.periods.filter((p) => p.dueDate >= floor) : lane.periods };
+    })
     .filter((lane) => lane.periods.length > 0);
   if (rulePeriodsByLane.length === 0) return [];
 

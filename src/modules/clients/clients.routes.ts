@@ -674,12 +674,21 @@ export async function computeClientFlags(clientId: string): Promise<ClientFlagsR
 
   const clientRow = await queryOne<any>(
     `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, created_at,
-            payroll_enabled, payroll_frequency, eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type
+            payroll_enabled, payroll_frequency, eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type,
+            sales_tax_registered_since::date::text AS sales_tax_registered_since,
+            eftps_registered_since::date::text AS eftps_registered_since,
+            md_withholding_registered_since::date::text AS md_withholding_registered_since,
+            mdui_registered_since::date::text AS mdui_registered_since
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
   if (clientRow?.state === "MD") {
-    const { from: fromStr, to: toStr } = defaultFirmSummaryRange();
+    let { from: fromStr, to: toStr } = defaultFirmSummaryRange();
+    // Never assert a filing/balance obligation before the client's own
+    // confirmed registration date — see sql/102_obligation_registered_since.sql.
+    if (clientRow.sales_tax_registered_since && clientRow.sales_tax_registered_since > fromStr) {
+      fromStr = clientRow.sales_tax_registered_since;
+    }
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
       state: clientRow.state, salesTaxFrequency: clientRow.sales_tax_frequency,
@@ -2200,12 +2209,24 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   phone: { column: "phone" },
   assignedTo: { column: "assigned_to" },
   salesTaxFrequency: { column: "sales_tax_frequency" },
+  // Explicitly staff-entered "since when has this obligation actually
+  // existed" per obligation type — NOT the same as dateOfFormation (real
+  // production data showed date_of_formation/created_at aren't reliable
+  // enough to floor filing-period generation on; see
+  // sql/102_obligation_registered_since.sql and computeMdSalesTaxLane's/
+  // computeTaskRuleLanes' doc comments). NULL (the default) changes
+  // nothing — every existing fallback keeps working exactly as before.
+  // Only set this when someone actually knows the real registration date.
+  salesTaxRegisteredSince: { column: "sales_tax_registered_since", date: true },
   payrollEnabled: { column: "payroll_enabled", boolean: true },
   payrollFrequency: { column: "payroll_frequency" },
   payrollSystem: { column: "payroll_system" },
   eftpsEnabled: { column: "eftps_enabled", boolean: true },
+  eftpsRegisteredSince: { column: "eftps_registered_since", date: true },
   mdWithholdingFrequency: { column: "md_withholding_frequency" },
+  mdWithholdingRegisteredSince: { column: "md_withholding_registered_since", date: true },
   mduiEnabled: { column: "mdui_enabled", boolean: true },
+  mduiRegisteredSince: { column: "mdui_registered_since", date: true },
   mdAnnualReportEnabled: { column: "md_annual_report_enabled", boolean: true },
   businessReturnType: { column: "business_return_type" },
   smsAllowed: { column: "sms_allowed", boolean: true },
