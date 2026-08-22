@@ -23,6 +23,20 @@ export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((new Date(`${toIso}T00:00:00Z`).getTime() - new Date(`${fromIso}T00:00:00Z`).getTime()) / 86400000);
 }
 
+/**
+ * Later of two optional ISO dates, treating either as "no opinion" if unset —
+ * used to combine an obligation-specific registered-since date with
+ * date_of_formation as a compliance-deadline floor (see
+ * sql/102_obligation_registered_since.sql). A business can't owe an
+ * obligation before it legally existed, and it can't register for one before
+ * that either, so whichever confirmed date is later is the real floor.
+ */
+export function laterOf(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b || null;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
 // ---------------------------------------------------------------------------
 // Payroll cadence — a payroll-enabled client with real paycheck history on
 // file has gone longer than their own pay frequency should allow without a
@@ -243,7 +257,7 @@ export async function computeClientMissingComplianceTaskGaps(clientId: string, c
     const period = computeDuePeriod(rule, asOf);
     if (!period || period.dueDate >= asOfStr) continue; // not yet due — nothing to check
     const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
-    const registeredSince = isoDate(clientRow[REGISTERED_SINCE_COLUMN[col] || ""]);
+    const registeredSince = laterOf(isoDate(clientRow[REGISTERED_SINCE_COLUMN[col] || ""]), isoDate(clientRow.date_of_formation));
     if (registeredSince && period.dueDate < registeredSince) continue; // obligation didn't exist yet
     candidates.push({ rule, period });
   }
@@ -289,7 +303,7 @@ export async function computeFirmWideMissingComplianceTaskGaps(asOf: Date = new 
       const period = computeDuePeriod(rule, asOf);
       if (!period || period.dueDate >= asOfStr) continue;
       const col = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()];
-      const registeredSince = isoDate(client[REGISTERED_SINCE_COLUMN[col] || ""]);
+      const registeredSince = laterOf(isoDate(client[REGISTERED_SINCE_COLUMN[col] || ""]), isoDate(client.date_of_formation));
       if (registeredSince && period.dueDate < registeredSince) continue; // obligation didn't exist yet
       candidates.push({ clientId: client.client_id, clientName: client.client_name, rule, period });
     }

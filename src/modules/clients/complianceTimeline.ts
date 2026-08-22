@@ -1,6 +1,6 @@
 import { query, queryOne } from "../../config/db";
 import { CLIENT_TRIGGER_COLUMNS, clientMatchesRule, computeDuePeriodsBack } from "../rules/rules.routes";
-import { relevantMissingTaskRules, taskLabelsLikelyMatch, MISSING_TASK_MATCH_WINDOW_DAYS, daysBetween, isoDate } from "./complianceGapFlags";
+import { relevantMissingTaskRules, taskLabelsLikelyMatch, MISSING_TASK_MATCH_WINDOW_DAYS, daysBetween, isoDate, laterOf } from "./complianceGapFlags";
 import { computeMdFilingForReport } from "../reports/reports.routes";
 import { classifyMdFilingPeriod, type MdFilingPeriodStatus } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
@@ -102,9 +102,11 @@ async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBac
   const fromDate = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - monthsBack, 1));
   let from = earliestSale && fromDate.toISOString().slice(0, 10) < earliestSale ? earliestSale : fromDate.toISOString().slice(0, 10);
   // A confirmed registration date is a hard fact, not a heuristic — always
-  // wins over the evidence-based floor above. See
-  // sql/102_obligation_registered_since.sql.
-  const registeredSince = isoDate(clientRow.sales_tax_registered_since);
+  // wins over the evidence-based floor above. Prefers the obligation-specific
+  // sales_tax_registered_since when set, falling back to date_of_formation
+  // automatically (no reason to make staff re-enter a date that's already on
+  // file). See sql/102_obligation_registered_since.sql.
+  const registeredSince = laterOf(isoDate(clientRow.sales_tax_registered_since), isoDate(clientRow.date_of_formation));
   if (registeredSince && registeredSince > from) from = registeredSince;
   const reportClient: ReportClientInfo = {
     clientId, clientName: "", ein: null, address: null,
@@ -143,7 +145,7 @@ async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack
     const count = periodsPerRule(rule.frequency, monthsBack);
     if (count <= 0) continue;
     const periods = computeDuePeriodsBack(rule, asOf, count);
-    if (periods.length > 0) candidateLanes.push({ obligationType: lane.obligationType, registeredSince: isoDate(clientRow[lane.registeredSinceColumn]), periods });
+    if (periods.length > 0) candidateLanes.push({ obligationType: lane.obligationType, registeredSince: laterOf(isoDate(clientRow[lane.registeredSinceColumn]), isoDate(clientRow.date_of_formation)), periods });
   }
   if (candidateLanes.length === 0) return [];
 

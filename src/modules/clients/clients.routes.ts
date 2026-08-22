@@ -19,7 +19,7 @@ import {
   computeClientPayrollCadenceGap, computeFirmWidePayrollCadenceGaps,
   computeClientBookkeepingStaleness, computeFirmWideBookkeepingStaleness,
   computeClientMissingComplianceTaskGaps, computeFirmWideMissingComplianceTaskGaps,
-  computeFirmWideMdAnnualReportOverdue,
+  computeFirmWideMdAnnualReportOverdue, laterOf,
   type PayrollCadenceGap, type BookkeepingStaleness, type MissingComplianceTaskGap,
 } from "./complianceGapFlags";
 import { computeClientComplianceTimeline, computeClientComplianceScore } from "./complianceTimeline";
@@ -673,7 +673,7 @@ export async function computeClientFlags(clientId: string): Promise<ClientFlagsR
   }
 
   const clientRow = await queryOne<any>(
-    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, created_at,
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency, created_at, date_of_formation::date::text AS date_of_formation,
             payroll_enabled, payroll_frequency, eftps_enabled, md_withholding_frequency, mdui_enabled, business_return_type,
             sales_tax_registered_since::date::text AS sales_tax_registered_since,
             eftps_registered_since::date::text AS eftps_registered_since,
@@ -685,9 +685,17 @@ export async function computeClientFlags(clientId: string): Promise<ClientFlagsR
   if (clientRow?.state === "MD") {
     let { from: fromStr, to: toStr } = defaultFirmSummaryRange();
     // Never assert a filing/balance obligation before the client's own
-    // confirmed registration date — see sql/102_obligation_registered_since.sql.
-    if (clientRow.sales_tax_registered_since && clientRow.sales_tax_registered_since > fromStr) {
-      fromStr = clientRow.sales_tax_registered_since;
+    // confirmed start date. Prefers the obligation-specific
+    // sales_tax_registered_since when set (see
+    // sql/102_obligation_registered_since.sql), but falls back to
+    // date_of_formation automatically — a client can't owe sales tax before
+    // it legally existed, and there's no reason to make staff re-enter a
+    // date that's already on file just because it lives in a different
+    // field. Whichever is LATER wins (a business can form before actually
+    // registering for sales tax, never the other way around).
+    const salesTaxFloor = laterOf(clientRow.sales_tax_registered_since, clientRow.date_of_formation);
+    if (salesTaxFloor && salesTaxFloor > fromStr) {
+      fromStr = salesTaxFloor;
     }
     const reportClient: ReportClientInfo = {
       clientId, clientName: clientRow.client_name, ein: clientRow.ein, address: clientRow.address,
