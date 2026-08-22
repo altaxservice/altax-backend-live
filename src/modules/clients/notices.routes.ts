@@ -74,23 +74,39 @@ noticesRouter.post("/:clientId/notices", requireAuth, requireRole("admin", "staf
   if (!receivedDate) return res.status(400).json({ error: "Received date is required." });
 
   const noticeId = `NOTICE-${idSuffix()}`;
+  const taxPeriod = String(body.taxPeriod || "").trim() || null;
+  const amount = body.amount !== undefined && body.amount !== "" ? Number(body.amount) : null;
+  const responseDeadline = String(body.responseDeadline || "").trim() || null;
   await query(
     `INSERT INTO altax.v3_notices
        (notice_id, client_id, agency, notice_type, tax_period, amount, received_date, response_deadline,
         assigned_to, status, notes, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Open',$10,$11)`,
     [
-      noticeId, clientId, agency, noticeType,
-      String(body.taxPeriod || "").trim() || null,
-      body.amount !== undefined && body.amount !== "" ? Number(body.amount) : null,
-      receivedDate,
-      String(body.responseDeadline || "").trim() || null,
+      noticeId, clientId, agency, noticeType, taxPeriod, amount, receivedDate, responseDeadline,
       String(body.assignedTo || "").trim() || null,
       String(body.notes || "").trim() || null,
       req.user!.email,
     ]
   );
   await logAudit("Notices", "CREATE", noticeId, "", "", `${agency} — ${noticeType}`, `Notice logged for ${clientId} by ${req.user!.email}.`, req.user!.email);
+
+  // Previously logging a real IRS/state notice never told the client one
+  // existed at all — only an internal record. Opt-in per notice (staff
+  // checks "Notify Client" when logging it), same "Save and Send" pattern
+  // as Mark Filed, rather than always auto-sending — staff may still be
+  // reviewing the notice's details before it's ready to hand to the client.
+  if (body.notify === true) {
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    if (clientContact) {
+      const { sendNoticeReceivedEmail } = await import("../../common/filingConfirmationEmail");
+      await sendNoticeReceivedEmail({
+        client: { clientId, clientName: clientContact.client_name, email: clientContact.email ?? null, emailAllowed: Boolean(clientContact.email_allowed) },
+        sourceRecordId: noticeId, agency, noticeType, taxPeriod, amount, responseDeadline, req,
+      });
+    }
+  }
+
   res.status(201).json({ ok: true, noticeId });
 }));
 

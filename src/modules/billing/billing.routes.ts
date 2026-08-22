@@ -559,6 +559,46 @@ async function paymentReceiptEmailHtml(opts: {
   return wrapEmailHtml(body, opts.req);
 }
 
+/**
+ * Shared best-effort "payment received" send + activity-log write — was
+ * duplicated inline at the manual-payment and sales-receipt routes below;
+ * now also the fix for card payments via Stripe (settleStripePaymentIfPaid,
+ * stripePayments.ts) never sending a receipt at all, since that path can
+ * finally call the same function instead of needing its own copy. The
+ * payment itself is always already committed by the time this runs — a
+ * failed send is logged to the audit trail, never allowed to undo real
+ * money already recorded.
+ */
+export async function sendPaymentReceiptEmail(opts: {
+  invoiceId: string; clientId: string | null; paymentId: string; paymentDate: string | null;
+  amount: number; method: string; balanceDue: number; req?: AuthedRequest;
+}): Promise<void> {
+  if (!opts.clientId) return;
+  const clientForReceipt = await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [opts.clientId]);
+  if (!clientForReceipt?.email) return;
+  const subject = `Payment received — Invoice ${opts.invoiceId}`;
+  try {
+    const { sendEmail } = await import("../../common/notifications");
+    await sendEmail({
+      to: clientForReceipt.email, subject,
+      html: await paymentReceiptEmailHtml({
+        invoiceId: opts.invoiceId, paymentDate: opts.paymentDate, amount: opts.amount,
+        method: opts.method, balanceDue: opts.balanceDue, req: opts.req,
+      }),
+    });
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
+      [`COM-${idSuffix()}`, opts.clientId, await getClientName(opts.clientId), subject, `Payment of ${money(opts.amount)} received.`, clientForReceipt.email]
+    );
+  } catch (err: any) {
+    await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", opts.paymentId, "", "", err?.message || "Send failed",
+      `Payment receipt email to ${clientForReceipt.email} failed for invoice ${opts.invoiceId}: ${err?.message || "unknown error"}.`, "System");
+  }
+}
+
 billingRouter.post("/invoices/:invoiceId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const invoice = await queryOne<any>(`SELECT * FROM altax.v3_invoices WHERE invoice_id = $1`, [req.params.invoiceId]);
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
@@ -1121,31 +1161,11 @@ billingRouter.post("/invoices/:invoiceId/payments", requireAuth, requireRole("ad
   // committed above; a failed receipt shouldn't undo a real payment), but
   // the failure is still logged to the audit trail instead of silently
   // swallowed, so "did the client get told" is answerable later.
-  const clientForReceipt = invoice.client_id ? await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]) : null;
-  if (clientForReceipt?.email) {
-    try {
-      const { sendEmail } = await import("../../common/notifications");
-      await sendEmail({
-        to: clientForReceipt.email,
-        subject: `Payment received — Invoice ${req.params.invoiceId}`,
-        html: await paymentReceiptEmailHtml({
-          invoiceId: req.params.invoiceId, paymentDate: paymentDate || new Date().toISOString().slice(0, 10),
-          amount, method: String(body.method || "Manual").trim(), balanceDue: balance, req,
-        }),
-      });
-      await query(
-        `INSERT INTO altax.v3_communications
-           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-         VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
-        [`COM-${idSuffix()}`, invoice.client_id, await getClientName(invoice.client_id),
-          `Payment received — Invoice ${req.params.invoiceId}`, `Payment of ${money(amount)} received.`, clientForReceipt.email]
-      );
-    } catch (err: any) {
-      await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", paymentId, "", "", err?.message || "Send failed",
-        `Payment receipt email to ${clientForReceipt.email} failed for invoice ${req.params.invoiceId}: ${err?.message || "unknown error"}.`, "System");
-    }
-  }
+  await sendPaymentReceiptEmail({
+    invoiceId: req.params.invoiceId, clientId: invoice.client_id, paymentId,
+    paymentDate: paymentDate || new Date().toISOString().slice(0, 10),
+    amount, method: String(body.method || "Manual").trim(), balanceDue: balance, req,
+  });
 
   res.status(201).json({ ok: true, paymentId, invoiceId: req.params.invoiceId, amountPaid: newPaid, balanceDue: balance, status });
 }));
@@ -1216,31 +1236,10 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
     `Sales receipt created by ${req.user!.email}.`, req.user!.email);
 
   // Same best-effort receipt email as the regular payment-recording route above.
-  const clientForReceipt = await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (clientForReceipt?.email) {
-    try {
-      const { sendEmail } = await import("../../common/notifications");
-      await sendEmail({
-        to: clientForReceipt.email,
-        subject: `Payment received — Invoice ${invoiceId}`,
-        html: await paymentReceiptEmailHtml({
-          invoiceId, paymentDate: invoiceDate || new Date().toISOString().slice(0, 10),
-          amount, method: String(body.method || "Manual").trim(), balanceDue: 0, req,
-        }),
-      });
-      await query(
-        `INSERT INTO altax.v3_communications
-           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-         VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
-        [`COM-${idSuffix()}`, clientId, await getClientName(clientId),
-          `Payment received — Invoice ${invoiceId}`, `Payment of ${money(amount)} received.`, clientForReceipt.email]
-      );
-    } catch (err: any) {
-      await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", paymentId, "", "", err?.message || "Send failed",
-        `Payment receipt email to ${clientForReceipt.email} failed for invoice ${invoiceId}: ${err?.message || "unknown error"}.`, "System");
-    }
-  }
+  await sendPaymentReceiptEmail({
+    invoiceId, clientId, paymentId, paymentDate: invoiceDate || new Date().toISOString().slice(0, 10),
+    amount, method: String(body.method || "Manual").trim(), balanceDue: 0, req,
+  });
 
   res.status(201).json({ ok: true, invoiceId, paymentId, amount });
 }));

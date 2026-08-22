@@ -126,7 +126,17 @@ async function sendAndLog(opts: {
     let sendError: string | undefined;
     let providerMessageId: string | null = null;
     try {
-      const result = await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(`<p>${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`, req) });
+      // bodyArabic was already being accepted, logged to v3_communications,
+      // and shown on the Activity Timeline — but silently never rendered
+      // into the actual email that goes out, so every digest sent through
+      // here (document requests, staff task digest) was English-only
+      // regardless of what its caller built. Mirrors the plain-paragraph
+      // bilingual shape used elsewhere (appointment emails), not the
+      // row-table shape (billing receipts) since this is prose, not data.
+      const bodyHtml = opts.bodyArabic
+        ? `<p style="margin:0 0 16px;">${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p><p dir="rtl" style="margin:0; text-align:right;">${escapeHtml(opts.bodyArabic).replace(/\n/g, "<br>")}</p>`
+        : `<p style="margin:0;">${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`;
+      const result = await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(bodyHtml, req) });
       providerMessageId = result.providerMessageId;
       sent = true;
     } catch (err: any) {

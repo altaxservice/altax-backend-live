@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { query, queryOne, withTransaction } from "../../config/db";
 import { logAudit } from "../../common/audit";
 import { alertAdmins } from "../../common/adminAlerts";
+import { sendPaymentReceiptEmail } from "./billing.routes";
 
 /**
  * Card payment on the public invoice link, via Stripe Checkout.
@@ -146,6 +147,18 @@ export async function settleStripePaymentIfPaid(invoice: any): Promise<boolean> 
   await logAudit("Billing", "STRIPE_PAYMENT", paymentId, "Invoice", invoice.invoice_id, String(amount),
     `Card payment of $${amount.toFixed(2)} received via Stripe Checkout for invoice ${invoice.invoice_id} (${status}).`,
     "Stripe Checkout");
+
+  // Previously the one payment path with no client-facing confirmation at
+  // all — a client paying by card got nothing telling them it landed. Same
+  // receipt as a manually-recorded payment; no `req` available here (this
+  // runs from both a page load and the unattended reconciliation sweep), so
+  // the email renders with a text-only header instead of the firm logo —
+  // a cosmetic tradeoff, not a functional one.
+  await sendPaymentReceiptEmail({
+    invoiceId: invoice.invoice_id, clientId: invoice.client_id, paymentId,
+    paymentDate: new Date().toISOString().slice(0, 10), amount, method: "Card (Stripe)", balanceDue: balance,
+  });
+
   if (overpayBy > 0) {
     await alertAdmins(
       `Stripe overpayment on invoice ${invoice.invoice_id}`,

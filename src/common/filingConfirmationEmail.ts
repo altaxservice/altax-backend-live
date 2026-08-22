@@ -154,3 +154,49 @@ export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Pr
     return { sent: false };
   }
 }
+
+export interface NoticeReceivedInput {
+  client: FilingClientInfo;
+  sourceRecordId: string;
+  agency: string;
+  noticeType: string;
+  taxPeriod: string | null;
+  amount: number | null;
+  responseDeadline: string | null;
+  req?: Request;
+}
+
+function noticeReceivedBody(input: NoticeReceivedInput): string {
+  return `
+    <p style="margin:0 0 18px;">We wanted to let you know that we've received a notice from ${esc(input.agency)}. <bdi dir="rtl" style="color:#9ca3af;">/ نود إعلامكم بأننا استلمنا إشعاراً من ${esc(input.agency)}.</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #b45309; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Agency", "الجهة", esc(input.agency))}
+          ${row("Notice Type", "نوع الإشعار", esc(input.noticeType))}
+          ${input.taxPeriod ? row("Period", "الفترة", esc(input.taxPeriod)) : ""}
+          ${input.amount !== null ? row("Amount", "المبلغ", money2(input.amount), true) : ""}
+          ${input.responseDeadline ? row("Response Deadline", "الموعد النهائي للرد", fmtDate(input.responseDeadline)) : ""}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">We're reviewing it now and will reach out if we need anything from you. If you receive any related mail from ${esc(input.agency)}, please forward it to us right away. <bdi dir="rtl">سنقوم بمراجعته وسنتواصل معكم إذا احتجنا إلى أي شيء. إذا استلمتم أي مراسلات متعلقة بهذا من ${esc(input.agency)}، يرجى إرسالها إلينا فوراً.</bdi></p>`;
+}
+
+/** Sends the "we received a notice from the agency" heads-up — opt-in per notice (staff checks "Notify Client" when logging it), same as sendFilingConfirmation's "Save and Send". Silent no-op without email consent. */
+export async function sendNoticeReceivedEmail(input: NoticeReceivedInput): Promise<{ sent: boolean }> {
+  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
+  const subject = `We've Received a Notice From ${input.agency} — ${input.noticeType}`;
+  const body = noticeReceivedBody(input);
+  try {
+    const html = await wrapEmailHtml(body, input.req);
+    await sendEmail({ to: input.client.email, subject, html });
+    await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+    return { sent: true };
+  } catch (err) {
+    await recordNotificationFailure(`noticeReceived:${input.sourceRecordId}`, err);
+    await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    return { sent: false };
+  }
+}

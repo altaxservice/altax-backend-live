@@ -2287,6 +2287,7 @@ function NoticesSection({ clientId }: { clientId: string }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_NOTICE_FORM);
+  const [notifyClient, setNotifyClient] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function load() {
@@ -2299,6 +2300,7 @@ function NoticesSection({ clientId }: { clientId: string }) {
   function startAdd() {
     setForm(EMPTY_NOTICE_FORM);
     setEditingId(null);
+    setNotifyClient(false);
     setShowForm(true);
   }
   function startEdit(n: NoticeRow) {
@@ -2309,6 +2311,7 @@ function NoticesSection({ clientId }: { clientId: string }) {
       followUpDate: n.follow_up_date ? n.follow_up_date.slice(0, 10) : "", resolution: n.resolution || "", notes: n.notes || "",
     });
     setEditingId(n.notice_id);
+    setNotifyClient(false);
     setShowForm(true);
   }
 
@@ -2323,7 +2326,7 @@ function NoticesSection({ clientId }: { clientId: string }) {
         responseFiledDate: form.responseFiledDate, followUpDate: form.followUpDate, resolution: form.resolution, notes: form.notes,
       };
       if (editingId) await api.patch(`/clients/${clientId}/notices/${editingId}`, payload);
-      else await api.post(`/clients/${clientId}/notices`, payload);
+      else await api.post(`/clients/${clientId}/notices`, { ...payload, notify: notifyClient });
       setShowForm(false);
       load();
     } catch (err) {
@@ -2388,8 +2391,14 @@ function NoticesSection({ clientId }: { clientId: string }) {
             )}
             {editingId && <div className="field"><label htmlFor="notice-resolution">Resolution</label><textarea id="notice-resolution" rows={2} value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })} /></div>}
             <div className="field"><label htmlFor="notice-notes">Notes</label><textarea id="notice-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+            {!editingId && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", marginBottom: 12 }}>
+                <input type="checkbox" checked={notifyClient} onChange={(e) => setNotifyClient(e.target.checked)} />
+                Notify client — email them that we've received this notice
+              </label>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : "Add Notice"}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : editingId ? "Save Changes" : notifyClient ? "Save and Send" : "Save"}</button>
               <button type="button" className="btn" disabled={saving} onClick={() => setShowForm(false)}>Cancel</button>
             </div>
           </form>
