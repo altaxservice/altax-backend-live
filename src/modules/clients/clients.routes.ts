@@ -1991,9 +1991,14 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
       const canSms = Boolean(c.sms_allowed && c.phone);
       if (!canEmail && !canSms) { skipped++; continue; } // no consent on file — skip silently, not a failure
 
+      // Wording fix (2026-08-22, direct owner correction): the firm always
+      // handles the actual filing — the client's only job is sending their
+      // sales/tax data in time for us to file it. The old "if we're already
+      // handling this, no action needed" copy implied the client might file
+      // it themselves, which is never true here.
       const subject = `Reminder: Maryland Sales Tax Filing Due ${current.dueDate}`;
-      const body = `Dear ${c.client_name},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nIf our firm is already handling this filing for you, no action is needed. If you have questions, please contact us.`;
-      const smsBody = `${c.client_name}: your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. If we're already handling this, no action is needed. Questions? Contact us.`;
+      const body = `Dear ${c.client_name},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nTo file this on time, please send us your sales and tax report for this period as soon as possible. If you've already sent it to us, no action is needed. If you have questions, please contact us.`;
+      const smsBody = `${c.client_name}: your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. Please send us your sales & tax report so we can file on time. Already sent it? No action needed.`;
 
       let anySent = false;
       let providerMessageId: string | null = null;
