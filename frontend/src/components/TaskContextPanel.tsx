@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Task } from "../api/types";
 import { StatusBadge } from "./StatusBadge";
-import { DueLabel } from "./TaskCells";
+import { DueLabel, TaskFileCell } from "./TaskCells";
 import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
@@ -128,9 +128,16 @@ export function TaskContextPanel() {
             <TaskRow label="Staff Due Date" value={task.staff_due_date ? fmtDateOnly(task.staff_due_date) : null} />
           </div>
 
-          {task.payment_required && (
+          {/* Filed/Paid/Confirmation reflect whether this task was actually
+              completed — real regardless of whether payment_required is
+              checked (a task can be filed with a confirmation number and no
+              payment involved at all), so shown whenever any of them has a
+              value, not gated on that flag. Matches TaskDetailPage's own
+              Details tab, which shows all of these unconditionally. */}
+          {(task.payment_required || task.payment_amount != null || task.filed_date || task.paid_date || task.confirmation_number) && (
             <div className="client-panel-section">
-              <div className="small-label">Payment</div>
+              <div className="small-label">Payment / Filing</div>
+              <TaskRow label="Payment Required" value={task.payment_required ? "Yes" : "No"} />
               <TaskRow label="Amount" value={task.payment_amount != null ? `$${Number(task.payment_amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null} />
               <TaskRow label="Filed Date" value={task.filed_date ? fmtDateOnly(task.filed_date) : null} />
               <TaskRow label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
@@ -142,6 +149,18 @@ export function TaskContextPanel() {
             <div className="client-panel-section">
               <div className="small-label">Portal</div>
               <TaskRow label="Portal" value={task.portal_name} href={task.portal_url || undefined} />
+            </div>
+          )}
+
+          {task.first_file_url && (
+            <div className="client-panel-section">
+              <div className="small-label">Files{task.file_count && task.file_count > 1 ? ` (${task.file_count})` : ""}</div>
+              <TaskFileCell task={task} />
+              {task.file_count && task.file_count > 1 && (
+                <button type="button" className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => navigate(`/tasks/${task.task_id}?open=files`)}>
+                  View all {task.file_count} files
+                </button>
+              )}
             </div>
           )}
 
