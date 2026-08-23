@@ -1151,6 +1151,7 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
             <p className="muted" style={{ fontSize: 12, margin: "10px 0 16px" }}>
               Only the <strong>Sales_Input</strong> tab is read — every other tab in the workbook (Home, Setup, Employee_Master, etc.) is ignored.
               Expected columns: Date, Gross Sales, Taxable @ 6%, Special @ 12%, Vape @ 20%, 60% Rate Sales, Adjustments, Payment Date, Notes.
+              A row with all-zero amounts is treated as unfilled and skipped — to import a confirmed zero-sales period (e.g. a registered client with no sales that month), put any text in that row's Notes column.
             </p>
             <button type="button" className="btn btn-primary" disabled={!file || busy} onClick={handlePreview}>
               {busy ? "Reading…" : "Preview Import"}

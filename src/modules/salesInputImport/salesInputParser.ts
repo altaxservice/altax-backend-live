@@ -116,11 +116,17 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
     const vape20 = vape20Idx !== -1 ? parseMoney(r[vape20Idx]) : 0;
     const rate60 = rate60Idx !== -1 ? parseMoney(r[rate60Idx]) : 0;
     const adjustments = adjustmentsIdx !== -1 ? parseMoney(r[adjustmentsIdx]) : 0;
+    const notes = notesIdx !== -1 ? String(r[notesIdx] || "").trim() : "";
 
     // A blank placeholder row for a future month — no amounts anywhere. The client's
     // reusable template pre-fills a period-end date for every month of the year, so a
     // future month can have a date typed in well before any sales are recorded against it.
-    if (grossSales === 0 && taxable6 === 0 && special12 === 0 && vape20 === 0 && rate60 === 0 && adjustments === 0) continue;
+    // A genuinely confirmed zero-sales period (e.g. a registered-but-dormant client who
+    // still owes a nil return) looks numerically identical to an unfilled row, so it needs
+    // its own signal to opt out of this skip — any text in Notes ("no sales this period",
+    // "confirmed zero", etc.) is treated as "this row was deliberately filled in as zero,"
+    // not "never touched."
+    if (grossSales === 0 && taxable6 === 0 && special12 === 0 && vape20 === 0 && rate60 === 0 && adjustments === 0 && !notes) continue;
 
     const saleDate = parseFlexibleDate(rawDate);
     if (!saleDate) {
@@ -131,7 +137,7 @@ export function parseSalesInputSheet(rawRows: string[][]): SalesInputParseResult
     rows.push({
       rowNumber, saleDate, rawDate, grossSales, taxable6, special12, vape20, rate60, adjustments,
       paymentDate: paymentDateIdx !== -1 ? parseFlexibleDate(String(r[paymentDateIdx] || "")) : null,
-      notes: notesIdx !== -1 ? String(r[notesIdx] || "").trim() : "",
+      notes,
     });
   }
 
