@@ -719,7 +719,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             </div>
           </div>
         )}
-        {clientState === "MD" && periodTax > 0 && (
+        {/* Was gated on periodTax > 0 — hid the entire Mark Filed section (not
+            just the discount/penalty math) for any period with zero taxable
+            sales, so a client with genuinely $0 sales one month had no way to
+            mark that period's nil return as filed at all. A $0 period is
+            still a real filing obligation the moment it's due, same
+            principle already applied to the SalesTaxFilingDue account flag
+            (clients.routes.ts) — this just hadn't caught up to it. */}
+        {clientState === "MD" && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
 
