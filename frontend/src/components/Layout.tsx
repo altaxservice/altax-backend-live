@@ -11,8 +11,10 @@ import { useAuth } from "../auth/AuthContext";
 import { CreateModal } from "./CreateModal";
 import { Header } from "./Header";
 import { ClientContextPanel } from "./ClientContextPanel";
+import { TaskContextPanel } from "./TaskContextPanel";
 import { IdleTimeout } from "./IdleTimeout";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "./FirmLogo";
 import { BottomTabBar } from "./BottomTabBar";
@@ -26,8 +28,11 @@ import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 // "already shows this," which it didn't, leaving every tab without it).
 // "/tasks" removed 2026-08-23 per direct owner request — the panel added
 // clutter to task detail pages without enough payoff there; the task's
-// linked client is already one click away.
+// linked client is already one click away. Task Detail (/tasks/:id) gets
+// its own TaskContextPanel instead — see TASK_DETAIL_PATTERN below — so a
+// bare "/tasks" (the list) still shows neither panel.
 const CLIENT_PANEL_ROUTES = ["/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
+const TASK_DETAIL_PATTERN = /^\/tasks\/[^/]+$/;
 
 function showsClientPanel(pathname: string): boolean {
   return CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"));
@@ -152,6 +157,7 @@ export function Layout() {
   const { user } = useAuth();
   const location = useLocation();
   const { clientId } = useSelectedClient();
+  const { taskId } = useSelectedTask();
   const { t, dir } = useLanguage();
   const [showCreate, setShowCreate] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -191,7 +197,11 @@ export function Layout() {
   // Billing shortcuts) for whoever staff is currently working on while navigating —
   // meaningless, and previously a real data-exposure bug, for a client or employee
   // viewing what is always just their own single account.
-  const showPanel = (user?.role === "admin" || user?.role === "staff") && !!clientId && showsClientPanel(location.pathname);
+  const isStaffOrAdmin = user?.role === "admin" || user?.role === "staff";
+  const onTaskDetail = TASK_DETAIL_PATTERN.test(location.pathname);
+  const showTaskPanel = isStaffOrAdmin && !!taskId && onTaskDetail;
+  // Task Detail gets its own panel above — never both at once on that route.
+  const showPanel = isStaffOrAdmin && !!clientId && !onTaskDetail && showsClientPanel(location.pathname);
   const pageTitle = titleForPath(location.pathname);
   const titleKey = titleKeyForPath(location.pathname);
   const displayTitle = showLanguageToggle && titleKey ? t(titleKey) : pageTitle;
@@ -282,6 +292,7 @@ export function Layout() {
             <Outlet />
           </main>
           {showPanel && <ClientContextPanel />}
+          {showTaskPanel && <TaskContextPanel />}
         </div>
       </div>
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} />}

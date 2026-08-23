@@ -16,6 +16,7 @@ import { FileDropInput } from "../components/FileDropInput";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useSelectedTask } from "../context/SelectedTaskContext";
 
 // Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
 // the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
@@ -68,6 +69,7 @@ export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
   const { setSelectedClient } = useSelectedClient();
+  const { setSelectedTask } = useSelectedTask();
   const [searchParams, setSearchParams] = useSearchParams();
   const openParam = searchParams.get("open");
   const [task, setTask] = useState<Task | null>(null);
@@ -125,6 +127,12 @@ export function TaskDetailPage() {
     if (task) setSelectedClient(task.client_id, task.client_name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.client_id, task?.client_name]);
+
+  // Same rederive-on-load reasoning as the client panel above, for TaskContextPanel.
+  useEffect(() => {
+    if (task) setSelectedTask(task.task_id, task.task_name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.task_id, task?.task_name]);
 
   /**
    * "Save and Send" emails the client a filing confirmation (period/type/

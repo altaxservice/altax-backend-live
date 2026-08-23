@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
+import { SelectedTaskProvider } from "./context/SelectedTaskContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
 import { ConfirmProvider } from "./components/ConfirmProvider";
@@ -62,6 +63,7 @@ function App() {
       <AuthProvider>
         <LanguageProvider>
         <SelectedClientProvider>
+        <SelectedTaskProvider>
         <ToastProvider>
         <ConfirmProvider>
         <NavigationMemory />
@@ -147,6 +149,7 @@ function App() {
         </Routes>
         </ConfirmProvider>
         </ToastProvider>
+        </SelectedTaskProvider>
         </SelectedClientProvider>
         </LanguageProvider>
       </AuthProvider>
