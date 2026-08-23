@@ -13,6 +13,7 @@ import { ChangePortalEmailModal } from "../components/ChangePortalEmailModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { ClientMessages } from "./CommunicationsPage";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedClient } from "../context/SelectedClientContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
@@ -268,6 +269,7 @@ function linkifyNotes(text: string): ReactNode[] {
 export function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const { user } = useAuth();
+  const { setSelectedClient } = useSelectedClient();
   const navigate = useNavigate();
   const location = useLocation();
   const toast = useToast();
@@ -426,6 +428,7 @@ export function ClientDetailPage() {
     api.get<{ client: Client }>(`/clients/${clientId}`)
       .then((res) => {
         setClient(res.client);
+        setSelectedClient(res.client.client_id, res.client.client_name);
         const initial: Record<string, any> = {};
         for (const f of ALL_FIELDS) {
           initial[f.apiKey] = f.kind === "checkbox" ? Boolean(res.client[f.key])

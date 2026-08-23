@@ -20,10 +20,16 @@ import { InstallPrompt } from "./InstallPrompt";
 import { CommandPalette } from "./CommandPalette";
 import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 
-const CLIENT_PANEL_ROUTES = ["/tasks", "/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
+// The client's own detail page (/clients/:id and every tab within it) shows
+// the panel via the plain "/clients" prefix match below — removed the old
+// early-return that skipped it there (stale: it claimed the profile page
+// "already shows this," which it didn't, leaving every tab without it).
+// "/tasks" removed 2026-08-23 per direct owner request — the panel added
+// clutter to task detail pages without enough payoff there; the task's
+// linked client is already one click away.
+const CLIENT_PANEL_ROUTES = ["/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
 
 function showsClientPanel(pathname: string): boolean {
-  if (/^\/clients\/[^/]+$/.test(pathname)) return false; // full client profile page already shows this
   return CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"));
 }
 
