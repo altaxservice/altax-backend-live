@@ -28,11 +28,16 @@ import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 // "already shows this," which it didn't, leaving every tab without it).
 // "/tasks" removed 2026-08-23 per direct owner request — the panel added
 // clutter to task detail pages without enough payoff there; the task's
-// linked client is already one click away. Task Detail (/tasks/:id) gets
-// its own TaskContextPanel instead — see TASK_DETAIL_PATTERN below — so a
-// bare "/tasks" (the list) still shows neither panel.
+// linked client is already one click away. All of "/tasks" (the list AND
+// every task's own detail page) gets TaskContextPanel instead — see
+// showsTaskPanel below. Clicking a task row now selects it (no
+// navigation) so the panel appears right there on the list; the task's
+// own name is still a real link to its detail page.
 const CLIENT_PANEL_ROUTES = ["/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
-const TASK_DETAIL_PATTERN = /^\/tasks\/[^/]+$/;
+
+function showsTaskPanel(pathname: string): boolean {
+  return pathname === "/tasks" || pathname.startsWith("/tasks/");
+}
 
 function showsClientPanel(pathname: string): boolean {
   return CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"));
@@ -198,10 +203,11 @@ export function Layout() {
   // meaningless, and previously a real data-exposure bug, for a client or employee
   // viewing what is always just their own single account.
   const isStaffOrAdmin = user?.role === "admin" || user?.role === "staff";
-  const onTaskDetail = TASK_DETAIL_PATTERN.test(location.pathname);
-  const showTaskPanel = isStaffOrAdmin && !!taskId && onTaskDetail;
-  // Task Detail gets its own panel above — never both at once on that route.
-  const showPanel = isStaffOrAdmin && !!clientId && !onTaskDetail && showsClientPanel(location.pathname);
+  const onTasksSection = showsTaskPanel(location.pathname);
+  const showTaskPanel = isStaffOrAdmin && !!taskId && onTasksSection;
+  // "/tasks" was already dropped from CLIENT_PANEL_ROUTES, so this is belt-
+  // and-suspenders — the two panels are never both eligible on the same route.
+  const showPanel = isStaffOrAdmin && !!clientId && !onTasksSection && showsClientPanel(location.pathname);
   const pageTitle = titleForPath(location.pathname);
   const titleKey = titleKeyForPath(location.pathname);
   const displayTitle = showLanguageToggle && titleKey ? t(titleKey) : pageTitle;

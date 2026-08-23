@@ -8,6 +8,7 @@ import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
@@ -55,6 +56,7 @@ export function TasksListPage() {
   const promptFor = usePrompt();
   const notify = useNotify();
   const { setSelectedClient } = useSelectedClient();
+  const { setSelectedTask } = useSelectedTask();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // `tasks` (the full live table) is now only fetched for the "All History"
@@ -603,7 +605,17 @@ export function TasksListPage() {
             </thead>
             <tbody>
               {visibleRows.map((t) => (
-                <tr key={t.task_id} data-row-id={t.task_id} tabIndex={0} onClick={() => { setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); navigate(`/tasks/${t.task_id}`); } }}>
+                <tr
+                  key={t.task_id}
+                  data-row-id={t.task_id}
+                  tabIndex={0}
+                  // Selects the task (shows it in the sidebar panel, right here on the
+                  // list) instead of navigating away — the task's own name below is the
+                  // real link to its full detail page. Was a straight navigate() until
+                  // 2026-08-23, per direct owner request to preview without leaving the list.
+                  onClick={() => { setSelectedClient(t.client_id, t.client_name); setSelectedTask(t.task_id, t.task_name); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedClient(t.client_id, t.client_name); setSelectedTask(t.task_id, t.task_name); } }}
+                >
                   {!isArchivedView && canManage && (
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.task_id)} onChange={() => toggleSelected(t.task_id)} /></td>
                   )}
@@ -618,7 +630,15 @@ export function TasksListPage() {
                   </td>
                   <td data-label="Task">
                     <div>
-                      <div>{t.task_name}</div>
+                      <div>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={(e) => { e.stopPropagation(); setSelectedClient(t.client_id, t.client_name); setSelectedTask(t.task_id, t.task_name); navigate(`/tasks/${t.task_id}`); }}
+                        >
+                          {t.task_name}
+                        </button>
+                      </div>
                       {t.priority && t.priority !== "Normal" && (
                         <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
                       )}
