@@ -38,6 +38,28 @@ function fmtApptTime(a: Appointment): string {
   return new Date(a.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+/**
+ * An actual wall clock — "can you show a real clock?" (direct owner
+ * request, 2026-08-24): the hero card below only ever appears when there's
+ * a relevant appointment today, which isn't the same thing as "what time is
+ * it right now." Always visible in the month-nav bar regardless of whether
+ * any appointment exists. Ticks once a second; seconds included since this
+ * is meant to read as a genuine clock, not just a rough time-of-day label.
+ */
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="muted" style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--teal)", display: "inline-block" }} />
+      {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })}
+    </span>
+  );
+}
+
 const PHASE_COLOR: Record<AppointmentPhase | "soon", { fg: string; bg: string }> = {
   before: { fg: "var(--teal)", bg: "var(--teal-soft)" },
   soon: { fg: "var(--amber)", bg: "var(--amber-soft)" },
@@ -294,7 +316,10 @@ export function TaskCalendarPage() {
 
           <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
             <button className="btn btn-sm" onClick={() => { setCursor(new Date(year, month - 1, 1)); setSelectedDay(null); }}>← Prev</button>
-            <div style={{ fontWeight: 700 }}>{firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ fontWeight: 700 }}>{firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
+              <LiveClock />
+            </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn btn-sm" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); setSelectedDay(null); }}>Today</button>
               <button className="btn btn-sm" onClick={() => { setCursor(new Date(year, month + 1, 1)); setSelectedDay(null); }}>Next →</button>
