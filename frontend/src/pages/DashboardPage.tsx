@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
-import type { Client, Task } from "../api/types";
+import type { Client, Task, Appointment } from "../api/types";
 import type { DocumentRequest, Invoice } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -475,6 +475,76 @@ interface VerificationDueClient {
  * External Verification section in the sidebar (ClientContextPanel) is
  * right there with a "Mark Checked" button — no separate page needed.
  */
+/**
+ * "Don't miss it, be ready for it" (direct owner request, 2026-08-24) — the
+ * existing email/SMS staff reminders (notifyAppointmentStaff) are easy to
+ * miss in an inbox; this puts today's schedule on the one screen every
+ * admin/staff account already opens first. Clicking a row goes straight to
+ * the linked client's own profile — the same "be ready" idea behind the new
+ * push notification's deep link — not just a bare time slot. Firm-wide (not
+ * filtered to the viewer's own appointments): GET /appointments has no
+ * per-staff scoping today, and seeing a colleague's schedule alongside your
+ * own is useful context, not noise, on a shared calendar this small.
+ */
+function TodaysAppointmentsPanel() {
+  const navigate = useNavigate();
+  const { setSelectedClient } = useSelectedClient();
+  const [appts, setAppts] = useState<Appointment[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+    api.get<{ appointments: Appointment[] }>(`/appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
+      .then((res) => { if (!cancelled) setAppts(res.appointments.filter((a) => a.status === "Scheduled")); })
+      .catch(() => { if (!cancelled) setAppts([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!appts || appts.length === 0) return null;
+  const sorted = [...appts].sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  function go(a: Appointment) {
+    if (a.client_id) { setSelectedClient(a.client_id, a.client_name); navigate(`/clients/${a.client_id}`); }
+    else navigate("/calendar");
+  }
+
+  const now = Date.now();
+  function isStartingSoon(a: Appointment): boolean {
+    const mins = (new Date(a.start_time).getTime() - now) / 60000;
+    return mins >= 0 && mins <= 30;
+  }
+  function fmtApptTime(iso: string): string {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  return (
+    <CommandPanel
+      title="Today's Appointments"
+      note={`${sorted.length} scheduled today — click one to open the client and get ready before it starts`}
+      action={<Link to="/calendar" className="muted" style={{ fontSize: 12.5, fontWeight: 700 }}>View calendar →</Link>}
+    >
+      <div className="attention-list">
+        {sorted.map((a) => (
+          <div className="attention-item" key={a.appointment_id} onClick={() => go(a)} tabIndex={0} role="button" onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(a); } }}>
+            <div className="attention-main">
+              <div className="attention-title">
+                {isStartingSoon(a) && <span style={{ color: "var(--red)", fontWeight: 800 }}>● Starting soon — </span>}
+                {fmtApptTime(a.start_time)} — {a.title || "Appointment"} with {a.client_name || a.contact_name || "a contact"}
+              </div>
+              <div className="attention-meta">
+                {a.assigned_to && <span>Assigned: {a.assigned_to}</span>}
+                {a.location && <span>{a.location}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </CommandPanel>
+  );
+}
+
 function VerificationDuePanel() {
   const navigate = useNavigate();
   const { setSelectedClient } = useSelectedClient();
@@ -851,6 +921,7 @@ function AdminCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
 
   return (
     <div>
+      <TodaysAppointmentsPanel />
       <ManagementExceptionsPanel />
       {overdue.length > 0 && (
         <div className="alert-strip">
@@ -1089,6 +1160,8 @@ function StaffCommand({ tasks, clients, docs, invoices, onChanged }: { tasks: Ta
           <Link to="/accounting" className="action-button">Client Workbooks</Link>
         </div>
       </div>
+
+      <TodaysAppointmentsPanel />
 
       <div className="metric-grid" style={{ marginBottom: 16 }}>
         <button type="button" className="metric metric-clickable" onClick={() => navigate("/clients")}>

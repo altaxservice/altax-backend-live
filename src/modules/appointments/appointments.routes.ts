@@ -12,6 +12,7 @@ import { getAppointmentSettings, bookableWeekdayLabel, REMINDER_LEAD_PRESETS, ty
 import { escapeHtml } from "../../common/html";
 import { alertAdmins } from "../../common/adminAlerts";
 import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
+import { sendPushToUsers } from "../../common/webPush";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -711,6 +712,23 @@ async function notifyAppointmentStaff(appt: any, leadMinutes: number, channel: S
       }
     }
   }
+
+  // Real phone/desktop push, on top of whatever email/SMS channel is
+  // configured above — direct owner request (2026-08-24): an email reminder
+  // is easy to miss until it's too late, a push notification isn't.
+  // Deliberately unconditional on `channel` (email/sms/both) since this is
+  // specifically the hard-to-miss layer, not another copy of the same
+  // setting. Links straight into the client's own profile when this
+  // appointment has one — "be ready for it," not just "don't forget it."
+  // Best-effort and silently a no-op if push isn't configured or no
+  // recipient has a device subscribed — see webPush.ts.
+  const recipientEmails = Array.from(recipients.values()).map((r) => r.email).filter((e): e is string => !!e);
+  await sendPushToUsers(recipientEmails, {
+    title: `📅 ${lead} — ${appt.title || "Appointment"}`,
+    body: `${who} · ${fmtTime(start)}${appt.location ? ` · ${appt.location}` : ""}`,
+    url: appt.client_id ? `/clients/${appt.client_id}` : "/calendar",
+  });
+
   return { failures };
 }
 
@@ -741,11 +759,14 @@ export async function runAppointmentReminders(actorEmail: string, req?: Request)
 
   for (const leadMinutes of settings.reminderLeadMinutes) {
     const target = new Date(Date.now() + leadMinutes * 60 * 1000);
-    // A 2-hour-wide window centered on the target time, same margin the old
-    // hardcoded day-before reminder used — wide enough that the hourly cron
-    // can't step over an appointment's window between two runs.
-    const windowStart = new Date(target.getTime() - 60 * 60 * 1000);
-    const windowEnd = new Date(target.getTime() + 60 * 60 * 1000);
+    // A 20-minute-wide window centered on the target time — tightened from
+    // ±1 hour (2026-08-24, alongside the cron moving from hourly to every 5
+    // minutes) specifically so the new "15 minutes before" preset can't fire
+    // after the appointment has already started. Still comfortably wider
+    // than the 5-minute gap between sweeps, so no appointment can fall
+    // through uncaught.
+    const windowStart = new Date(target.getTime() - 10 * 60 * 1000);
+    const windowEnd = new Date(target.getTime() + 10 * 60 * 1000);
     const due = await query<any>(
       `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
          LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id

@@ -30,6 +30,11 @@ export const REMINDER_LEAD_PRESETS: { minutes: number; label: string }[] = [
   { minutes: 240, label: "4 hours before" },
   { minutes: 120, label: "2 hours before" },
   { minutes: 60, label: "1 hour before" },
+  // Shortest preset on purpose — added alongside staff push notifications
+  // (2026-08-24) specifically so there's a genuinely last-minute option:
+  // the hours/days-ahead presets above suit email, but a push notification
+  // is most useful right before an appointment starts, not a day out.
+  { minutes: 15, label: "15 minutes before" },
 ];
 
 export const DEFAULT_APPOINTMENT_SETTINGS = {

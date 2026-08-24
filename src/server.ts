@@ -375,13 +375,17 @@ cron.schedule("0 6 * * *", runScheduledJob("Daily Backup Email", () => runDailyB
 // eslint-disable-next-line no-console
 console.log("Daily encrypted backup email scheduled for 6:00AM America/New_York.");
 
-// Hourly sweep for appointment reminders — checks a window around each
+// Every 5 minutes (was hourly until 2026-08-24) — checks a window around each
 // configured lead time (Calendar Settings, see runAppointmentReminders's doc
 // comment), so an appointment gets each configured reminder once regardless
-// of which hourly tick catches it, without ever double-sending.
-cron.schedule("0 * * * *", runScheduledJob("Appointment Reminders", () => runAppointmentReminders("System (Appointment Reminder Job)")));
+// of which tick catches it, without ever double-sending. Tightened from
+// hourly specifically to make the new "15 minutes before" preset (added
+// alongside staff push notifications) actually mean 15 minutes — an hourly
+// sweep's ±1-hour matching window could have fired that reminder up to 45
+// minutes after the appointment had already started.
+cron.schedule("*/5 * * * *", runScheduledJob("Appointment Reminders", () => runAppointmentReminders("System (Appointment Reminder Job)")));
 // eslint-disable-next-line no-console
-console.log("Appointment reminders scheduled hourly.");
+console.log("Appointment reminders scheduled every 5 minutes.");
 
 // Auto-completes past Scheduled appointments (see runAppointmentAutoComplete's
 // doc comment) — offset 5 minutes past the hour from the reminder sweep above
