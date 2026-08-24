@@ -53,8 +53,14 @@ function LiveClock() {
     return () => clearInterval(id);
   }, []);
   return (
-    <span className="muted" style={{ fontSize: 13, fontVariantNumeric: "tabular-nums", display: "inline-flex", alignItems: "center", gap: 5 }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--teal)", display: "inline-block" }} />
+    <span
+      style={{
+        fontSize: 20, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: "var(--teal)",
+        display: "inline-flex", alignItems: "center", gap: 8,
+        padding: "5px 16px", borderRadius: 999, background: "var(--teal-soft)", border: "1px solid var(--teal)",
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--teal)", display: "inline-block" }} />
       {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })}
     </span>
   );
