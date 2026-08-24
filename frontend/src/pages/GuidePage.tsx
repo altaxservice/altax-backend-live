@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
+import { NexusPlaybookGuide } from "../components/NexusPlaybookGuide";
 
 // labelKey/titleKey/bodyKeys are only set on client/employee sections — those are
 // the only roles that can ever see Arabic (useLanguage()'s canUseArabic gate), so
@@ -68,6 +69,14 @@ const SECTIONS: Section[] = [
         ],
       },
     ],
+    body: [],
+  },
+
+  {
+    key: "nexus-playbook",
+    label: "The Nexus Playbook",
+    title: "The Nexus Playbook",
+    roles: ADMIN_STAFF_ROLES,
     body: [],
   },
 
@@ -1084,7 +1093,9 @@ export function GuidePage() {
           <h3 style={{ margin: "0 0 10px", fontSize: 14 }}>{section.titleKey ? t(section.titleKey) : section.title}</h3>
           {section.intro && <p className="muted" style={{ margin: "0 0 16px", fontSize: 13 }}>{section.intro}</p>}
 
-          {section.topics ? (
+          {section.key === "nexus-playbook" ? (
+            <NexusPlaybookGuide />
+          ) : section.topics ? (
             <div style={{ display: "grid", gap: 18 }}>
               {section.topics.map((topic, i) => (
                 <div key={i}>
