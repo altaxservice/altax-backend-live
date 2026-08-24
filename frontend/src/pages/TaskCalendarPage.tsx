@@ -9,6 +9,8 @@ import { NewAppointmentModal } from "../components/NewAppointmentModal";
 import { CalendarSettingsPanel } from "../components/CalendarSettingsPanel";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
+import { useSelectedClient } from "../context/SelectedClientContext";
+import { computeAppointmentTiming, pickMostRelevantAppointment, type AppointmentPhase } from "../utils/appointmentTiming";
 
 /**
  * Practice Management: calendar + staff capacity — task due dates (from the same
@@ -34,6 +36,127 @@ function apptDateKey(a: Appointment): string {
 }
 function fmtApptTime(a: Appointment): string {
   return new Date(a.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+const PHASE_COLOR: Record<AppointmentPhase | "soon", { fg: string; bg: string }> = {
+  before: { fg: "var(--teal)", bg: "var(--teal-soft)" },
+  soon: { fg: "var(--amber)", bg: "var(--amber-soft)" },
+  during: { fg: "var(--green)", bg: "var(--green-soft)" },
+  after: { fg: "var(--muted)", bg: "var(--surface)" },
+};
+
+/**
+ * Live "before / during / after" status for one appointment — a compact
+ * inline badge for a table row. Ticks on its own (1s interval) rather than
+ * depending on the parent re-rendering, so a whole table of these stays
+ * accurate even if nothing else on the page changes for a while.
+ */
+function AppointmentTimingBadge({ appt }: { appt: Appointment }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (appt.status !== "Scheduled") return null;
+  const timing = computeAppointmentTiming(appt.start_time, appt.end_time, now);
+  const colorKey = timing.phase === "before" && timing.startingSoon ? "soon" : timing.phase;
+  const { fg, bg } = PHASE_COLOR[colorKey];
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color: fg, background: bg, borderRadius: 5, padding: "2px 7px", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+      {timing.label}
+    </span>
+  );
+}
+
+/**
+ * The "clock timer" (direct owner request, 2026-08-24): a single always-
+ * visible, always-ticking card showing whichever appointment matters most
+ * right now — in progress wins over merely upcoming, which wins over one
+ * that just wrapped up (see pickMostRelevantAppointment). Self-fetches
+ * today's appointments independent of whatever month the grid below happens
+ * to be showing, so it stays live even while browsing a past/future month.
+ * Clicking it goes straight to the client, same "be ready for it" idea as
+ * the push notification and Command Center panel built alongside this.
+ */
+function LiveAppointmentClock() {
+  const navigate = useNavigate();
+  const { setSelectedClient } = useSelectedClient();
+  const [todaysAppts, setTodaysAppts] = useState<Appointment[] | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    const d = new Date();
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).toISOString();
+    api.get<{ appointments: Appointment[] }>(`/appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`)
+      .then((res) => { if (!cancelled) setTodaysAppts(res.appointments.filter((a) => a.status === "Scheduled")); })
+      .catch(() => { if (!cancelled) setTodaysAppts([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!todaysAppts || todaysAppts.length === 0) return null;
+  const appt = pickMostRelevantAppointment(todaysAppts, now);
+  if (!appt) return null;
+
+  const timing = computeAppointmentTiming(appt.start_time, appt.end_time, now);
+  const colorKey = timing.phase === "before" && timing.startingSoon ? "soon" : timing.phase;
+  const { fg } = PHASE_COLOR[colorKey];
+  const phaseWord = timing.phase === "before" ? "Up Next" : timing.phase === "during" ? "In Progress" : "Just Finished";
+
+  function go() {
+    if (appt!.client_id) { setSelectedClient(appt!.client_id, appt!.client_name); navigate(`/clients/${appt!.client_id}`); }
+  }
+
+  return (
+    <div
+      className="card"
+      onClick={appt.client_id ? go : undefined}
+      tabIndex={appt.client_id ? 0 : undefined}
+      role={appt.client_id ? "button" : undefined}
+      onKeyDown={appt.client_id ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } } : undefined}
+      style={{
+        marginBottom: 16, padding: "16px 20px", display: "flex", alignItems: "center", gap: 18,
+        borderLeft: `4px solid ${fg}`, cursor: appt.client_id ? "pointer" : "default",
+      }}
+    >
+      <div style={{ flexShrink: 0, textAlign: "center", minWidth: 118 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: fg, marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+          {timing.phase === "during" && (
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: fg, display: "inline-block", animation: "pulse 1.4s ease-in-out infinite" }} />
+          )}
+          {phaseWord}
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: "var(--ink)", lineHeight: 1.1 }}>
+          {timing.durationText}
+        </div>
+        <div className="muted" style={{ fontSize: 10.5 }}>
+          {timing.phase === "before" ? "until start" : timing.phase === "during" ? "remaining" : "ago"}
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {appt.title || "Appointment"} {(appt.client_name || appt.contact_name) && <span className="muted" style={{ fontWeight: 500 }}>with {appt.client_name || appt.contact_name}</span>}
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+          {fmtApptTime(appt)} – {new Date(appt.end_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+          {appt.location ? ` · ${appt.location}` : ""}
+          {appt.assigned_to ? ` · ${appt.assigned_to}` : ""}
+        </div>
+        {timing.phase === "during" && timing.progressPct !== null && (
+          <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--line)", overflow: "hidden" }}>
+            <div style={{ width: `${timing.progressPct}%`, height: "100%", background: fg, transition: "width 1s linear" }} />
+          </div>
+        )}
+      </div>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }`}</style>
+    </div>
+  );
 }
 
 export function TaskCalendarPage() {
@@ -167,6 +290,8 @@ export function TaskCalendarPage() {
 
       {view === "Calendar" && (
         <>
+          <LiveAppointmentClock />
+
           <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px" }}>
             <button className="btn btn-sm" onClick={() => { setCursor(new Date(year, month - 1, 1)); setSelectedDay(null); }}>← Prev</button>
             <div style={{ fontWeight: 700 }}>{firstOfMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
@@ -280,7 +405,7 @@ export function TaskCalendarPage() {
                   <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Appointments</div>
                   <div className="table-scroll">
                     <table className="data-table">
-                      <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col"></th></tr></thead>
+                      <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col">Timing</th><th scope="col"></th></tr></thead>
                       <tbody>
                         {selectedAppts.map((a) => (
                           // Whole row opens the same edit/detail view as the "Edit" button —
@@ -300,6 +425,7 @@ export function TaskCalendarPage() {
                             <td>{a.client_name || a.contact_name || "—"}</td>
                             <td>{a.assigned_to || "—"}</td>
                             <td><StatusBadge status={a.status} /></td>
+                            <td><AppointmentTimingBadge appt={a} /></td>
                             <td onClick={(e) => e.stopPropagation()}>
                               <div style={{ display: "flex", gap: 4 }}>
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}
