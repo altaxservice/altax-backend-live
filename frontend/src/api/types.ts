@@ -133,4 +133,7 @@ export interface Appointment {
   appointment_type_id: string | null;
   appointment_type_name: string | null;
   guest_emails: string[] | null;
+  client_attendance: "Attended" | "No-Show" | null;
+  client_attendance_marked_by: string | null;
+  client_attendance_marked_at: string | null;
 }

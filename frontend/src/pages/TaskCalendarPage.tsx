@@ -38,6 +38,10 @@ function apptDateKey(a: Appointment): string {
 function fmtApptTime(a: Appointment): string {
   return new Date(a.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
+/** Full start–end range, not just the start — "improve the line for the time" (direct owner request, 2026-08-24): the old single time left readers guessing how long the slot runs without opening the row. */
+function fmtApptTimeRange(a: Appointment): string {
+  return `${fmtApptTime(a)} – ${new Date(a.end_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
 
 /**
  * An actual wall clock — "can you show a real clock?" (direct owner
@@ -98,6 +102,57 @@ function AppointmentTimingBadge({ appt }: { appt: Appointment }) {
 }
 
 /**
+ * "Available in the meeting or not, attending or absent" (direct owner
+ * request, 2026-08-24) — mark/clear the client's actual attendance once an
+ * appointment has started (marking before it starts wouldn't mean anything
+ * yet, so the control simply doesn't render until then). Shared between the
+ * hero clock card and the day-detail table; the caller supplies `onUpdated`
+ * so each can apply the result to its own local state shape without this
+ * component needing to know which one it's in.
+ */
+function AttendanceControl({ appt, onUpdated }: { appt: Appointment; onUpdated: (patch: Partial<Appointment>) => void }) {
+  const { user } = useAuth();
+  const notify = useNotify();
+  const [busy, setBusy] = useState(false);
+  const started = new Date(appt.start_time).getTime() <= Date.now();
+  if (!started) return null;
+
+  async function mark(value: "Attended" | "No-Show" | null) {
+    setBusy(true);
+    try {
+      await api.post(`/appointments/${appt.appointment_id}/attendance`, { attendance: value });
+      onUpdated({
+        client_attendance: value,
+        client_attendance_marked_by: value ? user?.email || null : null,
+        client_attendance_marked_at: value ? new Date().toISOString() : null,
+      });
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update attendance.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (appt.client_attendance) {
+    const isAttended = appt.client_attendance === "Attended";
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className={`status-pill ${isAttended ? "status-green" : "status-red"}`} style={{ fontSize: 10, whiteSpace: "nowrap" }}>
+          {isAttended ? "✓ Attended" : "✕ No-Show"}
+        </span>
+        <button className="btn btn-sm" disabled={busy} onClick={() => mark(null)} title="Clear attendance mark">Clear</button>
+      </span>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      <button className="btn btn-sm" disabled={busy} onClick={() => mark("Attended")}>Attended</button>
+      <button className="btn btn-sm" disabled={busy} onClick={() => mark("No-Show")}>No-Show</button>
+    </div>
+  );
+}
+
+/**
  * The "clock timer" (direct owner request, 2026-08-24): a single always-
  * visible, always-ticking card showing whichever appointment matters most
  * right now — in progress wins over merely upcoming, which wins over one
@@ -141,6 +196,9 @@ function LiveAppointmentClock() {
   function go() {
     if (appt!.client_id) { setSelectedClient(appt!.client_id, appt!.client_name); navigate(`/clients/${appt!.client_id}`); }
   }
+  function updateTodaysApptLocal(id: string, patch: Partial<Appointment>) {
+    setTodaysAppts((prev) => (prev ? prev.map((a) => (a.appointment_id === id ? { ...a, ...patch } : a)) : prev));
+  }
 
   return (
     <div
@@ -178,8 +236,13 @@ function LiveAppointmentClock() {
           {appt.assigned_to ? ` · ${appt.assigned_to}` : ""}
         </div>
         {timing.phase === "during" && timing.progressPct !== null && (
-          <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--line)", overflow: "hidden" }}>
+          <div style={{ marginTop: 8, height: 6, borderRadius: 3, background: "var(--line)", overflow: "hidden", position: "relative" }}>
             <div style={{ width: `${timing.progressPct}%`, height: "100%", background: fg, transition: "width 1s linear" }} />
+          </div>
+        )}
+        {timing.phase !== "before" && (
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
+            <AttendanceControl appt={appt} onUpdated={(patch) => updateTodaysApptLocal(appt!.appointment_id, patch)} />
           </div>
         )}
       </div>
@@ -211,6 +274,10 @@ export function TaskCalendarPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load tasks."));
     api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {});
   }, []);
+
+  function updateApptLocal(id: string, patch: Partial<Appointment>) {
+    setAppointments((prev) => (prev ? prev.map((a) => (a.appointment_id === id ? { ...a, ...patch } : a)) : prev));
+  }
 
   function loadAppointments() {
     const year = cursor.getFullYear(), month = cursor.getMonth();
@@ -437,7 +504,7 @@ export function TaskCalendarPage() {
                   <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Appointments</div>
                   <div className="table-scroll">
                     <table className="data-table">
-                      <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col">Timing</th><th scope="col"></th></tr></thead>
+                      <thead><tr><th scope="col">Time</th><th scope="col">Title</th><th scope="col">With</th><th scope="col">Assigned</th><th scope="col">Status</th><th scope="col">Timing</th><th scope="col">Attendance</th><th scope="col"></th></tr></thead>
                       <tbody>
                         {selectedAppts.map((a) => (
                           // Whole row opens the same edit/detail view as the "Edit" button —
@@ -452,12 +519,15 @@ export function TaskCalendarPage() {
                             onClick={() => setEditingAppt(a)}
                             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditingAppt(a); } }}
                           >
-                            <td>{fmtApptTime(a)}</td>
+                            <td style={{ whiteSpace: "nowrap" }}>{fmtApptTimeRange(a)}</td>
                             <td>{a.title}</td>
                             <td>{a.client_name || a.contact_name || "—"}</td>
                             <td>{a.assigned_to || "—"}</td>
                             <td><StatusBadge status={a.status} /></td>
                             <td><AppointmentTimingBadge appt={a} /></td>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <AttendanceControl appt={a} onUpdated={(patch) => updateApptLocal(a.appointment_id, patch)} />
+                            </td>
                             <td onClick={(e) => e.stopPropagation()}>
                               <div style={{ display: "flex", gap: 4 }}>
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}

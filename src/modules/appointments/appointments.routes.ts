@@ -1159,6 +1159,44 @@ appointmentsRouter.post("/:appointmentId/cancel", requireAuth, requireRole("admi
   res.json({ ok: true });
 }));
 
+const ATTENDANCE_VALUES = new Set(["Attended", "No-Show"]);
+
+/**
+ * Client attendance — direct owner request, 2026-08-24. Deliberately
+ * separate from `status` (Scheduled/Completed/Cancelled, the appointment's
+ * own lifecycle) — an appointment can be auto-marked Completed by the
+ * hourly sweep purely because its end time passed, regardless of whether
+ * the client actually showed up. Latest-mark-only, same shape as Mark
+ * Filed/Mark Checked elsewhere in this app. `attendance: null` in the body
+ * clears a mis-click back to unmarked.
+ */
+appointmentsRouter.post("/:appointmentId/attendance", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { appointmentId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
+  if (!existing) return res.status(404).json({ error: "Appointment not found." });
+
+  const attendance = req.body?.attendance === null ? null : String(req.body?.attendance || "").trim();
+  if (attendance !== null && !ATTENDANCE_VALUES.has(attendance)) {
+    return res.status(400).json({ error: `Attendance must be one of: ${Array.from(ATTENDANCE_VALUES).join(", ")}, or null to clear.` });
+  }
+
+  await query(
+    `UPDATE altax.v3_appointments
+        SET client_attendance = $2, client_attendance_marked_by = $3, client_attendance_marked_at = $4, updated_at = now()
+      WHERE appointment_id = $1`,
+    [appointmentId, attendance, attendance ? req.user!.email : null, attendance ? new Date().toISOString() : null]
+  );
+
+  await logAudit("Calendar", "MARK_APPOINTMENT_ATTENDANCE", appointmentId, "Attendance", existing.client_attendance || "—", attendance || "—",
+    `Attendance for "${existing.title}" ${attendance ? `marked ${attendance}` : "cleared"} by ${req.user!.email}.`, req.user!.email);
+  if (existing.client_id) {
+    await logClientActivity(existing.client_id, "Appointment Attendance",
+      attendance ? `Marked ${attendance} for "${existing.title}" by ${req.user!.email}.` : `Attendance cleared for "${existing.title}" by ${req.user!.email}.`,
+      req.user!.email);
+  }
+  res.json({ ok: true, attendance });
+}));
+
 // Admin-only: staff can Edit and Cancel (both preserve the row and its
 // history — Cancel just flips status), but permanent deletion destroys the
 // compliance/audit trail entirely, so it's restricted one level up. See the
