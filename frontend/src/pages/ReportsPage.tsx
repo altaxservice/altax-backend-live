@@ -445,7 +445,10 @@ export function ReportsPage() {
       const path = `/reports/pdf/${segment}/${clientId}?from=${from}&to=${to}${employeeQuery}${mdPaidDateQuery}`;
       if (mode === "view") await viewFile(path);
       else if (mode === "print") await printFile(path);
-      else await downloadFile(path, buildFilename([client?.client_name, tab, `${from} to ${to}`], "pdf"));
+      // For a single employee's own Employee Report, name the file after them —
+      // "Employee.pdf" repeated for every download in a folder was unreadable
+      // without opening each one to see whose report it actually was.
+      else await downloadFile(path, buildFilename([client?.client_name, tab === "Employee" && employeeFilter ? employeeFilter : tab, `${from} to ${to}`], "pdf"));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not generate this report.");
     } finally {
