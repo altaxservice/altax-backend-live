@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Clock } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Task, Appointment, Client } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -60,7 +61,7 @@ function LiveClock() {
         padding: "5px 16px", borderRadius: 999, background: "var(--teal-soft)", border: "1px solid var(--teal)",
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--teal)", display: "inline-block" }} />
+      <Clock size={18} strokeWidth={2} aria-hidden="true" />
       {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })}
     </span>
   );
