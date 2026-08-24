@@ -302,6 +302,10 @@ export interface PayrollReportData {
   grossWages: number; checkCount: number; employeeTaxes: number; employerTaxes: number; netPay: number; totalCost: number;
   taxRows: PayrollTaxRow[];
   checks: PayrollCheckRow[];
+  /** One firm-wide-shaped tax table per employee — lets the dashboard answer "which
+   * employee does this withholding belong to" without opening the separate Employee
+   * report. Optional so any other caller of PayrollReportData stays unaffected. */
+  taxByEmployee?: { employee: string; taxRows: PayrollTaxRow[] }[];
 }
 
 export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8Array> {
@@ -355,6 +359,40 @@ export async function generatePayrollPdf(data: PayrollReportData): Promise<Uint8
   c.text(colEr, y, money(erTotal), { size: 9, bold: true, align: "right" });
   c.text(colTot, y, money(empTotal + erTotal), { size: 9, bold: true, align: "right" });
   y += 26;
+
+  // One mini version of the section just above, per employee — the firm-wide
+  // table answers "how much did we withhold," this answers "whose withholding
+  // was it" without needing the separate Employee report open at the same
+  // time. Direct owner request, 2026-08-24.
+  if (data.taxByEmployee && data.taxByEmployee.length > 0) {
+    y = sectionLabel(c, y, "Tax Liability by Employee");
+    for (const emp of data.taxByEmployee) {
+      const empEmpTotal = emp.taxRows.reduce((s, r) => s + r.employee, 0);
+      const empErTotal = emp.taxRows.reduce((s, r) => s + r.employer, 0);
+      const blockHeight = 20 + emp.taxRows.length * 15 + 20;
+      if (y + blockHeight > PAGE_H - 60) {
+        drawFooter(c, profile.firmName);
+        ({ page, c } = await newPage(doc, font, bold));
+        y = 60;
+      }
+      c.text(48, y, emp.employee, { size: 9.5, bold: true, color: TEAL });
+      y += 16;
+      for (const r of emp.taxRows) {
+        c.text(colTax + 10, y, r.label, { size: 8.5 });
+        c.text(colEe, y, money(r.employee), { size: 8.5, align: "right" });
+        c.text(colEr, y, money(r.employer), { size: 8.5, align: "right" });
+        c.text(colTot, y, money(r.employee + r.employer), { size: 8.5, align: "right" });
+        y += 15;
+      }
+      c.line(48, y - 2, PAGE_W - 48, y - 2, LINE, 0.5);
+      y += 6;
+      c.text(colTax + 10, y, "Total", { size: 8.5, bold: true });
+      c.text(colEe, y, money(empEmpTotal), { size: 8.5, bold: true, align: "right" });
+      c.text(colEr, y, money(empErTotal), { size: 8.5, bold: true, align: "right" });
+      c.text(colTot, y, money(empEmpTotal + empErTotal), { size: 8.5, bold: true, align: "right" });
+      y += 20;
+    }
+  }
 
   y = sectionLabel(c, y, `Checks (${data.checks.length})`);
   if (!data.checks.length) {
