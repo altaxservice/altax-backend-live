@@ -29,6 +29,7 @@ import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
+import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDABLE_SOURCES } from "../../common/complianceReminders";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -992,6 +993,112 @@ clientsRouter.post("/:clientId/obligations/mark-done", requireAuth, requireRole(
   res.json({ ok: true });
 }));
 
+/** Per-obligation-type lead-day settings for the automatic client compliance reminder sweep — see complianceReminders.ts. Read: any staff. Write: admin only, matching Firm Settings/Tax Rates conventions. */
+clientsRouter.get("/compliance-reminder-settings", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  res.json({ settings: await getComplianceReminderSettings() });
+}));
+
+clientsRouter.patch("/compliance-reminder-settings/:source", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { source } = req.params;
+  if (!REMINDABLE_SOURCES.has(source)) return res.status(404).json({ error: "Unrecognized obligation type." });
+  const body = req.body || {};
+  const leadDays = Array.isArray(body.leadDays) ? body.leadDays.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n >= 0) : undefined;
+  const enabled = body.enabled !== undefined ? Boolean(body.enabled) : undefined;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_compliance_reminder_settings WHERE source = $1`, [source]);
+  if (!existing) return res.status(404).json({ error: "Setting not found." });
+
+  await query(
+    `UPDATE altax.v3_compliance_reminder_settings SET lead_days = $2, enabled = $3, updated_at = now(), updated_by = $4 WHERE source = $1`,
+    [source, leadDays ?? existing.lead_days, enabled ?? existing.enabled, req.user!.email]
+  );
+  await logAudit("Clients", "EDIT_COMPLIANCE_REMINDER_SETTING", source, "leadDays", String(existing.lead_days), String(leadDays ?? existing.lead_days),
+    `Compliance reminder setting for "${source}" edited by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** Preview of a single manual "Send to Client" for one deadline/flag line — same bilingual builder the automatic sweep uses, so a manual send and an automatic one always read identically. */
+clientsRouter.get("/:clientId/deadline-notify-preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const label = String(req.query.label || "").trim();
+  const date = String(req.query.date || "").trim();
+  if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "label and date (YYYY-MM-DD) are required." });
+
+  const client = await queryOne<any>(`SELECT client_name, email, phone, email_allowed, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const daysUntil = Math.round((new Date(`${date}T00:00:00Z`).getTime() - new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime()) / 86400000);
+  const firmName = (await getFirmProfile()).firmName;
+  const { subject, body, smsBody } = buildComplianceReminderMessage(client.client_name, label, date, daysUntil, firmName);
+  res.json({
+    ok: true, subject, body, smsBody,
+    canEmail: Boolean(client.email_allowed && client.email), canSms: Boolean(client.sms_allowed && client.phone),
+    email: client.email, phone: client.phone,
+  });
+}));
+
+/** Sends the manual "Send to Client" reminder for one deadline/flag line — staff picks channels, same delivery path (sendChannel) and communications-log convention as the automatic sweep, just its own source_system so the two are distinguishable in history. */
+clientsRouter.post("/:clientId/deadline-notify-send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const body = req.body || {};
+  const label = String(body.label || "").trim();
+  const date = String(body.date || "").trim();
+  const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
+  if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "label and date (YYYY-MM-DD) are required." });
+  if (channels.length === 0) return res.status(400).json({ error: "Select at least one channel to send with." });
+
+  const client = await queryOne<any>(`SELECT client_name, email, phone, email_allowed, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const daysUntil = Math.round((new Date(`${date}T00:00:00Z`).getTime() - new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime()) / 86400000);
+  const firmName = (await getFirmProfile()).firmName;
+  const { subject, body: emailBody, smsBody } = buildComplianceReminderMessage(client.client_name, label, date, daysUntil, firmName);
+
+  const results: { channel: string; ok: boolean; error?: string }[] = [];
+  const sentToParts: string[] = [];
+  for (const channel of channels) {
+    let ok = false, error: string | undefined;
+    try {
+      if (channel === "email") {
+        if (!client.email) throw new Error("No email address on file.");
+        if (!client.email_allowed) throw new Error("This client has not consented to email.");
+        const r = await sendChannel("email", client.email, subject, emailBody, { firmName });
+        if (!r.sent) throw new Error(r.error || "Send failed.");
+        sentToParts.push(client.email);
+      } else if (channel === "sms") {
+        if (!client.phone) throw new Error("No phone number on file.");
+        if (!client.sms_allowed) throw new Error("This client has not consented to SMS.");
+        const r = await sendChannel("sms", client.phone, subject, smsBody, { firmName });
+        if (!r.sent) throw new Error(r.error || "Send failed.");
+        sentToParts.push(client.phone);
+      } else {
+        throw new Error(`Unknown channel "${channel}".`);
+      }
+      ok = true;
+    } catch (err: any) {
+      error = err?.message || "Send failed.";
+    }
+    results.push({ channel, ok, error });
+  }
+  const anySent = results.some((r) => r.ok);
+
+  await query(
+    `INSERT INTO altax.v3_communications
+       (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+        sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id)
+     VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'ComplianceReminderManual',$9)`,
+    [
+      `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, clientId, client.client_name, subject, emailBody,
+      sentToParts.join(", "), req.user!.email, anySent ? "Sent" : "Failed", `${clientId}:manual:${label}:${date}:${Date.now()}`,
+    ]
+  );
+  await logAudit("Clients", "COMPLIANCE_REMINDER_MANUAL_SEND", clientId, "", "", label,
+    `Manual compliance reminder ("${label}", due ${date}) sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, results });
+}));
+
 /**
  * Records the actual payment date for an obligation already marked done with
  * no payment recorded yet (see mark-done above) — the second half of the
@@ -1258,6 +1365,62 @@ clientsRouter.get("/:clientId/flags/notify-preview", requireAuth, requireRole("a
   const content = await buildClientFlagsNotification(clientId, selectedKeys);
   if (!content) return res.status(404).json({ error: "No flags are marked to share with the client yet. Check \"Share with client\" on a flag first." });
   res.json({ ok: true, ...content });
+}));
+
+/**
+ * One-click "Send to Client" for a single Account Flags line — direct
+ * owner request, 2026-08-26, alongside the compliance deadline reminders
+ * above. Unlike the bulk "Notify Client" flow (NotifyClientFlagsModal,
+ * which previews/lets staff edit before posting to the generic
+ * POST /communications composer), this sends immediately to the client's
+ * own email/phone, matching the same self-contained shape as
+ * /:clientId/deadline-notify-send — the frontend button doesn't need to
+ * already know the client's contact info or pick a channel.
+ */
+clientsRouter.post("/:clientId/flags/notify-send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const flagKeys: string[] = Array.isArray(req.body?.flagKeys) ? req.body.flagKeys : [];
+  if (flagKeys.length === 0) return res.status(400).json({ error: "No flag specified." });
+
+  const content = await buildClientFlagsNotification(clientId, flagKeys);
+  if (!content) return res.status(404).json({ error: "No flags are marked to share with the client yet. Check \"Share with client\" on a flag first." });
+
+  const client = await queryOne<any>(`SELECT client_name, email, phone, email_allowed, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+  const canEmail = Boolean(client.email_allowed && client.email);
+  const canSms = Boolean(client.sms_allowed && client.phone);
+  if (!canEmail && !canSms) return res.status(400).json({ error: "This client has not consented to email or SMS, so no reminder can be sent." });
+
+  const firmName = (await getFirmProfile()).firmName;
+  const smsBody = content.messageEnglish.length > 400 ? `${content.subject}. ${firmName} will follow up by email/portal for full details.` : content.messageEnglish;
+  let anySent = false;
+  let providerMessageId: string | null = null;
+  const sentToParts: string[] = [];
+  if (canEmail) {
+    const r = await sendChannel("email", client.email, content.subject, `${content.messageEnglish}\n\n---\n\n${content.messageArabic}`, { firmName });
+    if (r.sent) { anySent = true; providerMessageId = r.providerMessageId || null; sentToParts.push(client.email); }
+  }
+  if (canSms) {
+    const r = await sendChannel("sms", client.phone, content.subject, smsBody, { firmName });
+    if (r.sent) { anySent = true; providerMessageId = providerMessageId || r.providerMessageId || null; sentToParts.push(client.phone); }
+  }
+
+  await query(
+    `INSERT INTO altax.v3_communications
+       (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+        sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+     VALUES ($1,$2,$3,NULL,$4,$5,$6,$7,$8,'Outbound','Email',now(),$9,'Client Flags',$10,$11)`,
+    [
+      `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, clientId, client.client_name, content.subject,
+      content.messageEnglish, content.messageArabic, sentToParts.join(", "), req.user!.email,
+      anySent ? "Sent" : "Failed", `${clientId}:flag:${flagKeys.join(",")}:${Date.now()}`, providerMessageId,
+    ]
+  );
+  await logAudit("Clients", "CLIENT_FLAG_NOTIFIED", clientId, "", "", flagKeys.join(","),
+    `Account flag notice sent to client by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, sent: anySent });
 }));
 
 const SWOT_FIELDS = [

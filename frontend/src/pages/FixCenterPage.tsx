@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { MdAnnualReportOverdue } from "../components/MdAnnualReportOverdue";
+import { ComplianceReminderSettingsPanel } from "../components/ComplianceReminderSettingsPanel";
 
 interface DiagnosticCheck {
   id: string;
@@ -172,6 +173,8 @@ export function FixCenterPage() {
 
       {isAdmin && (
         <>
+          <ComplianceReminderSettingsPanel />
+
           <div className="command-panel" style={{ marginBottom: 16 }}>
             <div className="command-panel-header">
               <div>

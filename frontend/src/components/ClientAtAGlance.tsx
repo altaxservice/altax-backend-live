@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
-import { useNotify } from "./ConfirmProvider";
+import { useConfirm, useNotify } from "./ConfirmProvider";
 import { NewWorkItemModal } from "./NewWorkItemModal";
 import { fmtDateOnly as fmtDateNumeric } from "../utils/date";
 
@@ -11,6 +11,10 @@ interface ClientSummary { openTasks: number; openRequests: number; openInvoices:
 
 interface ClientFlag {
   flagId: string | null;
+  /** Stable per-flag id (see clients.routes.ts's ClientFlag) — used to target a single flag for the per-line "Send to Client" action below, distinct from flagId (which is null for computed, not-yet-a-real-row flags like Sales Tax Filing Due). */
+  key?: string;
+  /** Whether this flag is currently eligible for "Notify Client"/Send to Client — see the standing toggle at .../flags/:flagId/toggle-share. */
+  shareWithClient?: boolean;
   flagType: "BalancePastDue" | "AgencyPastDue" | "SalesTaxFilingDue" | "SalesTaxBalanceDue" | "PayrollCadenceGap" | "BookkeepingStale" | "MissingComplianceTask" | "Credit" | "Custom";
   amount: number | null;
   note: string | null;
@@ -203,6 +207,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   const { user } = useAuth();
   const navigate = useNavigate();
   const notify = useNotify();
+  const confirmDialog = useConfirm();
   const isAdmin = user?.role === "admin";
   const goToReports = () => navigate(`/reports?clientId=${clientId}`);
   const [dash, setDash] = useState<ClientDashboard | null>(null);
@@ -210,6 +215,63 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [markingDone, setMarkingDone] = useState<string | null>(null);
+  // "Send to Client" per deadline/flag line — a lightweight confirm-then-send
+  // (not a full preview/edit modal like the bulk "Notify Client" flow) since
+  // the body is a fixed, simple template by design (direct owner request,
+  // 2026-08-26: "just a reminder and to contact us regarding that matter").
+  const [sendingKey, setSendingKey] = useState<string | null>(null);
+  async function handleSendDeadlineReminder(d: Deadline) {
+    const key = `${d.source}|${d.date}`;
+    const ok = await confirmDialog({ title: "Send reminder to client", message: `Send a reminder that "${d.label}" is due ${fmtDateOnly(d.date)}?` });
+    if (!ok) return;
+    setSendingKey(key);
+    try {
+      const preview = await api.get<{ canEmail: boolean; canSms: boolean }>(`/clients/${clientId}/deadline-notify-preview?label=${encodeURIComponent(d.label)}&date=${d.date}`);
+      const channels = [preview.canEmail && "email", preview.canSms && "sms"].filter(Boolean) as string[];
+      if (channels.length === 0) { await notify("This client hasn't consented to email or SMS, so no reminder can be sent."); return; }
+      await api.post(`/clients/${clientId}/deadline-notify-send`, { label: d.label, date: d.date, channels });
+      await notify("Reminder sent.");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not send this reminder.");
+    } finally {
+      setSendingKey(null);
+    }
+  }
+  function renderSendToClientControl(d: Deadline) {
+    const key = `${d.source}|${d.date}`;
+    return (
+      <button type="button" className="ghost-button btn-sm" disabled={sendingKey === key} onClick={() => handleSendDeadlineReminder(d)}>
+        {sendingKey === key ? "…" : "Send to Client"}
+      </button>
+    );
+  }
+  async function handleSendFlagToClient(f: ClientFlag) {
+    if (!f.key) return;
+    const ok = await confirmDialog({ title: "Send reminder to client", message: `Send "${flagLabel(f)}" to the client now?` });
+    if (!ok) return;
+    setSendingKey(f.key);
+    try {
+      await api.post(`/clients/${clientId}/flags/notify-send`, { flagKeys: [f.key] });
+      await notify("Reminder sent.");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not send this reminder.");
+    } finally {
+      setSendingKey(null);
+    }
+  }
+  function renderSendFlagControl(f: ClientFlag) {
+    if (!f.key || !f.shareWithClient) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); handleSendFlagToClient(f); }}
+        disabled={sendingKey === f.key}
+        style={{ background: "none", border: "1px solid currentColor", borderRadius: 4, cursor: "pointer", color: "inherit", padding: "1px 6px", fontSize: 10, fontWeight: 700, marginLeft: 6 }}
+      >
+        {sendingKey === f.key ? "…" : "Send to Client"}
+      </button>
+    );
+  }
   const [createTaskGap, setCreateTaskGap] = useState<{ taskType: string; dueDate: string } | null>(null);
   // Inline "Mark Done" expansion (amount + optional paid date + Save and
   // Close/Send) — one shared bit of state/render logic for both places this
@@ -355,15 +417,17 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                     {owedToAgencies.map((f) => {
                       const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl;
                       return (
-                        <button
-                          key={f.linkTaskId || `${f.flagType}-${f.note}`}
-                          type="button"
-                          onClick={() => target && navigate(target)}
-                          className={`status-pill status-${f.color}`}
-                          style={{ width: "fit-content", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
-                        >
-                          {flagLabel(f)}
-                        </button>
+                        <span key={f.linkTaskId || `${f.flagType}-${f.note}`} style={{ display: "inline-flex", alignItems: "center", width: "fit-content" }}>
+                          <button
+                            type="button"
+                            onClick={() => target && navigate(target)}
+                            className={`status-pill status-${f.color}`}
+                            style={{ width: "fit-content", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
+                          >
+                            {flagLabel(f)}
+                          </button>
+                          {renderSendFlagControl(f)}
+                        </span>
                       );
                     })}
                   </div>
@@ -383,11 +447,14 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                       const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : undefined;
                       return (
                         <div key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ flexDirection: "column", alignItems: "flex-start", width: "fit-content", maxWidth: "100%" }}>
-                          {target ? (
-                            <button type="button" onClick={() => navigate(target)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", padding: 0, textDecoration: "underline" }}>
-                              {flagLabel(f)}
-                            </button>
-                          ) : flagLabel(f)}
+                          <span style={{ display: "inline-flex", alignItems: "center" }}>
+                            {target ? (
+                              <button type="button" onClick={() => navigate(target)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", padding: 0, textDecoration: "underline" }}>
+                                {flagLabel(f)}
+                              </button>
+                            ) : flagLabel(f)}
+                            {renderSendFlagControl(f)}
+                          </span>
                           {f.details && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 2, fontSize: 11 }}>{f.details}</div>}
                         </div>
                       );
@@ -476,6 +543,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                       <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                         <span><strong>{top.label}</strong> {wording}.</span>
                         {renderMarkDoneControl(top)}
+                        {renderSendToClientControl(top)}
                       </span>
                     );
                   })()}
@@ -608,6 +676,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span className={`status-pill ${deadlinePillClass(days)}`}>{days < 0 ? "Overdue" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}</span>
                             {renderMarkDoneControl(d)}
+                            {renderSendToClientControl(d)}
                           </div>
                         </div>
                       );
