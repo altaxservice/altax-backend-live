@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -60,6 +60,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools", icon: FileText },
   { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools", icon: Kanban },
   { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools", icon: Receipt },
+  { to: "/subscription-plans", label: "Subscription Plans", roles: ["admin", "staff"], group: "Tools", icon: Layers },
   { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator },
   { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
@@ -110,6 +111,7 @@ const TITLES: Record<string, string> = {
   "/estimates": "Estimates",
   "/pipeline": "Pipeline",
   "/fee-schedule": "Fee Schedule",
+  "/subscription-plans": "Subscription Plans",
   "/calculators": "Calculators",
   "/fix-center": "Fix Center",
   "/firm-settings": "Firm Settings",

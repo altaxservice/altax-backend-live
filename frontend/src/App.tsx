@@ -47,6 +47,7 @@ import { PipelinePage } from "./pages/PipelinePage";
 import { TaskCalendarPage } from "./pages/TaskCalendarPage";
 import { TimeTrackingPage } from "./pages/TimeTrackingPage";
 import { FeeSchedulePage } from "./pages/FeeSchedulePage";
+import { SubscriptionPlansPage } from "./pages/SubscriptionPlansPage";
 import { CalculatorsPage } from "./pages/CalculatorsPage";
 import { SearchResultsPage } from "./pages/SearchResultsPage";
 import { PublicInvoicePage } from "./pages/PublicInvoicePage";
@@ -141,6 +142,7 @@ function App() {
                 <Route path="/estimates/:estimateId" element={<EstimateDetailPage />} />
                 <Route path="/pipeline" element={<PipelinePage />} />
                 <Route path="/fee-schedule" element={<FeeSchedulePage />} />
+                <Route path="/subscription-plans" element={<SubscriptionPlansPage />} />
                 <Route path="/calculators" element={<CalculatorsPage />} />
               </Route>
             </Route>

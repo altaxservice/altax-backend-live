@@ -17,7 +17,7 @@ import { useSelectedClient } from "../context/SelectedClientContext";
 import { StatusBadge, colorClassFor } from "../components/StatusBadge";
 import { useToast } from "../components/Toast";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
-import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_SERVICES, servicesForClientType, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
+import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { TASK_STATUSES, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
@@ -35,7 +35,16 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
+import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
+
+// Display-only fallback if the tiers admin page hasn't loaded here — the
+// Minimum Fee Schedule's own tier_name is the source of truth (see
+// SubscriptionServicesChecklist and the Fee Schedule admin page), this just
+// keeps the read-only Profile row from ever showing a bare "growth" key.
+const SUBSCRIPTION_TIER_FALLBACK_LABEL: Record<string, string> = {
+  essentials: "Nexus Essentials", growth: "Nexus Growth", complete: "Nexus Complete",
+};
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
@@ -456,6 +465,10 @@ export function ClientDetailPage() {
         // Not in EDIT_SECTIONS (no visible checkbox — kept in sync with the
         // "Payroll Services" entry in Services Provided instead, see below).
         initial.payrollEnabled = Boolean(res.client.payroll_enabled);
+        // Also not in EDIT_SECTIONS — rendered inline below the services
+        // checklist instead (see SubscriptionServicesChecklist usage).
+        initial.subscriptionFeeIsCustom = Boolean(res.client.subscription_fee_is_custom);
+        initial.subscriptionMonthlyFee = res.client.subscription_monthly_fee != null ? String(res.client.subscription_monthly_fee) : "";
         initial.streetAddress = String(res.client.street_address ?? "");
         initial.city = String(res.client.city ?? "");
         initial.zipCode = String(res.client.zip_code ?? "");
@@ -867,27 +880,26 @@ export function ClientDetailPage() {
                         <div className="ac-card-header"><Icon size={16} /><h3>{section.title}</h3></div>
                         {section.title === "Services Provided" && (
                           <>
-                            <p className="muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
-                              Select every service this client is engaged for — the Contracts section below will suggest the matching contract for each one.
-                              {!isBusiness(form) && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
-                            </p>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
-                              {servicesForClientType(form.clientType, form.services as string[] || []).map((s) => (
-                                <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={(form.services as string[] || []).includes(s.key)}
-                                    onChange={(e) => setForm((prev) => {
-                                      const services = e.target.checked
-                                        ? [...(prev.services as string[] || []), s.key]
-                                        : (prev.services as string[] || []).filter((k) => k !== s.key);
-                                      return { ...prev, services, payrollEnabled: services.includes("payroll") };
-                                    })}
-                                  />
-                                  {s.label}
-                                </label>
-                              ))}
-                            </div>
+                            <SubscriptionServicesChecklist
+                              services={(form.services as string[]) || []}
+                              isBusinessClient={isBusiness(form)}
+                              onChange={(services) => setForm((prev) => ({ ...prev, services, payrollEnabled: services.includes("payroll") }))}
+                            />
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginTop: 4, marginBottom: 16 }}>
+                              <input
+                                type="checkbox"
+                                checked={!!form.subscriptionFeeIsCustom}
+                                onChange={(e) => setForm((prev) => ({ ...prev, subscriptionFeeIsCustom: e.target.checked }))}
+                              />
+                              Override monthly subscription fee (negotiated price — won't move when the Fee Schedule or services change)
+                              {form.subscriptionFeeIsCustom && (
+                                <input
+                                  type="number" step="0.01" placeholder="$/mo" style={{ width: 100 }}
+                                  value={form.subscriptionMonthlyFee ?? ""}
+                                  onChange={(e) => setForm((prev) => ({ ...prev, subscriptionMonthlyFee: e.target.value }))}
+                                />
+                              )}
+                            </label>
                           </>
                         )}
                         <div className="form-grid-3">{visibleFields.map(renderEditField)}</div>
@@ -1042,6 +1054,12 @@ export function ClientDetailPage() {
                     ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
                     : null}
                   multiline
+                />
+                <DetailRow
+                  label="Subscription"
+                  value={client.subscription_monthly_fee != null
+                    ? `$${Number(client.subscription_monthly_fee).toFixed(2)}/mo — ${SUBSCRIPTION_TIER_FALLBACK_LABEL[client.subscription_tier || ""] || client.subscription_tier || "—"}${client.subscription_fee_is_custom ? " (custom)" : ""}`
+                    : null}
                 />
                 <DetailRow label="Email" value={client.email} />
                 <DetailRow label="Phone" value={client.phone} />

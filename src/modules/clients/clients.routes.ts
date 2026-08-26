@@ -9,6 +9,7 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL, deriveServiceType } from "../contracts/contractContent";
+import { computeSubscriptionTier, computeSubscriptionFee, type ServiceCatalogEntry } from "../../common/subscriptionPricing";
 import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
 import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
@@ -2297,6 +2298,11 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // on the client profile (see contracts.routes.ts). A plain JS array is passed
   // straight through to the TEXT[] column; the pg driver serializes it automatically.
   services: { column: "services" },
+  // Both auto-recomputed from `services` on every save (see below) unless
+  // subscriptionFeeIsCustom is set — a staff-negotiated price then survives
+  // future service/schedule changes until explicitly turned back off.
+  subscriptionFeeIsCustom: { column: "subscription_fee_is_custom", boolean: true },
+  subscriptionMonthlyFee: { column: "subscription_monthly_fee", numeric: true },
   w21099Enabled: { column: "w21099_enabled", boolean: true },
   preferredLanguage: { column: "preferred_language" },
   // Advisory only, not enforced — see v3_clients.industry_category's schema comment.
@@ -2445,6 +2451,21 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     columns.push("service_type");
     values.push(deriveServiceType(body.services));
     placeholders.push(`$${values.length}`);
+
+    columns.push("subscription_tier");
+    values.push(computeSubscriptionTier(body.services));
+    placeholders.push(`$${values.length}`);
+
+    // A brand-new client has no existing custom-fee override — only
+    // auto-fill from the current Minimum Fee Schedule if the caller didn't
+    // already supply an explicit subscriptionMonthlyFee (handled above by
+    // the UPDATABLE_FIELDS loop).
+    if (!columns.includes("subscription_monthly_fee")) {
+      const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
+      columns.push("subscription_monthly_fee");
+      values.push(computeSubscriptionFee(body.services, catalog));
+      placeholders.push(`$${values.length}`);
+    }
   }
 
   await query(
@@ -2520,6 +2541,25 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
 
   if (Object.prototype.hasOwnProperty.call(fields, "services")) {
     fields.service_type = deriveServiceType(Array.isArray(fields.services) ? fields.services : []);
+  }
+
+  // Recompute tier/price whenever the service mix changes, or whenever the
+  // custom-override flag itself changes (e.g. staff turning a negotiated
+  // price back off should snap the fee back to the current Fee Schedule).
+  // While a custom override is in effect, the tier label still updates
+  // (it reflects what the client actually has), but the fee is left alone.
+  const servicesChanged = Object.prototype.hasOwnProperty.call(fields, "services");
+  const customFlagChanged = Object.prototype.hasOwnProperty.call(fields, "subscription_fee_is_custom");
+  if (servicesChanged || customFlagChanged) {
+    const effectiveServices: string[] = servicesChanged
+      ? (Array.isArray(fields.services) ? fields.services : [])
+      : (Array.isArray(old.services) ? old.services : []);
+    fields.subscription_tier = computeSubscriptionTier(effectiveServices);
+    const isCustom = customFlagChanged ? Boolean(fields.subscription_fee_is_custom) : Boolean(old.subscription_fee_is_custom);
+    if (!isCustom && !Object.prototype.hasOwnProperty.call(fields, "subscription_monthly_fee")) {
+      const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
+      fields.subscription_monthly_fee = computeSubscriptionFee(effectiveServices, catalog);
+    }
   }
 
   if (Object.keys(fields).length === 0) {
@@ -2723,6 +2763,35 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   }
 
   res.json({ ok: true });
+}));
+
+/**
+ * Refresh a client's subscription tier/fee snapshot against the CURRENT
+ * Minimum Fee Schedule without touching their services — for after an
+ * admin edits a fee schedule price and wants an already-saved client to
+ * pick it up immediately, rather than waiting for the next unrelated
+ * services edit. Respects subscription_fee_is_custom exactly like the PATCH
+ * route above: a negotiated override's fee is left untouched, only the
+ * tier label refreshes.
+ */
+clientsRouter.post("/:clientId/recalculate-subscription", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  const client = await queryOne<any>(`SELECT services, subscription_fee_is_custom FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const services: string[] = Array.isArray(client.services) ? client.services : [];
+  const tier = computeSubscriptionTier(services);
+  const setClauses = ["subscription_tier = $2"];
+  const values: any[] = [clientId, tier];
+  let fee: number | null = null;
+  if (!client.subscription_fee_is_custom) {
+    const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
+    fee = computeSubscriptionFee(services, catalog);
+    setClauses.push(`subscription_monthly_fee = $${values.length + 1}`);
+    values.push(fee);
+  }
+  await query(`UPDATE altax.v3_clients SET ${setClauses.join(", ")}, updated_at = now() WHERE client_id = $1`, values);
+  res.json({ ok: true, tier, fee });
 }));
 
 /**
