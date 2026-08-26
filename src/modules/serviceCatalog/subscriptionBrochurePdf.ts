@@ -150,61 +150,81 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   y = maxCardBottom + 24;
 
   y = c.wrapped(L, y, "Every service is priced individually — a client's monthly subscription is simply the total of whichever services they need, and the tier above reflects the depth of that relationship.", R - L, { size: 8.5, color: MUTED, lineHeight: 12 });
-  y += 4;
-  y = c.wrapped(L, y, "One-time services (formation, permits, and similar projects) are billed per engagement and are never part of the monthly subscription.", R - L, { size: 8.5, color: MUTED, lineHeight: 12 });
-  y += 16;
+  y += 12;
 
-  // Fee schedule table
-  c.text(L, y, "MINIMUM FEE SCHEDULE", { size: 11, bold: true, color: GOLD_TEXT });
-  y += 18;
+  const COL_LABEL = L, COL_FEE = R;
 
-  const groups = Array.from(new Set(catalogRaw.map((s) => s.group_name)));
-  const COL_LABEL = L, COL_BILLED = R - 190, COL_FEE = R;
-
-  // Takes the cursor explicitly rather than closing over the page-1 `c` —
-  // a closure here previously kept drawing page 2+'s header onto page 1
-  // (at whatever small `y` the new page starts from), since a page break
-  // swaps in a new Cursor but a closure would still reference the old one.
+  // Takes the cursor explicitly rather than closing over an earlier page's
+  // cursor — a closure here previously kept drawing a later page's header
+  // onto an earlier page (at whatever small `y` the new page starts from),
+  // since a page break swaps in a new Cursor but a closure would still
+  // reference the old one.
   function drawTableHeader(cur: Cursor, yy: number): number {
     cur.text(COL_LABEL, yy, "Service", { size: 8.5, bold: true, color: MUTED });
-    cur.text(COL_BILLED, yy, "Billed", { size: 8.5, bold: true, color: MUTED });
     cur.text(COL_FEE, yy, "Fee", { size: 8.5, bold: true, color: MUTED, align: "right" });
     yy += 8;
     cur.line(L, yy, R, yy, LINE, 1);
     return yy + 12;
   }
 
-  let currentC = c;
-  y = drawTableHeader(currentC, y);
-
-  for (const group of groups) {
-    if (y > PAGE_H - 110) {
-      drawFooter(currentC, profile.firmName, profile.phone, profile.email);
-      const next = await newPage(doc, font, bold);
-      currentC = next.c;
-      y = 56;
-      y = drawTableHeader(currentC, y);
-    }
-    currentC.text(L, y, group.toUpperCase(), { size: 8, bold: true, color: rgb(0.5, 0.5, 0.5) });
-    y += 13;
-    for (const s of catalogRaw.filter((c2) => c2.group_name === group)) {
-      if (y > PAGE_H - 90) {
-        drawFooter(currentC, profile.firmName, profile.phone, profile.email);
+  /**
+   * Draws one fee-schedule section (its own grouped table, paginating as
+   * needed) starting on whatever page/cursor is passed in, and returns the
+   * final cursor/y so the caller can force a fresh page before the next
+   * section rather than letting it run on immediately below.
+   */
+  async function drawFeeSection(startC: Cursor, startY: number, entries: ServiceCatalogEntry[]): Promise<{ c: Cursor; y: number }> {
+    let cur = startC, yy = startY;
+    yy = drawTableHeader(cur, yy);
+    const groups = Array.from(new Set(entries.map((s) => s.group_name)));
+    for (const group of groups) {
+      if (yy > PAGE_H - 110) {
+        drawFooter(cur, profile.firmName, profile.phone, profile.email);
         const next = await newPage(doc, font, bold);
-        currentC = next.c;
-        y = 56;
-        y = drawTableHeader(currentC, y);
+        cur = next.c;
+        yy = 56;
+        yy = drawTableHeader(cur, yy);
       }
-      const billed = s.role === "one_time" ? "One-time" : "Monthly";
-      const feeText = s.min_fee != null ? money(s.min_fee) : "—";
-      currentC.text(COL_LABEL, y, s.label, { size: 9.5 });
-      currentC.text(COL_BILLED, y, billed, { size: 9, color: MUTED });
-      currentC.text(COL_FEE, y, feeText, { size: 9.5, bold: true, align: "right" });
-      y += 15;
+      cur.text(L, yy, group.toUpperCase(), { size: 8, bold: true, color: rgb(0.5, 0.5, 0.5) });
+      yy += 13;
+      for (const s of entries.filter((e) => e.group_name === group)) {
+        if (yy > PAGE_H - 90) {
+          drawFooter(cur, profile.firmName, profile.phone, profile.email);
+          const next = await newPage(doc, font, bold);
+          cur = next.c;
+          yy = 56;
+          yy = drawTableHeader(cur, yy);
+        }
+        cur.text(COL_LABEL, yy, s.label, { size: 9.5 });
+        cur.text(COL_FEE, yy, s.min_fee != null ? money(s.min_fee) : "—", { size: 9.5, bold: true, align: "right" });
+        yy += 15;
+      }
+      yy += 6;
     }
-    y += 6;
+    return { c: cur, y: yy };
   }
 
-  drawFooter(currentC, profile.firmName, profile.phone, profile.email);
+  const recurring = catalogRaw.filter((s) => s.role !== "one_time");
+  const oneTime = catalogRaw.filter((s) => s.role === "one_time");
+
+  // Subscription services — same page as the tier cards.
+  c.text(L, y, "MONTHLY SUBSCRIPTION — MINIMUM FEE SCHEDULE", { size: 11, bold: true, color: GOLD_TEXT });
+  y += 18;
+  let result = await drawFeeSection(c, y, recurring);
+  drawFooter(result.c, profile.firmName, profile.phone, profile.email);
+
+  // One-time / project services — always its own page, per owner request
+  // (2026-08-26): these are billed per engagement and never part of the
+  // monthly subscription, so they read as a genuinely separate price list
+  // rather than more rows in the same table.
+  const oneTimePage = await newPage(doc, font, bold);
+  let oy = 46;
+  oneTimePage.c.text(L, oy, "One-Time / Project Services", { size: 16, bold: true, color: GOLD_TEXT });
+  oy += 18;
+  oy = oneTimePage.c.wrapped(L, oy, "Billed per engagement — never part of the monthly subscription above.", R - L, { size: 9.5, color: MUTED, lineHeight: 12 });
+  oy += 16;
+  result = await drawFeeSection(oneTimePage.c, oy, oneTime);
+  drawFooter(result.c, profile.firmName, profile.phone, profile.email);
+
   return doc.save();
 }
