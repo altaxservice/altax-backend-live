@@ -65,7 +65,11 @@ serviceCatalogRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(a
   const existing = await queryOne<any>(`SELECT service_key FROM altax.v3_service_catalog WHERE service_key = $1`, [serviceKey]);
   if (existing) return res.status(409).json({ error: `A service with key "${serviceKey}" already exists.` });
 
-  const minFee = role === "one_time" ? null : (body.minFee === null || body.minFee === undefined || body.minFee === "" ? null : Number(body.minFee));
+  // One-time services CAN carry a price too — a reference/starting fee shown
+  // on the schedule and the client checklist, just never summed into the
+  // subscription total (computeSubscriptionFee skips role='one_time' rows
+  // unconditionally regardless of whether min_fee is set).
+  const minFee = body.minFee === null || body.minFee === undefined || body.minFee === "" ? null : Number(body.minFee);
   const maxSort = await queryOne<any>(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM altax.v3_service_catalog`);
 
   await query(

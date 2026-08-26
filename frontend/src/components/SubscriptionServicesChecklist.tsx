@@ -118,6 +118,7 @@ export function SubscriptionServicesChecklist({
                   <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                     <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
                     {s.label}
+                    {s.min_fee != null && <span className="muted" style={{ fontSize: 11 }}>${Number(s.min_fee).toFixed(0)} one-time</span>}
                   </label>
                 ))}
               </div>

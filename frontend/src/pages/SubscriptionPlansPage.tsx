@@ -91,7 +91,7 @@ export function SubscriptionPlansPage() {
       await api.post("/service-catalog", {
         serviceKey: newService.serviceKey || undefined,
         label: newService.label, groupName: newService.groupName, role: newService.role,
-        minFee: newService.role === "one_time" || newService.minFee === "" ? null : Number(newService.minFee),
+        minFee: newService.minFee === "" ? null : Number(newService.minFee),
       });
       setNewService(NEW_SERVICE_DEFAULTS);
       setShowNewForm(false);
@@ -167,9 +167,10 @@ export function SubscriptionPlansPage() {
                 <option value="one_time">One-time (billed per engagement, never part of the subscription)</option>
               </select>
             </div>
-            {newService.role === "addon" && (
-              <div className="field"><label>Minimum Fee ($/mo)</label><input type="number" step="0.01" value={newService.minFee} onChange={(e) => setNewService((s) => ({ ...s, minFee: e.target.value }))} /></div>
-            )}
+            <div className="field">
+              <label>{newService.role === "one_time" ? "Reference Fee ($, one-time — shown but never added to the subscription)" : "Minimum Fee ($/mo)"}</label>
+              <input type="number" step="0.01" value={newService.minFee} onChange={(e) => setNewService((s) => ({ ...s, minFee: e.target.value }))} />
+            </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <button type="submit" className="btn btn-primary" disabled={newSaving}>{newSaving ? "Adding…" : "Add Service"}</button>
             </div>
@@ -181,22 +182,24 @@ export function SubscriptionPlansPage() {
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
+                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">Billed</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {services.filter((s) => s.group_name === group && !s.legacy).map((s) => {
                     const d = drafts[s.service_key];
                     if (!d) return null;
+                    const billedLabel = s.role === "one_time" ? "One-time / per engagement" : "Monthly";
                     return (
                       <tr key={s.service_key}>
                         <td style={{ minWidth: 220 }}>
                           <input style={{ width: "100%" }} value={d.label} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], label: e.target.value } }))} />
                         </td>
                         <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ROLE_LABEL[s.role]}</td>
-                        <td style={{ width: 130 }}>
-                          {s.role === "one_time"
-                            ? <span className="muted">per engagement</span>
-                            : <input type="number" step="0.01" style={{ width: 90 }} value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />}
+                        <td style={{ width: 140 }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            $<input type="number" step="0.01" style={{ width: 80 }} placeholder="—" value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />
+                          </span>
                         </td>
+                        <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{billedLabel}</td>
                         <td><input type="checkbox" checked={d.active} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], active: e.target.checked } }))} /></td>
                         <td>{isAdmin && <button className="btn btn-sm" disabled={savingKey === s.service_key} onClick={() => saveRow(s.service_key)}>{savingKey === s.service_key ? "Saving…" : "Save"}</button>}</td>
                       </tr>
