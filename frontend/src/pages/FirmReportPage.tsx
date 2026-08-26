@@ -730,6 +730,14 @@ const EMPTY_FEE_FORM = {
  * fee-by-filing-frequency structure; Payroll uses the per-unit fields for
  * its real base-covers-N-employees-then-$X-more structure; every other
  * service is flat.
+ *
+ * Not the same thing as the "Subscription Fee Schedule" on the Subscription
+ * Plans page (v3_service_catalog, sql/104_subscription_catalog.sql) — that
+ * one answers "what should this client's subscription total be, from what
+ * they're checked into," this one answers "is what we're actually invoicing
+ * an existing client at or above our own floor." Different tables,
+ * different questions, deliberately kept separate — don't merge them
+ * without a real reason to.
  */
 function MinimumFeeScheduleSection() {
   const notify = useNotify();

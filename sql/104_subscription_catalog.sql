@@ -1,8 +1,15 @@
--- Subscription service catalog ("Minimum Fee Schedule") — direct owner
--- request, 2026-08-26: every service becomes its own checkbox with its own
--- editable minimum fee, and a client's monthly subscription price/tier are
--- both derived automatically from whichever boxes are checked, instead of
--- 3 fixed price points staff have to pick manually.
+-- Subscription service catalog (the "Subscription Fee Schedule") — direct
+-- owner request, 2026-08-26: every service becomes its own checkbox with its
+-- own editable minimum fee, and a client's monthly subscription price/tier
+-- are both derived automatically from whichever boxes are checked, instead
+-- of 3 fixed price points staff have to pick manually.
+--
+-- Named "Subscription" Fee Schedule, not plain "Minimum Fee Schedule" — that
+-- name already belongs to a different, older system (v3_minimum_fees, see
+-- sql/098_minimum_fees.sql) that checks whether an EXISTING client's actual
+-- invoiced total meets the firm's own floor. This table instead prices a
+-- client's monthly subscription from whichever services they're checked
+-- into. Different tables, different questions, intentionally not merged.
 --
 -- role: 'core_pillar' | 'addon' | 'one_time'. Core pillars (bookkeeping,
 -- payroll, sales_tax, business_tax_prep) decide the subscription TIER — that

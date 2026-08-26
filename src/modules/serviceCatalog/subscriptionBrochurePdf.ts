@@ -1,7 +1,7 @@
 /**
  * "Subscription Plans" client-facing brochure — direct owner request,
  * 2026-08-26: a good-looking, printable explainer of the 3 subscription
- * tiers and the full Minimum Fee Schedule, generated live from
+ * tiers and the full Subscription Fee Schedule, generated live from
  * v3_service_catalog/v3_subscription_tiers so it never drifts from what's
  * actually configured. Same hand-drawn pdf-lib approach as reportsPdf.ts
  * (no official template exists for this), colors matched to the web app's

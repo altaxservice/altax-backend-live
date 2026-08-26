@@ -14,13 +14,22 @@ function idSuffix(): string {
 }
 
 /**
- * The "Minimum Fee Schedule" — direct owner request, 2026-08-26: every
+ * The "Subscription Fee Schedule" — direct owner request, 2026-08-26: every
  * subscription service is its own row here (fee, group, active flag), and
  * both the client-profile checklist and the subscription price/tier
  * calculation read from it live, so editing a fee here immediately applies
  * to every client who has that service checked. Read access is any
  * authenticated staff user (the client-profile checklist needs it); writes
  * are admin-only, matching Firm Settings / Tax Rates conventions elsewhere.
+ *
+ * Deliberately named "Subscription" Fee Schedule, not plain "Minimum Fee
+ * Schedule" — that name is already taken by a different, pre-existing
+ * system (sql/098_minimum_fees.sql, reports.routes.ts's /reports/minimum-fees,
+ * FirmReportPage.tsx's MinimumFeeScheduleSection), which checks whether an
+ * EXISTING client's actual invoiced total meets the firm's own floor. This
+ * one instead prices a client's monthly subscription from whichever
+ * services they're checked into. Different tables, different questions,
+ * intentionally not merged.
  */
 export const serviceCatalogRouter = Router();
 

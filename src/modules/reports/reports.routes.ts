@@ -1848,6 +1848,10 @@ reportsRouter.get("/client-profitability", requireAuth, requireRole("admin"), as
 }));
 
 // ---- Minimum Fee Schedule (item #21, Pricing & Fee Analysis) ----
+// Checks actual invoiced totals against the firm's own floor — not the same
+// thing as the "Subscription Fee Schedule" (v3_service_catalog, see
+// serviceCatalog.routes.ts), which prices a client's monthly subscription
+// from whichever services they're checked into. Deliberately separate.
 
 function feeIdSuffix(): string {
   const now = new Date();

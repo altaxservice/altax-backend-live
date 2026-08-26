@@ -39,9 +39,9 @@ import { SubscriptionServicesChecklist } from "../components/SubscriptionService
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 // Display-only fallback if the tiers admin page hasn't loaded here — the
-// Minimum Fee Schedule's own tier_name is the source of truth (see
-// SubscriptionServicesChecklist and the Fee Schedule admin page), this just
-// keeps the read-only Profile row from ever showing a bare "growth" key.
+// Subscription Fee Schedule's own tier_name is the source of truth (see
+// SubscriptionServicesChecklist and the Subscription Plans admin page), this
+// just keeps the read-only Profile row from ever showing a bare "growth" key.
 const SUBSCRIPTION_TIER_FALLBACK_LABEL: Record<string, string> = {
   essentials: "Nexus Essentials", growth: "Nexus Growth", complete: "Nexus Complete",
 };

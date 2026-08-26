@@ -2457,9 +2457,9 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     placeholders.push(`$${values.length}`);
 
     // A brand-new client has no existing custom-fee override — only
-    // auto-fill from the current Minimum Fee Schedule if the caller didn't
-    // already supply an explicit subscriptionMonthlyFee (handled above by
-    // the UPDATABLE_FIELDS loop).
+    // auto-fill from the current Subscription Fee Schedule if the caller
+    // didn't already supply an explicit subscriptionMonthlyFee (handled
+    // above by the UPDATABLE_FIELDS loop).
     if (!columns.includes("subscription_monthly_fee")) {
       const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
       columns.push("subscription_monthly_fee");
@@ -2767,7 +2767,7 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
 
 /**
  * Refresh a client's subscription tier/fee snapshot against the CURRENT
- * Minimum Fee Schedule without touching their services — for after an
+ * Subscription Fee Schedule without touching their services — for after an
  * admin edits a fee schedule price and wants an already-saved client to
  * pick it up immediately, rather than waiting for the next unrelated
  * services edit. Respects subscription_fee_is_custom exactly like the PATCH

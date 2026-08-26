@@ -7,14 +7,26 @@ import { useAuth } from "../auth/AuthContext";
 import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBrochureModal";
 
 /**
- * "Minimum Fee Schedule" — direct owner request, 2026-08-26: every
+ * The "Subscription Fee Schedule" — direct owner request, 2026-08-26: every
  * subscription service (recurring or one-time) is its own editable row here;
  * a client's monthly subscription price and tier are both derived
  * automatically from whichever of these a staff member checks on the client
  * profile (see SubscriptionServicesChecklist.tsx), never a separate
- * hand-picked number. Named "Subscription Plans" in the nav (not "Fee
- * Schedule") to avoid colliding with the unrelated, pre-existing Estimates
- * fee schedule at /fee-schedule (government filing cost items).
+ * hand-picked number.
+ *
+ * Named "Subscription Fee Schedule" (not plain "Minimum Fee Schedule") to
+ * stay clear of two other, unrelated things that share pieces of that name:
+ * the pre-existing Estimates fee schedule at /fee-schedule (government
+ * filing cost items), and — found only after this page briefly reused the
+ * exact same "Minimum Fee Schedule" title — the pre-existing admin-set
+ * minimum-fee FLOORS on the Firm Report page (sql/098_minimum_fees.sql,
+ * FirmReportPage.tsx's MinimumFeeScheduleSection), which check whether an
+ * EXISTING client's actual invoiced total meets the firm's own floor for
+ * collections/pricing-discipline purposes. That system and this one are
+ * deliberately separate — different tables, different service-key sets,
+ * different questions ("are we billing enough?" vs "what should this
+ * client's subscription total be, from what they've signed up for?") — and
+ * neither should be merged into the other without a real reason to.
  */
 
 type Draft = { label: string; groupName: string; minFee: string; active: boolean };
@@ -63,7 +75,7 @@ export function SubscriptionPlansPage() {
       }])));
       setTiers(t.tiers);
       setTierDrafts(Object.fromEntries(t.tiers.map((tr) => [tr.tier_key, { tierName: tr.tier_name, description: tr.description || "" }])));
-    }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the Minimum Fee Schedule."));
+    }).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the Subscription Fee Schedule."));
   }
   useEffect(load, []);
 
@@ -175,7 +187,7 @@ export function SubscriptionPlansPage() {
 
       <div className="command-panel">
         <div className="command-panel-header">
-          <h2 className="command-panel-title">Minimum Fee Schedule</h2>
+          <h2 className="command-panel-title">Subscription Fee Schedule</h2>
           {isAdmin && <button className="btn btn-sm btn-primary" onClick={() => setShowNewForm((v) => !v)}>{showNewForm ? "Cancel" : "+ Add Service"}</button>}
         </div>
 

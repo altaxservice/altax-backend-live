@@ -62,7 +62,7 @@ export interface Client {
   mdtaxconnect_verified_by: string | null;
   md_business_express_verified_at: string | null;
   md_business_express_verified_by: string | null;
-  /** Auto-derived from `services` against the Minimum Fee Schedule on every save — see src/common/subscriptionPricing.ts. */
+  /** Auto-derived from `services` against the Subscription Fee Schedule on every save — see src/common/subscriptionPricing.ts. */
   subscription_tier: "essentials" | "growth" | "complete" | null;
   subscription_monthly_fee: number | string | null;
   /** When true, subscription_monthly_fee is a staff-negotiated override and survives future service/schedule changes until turned back off. */
@@ -72,7 +72,7 @@ export interface Client {
   [key: string]: unknown;
 }
 
-/** One row of the "Minimum Fee Schedule" — see sql/104_subscription_catalog.sql. */
+/** One row of the "Subscription Fee Schedule" — see sql/104_subscription_catalog.sql. */
 export interface ServiceCatalogEntry {
   service_key: string;
   label: string;
