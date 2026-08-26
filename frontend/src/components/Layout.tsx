@@ -39,19 +39,14 @@ function showsTaskPanel(pathname: string): boolean {
   return pathname === "/tasks" || pathname.startsWith("/tasks/");
 }
 
-// AR Aging and MD Annual Report (ReportsPage.tsx) are firm-wide, all-clients
-// reports — not scoped to whichever client happens to be pinned in the panel
-// — direct owner request, 2026-08-26, after screenshots showed a client
-// pinned next to a 111-client overdue list. ReportsPage reflects its active
-// tab into the URL (?tab=...) specifically so this check can tell those two
-// tabs apart from the genuinely per-client ones without Layout needing any
-// of that page's internal state.
-const REPORTS_FIRM_WIDE_TABS = ["AR Aging", "MD Annual Report"];
-
-function showsClientPanel(pathname: string, search: string): boolean {
-  if (!CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"))) return false;
-  if (pathname === "/reports" && REPORTS_FIRM_WIDE_TABS.includes(new URLSearchParams(search).get("tab") || "")) return false;
-  return true;
+// AR Aging and MD Annual Report used to live as tabs on ReportsPage.tsx and
+// needed a special case here to hide this panel for them (they're firm-wide,
+// not scoped to whichever client is pinned) — both moved out to the Firm
+// Report page entirely on 2026-08-26 (a page that's exclusively firm-wide
+// sections already), so that special case is gone; no tab on /reports is
+// firm-wide anymore.
+function showsClientPanel(pathname: string): boolean {
+  return CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"));
 }
 
 // navKey is only translated for the items client/employee can actually reach
@@ -220,7 +215,7 @@ export function Layout() {
   const showTaskPanel = isStaffOrAdmin && !!taskId && onTasksSection;
   // "/tasks" was already dropped from CLIENT_PANEL_ROUTES, so this is belt-
   // and-suspenders — the two panels are never both eligible on the same route.
-  const showPanel = isStaffOrAdmin && !!clientId && !onTasksSection && showsClientPanel(location.pathname, location.search);
+  const showPanel = isStaffOrAdmin && !!clientId && !onTasksSection && showsClientPanel(location.pathname);
   const pageTitle = titleForPath(location.pathname);
   const titleKey = titleKeyForPath(location.pathname);
   const displayTitle = showLanguageToggle && titleKey ? t(titleKey) : pageTitle;

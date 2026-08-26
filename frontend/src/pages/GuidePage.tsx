@@ -715,9 +715,9 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "AR Aging",
-        route: "/reports", routeLabel: "Reports",
+        route: "/firm-report", routeLabel: "Firm Report",
         steps: [
-          "Go to Reports → AR Aging. It's firm-wide (no client picker) — every client with an open invoice balance shows up, bucketed by how overdue it is: Current, 1-30, 31-60, 61-90, 90+ days.",
+          "Go to Firm Report → AR Aging. It's firm-wide (no client picker) — every client with an open invoice balance shows up, bucketed by how overdue it is: Current, 1-30, 31-60, 61-90, 90+ days.",
           "Download PDF or Export CSV if you want to hand it to someone or archive it.",
         ],
         useWhen: "Use it monthly (or whenever doing collections) to see who to follow up with first — anything in the 61-90 or 90+ buckets needs attention soonest.",

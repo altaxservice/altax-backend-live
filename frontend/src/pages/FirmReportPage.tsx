@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from 
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import type { Client } from "../api/types";
+import { ArAgingReport } from "../components/ArAgingReport";
 
 /**
  * Firm-wide health metrics for AL TAX SERVICE itself — not a client report.
@@ -208,6 +209,8 @@ export function FirmReportPage() {
           </div>
         </div>
       </div>
+
+      <ArAgingReport />
 
       <RecurringRevenueSection />
 

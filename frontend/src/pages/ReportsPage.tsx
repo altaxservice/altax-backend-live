@@ -10,7 +10,13 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
 
-const TABS = ["Financial Overview", "AR Aging", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "MD Annual Report", "Client Message", "Sales, Tax & Payroll Report"] as const;
+// AR Aging and MD Annual Report moved out entirely (direct owner request,
+// 2026-08-26) — both are firm-wide, all-clients reports, and living here
+// alongside genuinely per-client tabs made the "selected client" panel look
+// tied to them when it never was. They're now sections on the Firm Report
+// page (see ArAgingReport.tsx / MdAnnualReportOverdue.tsx), a page that's
+// exclusively firm-wide already, so there's no ambiguity left to have.
+const TABS = ["Financial Overview", "P&L", "Balance Sheet", "Trial Balance", "Sales & Tax", "Payroll", "Employee", "Client Message", "Sales, Tax & Payroll Report"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Sentinel clientId value meaning "no single client — aggregate across the whole
@@ -22,19 +28,17 @@ const FIRM_WIDE = "__FIRM_WIDE__";
 /** Groups the flat 10-tab strip into labeled clusters — a flat row this long wrapped
  * unpredictably and gave no visual signal it was still one control. */
 const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
-  { label: "Financials", tabs: ["Financial Overview", "P&L", "Balance Sheet", "Trial Balance", "AR Aging"] },
-  { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee", "MD Annual Report"] },
+  { label: "Financials", tabs: ["Financial Overview", "P&L", "Balance Sheet", "Trial Balance"] },
+  { label: "Compliance & Payroll", tabs: ["Sales & Tax", "Payroll", "Employee"] },
   { label: "Client-Facing", tabs: ["Client Message", "Sales, Tax & Payroll Report"] },
 ];
 
-/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists. Financial Overview is per-client like the rest despite its name (renamed from "Firm Overview" for exactly that reason — it always required picking a client); AR Aging is the one genuinely firm-wide tab here. Both have their own PDF/CSV buttons instead of using this map. */
+/** Maps each client-scoped tab to its backend PDF path segment (reports.routes.ts /reports/pdf/:segment/:clientId) — null where no PDF exists. Financial Overview is per-client like the rest despite its name (renamed from "Firm Overview" for exactly that reason — it always required picking a client). */
 const REPORT_PDF_SEGMENT: Record<Tab, string | null> = {
   // Trial Balance is an on-screen integrity check, not a client deliverable — no PDF.
-  "Financial Overview": null, "AR Aging": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
+  "Financial Overview": null, "P&L": "pl", "Balance Sheet": "balance-sheet", "Trial Balance": null,
   "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee", "Client Message": "client-message",
   "Sales, Tax & Payroll Report": "sales-tax-payroll",
-  // Firm-wide, not a per-client statement — no PDF export here (see MdAnnualReportOverdueTab).
-  "MD Annual Report": null,
 };
 /** Same idea for CSV exports — only the ledger-backed tabs have raw rows worth exporting. */
 const REPORT_CSV_SEGMENT: Partial<Record<Tab, string>> = { "P&L": "gl", "Balance Sheet": "gl", "Trial Balance": "trial-balance", "Sales & Tax": "sales-tax", "Payroll": "payroll", "Employee": "employee" };
@@ -126,10 +130,9 @@ export function ReportsPage() {
   const notify = useNotify();
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  // Reflected in the URL (see changeTab below) so Layout.tsx's client-panel
-  // visibility can tell AR Aging/MD Annual Report — genuinely firm-wide,
-  // all-clients reports — apart from the per-client tabs, without Layout
-  // needing to know anything about this page's internal state.
+  // Reflected in the URL (see changeTab below) so a report tab is
+  // bookmarkable/shareable and survives browser back/forward, not just
+  // whatever tab happened to be clicked last.
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get("tab");
     return (TABS as readonly string[]).includes(t || "") ? (t as Tab) : "Financial Overview";
@@ -586,10 +589,10 @@ export function ReportsPage() {
     navigate(`/clients/${clientId}?tab=Communications`);
   }
 
-  // AR Aging is genuinely firm-wide (every client's name + balance, no per-client
-  // scoping) — now admin-only on the backend too, matching /firm-summary's
-  // precedent, so hide the tab for staff rather than showing them a 403.
-  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Financial Overview" && t !== "AR Aging");
+  // Financial Overview's firm-wide roll-up is admin-only on the backend
+  // (matching /firm-summary's precedent) — hide the tab for staff rather
+  // than showing them a 403.
+  const visibleTabs = user?.role === "admin" ? TABS : TABS.filter((t) => t !== "Financial Overview");
 
   return (
     <div>
@@ -615,10 +618,6 @@ export function ReportsPage() {
         })}
       </div>
 
-      {tab === "AR Aging" && <ArAgingTab />}
-      {tab === "MD Annual Report" && <MdAnnualReportOverdueTab />}
-
-      {tab !== "AR Aging" && tab !== "MD Annual Report" && (
       <>
           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
             <div className="field" style={{ maxWidth: 320, margin: 0 }}>
@@ -1225,7 +1224,6 @@ export function ReportsPage() {
             </>
           )}
         </>
-      )}
     </div>
   );
 }
@@ -1256,275 +1254,6 @@ interface TrialBalanceData {
   totals: { debits: number; credits: number; difference: number };
   inBalance: boolean;
   unbalancedEntries: { ref: string; source: string; debits: number; credits: number; difference: number }[];
-}
-
-/**
- * Trial balance — the check that the books actually balance.
- *
- * Nothing previously verified that debits equal credits, so a half-posted entry
- * would sit in the ledger indefinitely and surface first to a client's
- * accountant. This makes it a one-click answer, and names the exact source
- * document when something is off rather than just reporting a total.
- */
-interface ArAgingRow {
-  clientId: string; clientName: string;
-  current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number;
-}
-interface ArAgingData {
-  asOf: string;
-  rows: ArAgingRow[];
-  totals: { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number };
-}
-
-/**
- * AR Aging — firm-wide, not per-client, so unlike every other tab on this page it
- * doesn't need the Client/From/To toolbar (ReportsPage hides that toolbar entirely
- * for this tab). Which clients owe the firm money and how overdue, bucketed off
- * each open invoice's due_date as of today.
- */
-function ArAgingTab() {
-  const navigate = useNavigate();
-  const [data, setData] = useState<ArAgingData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  function load() {
-    setError(null);
-    api.get<ArAgingData>("/reports/ar-aging")
-      .then(setData)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load AR aging."));
-  }
-  useEffect(load, []);
-
-  async function handlePrint(mode: "view" | "download" | "print") {
-    setBusy(mode);
-    try {
-      if (mode === "view") await viewFile("/reports/pdf/ar-aging");
-      else if (mode === "print") await printFile("/reports/pdf/ar-aging");
-      else await downloadFile("/reports/pdf/ar-aging", buildFilename(["AR Aging", data?.asOf], "pdf"));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not generate the PDF.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleCsv(format: "csv" | "xlsx" = "csv") {
-    setBusy(format);
-    try {
-      await downloadFile(`/reports/csv/ar-aging?format=${format}`, buildFilename(["AR Aging", data?.asOf], format));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not export the data.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  if (error) return <ErrorBanner error={error} />;
-  if (!data) return <div className="spinner-wrap">Loading…</div>;
-
-  return (
-    <>
-      <div className="command-panel" style={{ marginBottom: 16 }}>
-        <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h2 className="command-panel-title">AR Aging</h2>
-            <div className="command-panel-note">Open invoice balances by client, as of {data.asOf}.</div>
-          </div>
-          <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("view")}>
-              {busy === "view" ? "Opening…" : "Preview / Print"}
-            </button>
-            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("download")}>
-              {busy === "download" ? "Generating…" : "Download PDF"}
-            </button>
-            <button type="button" className="btn" disabled={busy !== null} onClick={() => handlePrint("print")}>
-              {busy === "print" ? "Printing…" : "Print PDF"}
-            </button>
-            <button type="button" className="btn" disabled={busy !== null} onClick={() => handleCsv("csv")}>
-              {busy === "csv" ? "Exporting…" : "Export CSV"}
-            </button>
-            <button type="button" className="btn" disabled={busy !== null} onClick={() => handleCsv("xlsx")}>
-              {busy === "xlsx" ? "Exporting…" : "Export Excel"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="metric-grid" style={{ marginBottom: 20 }}>
-        <div className="metric"><div className="metric-label">Total Outstanding</div><div className="metric-value">{fmtMoney(data.totals.total)}</div></div>
-        <div className="metric"><div className="metric-label">Current</div><div className="metric-value">{fmtMoney(data.totals.current)}</div></div>
-        <div className="metric"><div className="metric-label">31-90 Days</div><div className="metric-value">{fmtMoney(data.totals.d31_60 + data.totals.d61_90)}</div></div>
-        <div className="metric"><div className="metric-label">90+ Days</div><div className="metric-value">{fmtMoney(data.totals.d90Plus)}</div></div>
-      </div>
-
-      <div className="command-panel">
-        <div className="command-panel-header">
-          <h2 className="command-panel-title">Clients With A Balance ({data.rows.length})</h2>
-        </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th scope="col">Client</th>
-                <th scope="col" style={{ textAlign: "right" }}>Current</th>
-                <th scope="col" style={{ textAlign: "right" }}>1-30</th>
-                <th scope="col" style={{ textAlign: "right" }}>31-60</th>
-                <th scope="col" style={{ textAlign: "right" }}>61-90</th>
-                <th scope="col" style={{ textAlign: "right" }}>90+</th>
-                <th scope="col" style={{ textAlign: "right" }}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((r) => (
-                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}?tab=Billing`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}?tab=Billing`); } }}>
-                  <td>{r.clientName}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(r.current)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(r.d1_30)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(r.d31_60)}</td>
-                  <td style={{ textAlign: "right", color: r.d61_90 > 0 ? "var(--amber)" : undefined }}>{fmtMoney(r.d61_90)}</td>
-                  <td style={{ textAlign: "right", color: r.d90Plus > 0 ? "var(--red)" : undefined }}>{fmtMoney(r.d90Plus)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(r.total)}</td>
-                </tr>
-              ))}
-              {!data.rows.length && (
-                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 24 }}>No open balances — every invoice is paid or void.</td></tr>
-              )}
-            </tbody>
-            {data.rows.length > 0 && (
-              <tfoot>
-                <tr style={{ fontWeight: 700 }}>
-                  <td>Total</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.current)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d1_30)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d31_60)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d61_90)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.d90Plus)}</td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(data.totals.total)}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
-    </>
-  );
-}
-
-interface MdAnnualReportOverdueRow { clientId: string; clientName: string; dueDate: string }
-
-/**
- * Firm-wide, not per-client — same "own home outside the client toolbar" pattern
- * as ArAgingTab above. Backs the GET /clients/md-annual-report-overdue and
- * POST /clients/obligations/mark-done-bulk routes (clients.routes.ts) built to
- * let staff clear the ~118 clients whose MD Annual Report only just became
- * visible as overdue (see complianceCalendar.ts's computeUpcomingDeadlines fix)
- * — most were very likely filed the normal way outside this app and just never
- * had a completion recorded here.
- */
-function MdAnnualReportOverdueTab() {
-  const navigate = useNavigate();
-  const confirmDialog = useConfirm();
-  const notify = useNotify();
-  const [data, setData] = useState<MdAnnualReportOverdueRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-
-  function load() {
-    setError(null);
-    api.get<{ clients: MdAnnualReportOverdueRow[] }>("/clients/md-annual-report-overdue")
-      .then((r) => { setData(r.clients); setSelected(new Set()); })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load overdue MD Annual Reports."));
-  }
-  useEffect(load, []);
-
-  function toggleSelected(clientId: string) {
-    setSelected((prev) => { const next = new Set(prev); next.has(clientId) ? next.delete(clientId) : next.add(clientId); return next; });
-  }
-  function toggleSelectAll() {
-    if (!data) return;
-    setSelected((prev) => (prev.size === data.length ? new Set() : new Set(data.map((r) => r.clientId))));
-  }
-
-  async function handleMarkDone() {
-    if (!data || selected.size === 0) return;
-    const ok = await confirmDialog({
-      title: "Mark MD Annual Report filed",
-      message: `Mark ${selected.size} client(s)' MD Annual Report as filed? This only records that it was filed — only do this for clients you know actually filed it.`,
-    });
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const items = data.filter((r) => selected.has(r.clientId)).map((r) => ({ clientId: r.clientId, dueDate: r.dueDate, label: "MD Annual Report" }));
-      const res = await api.post<{ ok: boolean; succeeded: number; failed: { clientId: string; error: string }[] }>(
-        "/clients/obligations/mark-done-bulk", { source: "MD Annual Report", items }
-      );
-      if (res.failed.length) await notify(`${res.succeeded} marked filed. ${res.failed.length} could not be updated: ${res.failed.map((f) => f.clientId).join(", ")}.`);
-      else await notify(`${res.succeeded} client(s) marked as filed.`);
-      load();
-    } catch (err) {
-      await notify(err instanceof ApiError ? err.message : "Could not mark these as filed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (error) return <ErrorBanner error={error} />;
-  if (!data) return <div className="spinner-wrap">Loading…</div>;
-
-  return (
-    <>
-      <div className="command-panel" style={{ marginBottom: 16 }}>
-        <div className="command-panel-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <h2 className="command-panel-title">MD Annual Report — Overdue</h2>
-            <div className="command-panel-note">
-              Clients with no recorded completion for their most recently due Maryland Annual Report (due April 15).
-              Most of these were very likely filed the normal way outside this app — select the ones you know were filed and mark them below.
-            </div>
-          </div>
-          {selected.size > 0 && (
-            <div className="no-print" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{selected.size} selected</span>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={handleMarkDone}>
-                {busy ? "Marking…" : "Mark Filed"}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="command-panel">
-        <div className="command-panel-header">
-          <h2 className="command-panel-title">Clients ({data.length})</h2>
-        </div>
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={data.length > 0 && selected.size === data.length} onChange={toggleSelectAll} /></th>
-                <th scope="col">Client</th>
-                <th scope="col">Due Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((r) => (
-                <tr key={r.clientId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => navigate(`/clients/${r.clientId}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/clients/${r.clientId}`); } }}>
-                  <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.clientId)} onChange={() => toggleSelected(r.clientId)} /></td>
-                  <td>{r.clientName}</td>
-                  <td className="muted">{r.dueDate}</td>
-                </tr>
-              ))}
-              {data.length === 0 && (
-                <tr><td colSpan={3} className="muted" style={{ textAlign: "center", padding: 24 }}>No overdue MD Annual Reports.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
-  );
 }
 
 function TrialBalanceTab({ clientId, from, to }: { clientId: string; from: string; to: string }) {

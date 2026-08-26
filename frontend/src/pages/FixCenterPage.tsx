@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { MdAnnualReportOverdue } from "../components/MdAnnualReportOverdue";
 
 interface DiagnosticCheck {
   id: string;
@@ -166,6 +167,8 @@ export function FixCenterPage() {
         {!checks && !checksError && <div className="spinner-wrap">Running diagnostics…</div>}
         {checks && checks.map((c) => <DiagnosticRow key={c.id} check={c} onFixed={loadDiagnostics} />)}
       </div>
+
+      <MdAnnualReportOverdue />
 
       {isAdmin && (
         <>
