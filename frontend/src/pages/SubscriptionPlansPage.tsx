@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, printFile, buildFilename } from "../api/client";
 import type { ServiceCatalogEntry, SubscriptionTier } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useNotify } from "../components/ConfirmProvider";
 import { useAuth } from "../auth/AuthContext";
+import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBrochureModal";
 
 /**
  * "Minimum Fee Schedule" — direct owner request, 2026-08-26: every
@@ -35,6 +36,21 @@ export function SubscriptionPlansPage() {
   const [newService, setNewService] = useState(NEW_SERVICE_DEFAULTS);
   const [newSaving, setNewSaving] = useState(false);
   const [newError, setNewError] = useState<string | null>(null);
+  const [brochureBusy, setBrochureBusy] = useState<string | null>(null);
+  const [showSend, setShowSend] = useState(false);
+
+  async function handleBrochureAction(action: "view" | "print" | "download") {
+    setBrochureBusy(action);
+    try {
+      if (action === "view") await viewFile("/service-catalog/brochure/pdf");
+      else if (action === "print") await printFile("/service-catalog/brochure/pdf");
+      else await downloadFile("/service-catalog/brochure/pdf", buildFilename(["Subscription Plans"], "pdf"));
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not open the brochure.");
+    } finally {
+      setBrochureBusy(null);
+    }
+  }
 
   function load() {
     Promise.all([
@@ -111,9 +127,18 @@ export function SubscriptionPlansPage() {
 
   return (
     <div>
-      <p className="muted" style={{ marginBottom: 16, maxWidth: 760 }}>
-        Every service a client can be checked into, with its own minimum monthly fee. Editing a fee here applies to every client with that service checked the next time their profile is saved. Core-pillar services (Bookkeeping, Payroll, Sales Tax, Business Tax Return) also decide a client's subscription tier — that rule is fixed in code, not editable here, so relabeling a service never silently changes what counts toward a tier.
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+        <p className="muted" style={{ margin: 0, maxWidth: 700 }}>
+          Every service a client can be checked into, with its own minimum monthly fee. Editing a fee here applies to every client with that service checked the next time their profile is saved. Core-pillar services (Bookkeeping, Payroll, Sales Tax, Business Tax Return) also decide a client's subscription tier — that rule is fixed in code, not editable here, so relabeling a service never silently changes what counts toward a tier.
+        </p>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button className="btn btn-sm" disabled={brochureBusy !== null} onClick={() => handleBrochureAction("view")}>{brochureBusy === "view" ? "Opening…" : "View Brochure"}</button>
+          <button className="btn btn-sm" disabled={brochureBusy !== null} onClick={() => handleBrochureAction("print")}>{brochureBusy === "print" ? "Preparing…" : "Print"}</button>
+          <button className="btn btn-sm" disabled={brochureBusy !== null} onClick={() => handleBrochureAction("download")}>{brochureBusy === "download" ? "Downloading…" : "Download"}</button>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowSend(true)}>Send to Client</button>
+        </div>
+      </div>
+      {showSend && <SendSubscriptionBrochureModal onClose={() => setShowSend(false)} />}
 
       <div className="command-panel" style={{ marginBottom: 20 }}>
         <div className="command-panel-header">
