@@ -208,7 +208,7 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   const oneTime = catalogRaw.filter((s) => s.role === "one_time");
 
   // Subscription services — same page as the tier cards.
-  c.text(L, y, "MONTHLY SUBSCRIPTION — MINIMUM FEE SCHEDULE", { size: 11, bold: true, color: GOLD_TEXT });
+  c.text(L, y, "SUBSCRIPTION PLANS", { size: 11, bold: true, color: GOLD_TEXT });
   y += 18;
   let result = await drawFeeSection(c, y, recurring);
   drawFooter(result.c, profile.firmName, profile.phone, profile.email);
@@ -219,7 +219,7 @@ export async function generateSubscriptionBrochurePdf(): Promise<Uint8Array> {
   // rather than more rows in the same table.
   const oneTimePage = await newPage(doc, font, bold);
   let oy = 46;
-  oneTimePage.c.text(L, oy, "One-Time / Project Services", { size: 16, bold: true, color: GOLD_TEXT });
+  oneTimePage.c.text(L, oy, "Other Services", { size: 16, bold: true, color: GOLD_TEXT });
   oy += 18;
   oy = oneTimePage.c.wrapped(L, oy, "Billed per engagement — never part of the monthly subscription above.", R - L, { size: 9.5, color: MUTED, lineHeight: 12 });
   oy += 16;
