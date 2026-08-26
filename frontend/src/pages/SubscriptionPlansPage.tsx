@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, viewFile, downloadFile, printFile, buildFilename } from "../api/client";
 import type { ServiceCatalogEntry, SubscriptionTier } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { useNotify } from "../components/ConfirmProvider";
+import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useAuth } from "../auth/AuthContext";
 import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBrochureModal";
 
@@ -37,6 +37,7 @@ export function SubscriptionPlansPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const notify = useNotify();
+  const confirmDialog = useConfirm();
   const [services, setServices] = useState<ServiceCatalogEntry[] | null>(null);
   const [tiers, setTiers] = useState<SubscriptionTier[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +83,16 @@ export function SubscriptionPlansPage() {
   async function saveRow(key: string) {
     const d = drafts[key];
     if (!d) return;
+    const original = services?.find((s) => s.service_key === key);
+    const oldFee = original?.min_fee != null ? Number(original.min_fee) : null;
+    const newFee = d.minFee === "" ? null : Number(d.minFee);
+    if (oldFee !== newFee) {
+      const ok = await confirmDialog({
+        title: "Change subscription price",
+        message: `Change ${d.label}'s price from ${oldFee != null ? `$${oldFee.toFixed(2)}` : "—"} to ${newFee != null ? `$${newFee.toFixed(2)}` : "—"}? This does not retroactively change any existing client's already-saved subscription amount — only new clients, and anyone whose services are re-saved or recalculated afterward, will pick up the new price.`,
+      });
+      if (!ok) return;
+    }
     setSavingKey(key);
     try {
       await api.patch(`/service-catalog/${key}`, {

@@ -773,6 +773,17 @@ function MinimumFeeScheduleSection() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (editingId) {
+      const original = fees?.find((f) => f.min_fee_id === editingId);
+      const feeChanged = original && (String(original.base_fee) !== form.baseFee.trim() || String(original.per_unit_fee ?? "") !== form.perUnitFee.trim());
+      if (feeChanged) {
+        const ok = await confirmDialog({
+          title: "Change minimum fee",
+          message: `Change ${form.label || original!.label}'s minimum fee from $${Number(original!.base_fee).toFixed(2)}${original!.per_unit_fee != null ? ` + $${Number(original!.per_unit_fee).toFixed(2)}/unit` : ""} to $${Number(form.baseFee || 0).toFixed(2)}${form.perUnitFee ? ` + $${Number(form.perUnitFee).toFixed(2)}/unit` : ""}? Unlike the Subscription Fee Schedule, this takes effect immediately and retroactively — the Fee Compliance report recalculates live every time it's opened, for every client using this service and every date range, including past periods.`,
+        });
+        if (!ok) return;
+      }
+    }
     setSaving(true);
     setError(null);
     try {
