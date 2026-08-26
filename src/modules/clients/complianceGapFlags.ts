@@ -349,6 +349,13 @@ export async function computeFirmWideMissingComplianceTaskGaps(asOf: Date = new 
 // that file is deliberately DB-access-free — see its own top comment).
 // dateOfFormation is the same floor used there: without it, a client that
 // didn't exist yet for the fiscal year in question would be falsely flagged.
+//
+// 2026-08-26: that floor originally REQUIRED a formation date to include a
+// client at all — but 140 of the 141 real clients with the flag on have no
+// date_of_formation on file, so this sweep was silently only ever checking
+// 1 client. Flipped to match complianceCalendar.ts: a missing formation
+// date now means "include them" (assume old enough), and only a formation
+// date that PROVES the client is too new excludes them.
 // ---------------------------------------------------------------------------
 
 export interface MdAnnualReportOverdue { clientId: string; clientName: string; dueDate: string }
@@ -365,7 +372,7 @@ export async function computeFirmWideMdAnnualReportOverdue(asOf: Date = new Date
 
   const eligible = clients.filter((c: any) => {
     const formed = isoDate(c.date_of_formation);
-    return formed && formed <= period.periodEnd;
+    return !formed || formed <= period.periodEnd;
   });
   if (eligible.length === 0) return [];
 

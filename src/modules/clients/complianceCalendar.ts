@@ -196,8 +196,18 @@ export function computeUpcomingDeadlines(params: {
     // of being falsely flagged. Deliberately NOT added to UNVERIFIED_PAST_SOURCES below —
     // unlike EFTPS/MD Withholding/MD UI/Business Tax Return, there is no flag/
     // timeline backup that would otherwise catch a missed one.
+    //
+    // 2026-08-26: that floor was written as "only show overdue if we have a
+    // formation date AND it proves the client existed" — but date_of_formation
+    // turned out to be unset on 140 of the 141 real clients with this flag
+    // on, so in practice almost nobody was ever checked at all (confirmed
+    // against production). Flipped to the opposite default: a MISSING
+    // formation date now means "assume old enough to owe it" (the common,
+    // safe case for an established client), and the safe forward-only
+    // fallback only applies when we have a formation date that PROVES the
+    // client is too new — the one case the floor actually exists to protect.
     const period = computeDuePeriod({ frequency: "Annual", due_day: "15", due_month: "4" }, asOf);
-    if (period && params.dateOfFormation && params.dateOfFormation <= period.periodEnd) {
+    if (period && (!params.dateOfFormation || params.dateOfFormation <= period.periodEnd)) {
       deadlines.push({ label: "MD Annual Report", date: period.dueDate, source: "MD Annual Report" });
     } else {
       deadlines.push({ label: "MD Annual Report", date: nextFixedAnnualDate(4, 15, asOf), source: "MD Annual Report" });
