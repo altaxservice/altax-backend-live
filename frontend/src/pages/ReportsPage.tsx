@@ -125,8 +125,23 @@ export function ReportsPage() {
   const navigate = useNavigate();
   const notify = useNotify();
   const { clientId: globalClientId, setSelectedClient } = useSelectedClient();
-  const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>("Financial Overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Reflected in the URL (see changeTab below) so Layout.tsx's client-panel
+  // visibility can tell AR Aging/MD Annual Report — genuinely firm-wide,
+  // all-clients reports — apart from the per-client tabs, without Layout
+  // needing to know anything about this page's internal state.
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get("tab");
+    return (TABS as readonly string[]).includes(t || "") ? (t as Tab) : "Financial Overview";
+  });
+  function changeTab(t: Tab) {
+    setTab(t);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", t);
+      return next;
+    }, { replace: true });
+  }
   const [clients, setClients] = useState<Client[]>([]);
   // ?clientId= wins over the globally selected client — ClientAtAGlance's
   // "Reports" link passes it, and this page used to ignore it entirely and
@@ -425,7 +440,7 @@ export function ReportsPage() {
     const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
     setFrom(start);
     setTo(end);
-    setTab("P&L");
+    changeTab("P&L");
   }
 
   // Carries the Sales & Tax tab's editable "filing/payment date" into the PDF/
@@ -588,7 +603,7 @@ export function ReportsPage() {
               <div style={{ display: "flex", gap: 4 }}>
                 {groupTabs.map((t) => (
                   <button
-                    key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+                    key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => changeTab(t)}
                     style={{ padding: "6px 12px", fontSize: 14, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "none", font: "inherit", color: tab === t ? "var(--ink)" : "var(--muted)", background: tab === t ? "var(--teal-soft)" : "transparent" }}
                   >
                     {t}

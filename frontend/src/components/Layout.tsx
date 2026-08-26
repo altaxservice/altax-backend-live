@@ -39,8 +39,19 @@ function showsTaskPanel(pathname: string): boolean {
   return pathname === "/tasks" || pathname.startsWith("/tasks/");
 }
 
-function showsClientPanel(pathname: string): boolean {
-  return CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"));
+// AR Aging and MD Annual Report (ReportsPage.tsx) are firm-wide, all-clients
+// reports — not scoped to whichever client happens to be pinned in the panel
+// — direct owner request, 2026-08-26, after screenshots showed a client
+// pinned next to a 111-client overdue list. ReportsPage reflects its active
+// tab into the URL (?tab=...) specifically so this check can tell those two
+// tabs apart from the genuinely per-client ones without Layout needing any
+// of that page's internal state.
+const REPORTS_FIRM_WIDE_TABS = ["AR Aging", "MD Annual Report"];
+
+function showsClientPanel(pathname: string, search: string): boolean {
+  if (!CLIENT_PANEL_ROUTES.some((base) => pathname === base || pathname.startsWith(base + "/"))) return false;
+  if (pathname === "/reports" && REPORTS_FIRM_WIDE_TABS.includes(new URLSearchParams(search).get("tab") || "")) return false;
+  return true;
 }
 
 // navKey is only translated for the items client/employee can actually reach
@@ -209,7 +220,7 @@ export function Layout() {
   const showTaskPanel = isStaffOrAdmin && !!taskId && onTasksSection;
   // "/tasks" was already dropped from CLIENT_PANEL_ROUTES, so this is belt-
   // and-suspenders — the two panels are never both eligible on the same route.
-  const showPanel = isStaffOrAdmin && !!clientId && !onTasksSection && showsClientPanel(location.pathname);
+  const showPanel = isStaffOrAdmin && !!clientId && !onTasksSection && showsClientPanel(location.pathname, location.search);
   const pageTitle = titleForPath(location.pathname);
   const titleKey = titleKeyForPath(location.pathname);
   const displayTitle = showLanguageToggle && titleKey ? t(titleKey) : pageTitle;
