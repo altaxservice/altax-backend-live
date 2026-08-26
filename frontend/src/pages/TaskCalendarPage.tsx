@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock } from "lucide-react";
+import { Clock, CalendarPlus } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Task, Appointment, Client } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -12,6 +12,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { computeAppointmentTiming, pickMostRelevantAppointment, type AppointmentPhase } from "../utils/appointmentTiming";
+import { buildGoogleCalendarUrl } from "../utils/googleCalendarLink";
 
 /**
  * Practice Management: calendar + staff capacity — task due dates (from the same
@@ -41,6 +42,24 @@ function fmtApptTime(a: Appointment): string {
 /** Full start–end range, not just the start — "improve the line for the time" (direct owner request, 2026-08-24): the old single time left readers guessing how long the slot runs without opening the row. */
 function fmtApptTimeRange(a: Appointment): string {
   return `${fmtApptTime(a)} – ${new Date(a.end_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
+/** "Add to Google Calendar" (direct owner request, 2026-08-25) — a plain outbound link, opens in a new tab, no data leaves the browser except to Google's own page. */
+function GoogleCalendarLink({ appt, compact }: { appt: Appointment; compact?: boolean }) {
+  return (
+    <a
+      href={buildGoogleCalendarUrl(appt)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={compact ? undefined : "btn btn-sm"}
+      title="Add to Google Calendar"
+      style={compact ? { display: "inline-flex", alignItems: "center", color: "var(--teal)" } : { display: "inline-flex", alignItems: "center", gap: 5 }}
+    >
+      <CalendarPlus size={compact ? 15 : 13} strokeWidth={2} aria-hidden="true" />
+      {!compact && "Google Cal"}
+    </a>
+  );
 }
 
 /**
@@ -240,11 +259,12 @@ function LiveAppointmentClock() {
             <div style={{ width: `${timing.progressPct}%`, height: "100%", background: fg, transition: "width 1s linear" }} />
           </div>
         )}
-        {timing.phase !== "before" && (
-          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {timing.phase !== "before" && (
             <AttendanceControl appt={appt} onUpdated={(patch) => updateTodaysApptLocal(appt!.appointment_id, patch)} />
-          </div>
-        )}
+          )}
+          <GoogleCalendarLink appt={appt} />
+        </div>
       </div>
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }`}</style>
     </div>
@@ -472,7 +492,10 @@ export function TaskCalendarPage() {
                                 {(a.client_name || a.contact_name) && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>With:</strong> {a.client_name || a.contact_name}</div>}
                                 {a.assigned_to && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>Assigned:</strong> {a.assigned_to}</div>}
                                 {a.location && <div style={{ fontSize: 11, marginBottom: 2 }}><strong>Location:</strong> {a.location}</div>}
-                                <div style={{ marginTop: 2, marginBottom: a.notes ? 4 : 0 }}><StatusBadge status={a.status} /></div>
+                                <div style={{ marginTop: 2, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                                  <StatusBadge status={a.status} />
+                                  <GoogleCalendarLink appt={a} compact />
+                                </div>
                                 {a.notes && <div className="muted" style={{ fontSize: 10.5 }}>{a.notes}</div>}
                               </div>
                             )}
@@ -530,6 +553,7 @@ export function TaskCalendarPage() {
                             </td>
                             <td onClick={(e) => e.stopPropagation()}>
                               <div style={{ display: "flex", gap: 4 }}>
+                                <GoogleCalendarLink appt={a} />
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => setEditingAppt(a)}>Edit</button>}
                                 {a.status === "Scheduled" && <button className="btn btn-sm" onClick={() => handleCancelAppointment(a.appointment_id)}>Cancel</button>}
                                 {isAdmin && <button className="btn btn-sm" onClick={() => handleDeleteAppointment(a.appointment_id)}>Delete</button>}
