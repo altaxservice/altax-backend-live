@@ -13,6 +13,7 @@ import { escapeHtml } from "../../common/html";
 import { alertAdmins } from "../../common/adminAlerts";
 import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
 import { sendPushToUsers } from "../../common/webPush";
+import { canAccessClient, getUserAliases, isAssignedToUser } from "../../common/assignment";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -21,11 +22,35 @@ import { sendPushToUsers } from "../../common/webPush";
  * Real Google Calendar sync is a later, separate add-on once a Google Cloud
  * OAuth app exists for this account; nothing here depends on it.
  *
- * Firm-wide, like a shared team calendar — every admin/staff member sees every
- * appointment (not scoped per-assignee the way Tasks is), since the point is
- * one place to see who on the team is booked when.
+ * Firm-wide, like a shared team calendar for SCHEDULING purposes — every
+ * admin/staff member sees every appointment's time slot (title/start/end/
+ * status/assignee), so the point of "one place to see who on the team is
+ * booked when" still holds. Hard Audit finding, 2026-08-27, direct owner
+ * decision: this used to also expose full contact PII (name/email/phone)
+ * and free-text notes for every appointment to every staff member regardless
+ * of assignment — same unscoped exposure Tasks/Documents/Billing never had.
+ * Now those specific fields are redacted (see redactAppointmentForViewer
+ * below) unless the viewer is actually assigned to that appointment or its
+ * client, and the three write routes (edit/cancel/attendance) require that
+ * same real access, not just role — seeing a slot is taken is fine for
+ * everyone; reading or changing another team member's client's details
+ * isn't.
  */
 export const appointmentsRouter = Router();
+
+/** Mirrors canAccessTask's shape (tasks.routes.ts) for the same reason: direct assignment OR access to the linked client, admin bypasses both. */
+async function canAccessAppointment(user: NonNullable<AuthedRequest["user"]>, appt: any): Promise<boolean> {
+  if (user.role === "admin") return true;
+  const aliases = await getUserAliases(user.email);
+  if (isAssignedToUser(appt.assigned_to, aliases)) return true;
+  return appt.client_id ? canAccessClient(user, appt.client_id) : false;
+}
+
+/** Strips contact PII/notes/client-linkage from an appointment row before it reaches a viewer with no real access — the slot itself (title/time/status/assignee) stays visible so the shared-calendar scheduling view keeps working. */
+function redactAppointmentForViewer(appt: any): any {
+  const { contact_name, contact_email, contact_phone, notes, location, client_id, linked_client_name, ...safe } = appt;
+  return { ...safe, redacted: true };
+}
 
 function idSuffix(): string {
   const now = new Date();
@@ -1005,7 +1030,26 @@ appointmentsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHan
       ORDER BY a.start_time ASC`,
     params
   );
-  res.json({ appointments: rows.map((r: any) => ({ ...r, client_name: r.linked_client_name || r.contact_name })) });
+
+  let visible = rows;
+  if (req.user!.role !== "admin") {
+    const aliases = await getUserAliases(req.user!.email);
+    // One query for every client this user has ANY task assigned to, not one
+    // per appointment row — same "stay flat-cost regardless of row count"
+    // reasoning as every other batched access check in this codebase.
+    const accessRows = await query<any>(
+      `SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL`,
+      [Array.from(aliases)]
+    );
+    const accessibleClientIds = new Set(accessRows.map((r: any) => r.client_id));
+    visible = rows.map((r: any) =>
+      isAssignedToUser(r.assigned_to, aliases) || (r.client_id && accessibleClientIds.has(r.client_id))
+        ? r
+        : redactAppointmentForViewer(r)
+    );
+  }
+
+  res.json({ appointments: visible.map((r: any) => ({ ...r, client_name: r.linked_client_name || r.contact_name })) });
 }));
 
 appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -1030,6 +1074,9 @@ appointmentsRouter.patch("/:appointmentId", requireAuth, requireRole("admin", "s
   const { appointmentId } = req.params;
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
+  if (!(await canAccessAppointment(req.user!, existing))) {
+    return res.status(403).json({ error: "You do not have access to this appointment." });
+  }
 
   const body = req.body || {};
   const title = body.title !== undefined ? String(body.title).trim() : existing.title;
@@ -1137,6 +1184,9 @@ appointmentsRouter.post("/:appointmentId/cancel", requireAuth, requireRole("admi
   const { appointmentId } = req.params;
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
+  if (!(await canAccessAppointment(req.user!, existing))) {
+    return res.status(403).json({ error: "You do not have access to this appointment." });
+  }
   await query(`UPDATE altax.v3_appointments SET status = 'Cancelled', updated_at = now() WHERE appointment_id = $1`, [appointmentId]);
 
   const client = existing.client_id
@@ -1174,6 +1224,9 @@ appointmentsRouter.post("/:appointmentId/attendance", requireAuth, requireRole("
   const { appointmentId } = req.params;
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_appointments WHERE appointment_id = $1`, [appointmentId]);
   if (!existing) return res.status(404).json({ error: "Appointment not found." });
+  if (!(await canAccessAppointment(req.user!, existing))) {
+    return res.status(403).json({ error: "You do not have access to this appointment." });
+  }
 
   const attendance = req.body?.attendance === null ? null : String(req.body?.attendance || "").trim();
   if (attendance !== null && !ATTENDANCE_VALUES.has(attendance)) {
