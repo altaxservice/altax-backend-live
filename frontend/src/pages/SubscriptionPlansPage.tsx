@@ -232,7 +232,23 @@ export function SubscriptionPlansPage() {
           </form>
         )}
 
-        {groups.map((group) => (
+        {groups.map((group) => {
+          // Group subtotal — direct owner request, 2026-08-26: sum of every
+          // active, flat-priced service in this group. Per-employee/per-worker
+          // services can't be folded into one dollar figure without a real
+          // client's headcount, so they're listed separately as rates instead.
+          const groupServices = services.filter((s) => s.group_name === group && !s.legacy);
+          const flatTotal = groupServices.reduce((sum, s) => {
+            const d = drafts[s.service_key];
+            if (!d || !d.active || s.role === "one_time" || d.pricingUnit !== "flat") return sum;
+            const fee = Number(d.minFee);
+            return sum + (d.minFee !== "" && Number.isFinite(fee) ? fee : 0);
+          }, 0);
+          const perUnitItems = groupServices.filter((s) => {
+            const d = drafts[s.service_key];
+            return d && d.active && s.role !== "one_time" && d.pricingUnit !== "flat" && d.minFee !== "";
+          });
+          return (
           <div key={group} style={{ marginBottom: 18 }}>
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
             <div className="table-scroll">
@@ -279,8 +295,25 @@ export function SubscriptionPlansPage() {
                 </tbody>
               </table>
             </div>
+            {(flatTotal > 0 || perUnitItems.length > 0) && (
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 6, paddingLeft: 2 }}>
+                Group total (active services): <strong>${flatTotal.toFixed(2)}/mo</strong> flat
+                {perUnitItems.length > 0 && (
+                  <>
+                    {" + "}
+                    {perUnitItems.map((s) => {
+                      const d = drafts[s.service_key];
+                      const unit = d.pricingUnit === "per_employee" ? "employee" : "worker";
+                      return `$${Number(d.minFee).toFixed(2)}/${unit} (${s.label})`;
+                    }).join(" + ")}
+                  </>
+                )}
+                {perUnitItems.length > 0 && " — per-employee/per-worker rates vary by client headcount, not folded into the flat total above."}
+              </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
