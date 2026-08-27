@@ -2704,18 +2704,26 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
 
 /**
  * Real headcount for 'per_employee'/'per_worker' pricing (subscriptionPricing.ts,
- * sql/109) — direct owner request, 2026-08-26. `employees` matches the
- * Employees tab's own filter exactly (worker_type NOT LIKE contractor), so
- * Payroll Processing prices against the same headcount staff actually see
- * there. `workers` is everyone regardless of type, for W-2/1099 Prep — every
- * worker needs one of the two forms.
+ * sql/109) — direct owner request, 2026-08-26. `employees` is everyone with
+ * worker_type != Contractor; `workers` is everyone regardless of type, for
+ * W-2/1099 Prep — every worker needs one of the two forms.
+ *
+ * Both are scoped to status = Active only (2026-08-26 follow-up): a seasonal
+ * or terminated worker turned Inactive shouldn't keep costing the client
+ * money every month, and this is a live query (re-run on every save/
+ * recalculate), not a snapshot — an Inactive worker who later comes back
+ * Active is picked up automatically the next time the client's services are
+ * saved or recalculated, no special handling needed. The worker record
+ * itself is never touched here — this only changes what counts toward
+ * price, nothing is deleted or archived.
  */
 async function getClientWorkerCounts(clientId: string): Promise<ClientWorkerCounts> {
   const row = await queryOne<any>(
     `SELECT
        COUNT(*) FILTER (WHERE lower(COALESCE(worker_type, '')) NOT LIKE '%contractor%')::int AS employees,
        COUNT(*)::int AS workers
-     FROM altax.v3_employees WHERE client_id = $1`,
+     FROM altax.v3_employees
+     WHERE client_id = $1 AND lower(COALESCE(status, 'active')) = 'active'`,
     [clientId]
   );
   return { employees: row?.employees || 0, workers: row?.workers || 0 };
