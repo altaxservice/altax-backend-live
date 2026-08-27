@@ -27,10 +27,6 @@ src/
       auth.routes.ts         # POST /auth/login
     clients/
       clients.routes.ts      # first CRUD slice: list, get (with SSN/EIN masking), create
-  migration/
-    sheetsToPostgres.ts     # reads every v3_ tab via the Sheets API and upserts into Postgres.
-                            # Skips v3_Client_Secrets / v3_Secret_Access_Log on purpose —
-                            # those get a separate, reviewed migration path (Phase 6).
   server.ts                 # Express app wiring auth + clients routes
 ```
 
@@ -52,15 +48,6 @@ npm run migrate:schema        # applies sql/001_init_schema.sql
 npm run dev                   # starts the API on :4000
 ```
 
-To pull real data in from the existing spreadsheet (read-only from Sheets, safe to
-run repeatedly — it upserts by primary key):
-
-```bash
-# .env additionally needs GOOGLE_SERVICE_ACCOUNT_JSON and SOURCE_SPREADSHEET_ID
-# (share the sheet, view-only, with that service account's email first)
-npm run migrate:sheets
-```
-
 ## What was intentionally NOT done yet
 
 - **Password hashing was not upgraded to bcrypt/argon2.** The plan's tech-stack table
@@ -80,8 +67,6 @@ npm run migrate:sheets
 
 Before Phase 1 begins:
 - [ ] `npm run migrate:schema` runs clean against a fresh Postgres database.
-- [ ] `npm run migrate:sheets` pulls every non-restricted `v3_` tab with row counts
-      matching the source sheet.
 - [ ] A known existing portal user (with a real `PasswordHash` from the live sheet)
       can log in via `POST /auth/login` with their existing password, unchanged.
 - [ ] 5 wrong password attempts locks the account for 15 minutes, matching today's
