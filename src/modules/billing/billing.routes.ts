@@ -144,7 +144,20 @@ function computeInvoiceTotals(lineItems: LineItemInput[], opts: { discountPercen
   const subtotal = money(lineAmounts.reduce((s, a) => s + a, 0));
   const taxableSubtotal = money(normalized.reduce((s, li, i) => s + (li.taxable ? lineAmounts[i] : 0), 0));
   const discountAmount = opts.discountPercent > 0 ? money(subtotal * (opts.discountPercent / 100)) : money(opts.discountAmount);
-  const salesTaxAmount = money(taxableSubtotal * (opts.salesTaxRate / 100));
+  // Hard Audit finding, 2026-08-27: sales tax was computed on taxableSubtotal
+  // before the discount was ever subtracted — a client with a discount was
+  // charged tax as if they'd paid full price for the taxable lines,
+  // overcharging them. There's no separate "taxable discount" field, so the
+  // discount (percent or flat dollar) is treated as applying proportionally
+  // across taxable and non-taxable lines alike, same as it already does
+  // against the overall total below — then tax is computed on what's left
+  // of the taxable base after that share is removed. Mirrors the
+  // discount-before-tax ordering estimates.service.ts's computeTotals
+  // already uses; clamped to [0,1] so a manually-entered discount larger
+  // than the subtotal can't make the taxable base negative.
+  const discountRatio = subtotal > 0 ? Math.min(1, Math.max(0, discountAmount / subtotal)) : 0;
+  const postDiscountTaxableBase = money(taxableSubtotal * (1 - discountRatio));
+  const salesTaxAmount = money(postDiscountTaxableBase * (opts.salesTaxRate / 100));
   const total = money(subtotal - discountAmount + salesTaxAmount + money(opts.shippingAmount));
   return { normalized, lineAmounts, subtotal, taxableSubtotal, discountAmount, salesTaxAmount, total };
 }
