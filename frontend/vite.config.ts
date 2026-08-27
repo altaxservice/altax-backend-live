@@ -51,6 +51,13 @@ export default defineConfig({
           // below), not an app route.
           /^\/tax-glossary(\?.*)?$/, /^\/record-retention-guide(\?.*)?$/, /^\/taxpayer-rights(\?.*)?$/, /^\/tax-calendar\.ics(\?.*)?$/,
           /^\/public\/contracts\//, /^\/public\/invoices\//,
+          // Added 2026-08-27, found by a follow-up audit pass: same failure mode as
+          // the two entries above — a real binary download server.ts already
+          // excludes from its own SPA catch-all (src/server.ts's excludedFromCatchAll
+          // check) but that was never mirrored here, so the PWA's service worker
+          // still intercepted it and served the cached admin app shell instead of
+          // the actual file.
+          /^\/documents\/uploads\/[^/]+\/download/,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
         // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct
