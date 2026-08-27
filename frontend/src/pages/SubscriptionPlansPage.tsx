@@ -233,21 +233,20 @@ export function SubscriptionPlansPage() {
         )}
 
         {groups.map((group) => {
-          // Group subtotal — direct owner request, 2026-08-26: sum of every
-          // active, flat-priced service in this group. Per-employee/per-worker
-          // services can't be folded into one dollar figure without a real
-          // client's headcount, so they're listed separately as rates instead.
+          // Group total — direct owner request, 2026-08-26: every active
+          // service's rate added together in one number, right in the Min.
+          // Fee column like every other row. Per-employee/per-worker rates
+          // are added at their per-unit face value (what the label already
+          // shows, e.g. "$10.00/employee/mo") rather than left out — the
+          // Priced Per column on this row spells out which rates those are,
+          // so the detail isn't lost, just folded into one line.
           const groupServices = services.filter((s) => s.group_name === group && !s.legacy);
-          const flatTotal = groupServices.reduce((sum, s) => {
+          const activeServices = groupServices.filter((s) => {
             const d = drafts[s.service_key];
-            if (!d || !d.active || s.role === "one_time" || d.pricingUnit !== "flat") return sum;
-            const fee = Number(d.minFee);
-            return sum + (d.minFee !== "" && Number.isFinite(fee) ? fee : 0);
-          }, 0);
-          const perUnitItems = groupServices.filter((s) => {
-            const d = drafts[s.service_key];
-            return d && d.active && s.role !== "one_time" && d.pricingUnit !== "flat" && d.minFee !== "";
+            return d && d.active && s.role !== "one_time" && d.minFee !== "" && Number.isFinite(Number(d.minFee));
           });
+          const groupTotal = activeServices.reduce((sum, s) => sum + Number(drafts[s.service_key].minFee), 0);
+          const perUnitItems = activeServices.filter((s) => drafts[s.service_key].pricingUnit !== "flat");
           return (
           <div key={group} style={{ marginBottom: 18 }}>
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
@@ -292,32 +291,24 @@ export function SubscriptionPlansPage() {
                       </tr>
                     );
                   })}
+                  {activeServices.length > 0 && (
+                    <tr style={{ borderTop: "2px solid var(--line)" }}>
+                      <td style={{ fontWeight: 700 }}>Total</td>
+                      <td></td>
+                      <td style={{ width: 150 }}>
+                        <span style={{ fontWeight: 700 }}>${groupTotal.toFixed(2)}</span>
+                        <span className="muted" style={{ fontSize: 10.5 }}>/mo</span>
+                      </td>
+                      <td colSpan={4} className="muted" style={{ fontSize: 11 }}>
+                        {perUnitItems.length > 0
+                          ? `Includes ${perUnitItems.map((s) => `${s.label} at $${Number(drafts[s.service_key].minFee).toFixed(2)}/${drafts[s.service_key].pricingUnit === "per_employee" ? "employee" : "worker"}/mo`).join(" and ")} — actual amount scales with each client's headcount.`
+                          : "Every active service in this group is flat-rate."}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            {(flatTotal > 0 || perUnitItems.length > 0) && (
-              <div style={{ marginTop: 6, padding: "8px 12px", background: "var(--surface-alt, rgba(0,0,0,0.03))", borderRadius: 6, fontSize: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span className="muted">Group total (flat, active)</span>
-                  <strong>${flatTotal.toFixed(2)}/mo</strong>
-                </div>
-                {perUnitItems.map((s) => {
-                  const d = drafts[s.service_key];
-                  const unit = d.pricingUnit === "per_employee" ? "employee" : "worker";
-                  return (
-                    <div key={s.service_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 3 }}>
-                      <span className="muted">+ {s.label}</span>
-                      <span>${Number(d.minFee).toFixed(2)}/{unit}/mo</span>
-                    </div>
-                  );
-                })}
-                {perUnitItems.length > 0 && (
-                  <div className="muted" style={{ fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>
-                    Per-employee/per-worker rates scale with each client's actual headcount — not included in the flat total above.
-                  </div>
-                )}
-              </div>
-            )}
           </div>
           );
         })}
