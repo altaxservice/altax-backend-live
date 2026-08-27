@@ -526,8 +526,16 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
   const { clientId, transferId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
-  const existing = await queryOne<any>(`SELECT transfer_id FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
+  const existing = await queryOne<any>(`SELECT transfer_id, applied_to_profile_at FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
   if (!existing) return res.status(404).json({ error: "Transfer not found." });
+  // Hard Audit finding, 2026-08-27: nothing stopped editing seller/buyer/
+  // sale-term fields after apply-new-owner had already reassigned the
+  // client profile and portal login using the PRE-edit values — the
+  // transfer record could silently diverge from what was actually applied
+  // and what the buyer's invite email said, with no re-sync or flag.
+  if (existing.applied_to_profile_at) {
+    return res.status(400).json({ error: "This transfer has already been applied to the client profile and can no longer be edited." });
+  }
 
   const body = req.body || {};
   const sellerName = String(body.sellerName || "").trim();
@@ -593,6 +601,15 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/delete"
     [transferId, clientId]
   );
   if (!transfer) return res.status(404).json({ error: "Transfer not found." });
+  // Hard Audit finding, 2026-08-27: hard-delete never checked whether this
+  // transfer had already been applied — an admin could permanently destroy
+  // the seller/buyer/sale-price/asset-allocation record for a COMPLETED,
+  // irreversible ownership change after the client profile and portal
+  // login had already been switched to the new owner, wiping the legal
+  // source-of-truth for a real business sale.
+  if (transfer.applied_to_profile_at) {
+    return res.status(400).json({ error: "This transfer has already been applied to the client profile and can no longer be deleted." });
+  }
 
   const left: string[] = [];
 
@@ -772,6 +789,26 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
   });
 
   const result = await withTransaction(async (db) => {
+    // Hard Audit finding, 2026-08-27: the applied_to_profile_at check above
+    // runs before this transaction even opens, so two concurrent calls
+    // (double-click, a retried request) could both pass it before either
+    // had written anything — both then ran the full reprovisioning flow,
+    // generating two invite tokens and sending two invite emails, with
+    // invite_token silently overwritten by whichever transaction committed
+    // last (silently invalidating the first email's link) and the audit
+    // log/portal reprovisioning both running twice. The lock + a fresh
+    // re-check, both inside this one transaction, is what actually closes
+    // the window — the outer check above is just a cheap early-reject for
+    // the common case, not the real guard.
+    await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [transferId]);
+    const recheck = await db.queryOne<any>(
+      `SELECT applied_to_profile_at, applied_by FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`,
+      [transferId, clientId]
+    );
+    if (recheck?.applied_to_profile_at) {
+      return { alreadyApplied: true, appliedAt: recheck.applied_to_profile_at, appliedBy: recheck.applied_by } as const;
+    }
+
     await db.query(
       `UPDATE altax.v3_clients SET
          company_contact_name = $2, company_contact_title = $3, company_contact_email = $4, company_contact_phone = $5,
@@ -835,12 +872,18 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
     }
 
     await db.query(
-      `UPDATE altax.v3_ownership_transfers SET applied_to_profile_at = now(), applied_by = $2 WHERE transfer_id = $1`,
+      `UPDATE altax.v3_ownership_transfers SET applied_to_profile_at = now(), applied_by = $2 WHERE transfer_id = $1 AND applied_to_profile_at IS NULL`,
       [transferId, req.user!.email]
     );
 
-    return { portalUserId, portalAction, token };
+    return { alreadyApplied: false, portalUserId, portalAction, token } as const;
   });
+
+  if (result.alreadyApplied) {
+    return res.status(400).json({
+      error: `This transfer's new owner was already applied to the client profile on ${new Date(result.appliedAt).toLocaleString()} by ${result.appliedBy || "an admin"}.`,
+    });
+  }
 
   // Cache is only ever a few minutes stale, but there's no reason to make the
   // new owner wait for it to expire — same call the deactivate route already
