@@ -43,6 +43,13 @@ export default defineConfig({
         // pattern never matched once `?token=...` was appended.
         navigateFallbackDenylist: [
           /^\/(\?.*)?$/, /^\/about(\?.*)?$/, /^\/services(\?.*)?$/, /^\/resources(\?.*)?$/, /^\/tools(\/.*)?(\?.*)?$/, /^\/news(\/.*)?(\?.*)?$/, /^\/contact(\?.*)?$/, /^\/book(\?.*)?$/, /^\/manage-appointment(\?.*)?$/, /^\/privacy(\?.*)?$/, /^\/sms-terms(\?.*)?$/, /^\/accessibility(\?.*)?$/,
+          // Added 2026-08-27 with the new Tax Center pages — missed on first pass
+          // (same bug this file's own comment already warns about): anyone with
+          // this PWA installed got the cached admin app shell instead of the real
+          // page for any marketing route not listed here. tax-calendar.ics is a
+          // real file download (same reasoning as the contracts/invoices PDFs
+          // below), not an app route.
+          /^\/tax-glossary(\?.*)?$/, /^\/record-retention-guide(\?.*)?$/, /^\/taxpayer-rights(\?.*)?$/, /^\/tax-calendar\.ics(\?.*)?$/,
           /^\/public\/contracts\//, /^\/public\/invoices\//,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
