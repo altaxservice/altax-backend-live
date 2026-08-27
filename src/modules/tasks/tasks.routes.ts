@@ -110,6 +110,13 @@ tasksRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(a
     if (!clientId) return res.status(400).json({ error: "Please select a client or mark this as an internal task." });
     const found = await queryOne<any>(`SELECT client_id, client_name, assigned_to FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     if (!found) return res.status(404).json({ error: `Client not found: ${clientId}` });
+    // Hard Audit finding, 2026-08-27: no other route in this file creates/
+    // mutates a client-scoped row without canAccessClient — this one did,
+    // letting a scoped staff user create a task (with any assignedTo,
+    // payment amount, portal info) for a client they aren't assigned to.
+    if (!(await canAccessClient(req.user!, clientId))) {
+      return res.status(403).json({ error: "You do not have access to this client." });
+    }
     client = found;
   }
 

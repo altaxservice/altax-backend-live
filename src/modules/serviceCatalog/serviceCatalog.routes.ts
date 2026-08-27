@@ -4,6 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { generateSubscriptionBrochurePdf } from "./subscriptionBrochurePdf";
+import { canAccessClient } from "../../common/assignment";
 
 function idSuffix(): string {
   const now = new Date();
@@ -159,6 +160,13 @@ serviceCatalogRouter.post("/brochure/send", requireAuth, requireRole("admin", "s
   const { publicBaseUrl } = await import("../../common/publicUrl");
 
   const clientId = body.clientId ? String(body.clientId).trim() : null;
+  // Hard Audit finding, 2026-08-27: clientId here is optional (used only to
+  // tag the v3_communications log row), but when it IS supplied it wasn't
+  // access-checked, letting a scoped staff user attribute a firm outreach
+  // send to a client outside their scope.
+  if (clientId && !(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
   const clientName = clientId ? (await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]))?.client_name || null : null;
 
   const subject = String(body.subject || "Our Subscription Plans").trim();
