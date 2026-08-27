@@ -9,7 +9,6 @@
 import { Resend } from "resend";
 import twilio from "twilio";
 import { publicBaseUrl } from "./publicUrl";
-import { logAudit } from "./audit";
 
 // Unlike the database (see config/db.ts's DATABASE_URL_DEV split), there's no
 // separate dev/prod credential for Resend/Twilio — whatever's in .env is live.
@@ -59,6 +58,17 @@ export async function recordNotificationFailure(source: string, err: unknown): P
   // eslint-disable-next-line no-console
   console.error(`[notification] ${source} failed:`, err);
   try {
+    // Hard Audit finding, 2026-08-27: a static top-level `import { logAudit }
+    // from "./audit"` here meant simply importing sendEmail/sendSms (e.g.
+    // publicNewsletter.routes.ts, publicTools.routes.ts) transitively
+    // instantiated the main DB pool (config/db.ts's `pool`) at module load —
+    // silently pulling every sandboxed public/unauthenticated route's
+    // dependency graph back into the main database's connection, even though
+    // nothing in those routes ever calls this function today. Deferred to a
+    // dynamic import so that link only forms at the moment this function is
+    // actually invoked (an authenticated caller wanting failure tracking),
+    // not merely by importing this file.
+    const { logAudit } = await import("./audit");
     await logAudit("Notifications", "SEND_FAILED", source, "", "", message, `${source} failed: ${message}`, "System");
   } catch (logErr) {
     // eslint-disable-next-line no-console
