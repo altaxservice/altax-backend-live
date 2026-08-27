@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
-import type { Client, Task } from "../api/types";
-import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice } from "../api/types2";
+import type { Client, Task, ServiceCatalogEntry } from "../api/types";
+import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice, RecurringBilling } from "../api/types2";
+import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
+import { AddRecurringModal } from "../components/AddRecurringModal";
 import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
@@ -1233,7 +1235,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Billing" && canSeeStaffTabs && (
-            <ClientBillingSection clientId={client.client_id} clientName={client.client_name} />
+            <ClientBillingSection client={client} />
           )}
 
           {tab === "Tax Payments" && canSeeStaffTabs && (
@@ -3584,13 +3586,22 @@ function fmtMoney(v: unknown): string {
 }
 
 /**
- * Read-only — this client's own invoices. Creating invoices/sales receipts and
- * every real action (void, print, record payment) stays on the firm-wide
- * Billing page and the invoice's own detail page; this tab is purely "what's
- * on file for this client," same read-only-list-then-drill-in pattern as the
- * trimmed global Documents/Communications pages.
+ * This client's own invoices, plus two one-click actions added 2026-08-27 at
+ * the owner's request — the elaborate Subscription Fee Schedule pricing
+ * (per-employee rates, subscriber discounts, etc.) was purely a calculator
+ * with nothing wired to real billing until now: "Set Up Recurring Billing"
+ * pre-fills a schedule from the client's live subscription_monthly_fee (the
+ * authoritative, already-computed value saved on the client record — not
+ * recomputed here, so it always matches what Services Provided last saved),
+ * and "Create Invoice" opens the same invoice editor the firm-wide Billing
+ * page uses, pre-scoped to this client and pre-seeded with any one-time
+ * services currently checked (subscriber discount applied automatically).
+ * Every other real action (void, print, record payment) still lives on the
+ * invoice's own detail page — this tab isn't trying to replace that.
  */
-function ClientBillingSection({ clientId, clientName }: { clientId: string; clientName: string }) {
+function ClientBillingSection({ client }: { client: Client }) {
+  const clientId = client.client_id;
+  const clientName = client.client_name;
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
   const notify = useNotify();
@@ -3599,12 +3610,61 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
   const [creatingFromTime, setCreatingFromTime] = useState(false);
   const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [catalog, setCatalog] = useState<ServiceCatalogEntry[] | null>(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [recurringEditing, setRecurringEditing] = useState<Partial<RecurringBilling> | null>(null);
+  const [openingRecurring, setOpeningRecurring] = useState(false);
 
   useEffect(() => {
     api.get<{ invoices: Invoice[] }>("/billing/invoices")
       .then((res) => setInvoices(res.invoices.filter((i) => i.client_id === clientId)))
       .catch(() => setInvoices([]));
   }, [clientId]);
+
+  useEffect(() => {
+    api.get<{ services: ServiceCatalogEntry[] }>("/service-catalog").then((res) => setCatalog(res.services)).catch(() => setCatalog([]));
+  }, []);
+
+  // Currently-checked one-time services with their (possibly discounted)
+  // price — same subscriber_discount rule as SubscriptionServicesChecklist:
+  // applies only when the client already has at least one other active
+  // recurring service checked, i.e. they're not buying this standalone.
+  const checkedOneTimeLineItems = (() => {
+    if (!catalog) return [];
+    const checked = client.services || [];
+    const anyRecurringChecked = catalog.some((s) => s.role !== "one_time" && checked.includes(s.service_key));
+    return catalog
+      .filter((s) => s.active && s.role === "one_time" && checked.includes(s.service_key) && s.min_fee != null)
+      .map((s) => {
+        const discount = s.subscriber_discount != null ? Number(s.subscriber_discount) : 0;
+        const applies = discount > 0 && anyRecurringChecked;
+        const rate = Number(s.min_fee) - (applies ? discount : 0);
+        return { productName: s.label, description: applies ? `${s.label} ($${discount.toFixed(0)} subscriber discount applied)` : s.label, quantity: 1, rate, taxable: true };
+      });
+  })();
+
+  async function openRecurringBillingModal() {
+    setOpeningRecurring(true);
+    try {
+      const res = await api.get<{ schedules: RecurringBilling[] }>("/billing/recurring");
+      const existing = res.schedules.find((s) => s.client_id === clientId && s.status !== "Archived" && /nexus/i.test(s.description || ""));
+      if (existing) {
+        setRecurringEditing(existing);
+      } else {
+        const tierLabel = SUBSCRIPTION_TIER_FALLBACK_LABEL[client.subscription_tier || ""] || client.subscription_tier || "Subscription";
+        setRecurringEditing({
+          client_id: clientId,
+          description: `Nexus ${tierLabel}`,
+          amount: Number(client.subscription_monthly_fee) || 0,
+          frequency: "Monthly",
+        });
+      }
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not check for an existing recurring schedule.");
+    } finally {
+      setOpeningRecurring(false);
+    }
+  }
 
   function loadUnbilledTime() {
     api.get<{ count: number; amount: number }>(`/billing/invoices/from-time/preview?clientId=${encodeURIComponent(clientId)}`)
@@ -3655,6 +3715,8 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input type="text" placeholder="Search invoices…" value={invoiceSearch} onChange={(e) => setInvoiceSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
+          <button className="btn btn-sm btn-primary" onClick={() => setShowInvoiceModal(true)}>Create Invoice</button>
+          <button className="btn btn-sm" disabled={openingRecurring} onClick={openRecurringBillingModal}>{openingRecurring ? "Checking…" : "Set Up Recurring Billing"}</button>
           {Boolean(unbilledTime?.count) && (
             <button className="btn btn-sm btn-primary" disabled={creatingFromTime} onClick={handleCreateFromTime}>
               {creatingFromTime ? "Creating…" : `Create Invoice from Unbilled Time (${unbilledTime!.count}, ${fmtMoney(unbilledTime!.amount)})`}
@@ -3690,8 +3752,30 @@ function ClientBillingSection({ clientId, clientName }: { clientId: string; clie
       {invoices && invoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices for this client yet.</p>}
       {invoices && invoices.length > 0 && filteredInvoices.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No invoices match "{invoiceSearch}".</p>}
       <p className="muted" style={{ fontSize: 12, margin: "10px 16px 12px" }}>
-        Click a row to open the invoice. Looking to create an invoice or sales receipt? Use the firm-wide Billing page.
+        Click a row to open the invoice. Void, record a payment, or send — open the invoice itself for that.
       </p>
+
+      {showInvoiceModal && (
+        <InvoiceEditorModal
+          clients={[client]}
+          initialClientId={clientId}
+          initialLineItems={checkedOneTimeLineItems}
+          onClose={() => setShowInvoiceModal(false)}
+          onDone={(invoiceId) => {
+            setShowInvoiceModal(false);
+            api.get<{ invoices: Invoice[] }>("/billing/invoices").then((res) => setInvoices(res.invoices.filter((i) => i.client_id === clientId))).catch(() => {});
+            navigate(`/billing/${invoiceId}`);
+          }}
+        />
+      )}
+      {recurringEditing && (
+        <AddRecurringModal
+          clients={[client]}
+          editing={recurringEditing}
+          onClose={() => setRecurringEditing(null)}
+          onDone={() => setRecurringEditing(null)}
+        />
+      )}
     </div>
   );
 }

@@ -36,8 +36,11 @@ function money(v: unknown): string {
  * PDFs, matching how the rest of the app already works. Shared by both InvoicesListPage
  * (create) and InvoiceDetailPage (edit) via the `editing` prop.
  */
-export function InvoiceEditorModal({ clients, editing, initialClientId, onClose, onDone }: {
-  clients: Client[]; editing?: Invoice; initialClientId?: string; onClose: () => void; onDone: (invoiceId: string) => void;
+export function InvoiceEditorModal({ clients, editing, initialClientId, initialLineItems, onClose, onDone }: {
+  clients: Client[]; editing?: Invoice; initialClientId?: string;
+  /** Pre-seeds line items in create mode only (ignored when `editing` is set) — e.g. a client profile's "Create Invoice" button seeding the client's currently-checked one-time services. */
+  initialLineItems?: { productName?: string; description?: string; quantity?: number; rate: number; taxable?: boolean }[];
+  onClose: () => void; onDone: (invoiceId: string) => void;
 }) {
   const toast = useToast();
   const notify = useNotify();
@@ -82,6 +85,12 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, onClose,
         key: li.line_item_id, serviceDate: li.service_date ? String(li.service_date).slice(0, 10) : "",
         productId: li.product_id || "", productName: li.product_name || "", description: li.description || "",
         quantity: String(li.quantity ?? 1), rate: String(li.rate ?? ""), taxable: li.taxable !== false,
+      }));
+    }
+    if (!editing && initialLineItems?.length) {
+      return initialLineItems.map((li) => ({
+        ...newRow(), productName: li.productName || "", description: li.description || "",
+        quantity: String(li.quantity ?? 1), rate: String(li.rate), taxable: li.taxable !== false,
       }));
     }
     return [newRow()];
