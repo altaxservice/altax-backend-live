@@ -33,7 +33,7 @@ import { escapeHtml } from "../../common/html";
 import {
   calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding,
   calculateDcWithholding, calculateDelawareWithholding, PAY_FREQUENCIES, MD_COUNTIES,
-  type PayFrequency,
+  FEDERAL_FILING_STATUSES, type PayFrequency,
 } from "../../common/withholdingTables";
 
 export const publicToolsRouter = Router();
@@ -57,15 +57,33 @@ publicToolsRouter.post("/lead", toolsLeadLimiter, asyncHandler(async (req: Reque
   if (!email) {
     return res.status(400).json({ error: "An email address is required." });
   }
-  // payload is intentionally unrestricted in shape (each tool's own answers/scores),
+  // payload is intentionally unrestricted in SHAPE (each tool's own answers/scores),
   // but must never contain anything resembling SSN/EIN/bank/account data — that
   // rule is enforced by what the tool pages are allowed to send, not by this route.
+  // Hard Audit finding, 2026-08-27: nothing bounded its SIZE though — an
+  // attacker could submit large/junk payloads up to the rate limit to
+  // bloat this table and spam the admin notification inbox with huge
+  // emails. tool_name/name/email/phone truncated to their column widths
+  // (name.length/email VARCHAR(320)/phone VARCHAR(40) in
+  // 062_public_tools_schema.sql) before insert rather than letting an
+  // oversized value trip an uncaught DB constraint error.
+  const payloadJson = payload ? JSON.stringify(payload) : null;
+  if (payloadJson && payloadJson.length > 20_000) {
+    return res.status(400).json({ error: "This submission is too large." });
+  }
 
   const row = await publicToolsQueryOne<any>(
     `INSERT INTO altax_public.tool_leads (tool_name, name, email, phone, payload, ip_address)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, created_at`,
-    [toolName, name || null, email, phone || null, payload ? JSON.stringify(payload) : null, req.ip || null]
+    [
+      toolName,
+      name ? String(name).slice(0, 200) : null,
+      String(email).slice(0, 320),
+      phone ? String(phone).slice(0, 40) : null,
+      payloadJson,
+      req.ip || null,
+    ]
   );
 
   const notifyEmail = process.env.PUBLIC_TOOLS_NOTIFY_EMAIL;
@@ -130,8 +148,17 @@ publicToolsRouter.post("/paycheck-calculator", paycheckCalcLimiter, asyncHandler
   const state = String(req.body?.state || "Other");
   const county = req.body?.county ? String(req.body.county) : null;
 
+  // Hard Audit finding, 2026-08-27: no upper bound on grossPay and no
+  // enum check on filingStatus (payFrequency/state/county already had
+  // one). Neither was exploitable — an unrecognized filingStatus just
+  // silently falls back to the Single bracket set (withholdingTables.ts's
+  // own designed fallback), and a huge grossPay is pure in-memory float
+  // math with nothing persisted — but both were inconsistent with every
+  // other input on this same route being strictly validated.
   if (!Number.isFinite(grossPay) || grossPay <= 0) return res.status(400).json({ error: "Enter a gross pay amount greater than $0." });
+  if (grossPay > 10_000_000) return res.status(400).json({ error: "Enter a gross pay amount under $10,000,000." });
   if (!PAY_FREQUENCIES.includes(payFrequency)) return res.status(400).json({ error: "Unrecognized pay frequency." });
+  if (!(FEDERAL_FILING_STATUSES as readonly string[]).includes(filingStatus)) return res.status(400).json({ error: "Unrecognized filing status." });
   if (!(CALCULATOR_STATES as readonly string[]).includes(state)) return res.status(400).json({ error: "Unrecognized state." });
   if (state === "MD" && county && !MD_COUNTIES.includes(county as any)) return res.status(400).json({ error: "Unrecognized Maryland county." });
 
