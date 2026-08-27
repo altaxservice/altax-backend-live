@@ -152,10 +152,6 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-// Read-only internal demo page (public/preview.html) — not part of the real client/staff
-// app, just a way to see the API's data against real records without a frontend yet.
-app.use(express.static("public"));
-
 // Public marketing site (marketing-site/) — plain static HTML/CSS/JS, no build step.
 // Only its asset subdirectories are statically served, NOT the directory root. The
 // page routes themselves are registered further down (MARKETING_PAGES), ahead of the
