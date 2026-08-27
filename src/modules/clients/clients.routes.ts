@@ -3019,6 +3019,13 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
  */
 clientsRouter.post("/:clientId/recalculate-subscription", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
+  // Hard Audit finding, 2026-08-27: every other :clientId-scoped route in
+  // this file checks canAccessClient — this one was skipped, letting a
+  // scoped staff user recompute and overwrite another client's
+  // subscription_tier/subscription_monthly_fee.
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
   const client = await queryOne<any>(`SELECT services, subscription_fee_is_custom FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: "Client not found." });
 
