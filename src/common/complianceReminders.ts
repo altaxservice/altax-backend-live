@@ -83,8 +83,11 @@ export function buildComplianceReminderMessage(clientName: string, label: string
   const dayWordAr = daysUntil < 0 ? `متأخر ${Math.abs(daysUntil)} يومًا` : daysUntil === 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
   const subject = `Reminder: ${label} Due ${dateUs}`;
 
-  const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> is due on <strong>${dateUs}</strong> (${dayWordEn}).</div>`;
-  const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> مستحق بتاريخ <strong>${dateUs}</strong> (${dayWordAr}).</div>`;
+  // white-space:nowrap on the date keeps "April 15, 2026" from breaking
+  // mid-date across lines on a narrow (phone) screen — direct owner
+  // feedback, 2026-08-26, from a real received email screenshot.
+  const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> is due on <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordEn}).</div>`;
+  const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> مستحق بتاريخ <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordAr}).</div>`;
   const en = `Dear ${clientName},\n\nThis is a reminder that your\n${calloutEn}\nPlease contact us regarding this matter.\n\nThank you,\n${firmName}`;
   const ar = `عزيزنا ${clientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
   const body = `${en}\n\n---\n\n${ar}`;
