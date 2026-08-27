@@ -296,19 +296,26 @@ export function SubscriptionPlansPage() {
               </table>
             </div>
             {(flatTotal > 0 || perUnitItems.length > 0) && (
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 6, paddingLeft: 2 }}>
-                Group total (active services): <strong>${flatTotal.toFixed(2)}/mo</strong> flat
+              <div style={{ marginTop: 6, padding: "8px 12px", background: "var(--surface-alt, rgba(0,0,0,0.03))", borderRadius: 6, fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span className="muted">Group total (flat, active)</span>
+                  <strong>${flatTotal.toFixed(2)}/mo</strong>
+                </div>
+                {perUnitItems.map((s) => {
+                  const d = drafts[s.service_key];
+                  const unit = d.pricingUnit === "per_employee" ? "employee" : "worker";
+                  return (
+                    <div key={s.service_key} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 3 }}>
+                      <span className="muted">+ {s.label}</span>
+                      <span>${Number(d.minFee).toFixed(2)}/{unit}/mo</span>
+                    </div>
+                  );
+                })}
                 {perUnitItems.length > 0 && (
-                  <>
-                    {" + "}
-                    {perUnitItems.map((s) => {
-                      const d = drafts[s.service_key];
-                      const unit = d.pricingUnit === "per_employee" ? "employee" : "worker";
-                      return `$${Number(d.minFee).toFixed(2)}/${unit} (${s.label})`;
-                    }).join(" + ")}
-                  </>
+                  <div className="muted" style={{ fontSize: 10.5, marginTop: 4, fontStyle: "italic" }}>
+                    Per-employee/per-worker rates scale with each client's actual headcount — not included in the flat total above.
+                  </div>
                 )}
-                {perUnitItems.length > 0 && " — per-employee/per-worker rates vary by client headcount, not folded into the flat total above."}
               </div>
             )}
           </div>
