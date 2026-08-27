@@ -40,6 +40,34 @@ const FORM_LABELS: Record<string, string> = {
   "548": "Maryland Form 548 — Power of Attorney",
 };
 
+/**
+ * Hard Audit finding, 2026-08-27: representative field values had no
+ * length cap before reaching pdf-lib's setText — individual field VALUES
+ * (unlike the representatives array length, already capped at 2-4 above)
+ * were unbounded. Low severity since this route is staff/admin-only, not
+ * internet-facing, but a multi-megabyte value could still bloat the
+ * generated PDF or hit pdf-lib internals in an untested way. 200 chars
+ * comfortably covers any real name/address/PTIN/phone/email a form field
+ * actually needs to display.
+ */
+function sanitizeRepresentative(rep: any): PoaRepresentative {
+  const cap = (v: unknown, len = 200) => (v === undefined || v === null ? undefined : String(v).slice(0, len));
+  return {
+    name: cap(rep?.name) || "",
+    firmName: cap(rep?.firmName),
+    address: cap(rep?.address) || "",
+    ptin: cap(rep?.ptin, 20),
+    cafNumber: cap(rep?.cafNumber, 20),
+    phone: cap(rep?.phone, 40),
+    fax: cap(rep?.fax, 40),
+    email: cap(rep?.email, 320),
+    sendCopies: Boolean(rep?.sendCopies),
+    designation: cap(rep?.designation, 100),
+    jurisdiction: cap(rep?.jurisdiction, 100),
+    licenseNumber: cap(rep?.licenseNumber, 40),
+  };
+}
+
 /** Which service selections make which form relevant — mirrors the reasoning in contractContent.ts's POA_COVERED_SERVICE_KEYS, just for a different document family. */
 const SUGGESTED_FORMS_FOR_SERVICE: Record<string, string[]> = {
   personal_tax_prep: ["8821", "2848"],
@@ -108,11 +136,18 @@ function encryptTaxpayerSnapshotForStorage(snapshot: any): string {
 
 function decryptTaxpayerSnapshot(raw: any): any {
   if (raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.__enc === "string") {
-    try {
-      return JSON.parse(decryptValue(raw.__enc));
-    } catch {
-      return raw;
-    }
+    // Hard Audit finding, 2026-08-27: this used to swallow a decrypt
+    // failure and return the raw ciphertext-wrapper object unchanged —
+    // toFilingData would then read undefined for every taxpayer field
+    // (name/ssn/ein/...), silently generating a mostly-blank POA PDF
+    // instead of erroring. Diverged from encryption.ts's own documented
+    // fail-loud design (decryptValue/decryptTolerant throw on corrupt or
+    // mismatched data rather than falling back). A real IRS/state filing
+    // built from silently-blanked taxpayer data is worse than an error —
+    // it can mask key-rotation or data corruption and produce an
+    // incorrect legal document with no signal anything went wrong. Now
+    // throws, which asyncHandler turns into a 500 rather than a bad PDF.
+    return JSON.parse(decryptValue(raw.__enc));
   }
   return raw;
 }
@@ -146,7 +181,7 @@ poaFormsRouter.post("/client/:clientId", requireAuth, requireRole("admin", "staf
   const formType = String(body.formType || "").trim();
   if (!FORM_TYPES.includes(formType)) return res.status(400).json({ error: "Choose a form to generate." });
 
-  const representatives: PoaRepresentative[] = Array.isArray(body.representatives) ? body.representatives : [];
+  const representatives: PoaRepresentative[] = (Array.isArray(body.representatives) ? body.representatives : []).map(sanitizeRepresentative);
   if (!representatives.length) return res.status(400).json({ error: "Add at least one representative." });
   const maxReps = formType === "548" || formType === "8821" ? 2 : 4;
   if (representatives.length > maxReps) return res.status(400).json({ error: `${FORM_LABELS[formType]} supports at most ${maxReps} representatives.` });
@@ -225,7 +260,7 @@ poaFormsRouter.patch("/:filingId", requireAuth, requireRole("admin", "staff"), a
   if (filing.status !== "Draft") return res.status(400).json({ error: `This filing is already ${filing.status} — only a Draft can be edited.` });
 
   const body = req.body || {};
-  const representatives: PoaRepresentative[] = Array.isArray(body.representatives) ? body.representatives : [];
+  const representatives: PoaRepresentative[] = (Array.isArray(body.representatives) ? body.representatives : []).map(sanitizeRepresentative);
   if (!representatives.length) return res.status(400).json({ error: "Add at least one representative." });
   const maxReps = filing.form_type === "548" || filing.form_type === "8821" ? 2 : 4;
   if (representatives.length > maxReps) return res.status(400).json({ error: `${FORM_LABELS[filing.form_type]} supports at most ${maxReps} representatives.` });
