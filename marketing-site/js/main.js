@@ -691,10 +691,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.querySelectorAll('.newsletter-form').forEach((form) => {
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      alert(t('form.newsletterSuccess'));
-      form.reset();
+      const emailInput = form.querySelector('input[type="email"]');
+      const email = emailInput ? emailInput.value.trim() : '';
+      if (!email) return;
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('/public/newsletter/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) throw new Error('Request failed');
+        alert(t('form.newsletterSuccess'));
+        form.reset();
+      } catch (err) {
+        alert(t('form.newsletterError'));
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
   });
 });

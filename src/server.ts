@@ -42,6 +42,8 @@ import { serviceCatalogRouter } from "./modules/serviceCatalog/serviceCatalog.ro
 import { publicServiceCatalogRouter } from "./modules/serviceCatalog/publicServiceCatalog.routes";
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
+import { publicNewsletterRouter } from "./modules/publicNewsletter/publicNewsletter.routes";
+import { newsletterAdminRouter } from "./modules/publicNewsletter/newsletterAdmin.routes";
 import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
 import { remindersRouter, runReminders } from "./modules/reminders/reminders.routes";
@@ -86,6 +88,19 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       "frame-src": ["'self'", "blob:"],
+      // Every marketing-site page (marketing-site/*.html) carries one small
+      // inline <script> that reads localStorage before first paint and sets
+      // lang="ar"/dir="rtl" early, to avoid a flash of the wrong direction
+      // for a returning Arabic-preferring visitor before main.js loads.
+      // helmet's default script-src ('self' only) was silently blocking it
+      // on every single page — confirmed live via the browser console,
+      // 2026-08-27. Not a crash (main.js re-applies the same lang/dir once
+      // it loads), just a brief visual flash each page load. Allow-listing
+      // by exact SHA-256 hash (not 'unsafe-inline', which would open the
+      // door to any inline script) is the standard CSP fix for a single,
+      // fixed, non-dynamic inline script — this hash covers only this exact
+      // string; a future edit to that script needs a new hash here too.
+      "script-src": ["'self'", "'sha256-Xx5GNGGcaMTokQNCiFCa/+6iwqDoWC2Kw1nBiQq0sRM='"],
     },
   },
 }));
@@ -188,6 +203,10 @@ const MARKETING_PAGES: Record<string, string> = {
   "/privacy": "privacy.html",
   "/sms-terms": "sms-terms.html",
   "/accessibility": "accessibility.html",
+  "/tax-glossary": "tax-glossary.html",
+  "/record-retention-guide": "record-retention-guide.html",
+  "/taxpayer-rights": "taxpayer-rights.html",
+  "/tax-calendar.ics": "tax-calendar.ics",
 };
 app.get(Object.keys(MARKETING_PAGES), (req, res) => {
   res.sendFile(path.join(marketingSiteDir, MARKETING_PAGES[req.path]));
@@ -300,6 +319,8 @@ app.use("/service-catalog", serviceCatalogRouter);
 app.use("/public", publicServiceCatalogRouter);
 app.use("/public/invoices", publicInvoiceRouter);
 app.use("/public/contact", publicContactRouter);
+app.use("/public/newsletter", publicNewsletterRouter);
+app.use("/newsletter", newsletterAdminRouter);
 app.use("/public/tools", publicToolsRouter);
 app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);

@@ -1,0 +1,140 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//AL TAX Nexus//Tax Calendar//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:AL TAX SERVICE Key Tax Deadlines
+X-WR-TIMEZONE:America/New_York
+BEGIN:VEVENT
+UID:20260115-q4-2025-estimated-tax-payment-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260115
+DTEND;VALUE=DATE:20260116
+SUMMARY:Q4 2025 Estimated Tax Payment Due — AL TAX SERVICE
+DESCRIPTION:Final estimated payment for the 2025 tax year. Nominal date; sh
+ ifts to the next business day if it falls on a weekend or federal holiday.
+  Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260131-w-2-and-1099-nec-deadline@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260131
+DTEND;VALUE=DATE:20260201
+SUMMARY:W-2 & 1099-NEC Deadline — AL TAX SERVICE
+DESCRIPTION:Due to employees, contractors, and the IRS/SSA. Nominal date; s
+ hifts to the next business day if it falls on a weekend or federal holiday
+ . Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260315-s-corp-and-partnership-returns-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260315
+DTEND;VALUE=DATE:20260316
+SUMMARY:S-Corp & Partnership Returns Due — AL TAX SERVICE
+DESCRIPTION:Forms 1120-S and 1065, or file for a 6-month extension. Nominal
+  date; shifts to the next business day if it falls on a weekend or federal
+  holiday. Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260415-individual-and-c-corp-returns-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260415
+DTEND;VALUE=DATE:20260416
+SUMMARY:Individual & C-Corp Returns Due — AL TAX SERVICE
+DESCRIPTION:Form 1040 and Form 1120; Q1 2026 estimated payment also due. No
+ minal date; shifts to the next business day if it falls on a weekend or fe
+ deral holiday. Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260430-q1-payroll-tax-return-form-941@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260430
+DTEND;VALUE=DATE:20260501
+SUMMARY:Q1 Payroll Tax Return (Form 941) — AL TAX SERVICE
+DESCRIPTION:Quarterly federal payroll tax filing. Nominal date; shifts to t
+ he next business day if it falls on a weekend or federal holiday. Confirm 
+ at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260615-q2-2026-estimated-tax-payment-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260615
+DTEND;VALUE=DATE:20260616
+SUMMARY:Q2 2026 Estimated Tax Payment Due — AL TAX SERVICE
+DESCRIPTION:Second quarterly estimated payment for individuals and business
+ es. Nominal date; shifts to the next business day if it falls on a weekend
+  or federal holiday. Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260731-q2-payroll-tax-return-form-941@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260731
+DTEND;VALUE=DATE:20260801
+SUMMARY:Q2 Payroll Tax Return (Form 941) — AL TAX SERVICE
+DESCRIPTION:Quarterly federal payroll tax filing. Nominal date; shifts to t
+ he next business day if it falls on a weekend or federal holiday. Confirm 
+ at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20260915-q3-2026-estimated-tax-payment-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20260915
+DTEND;VALUE=DATE:20260916
+SUMMARY:Q3 2026 Estimated Tax Payment Due — AL TAX SERVICE
+DESCRIPTION:Also the deadline for extended S-Corp and Partnership returns. 
+ Nominal date; shifts to the next business day if it falls on a weekend or 
+ federal holiday. Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20261015-extended-individual-and-c-corp-returns-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20261015
+DTEND;VALUE=DATE:20261016
+SUMMARY:Extended Individual & C-Corp Returns Due — AL TAX SERVICE
+DESCRIPTION:Final deadline if you filed a 6-month extension. Nominal date; 
+ shifts to the next business day if it falls on a weekend or federal holida
+ y. Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20261031-q3-payroll-tax-return-form-941@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20261031
+DTEND;VALUE=DATE:20261101
+SUMMARY:Q3 Payroll Tax Return (Form 941) — AL TAX SERVICE
+DESCRIPTION:Quarterly federal payroll tax filing. Nominal date; shifts to t
+ he next business day if it falls on a weekend or federal holiday. Confirm 
+ at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20270115-q4-2026-estimated-tax-payment-due@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20270115
+DTEND;VALUE=DATE:20270116
+SUMMARY:Q4 2026 Estimated Tax Payment Due — AL TAX SERVICE
+DESCRIPTION:Final estimated payment for the 2026 tax year. Nominal date; sh
+ ifts to the next business day if it falls on a weekend or federal holiday.
+  Confirm at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:20270131-q4-payroll-tax-return-form-941@al-tax-nexus
+DTSTAMP:20260827T000000Z
+DTSTART;VALUE=DATE:20270131
+DTEND;VALUE=DATE:20270201
+SUMMARY:Q4 Payroll Tax Return (Form 941) — AL TAX SERVICE
+DESCRIPTION:Quarterly federal payroll tax filing. Nominal date; shifts to t
+ he next business day if it falls on a weekend or federal holiday. Confirm 
+ at irs.gov or with our team.
+TRANSP:TRANSPARENT
+END:VEVENT
+END:VCALENDAR
