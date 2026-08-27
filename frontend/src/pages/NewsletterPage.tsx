@@ -13,7 +13,14 @@ import { fmtDateTime } from "../utils/date";
  * unsupervised is real legal exposure. Staff write (or paste in reviewed
  * AI-drafted) content and click Send themselves, every time.
  */
-interface Subscriber { subscriber_id: string; email: string; status: string; source: string | null; subscribed_at: string; unsubscribed_at: string | null }
+interface Subscriber { subscriber_id: string; email: string; status: string; source: string | null; subscribed_at: string | null; unsubscribed_at: string | null }
+
+/** "pending" = subscribe form submitted but the confirmation email link hasn't been clicked yet (double opt-in, added 2026-08-27) — not yet a real subscriber and never gets a broadcast send, but distinct from "unsubscribed" so staff aren't misled into thinking someone actively opted out. */
+function statusLabel(status: string): string {
+  if (status === "subscribed") return "Subscribed";
+  if (status === "pending") return "Pending confirmation";
+  return "Unsubscribed";
+}
 interface NewsletterSend { send_id: string; subject: string; recipient_count: number; failed_count: number; sent_by: string; sent_at: string }
 
 export function NewsletterPage() {
@@ -128,9 +135,9 @@ export function NewsletterPage() {
               {subscribers.map((s) => (
                 <tr key={s.subscriber_id}>
                   <td>{s.email}</td>
-                  <td className={s.status === "subscribed" ? "" : "muted"}>{s.status === "subscribed" ? "Subscribed" : "Unsubscribed"}</td>
+                  <td className={s.status === "subscribed" ? "" : "muted"}>{statusLabel(s.status)}</td>
                   <td className="muted">{s.source || "—"}</td>
-                  <td className="muted">{fmtDateTime(s.subscribed_at)}</td>
+                  <td className="muted">{s.subscribed_at ? fmtDateTime(s.subscribed_at) : "—"}</td>
                 </tr>
               ))}
             </tbody>
