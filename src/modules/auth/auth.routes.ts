@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { authenticateUser, buildAuthSuccess, AuthError, AuthSuccess } from "./auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
-import { requireAuth, requireRole, AuthedRequest } from "../../common/requireAuth";
+import { requireAuth, requireRole, AuthedRequest, invalidateActiveCache } from "../../common/requireAuth";
 import { verifyPassword, createPasswordHashFields } from "./password";
 import { pool, query, queryOne } from "../../config/db";
 import { logAudit } from "../../common/audit";
@@ -129,6 +129,7 @@ function issueSessionToken(result: AuthSuccess): string {
       email: result.email,
       clientId: result.clientId || undefined,
       employeeId: result.employeeId || undefined,
+      tv: result.tokenVersion,
     },
     process.env.JWT_SECRET as string,
     { expiresIn: (process.env.JWT_EXPIRES_IN as any) || "8h" }
@@ -591,14 +592,21 @@ authRouter.post("/accept-invite", asyncHandler(async (req: Request, res: Respons
     }
 
     const fields = createPasswordHashFields(password);
+    // Bumping token_version here kills any session token still outstanding
+    // on this same user_id — the exact moment a reprovisioned account
+    // (ownership transfer's new owner, or anyone accepting a resent invite)
+    // is claimed is also the moment any prior holder's token must stop
+    // working. No self-lockout risk: this route runs pre-auth, so there's
+    // no current session of the caller's own to invalidate.
     await client.query(
       `UPDATE altax.v3_users
          SET password_hash = $1, password_salt = $2, password_hash_version = 3, last_password_change_at = $3,
              invite_token = NULL, invite_expires = NULL, must_reset_password = FALSE,
-             previous_login = last_login, last_login = now()
+             previous_login = last_login, last_login = now(), token_version = token_version + 1
        WHERE user_id = $4`,
       [fields.PasswordHash, fields.PasswordSalt, fields.LastPasswordChangeAt, row.user_id]
     );
+    invalidateActiveCache(row.user_id);
     await logAudit("Security", "SET_PASSWORD", row.user_id || email, "PasswordHash", "", "Set", "Portal password created.", email);
 
     return res.json({ ok: true, email });
@@ -667,16 +675,27 @@ authRouter.post("/change-password", requireAuth, asyncHandler(async (req: Authed
     }
 
     const updated = createPasswordHashFields(newPassword);
+    // Bumps token_version so a password change also logs out any OTHER
+    // session on this account (a lost/stolen device, a tab left open
+    // elsewhere) — the classic "change password" security expectation this
+    // app never actually delivered. The caller's own current token would be
+    // invalidated by this too, so a fresh one is issued below and returned
+    // for the frontend to swap in, instead of silently logging the user out
+    // of the very request that just succeeded.
     await client.query(
       `UPDATE altax.v3_users
          SET password_hash = $1, password_salt = $2, password_hash_version = 3,
              last_password_change_at = $3, must_reset_password = FALSE,
-             failed_login_count = NULL, locked_until = NULL
+             failed_login_count = NULL, locked_until = NULL, token_version = token_version + 1
        WHERE user_id = $4`,
       [updated.PasswordHash, updated.PasswordSalt, updated.LastPasswordChangeAt, row.user_id]
     );
+    invalidateActiveCache(row.user_id);
 
-    return res.json({ ok: true });
+    const result = await buildAuthSuccess(client, { ...row, token_version: (Number(row.token_version) || 0) + 1 });
+    const token = isError(result) ? undefined : issueSessionToken(result);
+
+    return res.json({ ok: true, token });
   } finally {
     client.release();
   }

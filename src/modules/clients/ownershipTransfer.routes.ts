@@ -801,6 +801,13 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
     if (existingUser) {
       portalUserId = existingUser.user_id;
       portalAction = "reprovisioned";
+      // Hard Audit finding, 2026-08-27: this reused the SELLER's own
+      // user_id for the buyer's reprovisioned login — clearing the password/
+      // TOTP made the seller unable to log back IN, but any session token
+      // they already held kept working against this same clientId, since
+      // requireAuth never re-checked a token's baked-in claims against the
+      // database. token_version = token_version + 1 kills every outstanding
+      // token for this user_id immediately (see requireAuth.ts).
       await db.query(
         `UPDATE altax.v3_users SET
            email = $2, name = $3, active = true,
@@ -808,7 +815,8 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
            totp_secret = NULL, totp_enabled = false, totp_backup_codes = '[]'::jsonb,
            login_otp_hash = NULL, login_otp_expires = NULL, login_otp_attempts = 0,
            failed_login_count = 0, locked_until = NULL, last_password_change_at = NULL,
-           invite_token = $4, invite_expires = $5, must_reset_password = true, updated_at = now()
+           invite_token = $4, invite_expires = $5, must_reset_password = true,
+           token_version = token_version + 1, updated_at = now()
          WHERE user_id = $1`,
         [portalUserId, buyerEmail, transfer.buyer_name, token, expires]
       );

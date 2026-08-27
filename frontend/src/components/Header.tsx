@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Calculator } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, setAuthToken } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
 import { APP_NAME } from "../utils/branding";
 import { ErrorBanner } from "./ErrorBanner";
@@ -287,7 +287,12 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setError(null);
     try {
-      await api.post("/auth/change-password", { currentPassword, newPassword });
+      // Changing a password now invalidates every outstanding session token
+      // on the account (including this one) — the backend issues a fresh
+      // token in the same response so this tab stays signed in instead of
+      // getting logged out by its own successful request.
+      const result = await api.post<{ ok: boolean; token?: string }>("/auth/change-password", { currentPassword, newPassword });
+      if (result.token) setAuthToken(result.token);
       setDone(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not change password.");

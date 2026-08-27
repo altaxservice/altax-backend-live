@@ -206,14 +206,26 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
   ];
 
   if (existing) {
+    // Hard Audit finding, 2026-08-27: changing someone's role or which
+    // client/employee they're tied to had no effect on a session token they
+    // already held — those claims are baked into the JWT at login and were
+    // never re-checked against the database. Bumping token_version forces
+    // any outstanding token for this user to be rejected on its next
+    // request (requireAuth.ts), so a demotion or reassignment takes effect
+    // immediately instead of waiting out the token's remaining life.
+    const identityChanged = normalizePortalRole(existing.role) !== roleKey
+      || String(existing.assigned_client_id || "") !== String(assignedClientId || "")
+      || String(existing.assigned_employee_id || "") !== String(assignedEmployeeId || "");
     await query(
       `UPDATE altax.v3_users SET
          email = $2, name = $3, role = $4, phone = $5, assigned_client_id = $6, assigned_employee_id = $7,
          reminder_preference = $8, active = $9, invite_token = $10, invite_expires = $11,
-         must_reset_password = $12, source_system = $13, source_record_id = $14, updated_at = now()
+         must_reset_password = $12, source_system = $13, source_record_id = $14,
+         token_version = token_version + ${identityChanged ? "1" : "0"}, updated_at = now()
        WHERE user_id = $1`,
       params
     );
+    if (identityChanged) invalidateActiveCache(finalUserId);
     await logAudit("Staff", "EDIT", finalUserId, "User", existing.email || "", email,
       `Staff user updated by ${req.user!.email}.`, req.user!.email);
   } else {

@@ -1,0 +1,16 @@
+-- Hard Audit finding, 2026-08-27: a session token's role/clientId/employeeId
+-- claims were trusted for the token's full 8-hour life with no way to force
+-- them stale — ownership transfer reprovisions a client portal login for a
+-- new owner but the seller's still-live token keeps working against that
+-- same client_id, since the JWT's clientId claim is never re-checked against
+-- the database. Same gap for any role/client reassignment while someone
+-- holds a live token, and there was no logout mechanism anywhere.
+--
+-- token_version is embedded in every newly issued JWT (`tv` claim) and
+-- checked in requireAuth alongside the existing `active` flag, sharing the
+-- same short-TTL cache. Bumping it invalidates every outstanding token for
+-- that user immediately (via invalidateActiveCache) without touching
+-- anyone else's session. Missing `tv` on a pre-existing token is treated as
+-- 0 (matching this column's default), so nothing already issued is broken
+-- by this migration.
+ALTER TABLE altax.v3_users ADD COLUMN IF NOT EXISTS token_version integer NOT NULL DEFAULT 0;

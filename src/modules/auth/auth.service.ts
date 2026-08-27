@@ -28,6 +28,7 @@ export interface AuthSuccess {
   authMode: "password" | "email";
   mustResetPassword: boolean;
   totpEnabled: boolean;
+  tokenVersion: number;
 }
 
 export interface AuthError {
@@ -211,6 +212,7 @@ export async function buildAuthSuccess(client: any, selectedUser: any, emailOver
     authMode: selectedUser.password_hash ? "password" : "email",
     mustResetPassword: String(selectedUser.must_reset_password || "").toLowerCase() === "true",
     totpEnabled: Boolean(selectedUser.totp_enabled),
+    tokenVersion: Number(selectedUser.token_version) || 0,
   };
 }
 
