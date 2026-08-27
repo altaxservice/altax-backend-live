@@ -621,6 +621,13 @@ tasksRouter.post("/:taskId/restore", requireAuth, requireRole("admin", "staff"),
   const { taskId } = req.params;
   const archived = await queryOne<any>(`SELECT * FROM altax.v3_archived_tasks WHERE task_id = $1`, [taskId]);
   if (!archived) return res.status(404).json({ error: "Archived task not found." });
+  // Hard Audit finding, 2026-08-27: every other task mutation in this file
+  // (PATCH /:taskId, POST /:taskId/void, POST /bulk) checks canAccessTask
+  // before acting — this route never did, letting a scoped staff user
+  // un-archive any client's task regardless of their own assignment.
+  if (!(await canAccessTask(req.user!, archived))) {
+    return res.status(403).json({ error: "You do not have access to this task." });
+  }
 
   await query(
     `INSERT INTO altax.v3_tasks

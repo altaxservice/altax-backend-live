@@ -635,6 +635,18 @@ templatesRouter.get("/:templateName", requireAuth, requireRole("admin", "staff")
   const periodStart = String(req.query.periodStart || "").trim();
   const periodEnd = String(req.query.periodEnd || "").trim();
 
+  // Hard Audit finding, 2026-08-27: this merges in real client data (name/
+  // email/phone, and with periodStart/periodEnd real sales-tax/payroll
+  // figures) when clientId is set, same as /period-summary-table/:clientId
+  // right above it — but was missing that route's canAccessClient check
+  // entirely, letting a scoped staff user pull any client's financial data
+  // just by passing a clientId they're not assigned to. clientId is
+  // optional here (a raw template preview with no merge data is legitimate
+  // with no client at all), so the check only applies when one is given.
+  if (clientId && !(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+
   const resolved = await resolveTemplate(name, clientId, periodStart, periodEnd);
   if (!resolved) return res.status(404).json({ error: "Template not found." });
   const { source, ...template } = resolved;
