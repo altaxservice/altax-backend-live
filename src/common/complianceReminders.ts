@@ -12,10 +12,11 @@
  * sweep below so a client never gets the same filing reminded twice by
  * two different sweeps.
  */
-import { query, queryOne } from "../config/db";
+import { query, queryOne, withTransaction } from "../config/db";
 import { sendChannel } from "./sendChannel";
 import { getFirmProfile } from "./firmProfile";
 import { logAudit } from "./audit";
+import { escapeHtml } from "./html";
 import { computeUpcomingDeadlines, type ComplianceDeadline } from "../modules/clients/complianceCalendar";
 
 /** Same 9 sources as MARKABLE_DEADLINE_SOURCES on the frontend (ClientAtAGlance.tsx) — a source only gets a client reminder if it's already a real, actionable obligation elsewhere in the app. */
@@ -78,6 +79,13 @@ export function fmtUsDate(dateStr: string): string {
  * double the message count for no real benefit at SMS length).
  */
 export function buildComplianceReminderMessage(clientName: string, label: string, dueDate: string, daysUntil: number, firmName: string): { subject: string; body: string; smsBody: string } {
+  // Hard Audit finding, 2026-08-27: clientName (staff-editable) went straight
+  // into the HTML body below with no escaping — sendChannel's
+  // bodyToDirectionalHtml only turns newlines into <br>, it doesn't sanitize
+  // markup, so a client name containing a tag would render live in this
+  // firm-branded transactional email. label/dateUs are safe static strings
+  // (complianceCalendar.ts), only clientName is untrusted here.
+  const safeClientName = escapeHtml(clientName);
   const dateUs = fmtUsDate(dueDate);
   const dayWordEn = daysUntil < 0 ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} overdue` : daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
   const dayWordAr = daysUntil < 0 ? `متأخر ${Math.abs(daysUntil)} يومًا` : daysUntil === 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
@@ -88,8 +96,8 @@ export function buildComplianceReminderMessage(clientName: string, label: string
   // feedback, 2026-08-26, from a real received email screenshot.
   const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> is due on <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordEn}).</div>`;
   const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> مستحق بتاريخ <strong style="white-space:nowrap;">${dateUs}</strong> (${dayWordAr}).</div>`;
-  const en = `Dear ${clientName},\n\nThis is a reminder that your\n${calloutEn}\nPlease contact us regarding this matter.\n\nThank you,\n${firmName}`;
-  const ar = `عزيزنا ${clientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
+  const en = `Dear ${safeClientName},\n\nThis is a reminder that your\n${calloutEn}\nPlease contact us regarding this matter.\n\nThank you,\n${firmName}`;
+  const ar = `عزيزنا ${safeClientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
   const body = `${en}\n\n---\n\n${ar}`;
   const smsBody = `Reminder: your ${label} is due ${dateUs} (${dayWordEn}). Please contact us regarding this matter.`;
   return { subject, body, smsBody };
@@ -168,42 +176,54 @@ export async function runComplianceDeadlineReminders(actorEmail: string): Promis
         const daysUntil = daysBetween(d.date, asOfStr);
         if (daysUntil < 0 || !setting.leadDays.includes(daysUntil)) continue;
 
-        const dedupKey = `${deadlineReminderStableKey(c.client_id, d.source, d.date)}#auto#${daysUntil}`;
-        const already = await queryOne<any>(
-          `SELECT 1 FROM altax.v3_communications WHERE source_system = 'ComplianceReminder' AND source_record_id = $1`,
-          [dedupKey]
-        );
-        if (already) continue;
-
         const canEmail = Boolean(c.email_allowed && c.email);
         const canSms = Boolean(c.sms_allowed && c.phone);
         if (!canEmail && !canSms) { skipped++; continue; }
 
+        const dedupKey = `${deadlineReminderStableKey(c.client_id, d.source, d.date)}#auto#${daysUntil}`;
         const { subject, body, smsBody } = buildComplianceReminderMessage(c.client_name, d.label, d.date, daysUntil, firmName);
 
-        let anySent = false;
-        let providerMessageId: string | null = null;
-        if (canEmail) {
-          const emailResult = await sendChannel("email", c.email, subject, body, { firmName });
-          if (emailResult.sent) { anySent = true; providerMessageId = emailResult.providerMessageId || null; }
-        }
-        if (canSms) {
-          const smsResult = await sendChannel("sms", c.phone, subject, smsBody, { firmName });
-          if (smsResult.sent) { anySent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
-        }
+        // Hard Audit finding, 2026-08-27: the dedup check above was a plain
+        // SELECT-then-INSERT with no lock — two overlapping sweeps (a manual
+        // trigger landing during the 6:29AM cron, or any other overlap)
+        // could both pass it before either had written its row, double-
+        // sending the same reminder. Same pg_advisory_xact_lock + re-check-
+        // inside-the-transaction fix already proven for this exact bug shape
+        // in reminders.routes.ts's sendAndLog.
+        const result = await withTransaction(async (db) => {
+          await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [dedupKey]);
+          const existing = await db.queryOne<any>(
+            `SELECT 1 FROM altax.v3_communications WHERE source_system = 'ComplianceReminder' AND source_record_id = $1`,
+            [dedupKey]
+          );
+          if (existing) return { alreadySent: true, anySent: false };
 
-        await query(
-          `INSERT INTO altax.v3_communications
-             (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
-              sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
-           VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'ComplianceReminder',$9,$10)`,
-          [
-            `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, c.client_id, c.client_name, subject, body,
-            [canEmail ? c.email : null, canSms ? c.phone : null].filter(Boolean).join(", "),
-            actorEmail, anySent ? "Sent" : "Failed", dedupKey, providerMessageId,
-          ]
-        );
-        if (anySent) sent++; else skipped++;
+          let anySent = false;
+          let providerMessageId: string | null = null;
+          if (canEmail) {
+            const emailResult = await sendChannel("email", c.email, subject, body, { firmName });
+            if (emailResult.sent) { anySent = true; providerMessageId = emailResult.providerMessageId || null; }
+          }
+          if (canSms) {
+            const smsResult = await sendChannel("sms", c.phone, subject, smsBody, { firmName });
+            if (smsResult.sent) { anySent = true; providerMessageId = providerMessageId || smsResult.providerMessageId || null; }
+          }
+
+          await db.query(
+            `INSERT INTO altax.v3_communications
+               (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+                sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+             VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'ComplianceReminder',$9,$10)`,
+            [
+              `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, c.client_id, c.client_name, subject, body,
+              [canEmail ? c.email : null, canSms ? c.phone : null].filter(Boolean).join(", "),
+              actorEmail, anySent ? "Sent" : "Failed", dedupKey, providerMessageId,
+            ]
+          );
+          return { alreadySent: false, anySent };
+        });
+        if (result.alreadySent) continue;
+        if (result.anySent) sent++; else skipped++;
       }
     } catch {
       skipped++;
