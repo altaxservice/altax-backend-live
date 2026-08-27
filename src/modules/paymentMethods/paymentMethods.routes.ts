@@ -89,6 +89,17 @@ paymentMethodsRouter.post("/", requireAuth, requireRole("admin", "staff"), async
   const existingForValidation = paymentMethodIdForLookup
     ? await queryOne<any>(`SELECT * FROM altax.v3_payment_methods WHERE payment_method_id = $1`, [paymentMethodIdForLookup])
     : null;
+  // Hard Audit finding, 2026-08-27: the check above only confirmed access to
+  // `clientId` from the request body — it never confirmed the caller can
+  // access whichever client the EXISTING row actually belongs to. Without
+  // this, a staff user scoped to client A could pass { clientId: "A",
+  // paymentMethodId: "<belongs to client B>" } and the UPDATE below would
+  // silently reassign B's payment method (bank account/routing number
+  // included) to A. Editing/reassigning an existing row now requires access
+  // to its real owner too, not just the client claimed in the body.
+  if (existingForValidation && !(await canAccessClient(req.user!, existingForValidation.client_id))) {
+    return res.status(403).json({ error: "You do not have access to this payment method." });
+  }
   // A blank routing/account field is only an error on a brand-new bank-type row;
   // editing an existing one (e.g. just to flip a default-for flag) can leave them
   // blank and keep whatever's already stored — see the fallback below.

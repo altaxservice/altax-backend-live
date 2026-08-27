@@ -709,7 +709,16 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
  * The unremitted figure is the one that matters operationally: it is a permit
  * the client has paid for that the firm has not yet bought.
  */
-estimatesRouter.get("/reports/agency-ledger", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+estimatesRouter.get("/reports/agency-ledger", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  // Hard Audit finding, 2026-08-27: this had no staff scoping at all, unlike
+  // the sibling GET / a few routes above — a scoped staff user could see
+  // government-fee financial data for every client firm-wide, not just the
+  // ones they're assigned to. Same "unconverted prospects visible to
+  // everyone, converted estimates scoped to assigned clients" rule as GET /.
+  const scopeSql = req.user!.role === "admin"
+    ? ""
+    : `AND (e.client_id IS NULL OR e.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[])))`;
+  const params = req.user!.role === "admin" ? [] : [Array.from(await getUserAliases(req.user!.email))];
   const rows = await query<any>(
     `SELECT e.estimate_id, e.estimate_number, e.business_name, e.status, e.client_id,
             l.line_id, l.description, l.agency, l.qty, l.unit_cost, l.unit_price, l.amount_kind, l.percent_rate,
@@ -718,7 +727,9 @@ estimatesRouter.get("/reports/agency-ledger", requireAuth, requireRole("admin", 
        JOIN altax.v3_estimate_lines l ON l.estimate_id = e.estimate_id
       WHERE l.category = 'Government' AND l.payer = 'Firm' AND l.included = FALSE
         AND e.status IN ('Approved','Sent')
-      ORDER BY e.created_at DESC, l.sort_order ASC`
+        ${scopeSql}
+      ORDER BY e.created_at DESC, l.sort_order ASC`,
+    params
   );
   const items = rows.map((r) => ({
     ...r,
