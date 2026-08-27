@@ -309,10 +309,12 @@ export function InvoicesListPage() {
   }, [schedules, clientIdFilter, search]);
 
   const filteredFirmPayments = useMemo(() => {
+    let rows = firmPayments || [];
+    if (clientIdFilter) rows = rows.filter((p) => p.client_id === clientIdFilter);
     const q = search.trim().toLowerCase();
-    if (!q) return firmPayments || [];
-    return (firmPayments || []).filter((p) => [p.payment_id, p.invoice_id, clientName(p.client_id as string), p.actual_amount].some((v) => String(v || "").toLowerCase().includes(q)));
-  }, [firmPayments, search, clients]);
+    if (q) rows = rows.filter((p) => [p.payment_id, p.invoice_id, clientName(p.client_id as string), p.actual_amount].some((v) => String(v || "").toLowerCase().includes(q)));
+    return rows;
+  }, [firmPayments, clientIdFilter, search, clients]);
 
   // Shared by the KPI tile below AND the "Client Tax Payment Tracking" table
   // further down the page — the two used to compute this scoping separately
