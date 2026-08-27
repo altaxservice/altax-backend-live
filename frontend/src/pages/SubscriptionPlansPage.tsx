@@ -247,6 +247,10 @@ export function SubscriptionPlansPage() {
           });
           const groupTotal = activeServices.reduce((sum, s) => sum + Number(drafts[s.service_key].minFee), 0);
           const perUnitItems = activeServices.filter((s) => drafts[s.service_key].pricingUnit !== "flat");
+          const oneTimeItems = groupServices.filter((s) => {
+            const d = drafts[s.service_key];
+            return d && d.active && s.role === "one_time" && d.minFee !== "" && Number.isFinite(Number(d.minFee));
+          });
           return (
           <div key={group} style={{ marginBottom: 18 }}>
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
@@ -258,7 +262,7 @@ export function SubscriptionPlansPage() {
                     const d = drafts[s.service_key];
                     if (!d) return null;
                     const billedLabel = s.role === "one_time" ? "One-time / per engagement" : "Monthly";
-                    const feeSuffix = d.pricingUnit === "flat" ? "/mo" : d.pricingUnit === "per_employee" ? "/employee/mo" : "/worker/mo";
+                    const feeSuffix = s.role === "one_time" ? " one-time" : d.pricingUnit === "flat" ? "/mo" : d.pricingUnit === "per_employee" ? "/employee/mo" : "/worker/mo";
                     return (
                       <tr key={s.service_key}>
                         <td style={{ minWidth: 220 }}>
@@ -291,7 +295,7 @@ export function SubscriptionPlansPage() {
                       </tr>
                     );
                   })}
-                  {activeServices.length > 0 && (
+                  {(activeServices.length > 0 || oneTimeItems.length > 0) && (
                     <tr style={{ borderTop: "2px solid var(--line)" }}>
                       <td style={{ fontWeight: 700 }}>Total</td>
                       <td></td>
@@ -300,9 +304,14 @@ export function SubscriptionPlansPage() {
                         <span className="muted" style={{ fontSize: 10.5 }}>/mo</span>
                       </td>
                       <td colSpan={4} className="muted" style={{ fontSize: 11 }}>
-                        {perUnitItems.length > 0
-                          ? `Includes ${perUnitItems.map((s) => `${s.label} at $${Number(drafts[s.service_key].minFee).toFixed(2)}/${drafts[s.service_key].pricingUnit === "per_employee" ? "employee" : "worker"}/mo`).join(" and ")} — actual amount scales with each client's headcount.`
-                          : "Every active service in this group is flat-rate."}
+                        {[
+                          perUnitItems.length > 0
+                            ? `Includes ${perUnitItems.map((s) => `${s.label} at $${Number(drafts[s.service_key].minFee).toFixed(2)}/${drafts[s.service_key].pricingUnit === "per_employee" ? "employee" : "worker"}/mo`).join(" and ")} — actual amount scales with each client's headcount.`
+                            : activeServices.length > 0 ? "Every recurring service in this group is flat-rate." : null,
+                          oneTimeItems.length > 0
+                            ? `Not included above (one-time, billed per engagement): ${oneTimeItems.map((s) => `${s.label} ($${Number(drafts[s.service_key].minFee).toFixed(2)})`).join(", ")}.`
+                            : null,
+                        ].filter(Boolean).join(" ")}
                       </td>
                     </tr>
                   )}
