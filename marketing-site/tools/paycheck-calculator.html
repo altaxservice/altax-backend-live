@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paycheck Calculator — AL TAX SERVICE</title>
+<script>try{if(localStorage.getItem('altax_lang')==='ar'){document.documentElement.lang='ar';document.documentElement.dir='rtl';}}catch(e){}</script>
+<link rel="icon" href="/images/logo.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="utility-bar">
+  <div class="container">
+    <span class="deadline" data-next-deadline></span>
+    <div class="links">
+      <a href="/resources#tax-calendar" data-i18n="utility.fullCalendar">Full Tax Calendar</a>
+      <a href="https://www.irs.gov" target="_blank" rel="noopener" data-i18n="utility.irs">IRS.gov</a>
+      <a href="https://www.marylandtaxes.gov" target="_blank" rel="noopener" data-i18n="utility.mdComptroller">MD Comptroller</a>
+    </div>
+  </div>
+</div>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="logo">
+      <img src="/images/logo.png" alt="AL TAX SERVICE — Taxes Made Easy">
+    </a>
+    <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    <ul class="nav-links">
+      <li class="lang-toggle">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ar">عربي</button>
+      </li>
+      <li><a href="/" data-i18n="nav.home">Home</a></li>
+      <li><a href="/about" data-i18n="nav.about">About Us</a></li>
+      <li><a href="/services" data-i18n="nav.services">Our Services</a></li>
+      <li><a href="/tools" data-i18n="nav.tools">Tools &amp; Calculators</a></li>
+      <li><a href="/resources" data-i18n="nav.resources">Resources</a></li>
+      <li><a href="/news" data-i18n="nav.news">Tax News</a></li>
+      <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
+      <li><a href="/login/client" class="btn btn-outline btn-sm" data-i18n="nav.clientPortal">Client Portal</a></li>
+      <li><a href="/book" class="btn btn-primary btn-sm" data-i18n="cta.bookConsultation">Book a Consultation</a></li>
+    </ul>
+  </div>
+</header>
+
+<section class="section section-forest section-sm">
+  <div class="container" style="text-align:center;">
+    <span class="eyebrow" style="justify-content:center;" data-i18n="paycheck.heroEyebrow">Free &amp; Interactive</span>
+    <h1 style="color:#fff; font-size:clamp(2rem,4vw,2.8rem);" data-i18n="paycheck.heroHeading">Paycheck Calculator</h1>
+    <p style="max-width:60ch; margin:0 auto;" data-i18n="paycheck.heroLead">Estimate your take-home pay after federal, state, and payroll taxes — enter your gross pay and see the breakdown instantly.</p>
+  </div>
+</section>
+
+<section class="section section-cream">
+  <div class="container">
+    <div class="tool-card reveal">
+      <form id="paycheck-calc-form">
+        <div class="field">
+          <label for="pc-gross" data-i18n="paycheck.grossLabel">Gross pay (per paycheck)</label>
+          <input type="number" id="pc-gross" min="0" step="0.01" placeholder="2000" required>
+        </div>
+        <div class="field field-row">
+          <div>
+            <label for="pc-frequency" data-i18n="paycheck.frequencyLabel">Pay frequency</label>
+            <select id="pc-frequency">
+              <option value="Weekly" data-i18n="paycheck.freq.weekly">Weekly</option>
+              <option value="Bi-Weekly" selected data-i18n="paycheck.freq.biweekly">Every 2 weeks</option>
+              <option value="Semi-Monthly" data-i18n="paycheck.freq.semimonthly">Twice a month</option>
+              <option value="Monthly" data-i18n="paycheck.freq.monthly">Monthly</option>
+            </select>
+          </div>
+          <div>
+            <label for="pc-filing-status" data-i18n="paycheck.filingLabel">Federal filing status</label>
+            <select id="pc-filing-status">
+              <option value="Single" data-i18n="paycheck.filing.single">Single</option>
+              <option value="Married Filing Jointly" data-i18n="paycheck.filing.mfj">Married Filing Jointly</option>
+              <option value="Married Filing Separately" data-i18n="paycheck.filing.mfs">Married Filing Separately</option>
+              <option value="Head of Household" data-i18n="paycheck.filing.hoh">Head of Household</option>
+            </select>
+          </div>
+        </div>
+        <div class="field field-row">
+          <div>
+            <label for="pc-state" data-i18n="paycheck.stateLabel">State</label>
+            <select id="pc-state">
+              <option value="MD" data-i18n="paycheck.state.md">Maryland</option>
+              <option value="VA" data-i18n="paycheck.state.va">Virginia</option>
+              <option value="DC" data-i18n="paycheck.state.dc">Washington, D.C.</option>
+              <option value="DE" data-i18n="paycheck.state.de">Delaware</option>
+              <option value="Other" data-i18n="paycheck.state.other">Other / not listed</option>
+            </select>
+          </div>
+          <div id="pc-county-field">
+            <label for="pc-county" data-i18n="paycheck.countyLabel">Maryland county</label>
+            <select id="pc-county"></select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; margin-top:0.5rem;">
+          <span data-i18n="paycheck.calcBtn">Calculate Take-Home Pay</span> <span class="arrow">&rarr;</span>
+        </button>
+      </form>
+
+      <div id="pc-error" class="form-status error" style="display:none;" role="status"></div>
+
+      <div id="pc-results" style="display:none; margin-top:1.6rem;">
+        <div class="paycheck-net">
+          <span data-i18n="paycheck.netPayLabel">Estimated Take-Home Pay</span>
+          <strong id="pc-net-pay">$0.00</strong>
+        </div>
+        <table class="paycheck-breakdown">
+          <tbody>
+            <tr><td data-i18n="paycheck.rowGross">Gross Pay</td><td id="pc-row-gross">$0.00</td></tr>
+            <tr><td data-i18n="paycheck.rowFederal">Federal Income Tax</td><td id="pc-row-federal">$0.00</td></tr>
+            <tr><td id="pc-row-state-label" data-i18n="paycheck.rowState">State Income Tax</td><td id="pc-row-state">$0.00</td></tr>
+            <tr><td data-i18n="paycheck.rowSocialSecurity">Social Security (6.2%)</td><td id="pc-row-ss">$0.00</td></tr>
+            <tr><td data-i18n="paycheck.rowMedicare">Medicare (1.45%)</td><td id="pc-row-medicare">$0.00</td></tr>
+            <tr class="paycheck-total-row"><td data-i18n="paycheck.rowTotalTax">Total Taxes</td><td id="pc-row-total-tax">$0.00</td></tr>
+          </tbody>
+        </table>
+        <p class="muted" id="pc-annual-line" style="font-size:0.85rem; margin-top:0.8rem;"></p>
+      </div>
+
+      <div class="tool-disclaimer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>
+        <p data-i18n="paycheck.disclaimer">Estimate only, for 2026, assuming the standard W-4/state form settings (no extra withholding, dependents, or exemptions on file) and consistent pay all year. Your actual paycheck depends on what's really on your W-4 and state withholding form — this is a starting point, not a substitute for your actual pay stub or a conversation with us.</p>
+      </div>
+    </div>
+
+    <div class="tool-card reveal" style="margin-top:2.5rem;">
+      <h3 data-i18n="paycheck.leadHeading">Want us to double-check your actual withholding?</h3>
+      <p style="font-size:0.85rem; color:var(--color-text-soft); margin:0.3rem 0 1.4rem;" data-i18n="paycheck.leadNote">Leave your email and we'll follow up — especially useful if you're starting a new job or your paycheck doesn't match this estimate.</p>
+      <form id="paycheck-lead-form">
+        <div class="form-status" style="display:none;" role="status"></div>
+        <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+          <label for="pc-website">Leave this field blank</label>
+          <input type="text" id="pc-website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="field field-row">
+          <div>
+            <label for="pc-lead-name" data-i18n="contact.firstNameLabel">First name *</label>
+            <input type="text" id="pc-lead-name" name="lead-name" required>
+          </div>
+          <div>
+            <label for="pc-lead-email" data-i18n="contact.emailLabel">Email *</label>
+            <input type="email" id="pc-lead-email" name="lead-email" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="pc-lead-phone" data-i18n="contact.phoneFieldLabel">Phone *</label>
+          <input type="tel" id="pc-lead-phone" name="lead-phone" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">
+          <span data-i18n="tools.getResults">Get My Results</span> <span class="arrow">&rarr;</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="cta-banner reveal">
+  <h2 data-i18n="resources.ctaHeading">Have a question a webpage can't answer?</h2>
+  <p data-i18n="resources.ctaLead">Every business is different. Talk to us directly about your specific tax situation.</p>
+  <div class="ctas">
+    <a href="/book" class="btn btn-primary"><span data-i18n="cta.bookConsultation">Book a Consultation</span> <span class="arrow">&rarr;</span></a>
+    <a href="/contact" class="btn btn-outline"><span data-i18n="nav.contact">Contact Us</span></a>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="logo-name" style="font-family: var(--font-display); font-size:1.3rem; font-weight:700;">AL TAX SERVICE</span>
+        <p data-i18n="footer.brandBlurb">A full-service tax, accounting, and corporate services firm dedicated to empowering small businesses across Maryland.</p>
+        <div class="footer-social">
+          <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12z"/></svg></a>
+          <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.05-5.94-8.68-2.91V8.48z"/></svg></a>
+          <a href="#" aria-label="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 2H22l-7.5 8.6L23 22h-6.9l-5.4-6.9L4.4 22H1.3l8-9.2L1 2h7l4.9 6.3L18.9 2zm-1.2 18h1.9L7.4 4H5.4l12.3 16z"/></svg></a>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="footer.quickLinks">Quick Links</h4>
+        <ul>
+          <li><a href="/" data-i18n="nav.home">Home</a></li>
+          <li><a href="/about" data-i18n="nav.about">About Us</a></li>
+          <li><a href="/services" data-i18n="nav.services">Our Services</a></li>
+          <li><a href="/tools" data-i18n="nav.tools">Tools &amp; Calculators</a></li>
+          <li><a href="/resources" data-i18n="nav.resources">Resources</a></li>
+          <li><a href="/news" data-i18n="nav.news">Tax News</a></li>
+          <li><a href="/contact" data-i18n="nav.contact">Contact Us</a></li>
+          <li><a href="/login/client" data-i18n="footer.clientPortalLogin">Client Portal Login</a></li>
+          <li><a href="/login/staff" data-i18n="footer.staffPortalLogin">Staff Portal Login</a></li>
+          <li><a href="/login/employee" data-i18n="footer.employeePortalLogin">Employee Portal Login</a></li>
+          <li><a href="/login" data-i18n="footer.adminLogin">Admin Login</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4 data-i18n="footer.services">Services</h4>
+        <ul>
+          <li><a href="/services" data-i18n="footer.servicePersonalTax">Personal Tax Preparation</a></li>
+          <li><a href="/services" data-i18n="footer.serviceBusinessTax">Business Tax Preparation</a></li>
+          <li><a href="/services" data-i18n="footer.servicePayroll">Payroll Services</a></li>
+          <li><a href="/services" data-i18n="footer.serviceSalesTax">Sales &amp; Use Tax</a></li>
+        </ul>
+      </div>
+      <div class="footer-col footer-newsletter">
+        <h4 data-i18n="footer.stayConnected">Stay Connected</h4>
+        <p data-i18n="footer.newsletterBlurb">Subscribe for tax deadlines and small-business tips.</p>
+        <form class="newsletter-form">
+          <label for="newsletter-email" class="visually-hidden">Email address</label>
+          <input type="email" id="newsletter-email" placeholder="Your email" data-i18n-placeholder="footer.emailPlaceholder" required>
+          <button type="submit" class="btn btn-primary" data-i18n="footer.join">Join</button>
+        </form>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span data-i18n="footer.copyright">&copy; 2026 AL TAX SERVICE. All rights reserved.</span>
+      <div class="footer-legal">
+        <a href="/privacy" data-i18n="footer.privacyPolicy">Privacy Policy</a>
+        <a href="/sms-terms" data-i18n="footer.smsTerms">SMS &amp; WhatsApp Terms</a>
+        <a href="/accessibility" data-i18n="footer.accessibilityStatement">Accessibility Statement</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/js/translations.js"></script>
+<script src="/js/main.js"></script>
+<script src="/js/tools.js"></script>
+</body>
+</html>

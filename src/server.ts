@@ -231,7 +231,7 @@ app.get("/news/:slug", (req, res, next) => {
 // Public website tools (marketing-site/tools/*.html) — same explicit slug-allowlist
 // pattern as the news articles above, for the same reason (no disk path built from
 // unvalidated user input).
-const TOOL_PAGE_SLUGS = new Set(["business-health-check", "entity-comparison", "document-checklist"]);
+const TOOL_PAGE_SLUGS = new Set(["business-health-check", "entity-comparison", "document-checklist", "paycheck-calculator"]);
 app.get("/tools/:slug", (req, res, next) => {
   if (!TOOL_PAGE_SLUGS.has(req.params.slug)) return next();
   res.sendFile(path.join(marketingSiteDir, "tools", `${req.params.slug}.html`));

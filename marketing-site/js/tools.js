@@ -276,8 +276,105 @@ function initDocumentChecklist() {
   initToolLeadForm(leadForm, 'document-checklist', () => ({ tags: lastTags }));
 }
 
+// ---------------- Paycheck Calculator ----------------
+
+// Same 26 counties the backend's real withholding engine recognizes
+// (src/common/withholdingTables.ts MD_COUNTIES) — kept in sync manually,
+// same convention as TAX_DEADLINES at the top of main.js. Unlike the other
+// tools, this one's actual tax math runs server-side (POST
+// /public/tools/paycheck-calculator), reusing the same bracket tables the
+// firm's real payroll processing uses — this list only needs to match the
+// backend's *valid options*, not duplicate any of its math.
+const MD_COUNTIES = [
+  'Allegany County', 'Anne Arundel County', 'Baltimore County', 'Baltimore City',
+  'Calvert County', 'Caroline County', 'Carroll County', 'Cecil County', 'Charles County',
+  'Dorchester County', 'Frederick County', 'Garrett County', 'Harford County', 'Howard County',
+  'Kent County', 'Montgomery County', "Prince George's County", "Queen Anne's County",
+  "St. Mary's County", 'Somerset County', 'Talbot County', 'Washington County',
+  'Wicomico County', 'Worcester County', 'Unknown Maryland County', 'Out of State',
+];
+
+function fmtUsd(n) {
+  return '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function initPaycheckCalculator() {
+  const form = document.getElementById('paycheck-calc-form');
+  if (!form) return;
+
+  const countyField = document.getElementById('pc-county-field');
+  const countySelect = document.getElementById('pc-county');
+  const stateSelect = document.getElementById('pc-state');
+  countySelect.innerHTML = MD_COUNTIES.map((c) => `<option value="${c}">${c}</option>`).join('');
+
+  function syncCountyVisibility() {
+    countyField.style.display = stateSelect.value === 'MD' ? '' : 'none';
+  }
+  stateSelect.addEventListener('change', syncCountyVisibility);
+  syncCountyVisibility();
+
+  const errorEl = document.getElementById('pc-error');
+  const resultsEl = document.getElementById('pc-results');
+  const stateLabelEl = document.getElementById('pc-row-state-label');
+  const STATE_NAMES = { MD: 'paycheck.rowStateMd', VA: 'paycheck.rowStateVa', DC: 'paycheck.rowStateDc', DE: 'paycheck.rowStateDe', Other: 'paycheck.rowState' };
+
+  let lastResult = null;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
+    const body = {
+      grossPay: Number(document.getElementById('pc-gross').value) || 0,
+      payFrequency: document.getElementById('pc-frequency').value,
+      filingStatus: document.getElementById('pc-filing-status').value,
+      state: stateSelect.value,
+      county: stateSelect.value === 'MD' ? countySelect.value : undefined,
+    };
+
+    try {
+      const res = await fetch('/public/tools/paycheck-calculator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+
+      lastResult = Object.assign({}, body, data);
+      document.getElementById('pc-net-pay').textContent = fmtUsd(data.netPay);
+      document.getElementById('pc-row-gross').textContent = fmtUsd(data.grossPay);
+      document.getElementById('pc-row-federal').textContent = fmtUsd(data.federal);
+      document.getElementById('pc-row-state').textContent = fmtUsd(data.state);
+      document.getElementById('pc-row-ss').textContent = fmtUsd(data.socialSecurity);
+      document.getElementById('pc-row-medicare').textContent = fmtUsd(data.medicare);
+      document.getElementById('pc-row-total-tax').textContent = fmtUsd(data.totalTax);
+      const annualLine = document.getElementById('pc-annual-line');
+      if (annualLine) {
+        annualLine.innerHTML = t('paycheck.annualNote')
+          .replace('{gross}', fmtUsd(data.annualGross))
+          .replace('{net}', fmtUsd(data.annualNet));
+      }
+      if (stateLabelEl) stateLabelEl.textContent = t(STATE_NAMES[body.state] || 'paycheck.rowState');
+      resultsEl.style.display = 'block';
+      resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) {
+      errorEl.textContent = (err && err.message) || t('paycheck.errorGeneric');
+      errorEl.style.display = 'block';
+      resultsEl.style.display = 'none';
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+
+  const leadForm = document.getElementById('paycheck-lead-form');
+  initToolLeadForm(leadForm, 'paycheck-calculator', () => lastResult);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initBusinessHealthCheck();
   initEntityComparison();
   initDocumentChecklist();
+  initPaycheckCalculator();
 });
