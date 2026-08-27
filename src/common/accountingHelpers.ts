@@ -137,6 +137,46 @@ export async function capWagesToAnnualLimit(
   return Math.min(wagesThisCheck, remaining);
 }
 
+/**
+ * The mirror image of capWagesToAnnualLimit: instead of capping a wage-
+ * limited tax at a CEILING, this returns how much of this paycheck's wages
+ * fall ABOVE a threshold — for Additional Medicare Tax, the extra 0.9% that
+ * applies only once an employee's YTD Medicare wages cross $200,000 (IRC
+ * §3101(b)(2), employer-withholding-only rule: a flat $200k trigger
+ * regardless of filing status, unlike the employee's own eventual Form 8959
+ * reconciliation). Hard Audit finding, 2026-08-27: this tier didn't exist
+ * anywhere in the real payroll engine at all — every paycheck withheld
+ * Medicare at a flat 1.45% no matter how high wages went.
+ *
+ * Only the portion of THIS check's wages that pushes cumulative YTD wages
+ * past the threshold is returned — the overlap between [ytdBefore, ytdAfter]
+ * and [threshold, infinity).
+ */
+export async function wagesAboveAnnualThreshold(
+  clientId: string,
+  employeeName: string,
+  payDate: string | null,
+  wagesThisCheck: number,
+  threshold: number,
+  excludePaycheckId?: string,
+  wageColumn: "federal_taxable_wages" | "social_security_wages" | "medicare_wages" = "medicare_wages"
+): Promise<number> {
+  if (!payDate) return 0;
+  const year = new Date(payDate).getUTCFullYear();
+  if (!Number.isFinite(year)) return 0;
+
+  const row = await queryOne<any>(
+    `SELECT COALESCE(SUM(${wageColumn}), 0) AS ytd
+     FROM altax.v3_paychecks
+     WHERE client_id = $1 AND employee = $2 AND EXTRACT(YEAR FROM pay_date) = $3
+       AND lower(status) <> 'void'` + (excludePaycheckId ? ` AND paycheck_id <> $4` : ``),
+    excludePaycheckId ? [clientId, employeeName, year, excludePaycheckId] : [clientId, employeeName, year]
+  );
+  const ytdBefore = Number(row?.ytd || 0);
+  const ytdAfter = ytdBefore + wagesThisCheck;
+  return Math.max(0, ytdAfter - Math.max(threshold, ytdBefore));
+}
+
 export function money(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;

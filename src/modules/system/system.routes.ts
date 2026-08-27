@@ -731,6 +731,16 @@ const DEFAULT_TAX_RATES: { rateId: string; rateType: string; rate: number; wageC
   { rateId: "MED_EE", rateType: "Medicare (Employee)", rate: 0.0145, notes: "Employee-side Medicare withholding." },
   { rateId: "SS_ER", rateType: "Social Security (Employer)", rate: 0.062, wageCap: 184500, notes: "Employer-side Social Security match." },
   { rateId: "MED_ER", rateType: "Medicare (Employer)", rate: 0.0145, notes: "Employer-side Medicare match." },
+  // Hard Audit finding, 2026-08-27: Additional Medicare Tax didn't exist
+  // anywhere in the real payroll engine — every paycheck withheld Medicare
+  // at a flat 1.45% no matter how high wages went. Employer withholding is
+  // a flat $200k YTD wage trigger regardless of filing status (IRC
+  // §3101(b)(2)) — the $250k/$125k MFJ/MFS thresholds only matter for the
+  // employee's own Form 8959 return reconciliation, not for what an
+  // employer withholds — so this reuses wage_cap as a flat-dollar
+  // threshold, same convention as 1099_THRESHOLD below, not a real wage
+  // ceiling. Employee-side only — there's no employer match for this one.
+  { rateId: "MED_ADDL_EE", rateType: "Additional Medicare Tax (Employee)", rate: 0.009, wageCap: 200000, notes: "Extra employee-side Medicare withholding once YTD Medicare wages cross $200,000 — statutory, unchanged since 2013." },
   { rateId: "FUTA", rateType: "Federal Unemployment (FUTA)", rate: 0.006, wageCap: 7000, notes: "Employer-only federal unemployment tax." },
   { rateId: "SUTA", rateType: "State Unemployment (SUTA)", rate: 0.025, notes: "Employer-only state unemployment tax estimate." },
   // AUTO-011 (hard audit, 2026-08-13): the $600 1099-NEC reporting threshold

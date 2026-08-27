@@ -4,7 +4,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
-import { lookupRate, lookupWageCap, capWagesToAnnualLimit, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
+import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
 import { calculateFederalWithholding, calculateMarylandWithholding, calculateVirginiaWithholding, calculateDcWithholding, calculateDelawareWithholding, WITHHOLDING_TAX_YEAR } from "../../common/withholdingTables";
@@ -883,13 +883,37 @@ export async function calculatePaycheck(clientId: string, employeeName: string, 
   // uncapped) — this used to be missing entirely, so SS kept accruing on every paycheck
   // all year for any employee who crossed the base, over-withholding them and
   // over-accruing the employer liability indefinitely. Mirrors the FUTA/SUTA cap two
-  // blocks below, just against social_security_wages instead of taxable wages. 176,100
-  // is the 2025 wage base kept here only as a floor if no Tax Rates row overrides it —
-  // update the "SS" rate's wage cap on the Tax Rates screen each year the base changes.
-  const ssWageCap = await lookupWageCap("SS", 176100, clientId);
+  // blocks below, just against social_security_wages instead of taxable wages.
+  //
+  // Hard Audit finding, 2026-08-27: this used to look up wage cap "SS", a rate_id
+  // that was never seeded anywhere (only "SS_EE"/"SS_ER" are — see
+  // DEFAULT_TAX_RATES, system.routes.ts) and isn't editable on the Tax Rates
+  // screen either, so this ALWAYS silently fell back to the hardcoded
+  // 176,100 default (the 2025 wage base) regardless of what an admin set
+  // for SS_EE/SS_ER. Reusing "SS_EE" here means the cap now actually comes
+  // from the same row the 6.2% rate below already reads, and from real Tax
+  // Rates data (currently seeded at 184,500 for 2026) instead of a frozen
+  // fallback that only updates when someone edits this source file.
+  const ssWageCap = await lookupWageCap("SS_EE", 184500, clientId);
   const ssTaxableWages = await capWagesToAnnualLimit(clientId, employeeName, payDate, socialSecurityWages, ssWageCap, undefined, "social_security_wages");
   const ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
-  const medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
+  // Hard Audit finding, 2026-08-27: Additional Medicare Tax (IRC §3101(b)(2))
+  // didn't exist anywhere in this engine — Medicare was always withheld at a
+  // flat 1.45% no matter how high wages went. Employer withholding uses a
+  // flat $200k YTD wage trigger regardless of the employee's filing status
+  // (the $250k/$125k MFJ/MFS thresholds only apply to the employee's own
+  // Form 8959 return reconciliation, not to what an employer withholds).
+  // Folded into medEe/medicare_ee rather than a separate field — IRS W-2
+  // instructions have Box 6 (Medicare tax withheld) include the additional
+  // 0.9%, there's no separate box for it; Form 941 line 5d reporting it
+  // separately is a distinct, already-documented gap (form941.ts) left for
+  // later.
+  const additionalMedicareThreshold = await lookupWageCap("MED_ADDL_EE", 200000, clientId);
+  const additionalMedicareWages = additionalMedicareThreshold === null
+    ? 0
+    : await wagesAboveAnnualThreshold(clientId, employeeName, payDate, medicareWages, additionalMedicareThreshold, undefined, "medicare_wages");
+  const medEeAdditional = money(additionalMedicareWages * (await lookupRate("MED_ADDL_EE", 0.009, clientId)));
+  const medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId))) + medEeAdditional;
   const ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
   const medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
   // FUTA only applies to an employee's first $7,000 (or whatever the configured wage_cap is)
@@ -917,8 +941,17 @@ export async function calculatePaycheck(clientId: string, employeeName: string, 
     otherTaxablePay, nonTaxableReimbursement, otherEarnings, gross,
     preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
     totalPreTaxDeductions, totalPostTaxDeductions, totalDeductions,
-    federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages, payDate,
-    federal, state, ssEe, medEe, ssEr, medEr, futa, suta, employeeTaxes, employerTaxes, netPay, totalCost,
+    // Hard Audit finding, 2026-08-27: this used to return the UNCAPPED
+    // socialSecurityWages here, which is what got persisted to the
+    // social_security_wages column (and from there, straight into W-2 Box 3
+    // and the W-3 transmittal) — meaning Box 3 could exceed the SS wage base
+    // for any employee who crossed it, which is never legally correct.
+    // ssTaxableWages (computed above, already capped by capWagesToAnnualLimit)
+    // is what actually determined ssEe/ssEr, so it's what belongs in the
+    // persisted/reported figure too. medicareWages stays uncapped — Medicare
+    // legitimately has no annual wage base.
+    federalTaxableWages, socialSecurityWages: ssTaxableWages, medicareWages, stateTaxableWages, payDate,
+    federal, state, ssEe, medEe, medEeAdditional, ssEr, medEr, futa, suta, employeeTaxes, employerTaxes, netPay, totalCost,
   };
 }
 
@@ -1409,17 +1442,30 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
   // against it instead of both reading the same pre-race YTD total and both
   // applying the full remaining wage-cap headroom.
   let ssEe = 0, medEe = 0, ssEr = 0, medEr = 0, futa = 0, suta = 0, employeeTaxes = 0, employerTaxes = 0, netPay = 0, totalCost = 0;
+  let ssTaxableWages = socialSecurityWages;
   try {
   await withTransaction(async (db) => {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`paycheck-create:${clientId}:${existing.employee.toLowerCase()}`]);
 
     // Same SS wage-base cap as the create route above — excludes this paycheck's own
     // prior (pre-edit) contribution from the YTD lookup via paycheckId, so editing a
-    // paycheck doesn't double-count it against its own cap.
-    const ssWageCap = await lookupWageCap("SS", 176100, clientId);
-    const ssTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, socialSecurityWages, ssWageCap, paycheckId, "social_security_wages");
+    // paycheck doesn't double-count it against its own cap. Hard Audit finding,
+    // 2026-08-27: reads "SS_EE" now, not the never-seeded "SS" — see the create
+    // route's matching comment above for why that always silently fell back to
+    // the stale 2025 wage base regardless of what's actually configured.
+    const ssWageCap = await lookupWageCap("SS_EE", 184500, clientId);
+    ssTaxableWages = await capWagesToAnnualLimit(clientId, existing.employee, payDate, socialSecurityWages, ssWageCap, paycheckId, "social_security_wages");
     ssEe = money(ssTaxableWages * (await lookupRate("SS_EE", 0.062, clientId)));
-    medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId)));
+    // Hard Audit finding, 2026-08-27: Additional Medicare Tax — see the create
+    // route's matching comment above for the full explanation. Excludes this
+    // paycheck's own prior (pre-edit) contribution from the YTD lookup, same
+    // as every other wage-cap/threshold read in this edit path.
+    const additionalMedicareThreshold = await lookupWageCap("MED_ADDL_EE", 200000, clientId);
+    const additionalMedicareWages = additionalMedicareThreshold === null
+      ? 0
+      : await wagesAboveAnnualThreshold(clientId, existing.employee, payDate, medicareWages, additionalMedicareThreshold, paycheckId, "medicare_wages");
+    const medEeAdditional = money(additionalMedicareWages * (await lookupRate("MED_ADDL_EE", 0.009, clientId)));
+    medEe = money(medicareWages * (await lookupRate("MED_EE", 0.0145, clientId))) + medEeAdditional;
     ssEr = money(ssTaxableWages * (await lookupRate("SS_ER", 0.062, clientId)));
     medEr = money(medicareWages * (await lookupRate("MED_ER", 0.0145, clientId)));
     // Same $7,000-style annual wage cap as the create route above — excludes this
@@ -1462,7 +1508,10 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
          updated_at=NOW()
        WHERE paycheck_id = $1`,
       [paycheckId, payDate, gross, ssEe, medEe, federal, state, employeeTaxes, netPay, ssEr, medEr, futa, suta,
-        employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, socialSecurityWages, medicareWages, stateTaxableWages,
+        // Hard Audit finding, 2026-08-27: persists ssTaxableWages (capped),
+        // not the uncapped socialSecurityWages — see the create route's
+        // matching comment for why (this is what feeds W-2 Box 3/W-3).
+        employerTaxes, totalCost, regularHours, regularRate, federalTaxableWages, ssTaxableWages, medicareWages, stateTaxableWages,
         money(regularPay), overtimeHours, overtimeRate, overtimePay, bonusPay, commissionPay,
         otherTaxablePay, nonTaxableReimbursement,
         preTaxRetirement, preTaxHealth, preTaxHsaFsa, postTaxDeduction, garnishment, otherDeduction,
