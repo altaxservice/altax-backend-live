@@ -33,27 +33,62 @@ export async function getComplianceReminderSettings(): Promise<ComplianceReminde
   return rows.map((r) => ({ source: r.source, leadDays: r.lead_days, enabled: r.enabled }));
 }
 
+/**
+ * Stable identity for one reminder "slot" (this client, this obligation,
+ * this due date) — a `#` separates it from a uniqueness suffix appended by
+ * each actual send (`#auto#${daysUntil}` or `#manual#${timestamp}`), so
+ * "last sent for this slot" is always `source_record_id.split("#")[0]`
+ * regardless of how many times or which way it's been sent. `#` (not `:`)
+ * on purpose — a flag key can itself contain colons (e.g.
+ * "computed:SalesTaxFilingDue:md:2026-06-30"), which would make splitting
+ * on ":" ambiguous.
+ */
+export function deadlineReminderStableKey(clientId: string, source: string, date: string): string {
+  return `${clientId}:${source}:${date}`;
+}
+export function flagReminderStableKey(clientId: string, flagKey: string): string {
+  return `${clientId}:flag:${flagKey}`;
+}
+
 function daysBetween(dateStr: string, asOfStr: string): number {
   return Math.round((new Date(`${dateStr}T00:00:00Z`).getTime() - new Date(`${asOfStr}T00:00:00Z`).getTime()) / 86400000);
 }
 
+/** "April 15, 2026" — US long-date format, direct owner request (2026-08-26, real messages were going out with a raw "2026-04-15"). Unambiguous (no MM/DD-vs-DD/MM confusion) and reads as an official notice, not a log timestamp. */
+export function fmtUsDate(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+
 /**
- * Deliberately simple, per the owner's explicit request — not a detailed
- * breakdown, just "this is due, contact us." Bilingual: the email body
- * joins EN/AR with the "---" divider sendChannel.ts's bodyToDirectionalHtml
- * already knows how to split and render RTL/LTR correctly; SMS stays
- * English-only, matching the existing MD Sales Tax reminder SMS (a second
- * Arabic SMS would double the message count for no real benefit at SMS
- * length).
+ * Deliberately simple content, per the owner's explicit request — not a
+ * detailed breakdown, just "this is due, contact us." Revised 2026-08-26
+ * after reviewing real sent copies: the SMS previously stuttered
+ * ("AL Tax Service: ALMABARI INC: reminder...") because sendChannel.ts
+ * already prefixes the firm name onto every SMS body — this no longer
+ * repeats the client's name there. The email gets a highlighted callout
+ * around the actual due-date sentence (plain HTML embedded directly in the
+ * body string — sendChannel's bodyToDirectionalHtml only converts
+ * newlines to <br>, it doesn't escape markup, so real tags render as
+ * intended) instead of a flat paragraph. Bilingual: the email body joins
+ * EN/AR with the "---" divider bodyToDirectionalHtml already knows how to
+ * split and render RTL/LTR correctly; SMS stays English-only, matching
+ * the existing MD Sales Tax reminder SMS (a second Arabic SMS would
+ * double the message count for no real benefit at SMS length).
  */
 export function buildComplianceReminderMessage(clientName: string, label: string, dueDate: string, daysUntil: number, firmName: string): { subject: string; body: string; smsBody: string } {
-  const dayWordEn = daysUntil <= 0 ? "today" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
-  const dayWordAr = daysUntil <= 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
-  const subject = `Reminder: ${label} Due ${dueDate}`;
-  const en = `Dear ${clientName},\n\nThis is a reminder that your ${label} is due on ${dueDate} (${dayWordEn}). Please contact us regarding this matter.\n\nThank you,\n${firmName}`;
-  const ar = `عزيزنا ${clientName}،\n\nهذا تذكير بأن ${label} مستحق بتاريخ ${dueDate} (${dayWordAr}). يرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
+  const dateUs = fmtUsDate(dueDate);
+  const dayWordEn = daysUntil < 0 ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) === 1 ? "" : "s"} overdue` : daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
+  const dayWordAr = daysUntil < 0 ? `متأخر ${Math.abs(daysUntil)} يومًا` : daysUntil === 0 ? "اليوم" : daysUntil === 1 ? "غدًا" : `خلال ${daysUntil} يومًا`;
+  const subject = `Reminder: ${label} Due ${dateUs}`;
+
+  const calloutEn = `<div style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-left:4px solid #a9834a; border-radius:4px;"><strong>${label}</strong> is due on <strong>${dateUs}</strong> (${dayWordEn}).</div>`;
+  const calloutAr = `<div dir="rtl" style="margin:16px 0; padding:14px 18px; background:#fdf6e8; border-right:4px solid #a9834a; border-radius:4px; text-align:right;"><strong>${label}</strong> مستحق بتاريخ <strong>${dateUs}</strong> (${dayWordAr}).</div>`;
+  const en = `Dear ${clientName},\n\nThis is a reminder that your\n${calloutEn}\nPlease contact us regarding this matter.\n\nThank you,\n${firmName}`;
+  const ar = `عزيزنا ${clientName}،\n\nهذا تذكير بأن\n${calloutAr}\nيرجى التواصل معنا بخصوص هذا الأمر.\n\nشكراً لكم،\n${firmName}`;
   const body = `${en}\n\n---\n\n${ar}`;
-  const smsBody = `${clientName}: reminder — your ${label} is due ${dueDate} (${dayWordEn}). Please contact us regarding this matter.`;
+  const smsBody = `Reminder: your ${label} is due ${dateUs} (${dayWordEn}). Please contact us regarding this matter.`;
   return { subject, body, smsBody };
 }
 
@@ -114,7 +149,8 @@ export async function runComplianceDeadlineReminders(actorEmail: string): Promis
             payroll_enabled, md_annual_report_enabled, entity_type, date_of_formation, eftps_enabled,
             md_withholding_frequency, mdui_enabled, business_return_type, client_type, w21099_enabled
        FROM altax.v3_clients
-      WHERE status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived')`
+      WHERE auto_compliance_reminders_enabled = true
+            AND (status IS NULL OR lower(status) NOT IN ('no', 'false', 'inactive', 'archived'))`
   );
 
   let sent = 0;
@@ -129,7 +165,7 @@ export async function runComplianceDeadlineReminders(actorEmail: string): Promis
         const daysUntil = daysBetween(d.date, asOfStr);
         if (daysUntil < 0 || !setting.leadDays.includes(daysUntil)) continue;
 
-        const dedupKey = `${c.client_id}:${d.source}:${d.date}:${daysUntil}`;
+        const dedupKey = `${deadlineReminderStableKey(c.client_id, d.source, d.date)}#auto#${daysUntil}`;
         const already = await queryOne<any>(
           `SELECT 1 FROM altax.v3_communications WHERE source_system = 'ComplianceReminder' AND source_record_id = $1`,
           [dedupKey]

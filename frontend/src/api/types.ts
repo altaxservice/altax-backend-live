@@ -55,6 +55,7 @@ export interface Client {
   business_return_type: string | null;
   sms_allowed: boolean;
   email_allowed: boolean;
+  auto_compliance_reminders_enabled?: boolean;
   w21099_enabled: boolean;
   preferred_language: string | null;
   /** Manual external checks (MDTAXCONNECT / MD Business Express) — sql/095, latest-check-only. */

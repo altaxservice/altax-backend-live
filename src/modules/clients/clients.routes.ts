@@ -29,7 +29,7 @@ import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
-import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDABLE_SOURCES } from "../../common/complianceReminders";
+import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDABLE_SOURCES, deadlineReminderStableKey, flagReminderStableKey } from "../../common/complianceReminders";
 
 /**
  * Best-effort: called after a client is created/updated with a newly-checked
@@ -1044,8 +1044,10 @@ clientsRouter.post("/:clientId/deadline-notify-send", requireAuth, requireRole("
   const body = req.body || {};
   const label = String(body.label || "").trim();
   const date = String(body.date || "").trim();
+  const source = String(body.source || "").trim();
   const channels: string[] = Array.isArray(body.channels) ? body.channels : [];
   if (!label || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "label and date (YYYY-MM-DD) are required." });
+  if (!source || !REMINDABLE_SOURCES.has(source)) return res.status(400).json({ error: "Unrecognized obligation type." });
   if (channels.length === 0) return res.status(400).json({ error: "Select at least one channel to send with." });
 
   const client = await queryOne<any>(`SELECT client_name, email, phone, email_allowed, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
@@ -1090,13 +1092,49 @@ clientsRouter.post("/:clientId/deadline-notify-send", requireAuth, requireRole("
      VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,'ComplianceReminderManual',$9)`,
     [
       `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, clientId, client.client_name, subject, emailBody,
-      sentToParts.join(", "), req.user!.email, anySent ? "Sent" : "Failed", `${clientId}:manual:${label}:${date}:${Date.now()}`,
+      sentToParts.join(", "), req.user!.email, anySent ? "Sent" : "Failed", `${deadlineReminderStableKey(clientId, source, date)}#manual#${Date.now()}`,
     ]
   );
   await logAudit("Clients", "COMPLIANCE_REMINDER_MANUAL_SEND", clientId, "", "", label,
     `Manual compliance reminder ("${label}", due ${date}) sent by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, results });
+}));
+
+/**
+ * "Last sent" lookup for the Send to Client buttons (both deadline- and
+ * flag-based) — direct owner request, 2026-08-26. Covers all three
+ * source_systems a compliance reminder can land under (the automatic sweep,
+ * a manual deadline send, a manual flag send) so "last sent" is the same
+ * answer regardless of which path actually sent it. Each source_record_id is
+ * `${stableKey}#auto#N` or `${stableKey}#manual#timestamp`
+ * (deadlineReminderStableKey/flagReminderStableKey in complianceReminders.ts)
+ * — splitting on "#" recovers the stable key so repeat sends for the same
+ * slot collapse to one "most recent" answer instead of one row per send.
+ * Returns keys with the clientId prefix stripped (the frontend already knows
+ * its own clientId) so it can look up by plain `${source}:${date}` or
+ * `flag:${flagKey}`.
+ */
+clientsRouter.get("/:clientId/reminder-history", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const rows = await query<any>(
+    `SELECT source_record_id, sent_at FROM altax.v3_communications
+      WHERE client_id = $1 AND status = 'Sent'
+            AND source_system IN ('ComplianceReminder', 'ComplianceReminderManual', 'Client Flags')
+      ORDER BY sent_at DESC`,
+    [clientId]
+  );
+  const prefix = `${clientId}:`;
+  const history: Record<string, string> = {};
+  for (const row of rows) {
+    const stableKey = String(row.source_record_id).split("#")[0];
+    if (!stableKey.startsWith(prefix)) continue;
+    const shortKey = stableKey.slice(prefix.length);
+    if (!(shortKey in history)) history[shortKey] = row.sent_at;
+  }
+  res.json({ history });
 }));
 
 /**
@@ -1414,7 +1452,7 @@ clientsRouter.post("/:clientId/flags/notify-send", requireAuth, requireRole("adm
     [
       `COM-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`, clientId, client.client_name, content.subject,
       content.messageEnglish, content.messageArabic, sentToParts.join(", "), req.user!.email,
-      anySent ? "Sent" : "Failed", `${clientId}:flag:${flagKeys.join(",")}:${Date.now()}`, providerMessageId,
+      anySent ? "Sent" : "Failed", `${flagReminderStableKey(clientId, flagKeys.join(","))}#manual#${Date.now()}`, providerMessageId,
     ]
   );
   await logAudit("Clients", "CLIENT_FLAG_NOTIFIED", clientId, "", "", flagKeys.join(","),
@@ -2408,6 +2446,7 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   businessReturnType: { column: "business_return_type" },
   smsAllowed: { column: "sms_allowed", boolean: true },
   emailAllowed: { column: "email_allowed", boolean: true },
+  autoComplianceRemindersEnabled: { column: "auto_compliance_reminders_enabled", boolean: true },
   portalEnabled: { column: "portal_enabled", boolean: true },
   address: { column: "address" },
   streetAddress: { column: "street_address" },

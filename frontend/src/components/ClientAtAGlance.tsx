@@ -96,6 +96,16 @@ function fmtDateOnly(v: string | null | undefined): string {
   const d = new Date(`${v}T00:00:00`);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
+// Explicit en-US format (not the browser's own locale) for the "Last Sent"
+// timestamp next to Send to Client — direct owner request, 2026-08-26.
+function fmtUsDateTime(v: string | null | undefined): string {
+  if (!v) return "";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${date}, ${time}`;
+}
 
 function flagLabel(f: ClientFlag): string {
   if (f.flagType === "BalancePastDue") return `Balance Past Due: ${fmtMoney(f.amount)}`;
@@ -220,6 +230,17 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   // the body is a fixed, simple template by design (direct owner request,
   // 2026-08-26: "just a reminder and to contact us regarding that matter").
   const [sendingKey, setSendingKey] = useState<string | null>(null);
+  // Map of "{source}:{date}" / "flag:{flagKey}" -> ISO sent_at for the most
+  // recent successful send of that reminder slot — powers the "Last sent"
+  // label next to each Send to Client button (direct owner request,
+  // 2026-08-26). Loaded once per client and refreshed after each send.
+  const [reminderHistory, setReminderHistory] = useState<Record<string, string>>({});
+  function loadReminderHistory() {
+    api.get<{ history: Record<string, string> }>(`/clients/${clientId}/reminder-history`)
+      .then((res) => setReminderHistory(res.history || {}))
+      .catch(() => {});
+  }
+  useEffect(loadReminderHistory, [clientId]);
   async function handleSendDeadlineReminder(d: Deadline) {
     const key = `${d.source}|${d.date}`;
     const ok = await confirmDialog({ title: "Send reminder to client", message: `Send a reminder that "${d.label}" is due ${fmtDateOnly(d.date)}?` });
@@ -229,8 +250,9 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
       const preview = await api.get<{ canEmail: boolean; canSms: boolean }>(`/clients/${clientId}/deadline-notify-preview?label=${encodeURIComponent(d.label)}&date=${d.date}`);
       const channels = [preview.canEmail && "email", preview.canSms && "sms"].filter(Boolean) as string[];
       if (channels.length === 0) { await notify("This client hasn't consented to email or SMS, so no reminder can be sent."); return; }
-      await api.post(`/clients/${clientId}/deadline-notify-send`, { label: d.label, date: d.date, channels });
+      await api.post(`/clients/${clientId}/deadline-notify-send`, { label: d.label, date: d.date, source: d.source, channels });
       await notify("Reminder sent.");
+      loadReminderHistory();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not send this reminder.");
     } finally {
@@ -238,11 +260,21 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
     }
   }
   function renderSendToClientControl(d: Deadline) {
+    // Only for real compliance obligations (MARKABLE_DEADLINE_SOURCES) — this
+    // used to render for every deadline including "Payroll" (next scheduled
+    // pay date), which isn't a compliance deadline at all. A real, nonsensical
+    // "your Next Payroll is due, please contact us" message went out to a real
+    // client because of this before the gate was added (2026-08-26).
+    if (!d.source || !MARKABLE_DEADLINE_SOURCES.has(d.source)) return null;
     const key = `${d.source}|${d.date}`;
+    const lastSent = reminderHistory[`${d.source}:${d.date}`];
     return (
-      <button type="button" className="ghost-button btn-sm" disabled={sendingKey === key} onClick={() => handleSendDeadlineReminder(d)}>
-        {sendingKey === key ? "…" : "Send to Client"}
-      </button>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <button type="button" className="ghost-button btn-sm" disabled={sendingKey === key} onClick={() => handleSendDeadlineReminder(d)}>
+          {sendingKey === key ? "…" : "Send to Client"}
+        </button>
+        {lastSent && <span className="muted" style={{ fontSize: 10.5 }}>Last sent {fmtUsDateTime(lastSent)}</span>}
+      </span>
     );
   }
   async function handleSendFlagToClient(f: ClientFlag) {
@@ -253,6 +285,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
     try {
       await api.post(`/clients/${clientId}/flags/notify-send`, { flagKeys: [f.key] });
       await notify("Reminder sent.");
+      loadReminderHistory();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not send this reminder.");
     } finally {
@@ -261,15 +294,19 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
   }
   function renderSendFlagControl(f: ClientFlag) {
     if (!f.key || !f.shareWithClient) return null;
+    const lastSent = reminderHistory[`flag:${f.key}`];
     return (
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); handleSendFlagToClient(f); }}
-        disabled={sendingKey === f.key}
-        style={{ background: "none", border: "1px solid currentColor", borderRadius: 4, cursor: "pointer", color: "inherit", padding: "1px 6px", fontSize: 10, fontWeight: 700, marginLeft: 6 }}
-      >
-        {sendingKey === f.key ? "…" : "Send to Client"}
-      </button>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); handleSendFlagToClient(f); }}
+          disabled={sendingKey === f.key}
+          style={{ background: "none", border: "1px solid currentColor", borderRadius: 4, cursor: "pointer", color: "inherit", padding: "1px 6px", fontSize: 10, fontWeight: 700, marginLeft: 6 }}
+        >
+          {sendingKey === f.key ? "…" : "Send to Client"}
+        </button>
+        {lastSent && <span className="muted" style={{ fontSize: 9.5 }}>Last sent {fmtUsDateTime(lastSent)}</span>}
+      </span>
     );
   }
   const [createTaskGap, setCreateTaskGap] = useState<{ taskType: string; dueDate: string } | null>(null);

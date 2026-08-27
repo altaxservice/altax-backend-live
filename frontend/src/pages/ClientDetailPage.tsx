@@ -121,6 +121,11 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       { key: "preferred_language", apiKey: "preferredLanguage", label: "Preferred Language", kind: "select", options: LANGUAGES },
       { key: "sms_allowed", apiKey: "smsAllowed", label: "SMS Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "email_allowed", apiKey: "emailAllowed", label: "Email Enabled", kind: "checkbox", hidden: (f) => !hasContact(f) },
+      // Gates ONLY the automatic daily compliance-deadline reminder sweep
+      // (complianceReminders.ts) — staff can still send a one-off reminder
+      // via the "Send to Client" buttons regardless of this switch. Defaults
+      // on for every client (sql/107_auto_compliance_reminders_flag.sql).
+      { key: "auto_compliance_reminders_enabled", apiKey: "autoComplianceRemindersEnabled", label: "Auto Reminder", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "referral_source", apiKey: "referralSource", label: "Referral Source", kind: "text", suggestions: REFERRAL_SOURCES },
     ],
   },
@@ -1069,6 +1074,7 @@ export function ClientDetailPage() {
                 <DetailRow label="Preferred Language" value={client.preferred_language as string | null} />
                 <DetailRow label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
                 <DetailRow label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
+                <DetailRow label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
                 <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
                 <DetailRow label="Referral Source" value={client.referral_source as string | null} />
               </div>
