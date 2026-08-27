@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -79,6 +79,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"], icon: FileSpreadsheet },
   { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication", icon: MessageSquare },
   { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication", icon: LayoutTemplate },
+  { to: "/newsletter", label: "Newsletter", roles: ["admin", "staff"], group: "Client Communication", icon: Mail },
   // Moved out of the Clients group and renamed from "Portal Access" — this page manages
   // Firm/Staff/Admin accounts too, not just client portal logins, so filing it under
   // "Clients" (and calling it something that sounds client-only) undersold and
@@ -114,6 +115,7 @@ const TITLES: Record<string, string> = {
   "/reports": "Reports",
   "/communications": "Communications",
   "/templates": "Templates",
+  "/newsletter": "Newsletter",
   "/estimates": "Estimates",
   "/pipeline": "Pipeline",
   "/fee-schedule": "Fee Schedule",
