@@ -5,6 +5,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useAuth } from "../auth/AuthContext";
 import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBrochureModal";
+import { CORE_PILLAR_KEYS } from "../utils/subscriptionPricing";
 
 /**
  * The "Subscription Fee Schedule" — direct owner request, 2026-08-26: every
@@ -29,7 +30,7 @@ import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBro
  * neither should be merged into the other without a real reason to.
  */
 
-type Draft = { label: string; groupName: string; minFee: string; active: boolean; pricingUnit: "flat" | "per_employee" | "per_worker" };
+type Draft = { label: string; groupName: string; minFee: string; active: boolean; pricingUnit: "flat" | "per_employee" | "per_worker"; subscriberDiscount: string };
 
 const PRICING_UNIT_LABEL: Record<string, string> = { flat: "Flat", per_employee: "Per Employee", per_worker: "Per Worker" };
 
@@ -76,6 +77,7 @@ export function SubscriptionPlansPage() {
       setDrafts(Object.fromEntries(svc.services.map((s) => [s.service_key, {
         label: s.label, groupName: s.group_name, minFee: s.min_fee != null ? String(s.min_fee) : "", active: s.active,
         pricingUnit: s.pricing_unit || "flat",
+        subscriberDiscount: s.subscriber_discount != null ? String(s.subscriber_discount) : "",
       }])));
       setTiers(t.tiers);
       setTierDrafts(Object.fromEntries(t.tiers.map((tr) => [tr.tier_key, { tierName: tr.tier_name, description: tr.description || "" }])));
@@ -106,6 +108,7 @@ export function SubscriptionPlansPage() {
         label: d.label, groupName: d.groupName,
         minFee: d.minFee === "" ? null : Number(d.minFee),
         active: d.active, pricingUnit: d.pricingUnit,
+        subscriberDiscount: d.subscriberDiscount === "" ? null : Number(d.subscriberDiscount),
       });
       load();
     } catch (err) {
@@ -268,16 +271,31 @@ export function SubscriptionPlansPage() {
                         <td style={{ minWidth: 220 }}>
                           <input style={{ width: "100%" }} value={d.label} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], label: e.target.value } }))} />
                         </td>
-                        <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ROLE_LABEL[s.role]}</td>
+                        <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                          {ROLE_LABEL[s.role]}
+                          {/* A service can still decide subscription tier (CORE_PILLAR_KEYS, subscriptionPricing.ts)
+                              even after its billing role changes — e.g. business_tax_prep is 'one_time' (sql/110)
+                              but stays tier-defining. Flagged here so that isn't a silent surprise later. */}
+                          {s.role !== "core_pillar" && (CORE_PILLAR_KEYS as readonly string[]).includes(s.service_key) && (
+                            <div style={{ fontSize: 10, fontStyle: "italic" }}>still tier-defining</div>
+                          )}
+                        </td>
                         <td style={{ width: 150 }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                             $<input type="number" step="0.01" style={{ width: 70 }} placeholder="—" value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />
                             <span className="muted" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{feeSuffix}</span>
                           </span>
                         </td>
-                        <td style={{ width: 130 }}>
+                        <td style={{ width: 150 }}>
                           {s.role === "one_time" ? (
-                            <span className="muted" style={{ fontSize: 12 }}>—</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                              <span className="muted" style={{ whiteSpace: "nowrap" }}>Discount if bundled</span>
+                              $<input
+                                type="number" step="0.01" style={{ width: 55 }} placeholder="—" disabled={!isAdmin}
+                                value={d.subscriberDiscount}
+                                onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], subscriberDiscount: e.target.value } }))}
+                              />
+                            </span>
                           ) : (
                             <select
                               value={d.pricingUnit} disabled={!isAdmin} style={{ fontSize: 12 }}

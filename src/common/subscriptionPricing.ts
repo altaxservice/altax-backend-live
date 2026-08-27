@@ -16,6 +16,12 @@
  * contributes once, unchanged from the original design). 'per_employee'/
  * 'per_worker' services instead multiply min_fee by the client's actual
  * headcount — see computeSubscriptionFee's `counts` param.
+ *
+ * subscriber_discount (sql/110, 2026-08-27): a flat $ knocked off a
+ * one_time service's fee when the client already has at least one other
+ * active recurring service checked. Purely a display concern (staff/client
+ * checklist), not part of computeSubscriptionFee — one_time services never
+ * contribute to the monthly total regardless of discount.
  */
 export interface ServiceCatalogEntry {
   service_key: string;
@@ -24,6 +30,7 @@ export interface ServiceCatalogEntry {
   role: "core_pillar" | "addon" | "one_time";
   min_fee: number | string | null;
   pricing_unit?: "flat" | "per_employee" | "per_worker";
+  subscriber_discount?: number | string | null;
   sort_order: number;
   active: boolean;
   legacy: boolean;
@@ -38,7 +45,11 @@ export interface ClientWorkerCounts { employees: number; workers: number }
 
 export type SubscriptionTierKey = "essentials" | "growth" | "complete";
 
-const CORE_PILLAR_KEYS = ["bookkeeping", "payroll", "sales_tax", "business_tax_prep"] as const;
+// Exported (not just used internally) so the Subscription Fee Schedule admin
+// page can flag a service that's still tier-defining even if its catalog
+// `role` says otherwise — e.g. business_tax_prep is 'one_time' (sql/110) but
+// stays in this list on purpose; see this file's top comment.
+export const CORE_PILLAR_KEYS = ["bookkeeping", "payroll", "sales_tax", "business_tax_prep"] as const;
 
 /**
  * Decision table (locked after review — see conversation 2026-08-26):

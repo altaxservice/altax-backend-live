@@ -12,6 +12,7 @@ export interface ServiceCatalogEntry {
   role: "core_pillar" | "addon" | "one_time";
   min_fee: number | string | null;
   pricing_unit?: "flat" | "per_employee" | "per_worker";
+  subscriber_discount?: number | string | null;
   sort_order: number;
   active: boolean;
   legacy: boolean;
@@ -21,7 +22,10 @@ export interface ClientWorkerCounts { employees: number; workers: number }
 
 export type SubscriptionTierKey = "essentials" | "growth" | "complete";
 
-const CORE_PILLAR_KEYS = ["bookkeeping", "payroll", "sales_tax", "business_tax_prep"] as const;
+// Exported so the Fee Schedule admin page can flag a service that's still
+// tier-defining even when its catalog `role` says otherwise (e.g.
+// business_tax_prep is 'one_time' as of sql/110 but stays in this list).
+export const CORE_PILLAR_KEYS = ["bookkeeping", "payroll", "sales_tax", "business_tax_prep"] as const;
 
 export function computeSubscriptionTier(selectedServiceKeys: string[]): SubscriptionTierKey {
   const has = (k: string) => selectedServiceKeys.includes(k);

@@ -137,13 +137,34 @@ export function SubscriptionServicesChecklist({
             <div key={group} style={{ marginBottom: 10 }}>
               <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{group}</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px" }}>
-                {entries.map((s) => (
-                  <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                    <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                    {s.label}
-                    {s.min_fee != null && <span className="muted" style={{ fontSize: 11 }}>${Number(s.min_fee).toFixed(0)} one-time</span>}
-                  </label>
-                ))}
+                {entries.map((s) => {
+                  // subscriber_discount (sql/110) — knocks a flat $ off a
+                  // one-time fee for a client who already has at least one
+                  // other active recurring service checked, i.e. they're
+                  // already a subscriber, not buying this standalone.
+                  const discount = s.subscriber_discount != null ? Number(s.subscriber_discount) : 0;
+                  const discountApplies = discount > 0 && anyRecurringChecked && services.includes(s.service_key);
+                  const rawFee = s.min_fee != null ? Number(s.min_fee) : null;
+                  return (
+                    <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
+                      {s.label}
+                      {rawFee != null && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {discountApplies ? (
+                            <>
+                              <span style={{ textDecoration: "line-through" }}>${rawFee.toFixed(0)}</span>{" "}
+                              <strong style={{ color: "var(--teal)" }}>${(rawFee - discount).toFixed(0)}</strong> one-time
+                              {" "}(${discount.toFixed(0)} subscriber discount)
+                            </>
+                          ) : (
+                            `$${rawFee.toFixed(0)} one-time${discount > 0 ? ` ($${discount.toFixed(0)} off if bundled with an active subscription)` : ""}`
+                          )}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
               </div>
             </div>
           ))}
