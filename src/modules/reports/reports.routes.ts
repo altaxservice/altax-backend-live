@@ -2334,6 +2334,20 @@ reportsRouter.get("/pdf/client-profile/:clientId", requireAuth, requireRole("adm
   const { clientId } = req.params;
   const variant = String(req.query.variant || "") === "at-a-glance" ? "at-a-glance" : "profile";
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  // Hard Audit finding, 2026-08-27: this route's "at-a-glance" variant
+  // prints the exact consolidated financial dashboard (revenue, cash
+  // balance, tax liabilities, health score, A/R aging, budget vs actual)
+  // that the sibling JSON route (GET /client-dashboard/:clientId, above)
+  // deliberately restricts to admin-only — that restriction was never
+  // enforced here, letting any staff member with access to this client
+  // pull the same data through the PDF export instead. The "profile"
+  // variant doesn't render any of this, so only the at-a-glance variant
+  // needs the gate. generateClientProfilePdf's at-a-glance section reads
+  // data.financials/arAging/etc. unconditionally (no undefined-guards), so
+  // this is a hard block rather than a redact-and-continue.
+  if (variant === "at-a-glance" && req.user!.role !== "admin") {
+    return res.status(403).json({ error: "Only an admin can generate the At a Glance PDF." });
+  }
   const profileRow = await queryOne<any>(
     `SELECT phone, email, company_contact_name, company_contact_email, company_contact_phone, status, assigned_to, service_type, industry_category,
             client_type, entity_type, date_of_formation, state, services, preferred_contact, preferred_language,

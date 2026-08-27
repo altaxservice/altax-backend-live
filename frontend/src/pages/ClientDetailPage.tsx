@@ -1004,11 +1004,19 @@ export function ClientDetailPage() {
               onNavigateTab={(t) => { setTab(t as DetailTab); setSearchParams({ tab: t }, { replace: true }); }}
               onFlagsChanged={loadFlags}
               headerActions={
-                <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "view")}>{profilePdfBusy === "at-a-glance-view" ? "Opening…" : "View / Print PDF"}</button>
-                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "print")}>{profilePdfBusy === "at-a-glance-print" ? "Printing…" : "Print"}</button>
-                  <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "download")}>{profilePdfBusy === "at-a-glance-download" ? "Generating…" : "Download PDF"}</button>
-                </div>
+                // Matches ClientAtAGlance's own isAdmin gate on the financial
+                // dashboard section below — the PDF these buttons generate
+                // contains that same data, so a non-admin shouldn't see a
+                // button that will now 403 (Hard Audit finding, 2026-08-27:
+                // the backend route generated this PDF for staff too, unlike
+                // every other financial route/section in this app).
+                isAdmin ? (
+                  <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "view")}>{profilePdfBusy === "at-a-glance-view" ? "Opening…" : "View / Print PDF"}</button>
+                    <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "print")}>{profilePdfBusy === "at-a-glance-print" ? "Printing…" : "Print"}</button>
+                    <button type="button" className="btn btn-sm" disabled={profilePdfBusy !== null} onClick={() => handleProfilePdf("at-a-glance", "download")}>{profilePdfBusy === "at-a-glance-download" ? "Generating…" : "Download PDF"}</button>
+                  </div>
+                ) : undefined
               }
             />
           )}
