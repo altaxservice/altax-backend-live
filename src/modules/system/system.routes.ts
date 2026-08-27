@@ -872,13 +872,17 @@ systemRouter.get("/options", requireAuth, requireRole("admin", "staff"), asyncHa
 
   const managed: Record<string, string[]> = {};
   for (const category of Object.keys(MANAGED_DROPDOWN_DEFAULTS)) {
+    if (category === "taskStatuses") continue; // handled separately below — carries task_type scoping, not a plain string list
     managed[category] = await managedList(category);
   }
+  const taskStatusesWithType = await managedTaskStatusesWithType();
 
   res.json({
     clients,
     staff,
     ...managed,
+    taskStatuses: taskStatusesWithType.map((s) => s.value),
+    taskStatusesWithType,
     months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     coaAccounts,
     smsConfigured: isSmsConfigured(),
@@ -953,6 +957,25 @@ async function managedList(category: string): Promise<string[]> {
   return rows.length ? rows.map((r) => String(r.value)) : (MANAGED_DROPDOWN_DEFAULTS[category]?.values || []);
 }
 
+/**
+ * Same as managedList, but for taskStatuses only — also returns each
+ * status's task_type scope (null = general, applies to every task type).
+ * Direct owner request, 2026-08-27: a permit-style task (Use & Occupancy,
+ * Health Permit) has real review/inspection/fee phases a simple
+ * compliance filing never uses, so the task-editing status dropdown needs
+ * to filter by the task's own type rather than show one flat list to
+ * everything. No factory-default fallback here (unlike managedList) —
+ * taskStatuses is always materialized (see the 117 migration), and task_type
+ * scoping has no meaning for a category that's never had it.
+ */
+async function managedTaskStatusesWithType(): Promise<{ value: string; taskType: string | null }[]> {
+  const rows = await query<any>(
+    `SELECT value, task_type FROM altax.v3_dropdown_options WHERE category = 'taskStatuses' AND active = true ORDER BY sort_order, value`
+  );
+  if (rows.length) return rows.map((r) => ({ value: String(r.value), taskType: r.task_type || null }));
+  return (MANAGED_DROPDOWN_DEFAULTS.taskStatuses?.values || []).map((value) => ({ value, taskType: null }));
+}
+
 /** Copies a category's factory defaults into the table the first time it is edited. */
 async function ensureDropdownSeeded(category: string): Promise<void> {
   const existing = await queryOne<any>(`SELECT COUNT(*)::int AS n FROM altax.v3_dropdown_options WHERE category = $1`, [category]);
@@ -969,19 +992,19 @@ async function ensureDropdownSeeded(category: string): Promise<void> {
 /** Every managed list with full row detail for the Settings screen (inactive rows included). */
 systemRouter.get("/dropdowns", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const rows = await query<any>(
-    `SELECT option_id, category, value, active, sort_order FROM altax.v3_dropdown_options ORDER BY category, sort_order, value`
+    `SELECT option_id, category, value, active, sort_order, task_type FROM altax.v3_dropdown_options ORDER BY category, sort_order, value`
   );
   const byCategory = new Map<string, any[]>();
   for (const r of rows) {
     if (!byCategory.has(r.category)) byCategory.set(r.category, []);
-    byCategory.get(r.category)!.push({ optionId: r.option_id, value: r.value, active: r.active, sortOrder: r.sort_order });
+    byCategory.get(r.category)!.push({ optionId: r.option_id, value: r.value, active: r.active, sortOrder: r.sort_order, taskType: r.task_type || null });
   }
   const categories = Object.entries(MANAGED_DROPDOWN_DEFAULTS).map(([key, def]) => ({
     category: key,
     label: def.label,
     customized: byCategory.has(key),
     options: byCategory.get(key)
-      || def.values.map((v, i) => ({ optionId: null, value: v, active: true, sortOrder: (i + 1) * 10 })),
+      || def.values.map((v, i) => ({ optionId: null, value: v, active: true, sortOrder: (i + 1) * 10, taskType: null })),
   }));
   res.json({ categories });
 }));
@@ -991,18 +1014,28 @@ systemRouter.post("/dropdowns/:category", requireAuth, requireRole("admin"), asy
   if (!MANAGED_DROPDOWN_DEFAULTS[category]) return res.status(404).json({ error: "Unknown dropdown list." });
   const value = String((req.body || {}).value || "").trim();
   if (!value) return res.status(400).json({ error: "The new option's text is required." });
+  // Only meaningful for taskStatuses (which task type this status applies
+  // to) — null/omitted means "general," applies regardless of task type.
+  // Harmless to accept on any category since the column is nullable and
+  // every other category simply never sets it.
+  const taskType = String((req.body || {}).taskType || "").trim() || null;
   await ensureDropdownSeeded(category);
+  // A status can legitimately exist twice under different task types
+  // ("In Review" for Use & Occupancy AND for Health Permit are different
+  // rows) — the duplicate check must consider taskType, not just value,
+  // or the second permit type could never get its own copy of a phase.
   const dup = await queryOne<any>(
-    `SELECT 1 FROM altax.v3_dropdown_options WHERE category = $1 AND lower(value) = lower($2)`, [category, value]
+    `SELECT 1 FROM altax.v3_dropdown_options WHERE category = $1 AND lower(value) = lower($2) AND task_type IS NOT DISTINCT FROM $3`,
+    [category, value, taskType]
   );
-  if (dup) return res.status(400).json({ error: `"${value}" already exists in this list.` });
+  if (dup) return res.status(400).json({ error: taskType ? `"${value}" already exists for ${taskType}.` : `"${value}" already exists in this list.` });
   const max = await queryOne<any>(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM altax.v3_dropdown_options WHERE category = $1`, [category]);
   const optionId = `OPT-${category}-${Date.now()}`;
   await query(
-    `INSERT INTO altax.v3_dropdown_options (option_id, category, value, active, sort_order) VALUES ($1,$2,$3,true,$4)`,
-    [optionId, category, value, Number(max!.m) + 10]
+    `INSERT INTO altax.v3_dropdown_options (option_id, category, value, active, sort_order, task_type) VALUES ($1,$2,$3,true,$4,$5)`,
+    [optionId, category, value, Number(max!.m) + 10, taskType]
   );
-  await logAudit("Settings", "DROPDOWN_ADD", optionId, category, "", value, `Added "${value}" to ${category}.`, req.user!.email);
+  await logAudit("Settings", "DROPDOWN_ADD", optionId, category, "", value, `Added "${value}"${taskType ? ` (${taskType})` : ""} to ${category}.`, req.user!.email);
   res.status(201).json({ ok: true, optionId });
 }));
 
@@ -1030,9 +1063,18 @@ systemRouter.patch("/dropdowns/option/:optionId", requireAuth, requireRole("admi
   const value = body.value !== undefined ? String(body.value).trim() : undefined;
   if (value !== undefined && !value) return res.status(400).json({ error: "The option's text cannot be empty." });
   const active = body.active !== undefined ? Boolean(body.active) : undefined;
+  // taskType re-scoping: "" (empty string, not omitted) explicitly means
+  // "move to General" — distinct from omitting the field entirely, which
+  // must leave the existing scope untouched (same COALESCE pattern as
+  // value/active above already relies on "undefined = don't touch").
+  const taskTypeProvided = body.taskType !== undefined;
+  const taskType = taskTypeProvided ? (String(body.taskType).trim() || null) : undefined;
   await query(
-    `UPDATE altax.v3_dropdown_options SET value = COALESCE($2, value), active = COALESCE($3, active), updated_at = NOW() WHERE option_id = $1`,
-    [optionId, value ?? null, active ?? null]
+    `UPDATE altax.v3_dropdown_options
+        SET value = COALESCE($2, value), active = COALESCE($3, active),
+            task_type = CASE WHEN $4 THEN $5 ELSE task_type END, updated_at = NOW()
+      WHERE option_id = $1`,
+    [optionId, value ?? null, active ?? null, taskTypeProvided, taskType ?? null]
   );
   await logAudit("Settings", "DROPDOWN_EDIT", optionId, existing.category, String(existing.value),
     value ?? String(existing.value), `Edited "${existing.value}" in ${existing.category}${active !== undefined ? ` (active: ${active})` : ""}.`, req.user!.email);

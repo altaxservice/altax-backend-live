@@ -13,7 +13,7 @@ import { useAuth } from "../auth/AuthContext";
 import { fmtDateOnly } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
-import { TASK_STATUSES, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { TASK_STATUSES, statusOptionsForTaskType, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
@@ -668,7 +668,7 @@ export function TasksListPage() {
                   <td data-label="Status" onClick={(e) => e.stopPropagation()}>
                     {!isArchivedView && canManage ? (
                       <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleStatusChange(t.task_id, e.target.value)}>
-                        {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        {statusOptionsForTaskType(options?.taskStatusesWithType, t.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
                       </select>
                     ) : <StatusBadge status={t.status} />}
                   </td>

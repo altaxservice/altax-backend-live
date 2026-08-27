@@ -20,6 +20,27 @@ export const TASK_STATUSES = [
   "Completed", "Closed", "Archived", "Void",
 ];
 
+/**
+ * The task-editing status dropdown's real source, added 2026-08-27 — picks
+ * general statuses (taskType: null, apply to every task) plus whatever's
+ * scoped to this specific task's own type (e.g. a "Use & Occupancy Permit"
+ * task also gets In Review/Fee Due/Inspection Phase/etc., which a plain
+ * "Sales Tax Filing" task never sees). Falls back to the flat TASK_STATUSES
+ * constant above when /system/options hasn't loaded yet or a caller has no
+ * scoped list at all — same "static fallback while live data loads" pattern
+ * already used for taskTypes/priorities elsewhere in this app.
+ *
+ * Callers pass task.service_line as `taskType`, not a column literally
+ * named task_type — v3_tasks has no such column. The "Task Type" field on
+ * the New Work Item form writes into service_line (see tasks.routes.ts's
+ * create-task route); task_type only exists as a real column on the
+ * unrelated v3_task_rules table.
+ */
+export function statusOptionsForTaskType(all: { value: string; taskType: string | null }[] | undefined, taskType: string | null | undefined): string[] {
+  if (!all || !all.length) return TASK_STATUSES;
+  return all.filter((s) => !s.taskType || s.taskType === taskType).map((s) => s.value);
+}
+
 export function isOpenTask(t: Task): boolean {
   return !["completed", "void", "closed", "archived"].includes(String(t.status || "").toLowerCase());
 }

@@ -2,13 +2,13 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { Task } from "../api/types";
-import type { Communication, PortalUser } from "../api/types2";
+import type { Communication, PortalUser, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
-import { TASK_STATUSES } from "../components/TaskCells";
+import { statusOptionsForTaskType } from "../components/TaskCells";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -18,10 +18,6 @@ import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useSelectedTask } from "../context/SelectedTaskContext";
 
-// Was a separate, stale 6-value hardcoded list (missing Preparation/Submitted/
-// the permit-review statuses/etc.) — now shares TaskCells' TASK_STATUSES, the
-// same single source Tasks list and every other status <select> in the app use.
-const STATUS_OPTIONS = TASK_STATUSES;
 const PRIORITY_OPTIONS = ["Normal", "Low", "High", "Urgent"];
 
 const DETAIL_TABS = ["Details", "Attachments", "Activity Timeline"] as const;
@@ -80,6 +76,14 @@ export function TaskDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  const [options, setOptions] = useState<WebOptions | null>(null);
+  // Set the moment a new status is picked from the dropdown, before it's
+  // actually saved — holds the "Send Status to Client?" picker open so
+  // staff choose Email/SMS/Both (or neither) in the same motion as the
+  // status change itself, direct owner request 2026-08-27.
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [notifySms, setNotifySms] = useState(false);
   // ?tab= (written on tab click below) wins over the older ?open= deep-link param,
   // so BackLink's history-back restores the exact tab the user left from.
   const [tab, setTab] = useState<DetailTab>(() => {
@@ -96,6 +100,7 @@ export function TaskDetailPage() {
     api.get<{ users: PortalUser[] }>("/users")
       .then((res) => setStaffOptions(Array.from(new Set(res.users.filter((u) => ["admin", "staff"].includes(String(u.role || "").toLowerCase()) && u.active).map((u) => u.name))).sort()))
       .catch(() => {});
+    api.get<WebOptions>("/system/options").then(setOptions).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit]);
 
@@ -161,11 +166,22 @@ export function TaskDetailPage() {
     }
   }
 
-  async function handleStatusChange(newStatus: string) {
-    if (!taskId) return;
+  // Picking a status opens the Send Status to Client picker instead of
+  // saving immediately — actually saving (with or without notifying)
+  // happens in commitStatusChange below, once staff choose channels or
+  // explicitly skip.
+  function handleStatusChange(newStatus: string) {
+    setPendingStatus(newStatus);
+    setNotifyEmail(false);
+    setNotifySms(false);
+  }
+
+  async function commitStatusChange(notifyChannels: string[]) {
+    if (!taskId || !pendingStatus) return;
     setStatusSaving(true);
     try {
-      await api.patch(`/tasks/${taskId}`, { status: newStatus });
+      await api.patch(`/tasks/${taskId}`, { status: pendingStatus, notifyStatusChannels: notifyChannels });
+      setPendingStatus(null);
       load();
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Could not update status.";
@@ -174,7 +190,7 @@ export function TaskDetailPage() {
       // opening it right after the notice, instead of just naming the fields and
       // leaving staff to find them, is what actually unblocks the "Completed" pick.
       await notify(message.includes("before marking this task Completed") ? `${message} Opening the edit form now.` : message);
-      if (message.includes("before marking this task Completed")) setEditing(true);
+      if (message.includes("before marking this task Completed")) { setPendingStatus(null); setEditing(true); }
     } finally {
       setStatusSaving(false);
     }
@@ -222,13 +238,40 @@ export function TaskDetailPage() {
               style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)" }}
             >
               <option value="">Change status…</option>
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              {statusOptionsForTaskType(options?.taskStatusesWithType, task.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
           </div>
         )}
       </div>
+
+      {pendingStatus && (
+        <div className="card" style={{ maxWidth: 480, marginBottom: 20, padding: 16 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Update status to "{pendingStatus}"</div>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
+            Send a status update to {task.client_name}? Only channels the client has opted into actually send.
+          </div>
+          <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input type="checkbox" checked={notifyEmail} onChange={(e) => setNotifyEmail(e.target.checked)} /> Email
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input type="checkbox" checked={notifySms} onChange={(e) => setNotifySms(e.target.checked)} /> SMS
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn btn-primary"
+              disabled={statusSaving}
+              onClick={() => commitStatusChange([...(notifyEmail ? ["email"] : []), ...(notifySms ? ["sms"] : [])])}
+            >
+              {statusSaving ? "Saving…" : (notifyEmail || notifySms) ? "Update & Send Status to Client" : "Update Status"}
+            </button>
+            <button className="btn" disabled={statusSaving} onClick={() => setPendingStatus(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {DETAIL_TABS.map((t) => (

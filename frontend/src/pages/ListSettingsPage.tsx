@@ -20,6 +20,8 @@ interface DropdownOption {
   value: string;
   active: boolean;
   sortOrder: number;
+  /** Only meaningful for category "taskStatuses" — null = General (applies to every task type), otherwise scoped to exactly one Task Type value. Added 2026-08-27. */
+  taskType: string | null;
 }
 
 interface DropdownCategory {
@@ -27,6 +29,77 @@ interface DropdownCategory {
   label: string;
   customized: boolean;
   options: DropdownOption[];
+}
+
+/** General first (applies to every task type), then one group per Task Type present among the given options, alphabetically. */
+function groupTaskStatuses(options: DropdownOption[]): [string, DropdownOption[]][] {
+  const general = options.filter((o) => !o.taskType);
+  const byType = new Map<string, DropdownOption[]>();
+  for (const o of options) {
+    if (!o.taskType) continue;
+    if (!byType.has(o.taskType)) byType.set(o.taskType, []);
+    byType.get(o.taskType)!.push(o);
+  }
+  const groups: [string, DropdownOption[]][] = [["General (All Task Types)", general]];
+  for (const type of Array.from(byType.keys()).sort()) groups.push([type, byType.get(type)!]);
+  return groups;
+}
+
+/** The Rename/Hide/Delete row table — extracted so it can render once per Task Type group (taskStatuses) or once flat (every other category), same markup either way. Up/down reordering is scoped to whatever `options` it's given, so within a group the arrows only move an item relative to its own group. */
+function OptionTable({ cat, options, busy, editing, setEditing, onMove, onRename, onToggle, onDelete, startRename }: {
+  cat: DropdownCategory;
+  options: DropdownOption[];
+  busy: boolean;
+  editing: { optionId: string; value: string } | null;
+  setEditing: (v: { optionId: string; value: string } | null) => void;
+  onMove: (cat: DropdownCategory, opt: DropdownOption, direction: "up" | "down") => void;
+  onRename: (cat: DropdownCategory, opt: DropdownOption) => void;
+  onToggle: (cat: DropdownCategory, opt: DropdownOption) => void;
+  onDelete: (cat: DropdownCategory, opt: DropdownOption) => void;
+  startRename: (cat: DropdownCategory, opt: DropdownOption) => void;
+}) {
+  if (!options.length) return <p className="muted" style={{ fontSize: 13, padding: "4px 0" }}>No statuses in this group yet.</p>;
+  return (
+    <div className="table-scroll">
+      <table>
+        <tbody>
+          {options.map((opt, i) => (
+            <tr key={opt.optionId || opt.value} style={{ opacity: opt.active ? 1 : 0.45 }}>
+              <td style={{ width: "100%" }}>
+                {editing && opt.optionId === editing.optionId ? (
+                  <input
+                    autoFocus
+                    value={editing.value}
+                    onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") onRename(cat, opt); if (e.key === "Escape") setEditing(null); }}
+                    style={{ maxWidth: 340 }}
+                  />
+                ) : (
+                  <>
+                    {opt.value}
+                    {!opt.active && <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>(hidden)</span>}
+                  </>
+                )}
+              </td>
+              <td style={{ whiteSpace: "nowrap" }}>
+                <button type="button" className="btn btn-sm" disabled={busy || i === 0} onClick={() => onMove(cat, opt, "up")}>↑</button>{" "}
+                <button type="button" className="btn btn-sm" disabled={busy || i === options.length - 1} onClick={() => onMove(cat, opt, "down")}>↓</button>{" "}
+                {editing && opt.optionId === editing.optionId ? (
+                  <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => onRename(cat, opt)}>Save</button>
+                ) : (
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => startRename(cat, opt)}>Rename</button>
+                )}{" "}
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => onToggle(cat, opt)}>
+                  {opt.active ? "Hide" : "Show"}
+                </button>{" "}
+                <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => onDelete(cat, opt)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function ListSettingsPage() {
@@ -38,6 +111,9 @@ export function ListSettingsPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [newValue, setNewValue] = useState("");
+  // Which Task Type a new Task Status applies to — "" means General (every
+  // task type). Only rendered/used for the taskStatuses category.
+  const [newTaskType, setNewTaskType] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ optionId: string; value: string } | null>(null);
 
@@ -78,9 +154,11 @@ export function ListSettingsPage() {
     const value = newValue.trim();
     if (!value) return;
     await withReload(async () => {
-      await api.post(`/system/dropdowns/${category.category}`, { value });
-      toast(`Added "${value}".`);
+      const taskType = category.category === "taskStatuses" ? (newTaskType || undefined) : undefined;
+      await api.post(`/system/dropdowns/${category.category}`, { value, taskType });
+      toast(taskType ? `Added "${value}" (${taskType}).` : `Added "${value}".`);
       setNewValue("");
+      setNewTaskType("");
     });
   }
 
@@ -120,6 +198,13 @@ export function ListSettingsPage() {
     });
   }
 
+  // Rename needs a real row id — materialize defaults first if needed.
+  async function startRename(category: DropdownCategory, opt: DropdownOption) {
+    const id = opt.optionId || await optionIdFor(category, opt).catch(() => null);
+    if (id) setEditing({ optionId: id, value: opt.value });
+    if (!opt.optionId) load();
+  }
+
   async function handleDelete(category: DropdownCategory, opt: DropdownOption) {
     const ok = await confirmDialog({
       title: "Remove option",
@@ -137,6 +222,8 @@ export function ListSettingsPage() {
 
   if (error) return <ErrorBanner error={error} onRetry={load} />;
   if (!categories) return <div className="spinner-wrap">Loading…</div>;
+
+  const taskTypeValues = categories.find((c) => c.category === "taskTypes")?.options.filter((o) => o.active).map((o) => o.value) || [];
 
   const q = search.trim().toLowerCase();
   const visibleCategories = categories
@@ -193,55 +280,30 @@ export function ListSettingsPage() {
 
             {isOpen && (
               <div style={{ padding: "4px 16px 14px" }}>
-                <div className="table-scroll">
-                  <table>
-                    <tbody>
-                      {cat.options.map((opt, i) => (
-                        <tr key={opt.optionId || opt.value} style={{ opacity: opt.active ? 1 : 0.45 }}>
-                          <td style={{ width: "100%" }}>
-                            {editing && opt.optionId === editing.optionId ? (
-                              <input
-                                autoFocus
-                                value={editing.value}
-                                onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-                                onKeyDown={(e) => { if (e.key === "Enter") handleRename(cat, opt); if (e.key === "Escape") setEditing(null); }}
-                                style={{ maxWidth: 340 }}
-                              />
-                            ) : (
-                              <>
-                                {opt.value}
-                                {!opt.active && <span className="muted" style={{ fontSize: 11, marginLeft: 8 }}>(hidden)</span>}
-                              </>
-                            )}
-                          </td>
-                          <td style={{ whiteSpace: "nowrap" }}>
-                            <button type="button" className="btn btn-sm" disabled={busy || i === 0} onClick={() => handleMove(cat, opt, "up")}>↑</button>{" "}
-                            <button type="button" className="btn btn-sm" disabled={busy || i === cat.options.length - 1} onClick={() => handleMove(cat, opt, "down")}>↓</button>{" "}
-                            {editing && opt.optionId === editing.optionId ? (
-                              <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => handleRename(cat, opt)}>Save</button>
-                            ) : (
-                              <button
-                                type="button" className="btn btn-sm" disabled={busy}
-                                onClick={async () => {
-                                  // Rename needs a real row id — materialize defaults first if needed.
-                                  const id = opt.optionId || await optionIdFor(cat, opt).catch(() => null);
-                                  if (id) setEditing({ optionId: id, value: opt.value });
-                                  if (!opt.optionId) load();
-                                }}
-                              >Rename</button>
-                            )}{" "}
-                            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => handleToggle(cat, opt)}>
-                              {opt.active ? "Hide" : "Show"}
-                            </button>{" "}
-                            <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => handleDelete(cat, opt)}>Delete</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {cat.category === "taskStatuses" ? (
+                  // Grouped by Task Type — General first (applies to every task,
+                  // matches the un-grouped behavior every other list still has),
+                  // then one mini-table per Task Type that has at least one
+                  // status scoped to it. Direct owner request, 2026-08-27.
+                  groupTaskStatuses(cat.options).map(([groupLabel, groupOptions]) => (
+                    <div key={groupLabel} style={{ marginBottom: 14 }}>
+                      <div className="muted" style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", margin: "10px 0 4px" }}>
+                        {groupLabel}
+                      </div>
+                      <OptionTable
+                        cat={cat} options={groupOptions} busy={busy} editing={editing} setEditing={setEditing}
+                        onMove={handleMove} onRename={handleRename} onToggle={handleToggle} onDelete={handleDelete} startRename={startRename}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <OptionTable
+                    cat={cat} options={cat.options} busy={busy} editing={editing} setEditing={setEditing}
+                    onMove={handleMove} onRename={handleRename} onToggle={handleToggle} onDelete={handleDelete} startRename={startRename}
+                  />
+                )}
 
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                   <input
                     placeholder={`Add to ${cat.label}…`}
                     value={newValue}
@@ -249,6 +311,17 @@ export function ListSettingsPage() {
                     onKeyDown={(e) => { if (e.key === "Enter") handleAdd(cat); }}
                     style={{ maxWidth: 340 }}
                   />
+                  {cat.category === "taskStatuses" && (
+                    <select
+                      value={newTaskType}
+                      onChange={(e) => setNewTaskType(e.target.value)}
+                      style={{ maxWidth: 220 }}
+                      aria-label="Which task type this status applies to"
+                    >
+                      <option value="">General (All Task Types)</option>
+                      {taskTypeValues.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
                   <button type="button" className="btn btn-primary" disabled={busy || !newValue.trim()} onClick={() => handleAdd(cat)}>Add</button>
                 </div>
               </div>

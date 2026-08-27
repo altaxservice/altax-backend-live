@@ -6,6 +6,9 @@ import { canAccessClient, getUserAliases, isAssignedToUser } from "../../common/
 import { asyncHandler } from "../../common/asyncHandler";
 import { sendFilingConfirmation } from "../../common/filingConfirmationEmail";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
+import { sendChannel } from "../../common/sendChannel";
+import { escapeHtml } from "../../common/html";
+import { getFirmProfile } from "../../common/firmProfile";
 
 /**
  * Tasks module — Phase 3 slice, scoped to the operational core only:
@@ -607,6 +610,59 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
     await logAudit("Tasks", "ARCHIVE", taskId, "Status", "Completed", "Archived",
       "Task auto-archived after being marked Completed.", req.user!.email);
     archived = true;
+  }
+
+  // "Send Status to Client" — direct owner request, 2026-08-27: staff can
+  // notify the client at the same moment they change a task's status,
+  // choosing Email/SMS/Both, instead of a separate manual message. A
+  // request-only field (not a DB column) like notifyClient above.
+  // notifyStatusChannels is only meaningful on an ACTUAL status change
+  // (not e.g. a plain notes edit that happens to also touch other fields).
+  const statusChannels: string[] = Array.isArray(req.body?.notifyStatusChannels)
+    ? req.body.notifyStatusChannels.map((c: unknown) => String(c).toLowerCase()).filter((c: string) => c === "email" || c === "sms")
+    : [];
+  const statusJustChanged = Object.prototype.hasOwnProperty.call(fields, "status") && String(old.status ?? "") !== String(fields.status ?? "");
+  if (statusChannels.length && statusJustChanged && merged.client_id) {
+    const client = await queryOne<any>(
+      `SELECT client_name, email, phone, email_allowed, sms_allowed FROM altax.v3_clients WHERE client_id = $1`,
+      [merged.client_id]
+    );
+    if (client) {
+      const firmName = (await getFirmProfile()).firmName;
+      const taskLabel = merged.task_name || merged.service_line || "Task";
+      const safeClientName = escapeHtml(client.client_name || "");
+      const safeTaskLabel = escapeHtml(taskLabel);
+      const safeStatus = escapeHtml(fields.status);
+      const subject = `Status Update: ${taskLabel}`;
+      const body = `Dear ${safeClientName},\n\nThe status of your "${safeTaskLabel}" has been updated to: ${safeStatus}\n\nPlease contact us if you have any questions.\n\nThank you,\n${firmName}`;
+      const smsBody = `Update: your "${taskLabel}" status is now "${fields.status}". Please contact us with any questions.`;
+
+      const wantEmail = statusChannels.includes("email") && client.email_allowed && client.email;
+      const wantSms = statusChannels.includes("sms") && client.sms_allowed && client.phone;
+      let anySent = false;
+      let providerMessageId: string | null = null;
+      if (wantEmail) {
+        const r = await sendChannel("email", client.email, subject, body, { firmName, req });
+        if (r.sent) { anySent = true; providerMessageId = r.providerMessageId || null; }
+      }
+      if (wantSms) {
+        const r = await sendChannel("sms", client.phone, subject, smsBody, { firmName, req });
+        if (r.sent) { anySent = true; providerMessageId = providerMessageId || r.providerMessageId || null; }
+      }
+      if (wantEmail || wantSms) {
+        await query(
+          `INSERT INTO altax.v3_communications
+             (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
+              sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
+           VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8,'Outbound','Email',now(),$9,'TaskStatusUpdate',$10,$11)`,
+          [
+            `COM-${idSuffix()}`, merged.client_id, client.client_name, taskId, subject, body,
+            [wantEmail ? client.email : null, wantSms ? client.phone : null].filter(Boolean).join(", "),
+            req.user!.email, anySent ? "Sent" : "Failed", `${taskId}#status#${Date.now()}`, providerMessageId,
+          ]
+        );
+      }
+    }
   }
 
   res.json({ ok: true, archived });

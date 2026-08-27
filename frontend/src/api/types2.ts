@@ -9,6 +9,8 @@ export interface WebOptions {
   months: string[];
   priorities: string[];
   taskStatuses: string[];
+  /** Same values as taskStatuses, but with each status's task_type scope — null = general (every task type), a real value = only that task type. Use this (not taskStatuses) for a task-editing dropdown; taskStatuses stays a flat list for filters that should show every status regardless of type. */
+  taskStatusesWithType: { value: string; taskType: string | null }[];
   invoiceStatuses: string[];
   documentStatuses: string[];
   paymentMethods: string[];

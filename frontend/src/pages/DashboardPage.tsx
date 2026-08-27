@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFilename } from "../api/client";
 import type { Client, Task, Appointment } from "../api/types";
-import type { DocumentRequest, Invoice } from "../api/types2";
+import type { DocumentRequest, Invoice, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
@@ -10,7 +10,7 @@ import { FilterBar, exportCsv } from "../components/FilterBar";
 import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate, daysUntil, fmtCheckedAt } from "../utils/date";
-import { TASK_STATUSES, isOpenTask, isOverdue, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { TASK_STATUSES, statusOptionsForTaskType, isOpenTask, isOverdue, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -88,6 +88,8 @@ function TaskRows({ tasks, empty, statusEditable = true, showStaleness = false, 
   const { user } = useAuth();
   const [savingId, setSavingId] = useState<string | null>(null);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
+  const [options, setOptions] = useState<WebOptions | null>(null);
+  useEffect(() => { if (statusEditable) api.get<WebOptions>("/system/options").then(setOptions).catch(() => {}); }, [statusEditable]);
 
   if (!tasks.length) return <p className="muted" style={{ padding: 16 }}>{empty}</p>;
 
@@ -162,7 +164,7 @@ function TaskRows({ tasks, empty, statusEditable = true, showStaleness = false, 
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => handleStatusChange(t.task_id, e.target.value)}
               >
-                {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {statusOptionsForTaskType(options?.taskStatusesWithType, t.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             ) : (
               <StatusBadge status={t.status} />

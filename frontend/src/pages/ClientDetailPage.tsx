@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type Mo
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Client, Task, ServiceCatalogEntry } from "../api/types";
-import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice, RecurringBilling } from "../api/types2";
+import type { VaultSecret, PaymentMethod, PortalUser, DocumentUpload, DocumentRequest, Communication, Invoice, RecurringBilling, WebOptions } from "../api/types2";
 import { InvoiceEditorModal } from "../components/InvoiceEditorModal";
 import { AddRecurringModal } from "../components/AddRecurringModal";
 import { BackLink } from "../components/BackLink";
@@ -22,7 +22,7 @@ import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider"
 import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
-import { TASK_STATUSES, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { statusOptionsForTaskType, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
@@ -300,6 +300,8 @@ export function ClientDetailPage() {
   const [complianceTimeline, setComplianceTimeline] = useState<ComplianceTimelineLane[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [profilePdfBusy, setProfilePdfBusy] = useState<string | null>(null);
+  const [options, setOptions] = useState<WebOptions | null>(null);
+  useEffect(() => { api.get<WebOptions>("/system/options").then(setOptions).catch(() => {}); }, []);
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
@@ -1191,7 +1193,7 @@ export function ClientDetailPage() {
                       <td className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>{fmtDateOnly(t.agency_due_date)} <DueLabel task={t} /></td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
-                          {TASK_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          {statusOptionsForTaskType(options?.taskStatusesWithType, t.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
