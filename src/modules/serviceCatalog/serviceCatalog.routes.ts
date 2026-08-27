@@ -49,13 +49,15 @@ serviceCatalogRouter.patch("/:serviceKey", requireAuth, requireRole("admin"), as
   const minFee = body.minFee !== undefined ? (body.minFee === null || body.minFee === "" ? null : Number(body.minFee)) : existing.min_fee;
   const active = body.active !== undefined ? Boolean(body.active) : existing.active;
   const sortOrder = body.sortOrder !== undefined ? Number(body.sortOrder) : existing.sort_order;
+  const pricingUnit = body.pricingUnit !== undefined ? String(body.pricingUnit) : existing.pricing_unit;
   if (!label) return res.status(400).json({ error: "Label is required." });
+  if (!["flat", "per_employee", "per_worker"].includes(pricingUnit)) return res.status(400).json({ error: "Invalid pricing unit." });
 
   await query(
     `UPDATE altax.v3_service_catalog
-        SET label = $2, group_name = $3, min_fee = $4, active = $5, sort_order = $6, updated_at = now(), updated_by = $7
+        SET label = $2, group_name = $3, min_fee = $4, active = $5, sort_order = $6, pricing_unit = $8, updated_at = now(), updated_by = $7
       WHERE service_key = $1`,
-    [serviceKey, label, groupName, minFee, active, sortOrder, req.user!.email]
+    [serviceKey, label, groupName, minFee, active, sortOrder, req.user!.email, pricingUnit]
   );
   await logAudit("Billing", "EDIT_SERVICE_CATALOG", serviceKey, "MinFee", String(existing.min_fee ?? "—"), String(minFee ?? "—"),
     `Fee schedule entry "${label}" edited by ${req.user!.email}.`, req.user!.email);

@@ -80,6 +80,7 @@ export interface ServiceCatalogEntry {
   group_name: string;
   role: "core_pillar" | "addon" | "one_time";
   min_fee: number | string | null;
+  pricing_unit?: "flat" | "per_employee" | "per_worker";
   sort_order: number;
   active: boolean;
   legacy: boolean;

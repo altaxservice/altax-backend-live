@@ -888,6 +888,7 @@ export function ClientDetailPage() {
                             <SubscriptionServicesChecklist
                               services={(form.services as string[]) || []}
                               isBusinessClient={isBusiness(form)}
+                              clientId={clientId}
                               onChange={(services) => setForm((prev) => ({ ...prev, services, payrollEnabled: services.includes("payroll") }))}
                             />
                             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginTop: 4, marginBottom: 16 }}>

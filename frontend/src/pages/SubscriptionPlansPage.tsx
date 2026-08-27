@@ -29,7 +29,9 @@ import { SendSubscriptionBrochureModal } from "../components/SendSubscriptionBro
  * neither should be merged into the other without a real reason to.
  */
 
-type Draft = { label: string; groupName: string; minFee: string; active: boolean };
+type Draft = { label: string; groupName: string; minFee: string; active: boolean; pricingUnit: "flat" | "per_employee" | "per_worker" };
+
+const PRICING_UNIT_LABEL: Record<string, string> = { flat: "Flat", per_employee: "Per Employee", per_worker: "Per Worker" };
 
 const NEW_SERVICE_DEFAULTS = { serviceKey: "", label: "", groupName: "", role: "addon" as "addon" | "one_time", minFee: "" };
 
@@ -73,6 +75,7 @@ export function SubscriptionPlansPage() {
       setServices(svc.services);
       setDrafts(Object.fromEntries(svc.services.map((s) => [s.service_key, {
         label: s.label, groupName: s.group_name, minFee: s.min_fee != null ? String(s.min_fee) : "", active: s.active,
+        pricingUnit: s.pricing_unit || "flat",
       }])));
       setTiers(t.tiers);
       setTierDrafts(Object.fromEntries(t.tiers.map((tr) => [tr.tier_key, { tierName: tr.tier_name, description: tr.description || "" }])));
@@ -86,10 +89,14 @@ export function SubscriptionPlansPage() {
     const original = services?.find((s) => s.service_key === key);
     const oldFee = original?.min_fee != null ? Number(original.min_fee) : null;
     const newFee = d.minFee === "" ? null : Number(d.minFee);
-    if (oldFee !== newFee) {
+    const oldUnit = original?.pricing_unit || "flat";
+    const unitChanged = oldUnit !== d.pricingUnit;
+    if (oldFee !== newFee || unitChanged) {
+      const unitSuffix = d.pricingUnit === "flat" ? "/mo" : `/${d.pricingUnit === "per_employee" ? "employee" : "worker"}/mo`;
+      const oldUnitSuffix = oldUnit === "flat" ? "/mo" : `/${oldUnit === "per_employee" ? "employee" : "worker"}/mo`;
       const ok = await confirmDialog({
         title: "Change subscription price",
-        message: `Change ${d.label}'s price from ${oldFee != null ? `$${oldFee.toFixed(2)}` : "—"} to ${newFee != null ? `$${newFee.toFixed(2)}` : "—"}? This does not retroactively change any existing client's already-saved subscription amount — only new clients, and anyone whose services are re-saved or recalculated afterward, will pick up the new price.`,
+        message: `Change ${d.label}'s price from ${oldFee != null ? `$${oldFee.toFixed(2)}${oldUnitSuffix}` : "—"} to ${newFee != null ? `$${newFee.toFixed(2)}${unitSuffix}` : "—"}?${unitChanged ? ` Pricing basis is also changing (${PRICING_UNIT_LABEL[oldUnit]} → ${PRICING_UNIT_LABEL[d.pricingUnit]}).` : ""} This does not retroactively change any existing client's already-saved subscription amount — only new clients, and anyone whose services are re-saved or recalculated afterward, will pick up the new price.`,
       });
       if (!ok) return;
     }
@@ -98,7 +105,7 @@ export function SubscriptionPlansPage() {
       await api.patch(`/service-catalog/${key}`, {
         label: d.label, groupName: d.groupName,
         minFee: d.minFee === "" ? null : Number(d.minFee),
-        active: d.active,
+        active: d.active, pricingUnit: d.pricingUnit,
       });
       load();
     } catch (err) {
@@ -230,22 +237,38 @@ export function SubscriptionPlansPage() {
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">Billed</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
+                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">Priced Per</th><th scope="col">Billed</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {services.filter((s) => s.group_name === group && !s.legacy).map((s) => {
                     const d = drafts[s.service_key];
                     if (!d) return null;
                     const billedLabel = s.role === "one_time" ? "One-time / per engagement" : "Monthly";
+                    const feeSuffix = d.pricingUnit === "flat" ? "/mo" : d.pricingUnit === "per_employee" ? "/employee/mo" : "/worker/mo";
                     return (
                       <tr key={s.service_key}>
                         <td style={{ minWidth: 220 }}>
                           <input style={{ width: "100%" }} value={d.label} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], label: e.target.value } }))} />
                         </td>
                         <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ROLE_LABEL[s.role]}</td>
-                        <td style={{ width: 140 }}>
+                        <td style={{ width: 150 }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                            $<input type="number" step="0.01" style={{ width: 80 }} placeholder="—" value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />
+                            $<input type="number" step="0.01" style={{ width: 70 }} placeholder="—" value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />
+                            <span className="muted" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{feeSuffix}</span>
                           </span>
+                        </td>
+                        <td style={{ width: 130 }}>
+                          {s.role === "one_time" ? (
+                            <span className="muted" style={{ fontSize: 12 }}>—</span>
+                          ) : (
+                            <select
+                              value={d.pricingUnit} disabled={!isAdmin} style={{ fontSize: 12 }}
+                              onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], pricingUnit: e.target.value as Draft["pricingUnit"] } }))}
+                            >
+                              <option value="flat">Flat</option>
+                              <option value="per_employee">Per Employee</option>
+                              <option value="per_worker">Per Worker (employees + contractors)</option>
+                            </select>
+                          )}
                         </td>
                         <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{billedLabel}</td>
                         <td><input type="checkbox" checked={d.active} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], active: e.target.checked } }))} /></td>

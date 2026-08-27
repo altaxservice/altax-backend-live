@@ -11,10 +11,13 @@ export interface ServiceCatalogEntry {
   group_name: string;
   role: "core_pillar" | "addon" | "one_time";
   min_fee: number | string | null;
+  pricing_unit?: "flat" | "per_employee" | "per_worker";
   sort_order: number;
   active: boolean;
   legacy: boolean;
 }
+
+export interface ClientWorkerCounts { employees: number; workers: number }
 
 export type SubscriptionTierKey = "essentials" | "growth" | "complete";
 
@@ -34,13 +37,16 @@ export function computeSubscriptionTier(selectedServiceKeys: string[]): Subscrip
   return "essentials";
 }
 
-export function computeSubscriptionFee(selectedServiceKeys: string[], catalog: ServiceCatalogEntry[]): number {
+export function computeSubscriptionFee(selectedServiceKeys: string[], catalog: ServiceCatalogEntry[], counts: ClientWorkerCounts = { employees: 0, workers: 0 }): number {
   const byKey = new Map(catalog.map((c) => [c.service_key, c]));
   let total = 0;
   for (const key of selectedServiceKeys) {
     const entry = byKey.get(key);
     if (!entry || entry.role === "one_time" || entry.min_fee === null || entry.min_fee === undefined) continue;
-    total += Number(entry.min_fee);
+    const rate = Number(entry.min_fee);
+    if (entry.pricing_unit === "per_employee") total += rate * counts.employees;
+    else if (entry.pricing_unit === "per_worker") total += rate * counts.workers;
+    else total += rate;
   }
   return Math.round(total * 100) / 100;
 }

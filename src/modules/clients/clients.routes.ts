@@ -9,7 +9,7 @@ import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/en
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
 import { POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, FIRM_SERVICES, SERVICE_LABEL, deriveServiceType } from "../contracts/contractContent";
-import { computeSubscriptionTier, computeSubscriptionFee, type ServiceCatalogEntry } from "../../common/subscriptionPricing";
+import { computeSubscriptionTier, computeSubscriptionFee, type ServiceCatalogEntry, type ClientWorkerCounts } from "../../common/subscriptionPricing";
 import { computeFirmSummary, computeMdFilingForReport, computeRevenueTrend, computeClientCashBalance, loadPayrollForPeriod, computeFirmWideMdSalesTaxMissedFilings, loadRecordedMdFilingPayments, loadSalesTaxFrequencyHistory, defaultFirmSummaryRange } from "../reports/reports.routes";
 import { splitIntoMdFilingPeriodsForClient, classifyMdFilingPeriod } from "../../common/mdFiling";
 import type { ReportClientInfo } from "../accounting/reportsPdf";
@@ -2665,7 +2665,11 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     if (!columns.includes("subscription_monthly_fee")) {
       const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
       columns.push("subscription_monthly_fee");
-      values.push(computeSubscriptionFee(body.services, catalog));
+      // A brand-new client has no employees on file yet (they're added
+      // separately, after creation) — per-employee/per-worker services
+      // correctly price at $0 here, same as getClientWorkerCounts would
+      // return for a client with zero rows in v3_employees.
+      values.push(computeSubscriptionFee(body.services, catalog, { employees: 0, workers: 0 }));
       placeholders.push(`$${values.length}`);
     }
   }
@@ -2696,6 +2700,32 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   }
 
   res.status(201).json({ ok: true, clientId });
+}));
+
+/**
+ * Real headcount for 'per_employee'/'per_worker' pricing (subscriptionPricing.ts,
+ * sql/109) — direct owner request, 2026-08-26. `employees` matches the
+ * Employees tab's own filter exactly (worker_type NOT LIKE contractor), so
+ * Payroll Processing prices against the same headcount staff actually see
+ * there. `workers` is everyone regardless of type, for W-2/1099 Prep — every
+ * worker needs one of the two forms.
+ */
+async function getClientWorkerCounts(clientId: string): Promise<ClientWorkerCounts> {
+  const row = await queryOne<any>(
+    `SELECT
+       COUNT(*) FILTER (WHERE lower(COALESCE(worker_type, '')) NOT LIKE '%contractor%')::int AS employees,
+       COUNT(*)::int AS workers
+     FROM altax.v3_employees WHERE client_id = $1`,
+    [clientId]
+  );
+  return { employees: row?.employees || 0, workers: row?.workers || 0 };
+}
+
+/** Powers the live "Estimated Subscription" preview on the client profile edit form before it's saved. */
+clientsRouter.get("/:clientId/worker-counts", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  res.json(await getClientWorkerCounts(clientId));
 }));
 
 /**
@@ -2759,8 +2789,11 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
     fields.subscription_tier = computeSubscriptionTier(effectiveServices);
     const isCustom = customFlagChanged ? Boolean(fields.subscription_fee_is_custom) : Boolean(old.subscription_fee_is_custom);
     if (!isCustom && !Object.prototype.hasOwnProperty.call(fields, "subscription_monthly_fee")) {
-      const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
-      fields.subscription_monthly_fee = computeSubscriptionFee(effectiveServices, catalog);
+      const [catalog, counts] = await Promise.all([
+        query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`),
+        getClientWorkerCounts(clientId),
+      ]);
+      fields.subscription_monthly_fee = computeSubscriptionFee(effectiveServices, catalog, counts);
     }
   }
 
@@ -2987,8 +3020,11 @@ clientsRouter.post("/:clientId/recalculate-subscription", requireAuth, requireRo
   const values: any[] = [clientId, tier];
   let fee: number | null = null;
   if (!client.subscription_fee_is_custom) {
-    const catalog = await query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`);
-    fee = computeSubscriptionFee(services, catalog);
+    const [catalog, counts] = await Promise.all([
+      query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`),
+      getClientWorkerCounts(clientId),
+    ]);
+    fee = computeSubscriptionFee(services, catalog, counts);
     setClauses.push(`subscription_monthly_fee = $${values.length + 1}`);
     values.push(fee);
   }

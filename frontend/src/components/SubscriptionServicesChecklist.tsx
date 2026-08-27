@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ServiceCatalogEntry, SubscriptionTier } from "../api/types";
 import { INDIVIDUAL_SERVICE_KEYS } from "../utils/clientOptions";
-import { computeSubscriptionFee, computeSubscriptionTier } from "../utils/subscriptionPricing";
+import { computeSubscriptionFee, computeSubscriptionTier, type ClientWorkerCounts } from "../utils/subscriptionPricing";
+
+const PRICING_UNIT_SUFFIX: Record<string, string> = { per_employee: "/employee/mo", per_worker: "/worker/mo" };
 
 const TIER_COLOR: Record<string, { fg: string; bg: string }> = {
   essentials: { fg: "var(--teal)", bg: "var(--teal-soft)" },
@@ -22,14 +24,17 @@ const TIER_COLOR: Record<string, { fg: string; bg: string }> = {
  * keeps working unchanged), they just don't count toward the subscription.
  */
 export function SubscriptionServicesChecklist({
-  services, onChange, isBusinessClient,
+  services, onChange, isBusinessClient, clientId,
 }: {
   services: string[];
   onChange: (services: string[]) => void;
   isBusinessClient: boolean;
+  /** Omitted while creating a brand-new client — worker counts default to 0/0, matching a client with no employees on file yet. */
+  clientId?: string;
 }) {
   const [catalog, setCatalog] = useState<ServiceCatalogEntry[] | null>(null);
   const [tiers, setTiers] = useState<SubscriptionTier[] | null>(null);
+  const [counts, setCounts] = useState<ClientWorkerCounts>({ employees: 0, workers: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +48,15 @@ export function SubscriptionServicesChecklist({
     }).catch(() => { if (!cancelled) { setCatalog([]); setTiers([]); } });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!clientId) { setCounts({ employees: 0, workers: 0 }); return; }
+    let cancelled = false;
+    api.get<ClientWorkerCounts>(`/clients/${clientId}/worker-counts`)
+      .then((res) => { if (!cancelled) setCounts(res); })
+      .catch(() => { if (!cancelled) setCounts({ employees: 0, workers: 0 }); });
+    return () => { cancelled = true; };
+  }, [clientId]);
 
   if (!catalog || !tiers) return <p className="muted" style={{ fontSize: 12 }}>Loading services…</p>;
 
@@ -67,7 +81,7 @@ export function SubscriptionServicesChecklist({
   }
 
   const tierKey = computeSubscriptionTier(services);
-  const fee = computeSubscriptionFee(services, catalog);
+  const fee = computeSubscriptionFee(services, catalog, counts);
   const tierMeta = tiers.find((t) => t.tier_key === tierKey);
   const color = TIER_COLOR[tierKey] || TIER_COLOR.essentials;
   const anyRecurringChecked = recurring.some((s) => services.includes(s.service_key));
@@ -84,13 +98,22 @@ export function SubscriptionServicesChecklist({
         <div key={group} style={{ marginBottom: 10 }}>
           <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{group}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px" }}>
-            {entries.map((s) => (
-              <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                {s.label}
-                {s.min_fee != null && <span className="muted" style={{ fontSize: 11 }}>${Number(s.min_fee).toFixed(0)}/mo</span>}
-              </label>
-            ))}
+            {entries.map((s) => {
+              const unit = s.pricing_unit || "flat";
+              const unitCount = unit === "per_employee" ? counts.employees : unit === "per_worker" ? counts.workers : null;
+              return (
+                <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
+                  {s.label}
+                  {s.min_fee != null && (
+                    <span className="muted" style={{ fontSize: 11 }}>
+                      ${Number(s.min_fee).toFixed(0)}{PRICING_UNIT_SUFFIX[unit] || "/mo"}
+                      {unitCount !== null && ` (× ${unitCount} = $${(Number(s.min_fee) * unitCount).toFixed(0)}/mo)`}
+                    </span>
+                  )}
+                </label>
+              );
+            })}
           </div>
         </div>
       ))}
