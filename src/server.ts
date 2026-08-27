@@ -135,6 +135,15 @@ app.use(cors({
 // No Origin header on a server-to-server webhook POST, so the CORS allow-list
 // above doesn't block these either way.
 app.use("/webhooks", webhooksRouter);
+// Hard Audit finding, 2026-08-27: the pageview beacon only ever sends a path
+// and a referrer (well under 1kb) but sat behind the global 12mb limit below
+// — an attacker could send near-12mb bodies repeatedly, each one paying full
+// JSON-parse cost before the route's own truncation logic ever ran. Mounted
+// BEFORE the global parser for the same reason the webhooks router is above:
+// express.json() skips re-parsing a body a prior middleware already
+// consumed, so whichever one runs first for a given path is the one that
+// actually applies.
+app.use("/public/analytics/pageview", express.json({ limit: "4kb" }));
 app.use(express.json({ limit: "12mb" })); // covers base64-encoded file uploads (see documents.routes.ts POST /uploads) up to ~8MB raw
 
 // Previously a static {ok:true} with no database check, so a full DB outage would

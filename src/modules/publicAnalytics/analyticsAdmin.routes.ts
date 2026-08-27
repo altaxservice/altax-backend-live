@@ -19,30 +19,30 @@ analyticsAdminRouter.get("/summary", requireAuth, requireRole("admin", "staff"),
   const [totals, topPages, devices, referrers, daily] = await Promise.all([
     query<any>(
       `SELECT COUNT(*)::int AS views, COUNT(DISTINCT visitor_hash)::int AS unique_visitors
-         FROM altax.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval`,
+         FROM altax_public.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval`,
       [days]
     ),
     query<any>(
       `SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT visitor_hash)::int AS unique_visitors
-         FROM altax.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
+         FROM altax_public.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
         GROUP BY path ORDER BY views DESC LIMIT 25`,
       [days]
     ),
     query<any>(
       `SELECT device_type, COUNT(*)::int AS views
-         FROM altax.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
+         FROM altax_public.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
         GROUP BY device_type ORDER BY views DESC`,
       [days]
     ),
     query<any>(
       `SELECT COALESCE(referrer_host, 'Direct / None') AS referrer_host, COUNT(*)::int AS views
-         FROM altax.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
+         FROM altax_public.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
         GROUP BY referrer_host ORDER BY views DESC LIMIT 15`,
       [days]
     ),
     query<any>(
       `SELECT viewed_at::date AS day, COUNT(*)::int AS views, COUNT(DISTINCT visitor_hash)::int AS unique_visitors
-         FROM altax.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
+         FROM altax_public.v3_page_views WHERE viewed_at >= now() - ($1 || ' days')::interval
         GROUP BY viewed_at::date ORDER BY day ASC`,
       [days]
     ),

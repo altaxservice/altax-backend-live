@@ -54,6 +54,18 @@ export interface RateLimitOptions {
    * limiting must never break a request because a body was malformed.
    */
   keyOn?: (req: Request) => string | undefined;
+  /**
+   * Drops the per-IP component from the key entirely, sharing one counter
+   * across every caller — a hard ceiling on total volume through a route,
+   * independent of how many source IPs it's spread across. Hard Audit
+   * finding, 2026-08-27: publicAnalytics's per-IP-only limiter meant a
+   * modest botnet (or rotating proxy), each individually under the per-IP
+   * cap, had no aggregate throttle on total write volume. Use alongside
+   * the existing per-IP limiter (a second rateLimit() call), not instead
+   * of it — this catches distributed volume, the per-IP one catches a
+   * single abusive source.
+   */
+  global?: boolean;
 }
 
 export function rateLimit(opts: RateLimitOptions) {
@@ -64,7 +76,7 @@ export function rateLimit(opts: RateLimitOptions) {
     } catch {
       extra = "";
     }
-    const key = `${opts.name}:${clientKey(req)}:${extra}`;
+    const key = opts.global ? `${opts.name}:__global__:${extra}` : `${opts.name}:${clientKey(req)}:${extra}`;
     const now = Date.now();
 
     let hit = buckets.get(key);
