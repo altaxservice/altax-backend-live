@@ -113,6 +113,8 @@ export async function resolveAssigneeEmail(assignedTo: string): Promise<string |
 async function sendAndLog(opts: {
   clientId: string | null; clientName: string | null; relatedTaskId: string | null;
   subject: string; bodyEnglish: string; bodyArabic: string; sentTo: string; sourceRecordId: string; actorEmail: string;
+  /** Overrides the plain-paragraph HTML normally built from bodyEnglish/bodyArabic — for a digest that needs real structure (headings, grouped lists) rather than one prose block. bodyEnglish is still what's stored in v3_communications for the Activity Timeline/search. */
+  bodyHtml?: string;
 }, req?: Request): Promise<{ sent: boolean; sendError?: string; alreadySent?: boolean }> {
   return withTransaction(async (db) => {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [opts.sourceRecordId]);
@@ -133,7 +135,9 @@ async function sendAndLog(opts: {
       // regardless of what its caller built. Mirrors the plain-paragraph
       // bilingual shape used elsewhere (appointment emails), not the
       // row-table shape (billing receipts) since this is prose, not data.
-      const bodyHtml = opts.bodyArabic
+      const bodyHtml = opts.bodyHtml
+        ? opts.bodyHtml
+        : opts.bodyArabic
         ? `<p style="margin:0 0 16px;">${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p><p dir="rtl" style="margin:0; text-align:right;">${escapeHtml(opts.bodyArabic).replace(/\n/g, "<br>")}</p>`
         : `<p style="margin:0;">${escapeHtml(opts.bodyEnglish).replace(/\n/g, "<br>")}</p>`;
       const result = await sendEmail({ to: opts.sentTo, subject: opts.subject, html: await wrapEmailHtml(bodyHtml, req) });
@@ -153,6 +157,112 @@ async function sendAndLog(opts: {
     );
     return { sent, sendError };
   });
+}
+
+function daysOverdue(due: string, nowTime: number): number {
+  return Math.max(0, Math.round((nowTime - new Date(due).getTime()) / 86400000));
+}
+
+/**
+ * Groups the flat overdue-task list by task name — direct owner request,
+ * 2026-08-26/27, after a real digest showed 40 overdue tasks as one long
+ * flat bullet list, most of them the same task name repeated ("Sales Tax
+ * Filing" for 17 different clients) with no way to see that at a glance.
+ * Grouped, sorted worst-first (both which group has the oldest overdue item,
+ * and which client within a group is furthest overdue) so the real pattern —
+ * "17 clients all missed the same July 15 Sales Tax deadline" — reads as one
+ * finding instead of 17 identical-looking lines buried in the middle of 40.
+ */
+function groupOverdueTasks(tasks: any[], nowTime: number): { name: string; items: { task: any; days: number }[]; maxDays: number }[] {
+  const groups = new Map<string, any[]>();
+  for (const t of tasks) {
+    const name = (t.task_name || "Task").trim();
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name)!.push(t);
+  }
+  return Array.from(groups.entries())
+    .map(([name, items]) => {
+      const withDays = items
+        .map((task) => ({ task, days: daysOverdue(task.staff_due_date || task.agency_due_date, nowTime) }))
+        .sort((a, b) => b.days - a.days);
+      return { name, items: withDays, maxDays: withDays[0]?.days || 0 };
+    })
+    .sort((a, b) => b.maxDays - a.maxDays);
+}
+
+/**
+ * The firm digest's actual HTML — previously it had none of its own; it went
+ * through sendAndLog's generic "one prose paragraph" wrapper same as every
+ * other reminder type, which is fine for a few sentences but unreadable once
+ * OVERDUE alone can run 40 lines. Real structure (headings, a callout for
+ * books health, a status table, grouped overdue) instead of one wall of
+ * plain text with line breaks.
+ */
+function buildFirmDigestHtml(opts: {
+  asOf: Date; openTaskCount: number; unbalancedClients: any[]; upcomingAppointments: any[];
+  statusCounts: Map<string, number>; overdueTasks: any[]; dueSoonTasks: any[]; daysAhead: number; nowTime: number;
+}): string {
+  const { asOf, openTaskCount, unbalancedClients, upcomingAppointments, statusCounts, overdueTasks, dueSoonTasks, daysAhead, nowTime } = opts;
+  const esc = escapeHtml;
+  const sectionTitle = (label: string) => `<h3 style="margin:26px 0 10px; font-size:13px; letter-spacing:0.04em; text-transform:uppercase; color:#5b6b63;">${esc(label)}</h3>`;
+
+  const booksHealthHtml = unbalancedClients.length
+    ? `<div style="margin:0 0 8px; padding:14px 18px; background:#fdf1f1; border-left:4px solid #a83a3a; border-radius:4px;">
+         <strong>${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"} out of balance</strong> — open Reports &rarr; Trial Balance for each to find and correct the entries.
+         <ul style="margin:8px 0 0; padding-left:18px; font-size:13px;">
+           ${unbalancedClients.map((c: any) => `<li>${esc(c.client_name || c.client_id)} — off by $${Math.abs(Number(c.difference)).toFixed(2)} (debits $${c.debits} vs credits $${c.credits})</li>`).join("")}
+         </ul>
+       </div>`
+    : `<div style="margin:0 0 8px; padding:12px 18px; background:#eef2ef; border-left:4px solid #4a7a5f; border-radius:4px;">All clients' ledgers are in balance. No action needed.</div>`;
+
+  const fmtApptLineHtml = (a: any) => {
+    const when = new Date(a.start_time).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const who = a.linked_client_name || a.contact_name || "—";
+    return `<li>${esc(when)} ET — <strong>${esc(a.title || "Appointment")}</strong> with ${esc(who)}${a.assigned_to ? ` (${esc(a.assigned_to)})` : ""}</li>`;
+  };
+  const appointmentsHtml = upcomingAppointments.length
+    ? `<ul style="margin:0; padding-left:18px; font-size:13px;">${upcomingAppointments.map(fmtApptLineHtml).join("")}</ul>`
+    : `<p style="margin:0; font-size:13px; color:#5b5b57;">None scheduled.</p>`;
+
+  const statusRows = Array.from(statusCounts.entries())
+    .map(([status, count]) => `<tr><td style="padding:3px 14px 3px 0; color:#444;">${esc(status)}</td><td style="padding:3px 0; text-align:right; font-weight:600;">${count}</td></tr>`)
+    .join("");
+  const statusTableHtml = statusRows
+    ? `<table style="border-collapse:collapse; font-size:13px;">${statusRows}</table>`
+    : `<p style="margin:0; font-size:13px; color:#5b5b57;">No open tasks.</p>`;
+
+  function overdueGroupsHtml(tasks: any[], emptyLabel: string): string {
+    if (tasks.length === 0) return `<p style="margin:0; font-size:13px; color:#5b5b57;">${esc(emptyLabel)}</p>`;
+    const groups = groupOverdueTasks(tasks, nowTime);
+    return groups.map((g) => {
+      const clientLines = g.items.map(({ task, days }) =>
+        `<li>${esc(task.client_name || task.client_id || "Unassigned")}${days > 0 ? ` — <span style="color:#a83a3a;">${days} day${days === 1 ? "" : "s"} overdue</span>` : ` — due ${esc(fmtDate(task.staff_due_date || task.agency_due_date))}`}</li>`
+      ).join("");
+      return `<div style="margin:0 0 14px;">
+        <div style="font-weight:700; font-size:13.5px;">${esc(g.name)} <span style="font-weight:400; color:#5b6b63;">— ${g.items.length} client${g.items.length === 1 ? "" : "s"}${g.maxDays > 0 ? `, up to ${g.maxDays} day${g.maxDays === 1 ? "" : "s"} overdue` : ""}</span></div>
+        <ul style="margin:4px 0 0; padding-left:18px; font-size:13px; color:#333;">${clientLines}</ul>
+      </div>`;
+    }).join("");
+  }
+
+  return `
+    <p style="margin:0 0 4px; font-size:15px;"><strong>Firm-wide status as of ${esc(fmtDate(asOf))}: ${openTaskCount} open task${openTaskCount === 1 ? "" : "s"}.</strong></p>
+
+    ${sectionTitle("Books Health")}
+    ${booksHealthHtml}
+
+    ${sectionTitle(`Upcoming Appointments — next 48 hours (${upcomingAppointments.length})`)}
+    ${appointmentsHtml}
+
+    ${sectionTitle("Tasks by Status")}
+    ${statusTableHtml}
+
+    ${sectionTitle(`Overdue (${overdueTasks.length})`)}
+    ${overdueGroupsHtml(overdueTasks, "None.")}
+
+    ${sectionTitle(`Due Within ${daysAhead} Day${daysAhead === 1 ? "" : "s"} (${dueSoonTasks.length})`)}
+    ${overdueGroupsHtml(dueSoonTasks, "None.")}
+  `;
 }
 
 /**
@@ -374,27 +484,42 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   };
   const appointmentsSection = `\nUPCOMING APPOINTMENTS — next 48 hours (${upcomingAppointments.length})\n${upcomingAppointments.length ? upcomingAppointments.map(fmtApptLine).join("\n") : "None scheduled."}`;
 
+  // Same content for every admin recipient — built once outside the loop below.
+  // bodyEnglish (plain text) is still what's stored in v3_communications for the
+  // Activity Timeline/search; bodyHtml (real headings + grouped overdue list,
+  // via buildFirmDigestHtml) is what the actual email renders — previously this
+  // digest had no HTML of its own, just sendAndLog's generic one-paragraph
+  // wrapper, unreadable once OVERDUE alone ran 40 lines.
+  const asOf = new Date();
+  const bodyEnglish = [
+    `Firm-wide status as of ${fmtDate(asOf)}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
+    booksHealthSection,
+    appointmentsSection,
+    `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
+    `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
+    `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
+  ].join("\n");
+  const bodyHtml = buildFirmDigestHtml({
+    asOf, openTaskCount: openTasks.length, unbalancedClients, upcomingAppointments,
+    statusCounts, overdueTasks, dueSoonTasks, daysAhead, nowTime,
+  });
+  const subject = unbalancedClients.length
+    ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`
+    : `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
+
   const admins = await query<any>(`SELECT email FROM altax.v3_users WHERE active = true AND lower(role) = 'admin' AND email IS NOT NULL AND email <> ''`);
   for (const admin of admins) {
     try {
       const sourceRecordId = `FIRMREM-${normalizeText(admin.email)}-${today}`;
       if (await alreadySent(sourceRecordId)) { firmSkipped++; continue; }
 
-      const subject = unbalancedClients.length
-        ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`
-        : `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`;
-      const bodyEnglish = [
-        `Firm-wide status as of ${fmtDate(new Date())}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
-        booksHealthSection,
-        appointmentsSection,
-        `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
-        `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
-        `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
-      ].join("\n");
-
+      // This digest is internal, English-only operational content — bodyArabic
+      // is "" on purpose (not bodyEnglish again): sendAndLog renders bodyArabic
+      // as a SECOND block whenever it's truthy, which is what produced a real
+      // doubled-up email body before this fix.
       const result = await sendAndLog({
         clientId: null, clientName: null, relatedTaskId: null,
-        subject, bodyEnglish, bodyArabic: bodyEnglish, sentTo: admin.email, sourceRecordId, actorEmail,
+        subject, bodyEnglish, bodyArabic: "", bodyHtml, sentTo: admin.email, sourceRecordId, actorEmail,
       }, req);
       if (result.sent) firmSent++; else if (result.alreadySent) firmSkipped++; else firmFailed++;
     } catch (err) {
