@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { APP_NAME, COPYRIGHT } from "./branding";
 import { getFirmProfile } from "./firmProfile";
 import { publicBaseUrl } from "./publicUrl";
+import { escapeHtml } from "./html";
 
 /**
  * Branded wrapper for outbound emails — header with the app name (+ logo, if the
@@ -78,7 +79,11 @@ export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<st
  * stays generic rather than naming a specific role.
  */
 export function portalInviteEmailHtml(name: string, link: string): string {
-  const greetingName = name ? name : "";
+  // Hard Audit finding, 2026-08-27: every other email builder in this app
+  // escapes user-supplied strings before interpolating them into HTML —
+  // this one didn't, letting a name containing markup execute in the
+  // invitee's own mail client when they open the invite.
+  const greetingName = name ? escapeHtml(name) : "";
   return `<div dir="ltr" style="text-align:left;">
   <p>${greetingName ? `Hi ${greetingName},` : "Hello,"}</p>
   <p>You've been invited to the AL TAX SERVICE portal, where you can access your documents, invoices, and messages anytime.</p>

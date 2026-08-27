@@ -13,6 +13,7 @@ import {
 } from "./totp";
 import { wrapEmailHtml } from "../../common/emailTemplate";
 import { rateLimit } from "../../common/rateLimit";
+import { escapeHtml } from "../../common/html";
 import { sendEmail } from "../../common/notifications";
 import { getFirmProfile } from "../../common/firmProfile";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
@@ -633,7 +634,7 @@ authRouter.post("/forgot-password", forgotLimiter, asyncHandler(async (req: Requ
 
     const link = resetLink(req, String(row.role || "").toLowerCase(), token, email);
     const html = await wrapEmailHtml(`
-      <p>Hi ${row.name || ""},</p>
+      <p>Hi ${escapeHtml(row.name || "")},</p>
       <p>We received a request to reset your password. Use the link below to choose a new one — it expires in 1 hour.</p>
       <p><a href="${link}">Reset your password</a></p>
       <p>Didn't request this? You can safely ignore this email — your password will not change.</p>
@@ -761,7 +762,7 @@ authRouter.post("/confirm-email-change", codeLimiter, asyncHandler(async (req: R
         to: oldEmail,
         subject: "Your AL TAX portal sign-in email has been changed",
         html: await wrapEmailHtml(
-          `<p>Your AL TAX portal sign-in email has been changed to <strong>${newEmail}</strong>.</p>
+          `<p>Your AL TAX portal sign-in email has been changed to <strong>${escapeHtml(newEmail)}</strong>.</p>
            <p>Sign in with the new address from now on. Your password has not changed.</p>
            <p style="color:#b42318"><strong>If you did not ask for this, contact us right away.</strong></p>`,
           req
