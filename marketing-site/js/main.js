@@ -158,7 +158,27 @@ function renderCalendarList() {
   }).join('');
 }
 
+// ---------------- Self-hosted analytics beacon ----------------
+// Fire-and-forget page-view ping — no cookies, nothing stored client-side,
+// skipped entirely if the browser sends Do Not Track. See
+// sql/113_page_views.sql and publicAnalytics.routes.ts for what's actually
+// recorded (no raw IP, no raw user-agent, no full referrer URL — only
+// derived, non-identifying values, ever).
+function sendPageviewBeacon() {
+  try {
+    if (navigator.doNotTrack === '1' || window.doNotTrack === '1') return;
+    fetch('/public/analytics/pageview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: location.pathname, referrer: document.referrer || undefined }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (e) { /* never let analytics break the page */ }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  sendPageviewBeacon();
+
   const toggle = document.querySelector('.nav-toggle');
   const links = document.querySelector('.nav-links');
   if (toggle && links) {

@@ -43,6 +43,8 @@ import { publicServiceCatalogRouter } from "./modules/serviceCatalog/publicServi
 import { publicInvoiceRouter } from "./modules/billing/publicInvoice.routes";
 import { publicContactRouter } from "./modules/publicContact/publicContact.routes";
 import { publicNewsletterRouter } from "./modules/publicNewsletter/publicNewsletter.routes";
+import { publicAnalyticsRouter } from "./modules/publicAnalytics/publicAnalytics.routes";
+import { analyticsAdminRouter } from "./modules/publicAnalytics/analyticsAdmin.routes";
 import { newsletterAdminRouter } from "./modules/publicNewsletter/newsletterAdmin.routes";
 import { publicToolsRouter } from "./modules/publicTools/publicTools.routes";
 import { publicAppointmentsRouter } from "./modules/publicAppointments/publicAppointments.routes";
@@ -321,6 +323,8 @@ app.use("/public/invoices", publicInvoiceRouter);
 app.use("/public/contact", publicContactRouter);
 app.use("/public/newsletter", publicNewsletterRouter);
 app.use("/newsletter", newsletterAdminRouter);
+app.use("/public/analytics", publicAnalyticsRouter);
+app.use("/analytics", analyticsAdminRouter);
 app.use("/public/tools", publicToolsRouter);
 app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);

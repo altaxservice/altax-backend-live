@@ -42,6 +42,7 @@ import { GuidePage } from "./pages/GuidePage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { NewsletterPage } from "./pages/NewsletterPage";
+import { WebsiteAnalyticsPage } from "./pages/WebsiteAnalyticsPage";
 import { EstimatesListPage } from "./pages/EstimatesListPage";
 import { EstimateDetailPage } from "./pages/EstimateDetailPage";
 import { PipelinePage } from "./pages/PipelinePage";
@@ -140,6 +141,7 @@ function App() {
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />
                 <Route path="/newsletter" element={<NewsletterPage />} />
+                <Route path="/website-analytics" element={<WebsiteAnalyticsPage />} />
                 <Route path="/estimates" element={<EstimatesListPage />} />
                 <Route path="/estimates/:estimateId" element={<EstimateDetailPage />} />
                 <Route path="/pipeline" element={<PipelinePage />} />

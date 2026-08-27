@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe,
   type LucideProps,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -89,6 +89,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
   { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench },
   { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp },
+  { to: "/website-analytics", label: "Website Analytics", roles: ["admin", "staff"], group: "Firm", icon: Globe },
   { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
   { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
   { to: "/labels", label: "Labels", roles: ["admin"], group: "Firm", icon: Tag },
@@ -116,6 +117,7 @@ const TITLES: Record<string, string> = {
   "/communications": "Communications",
   "/templates": "Templates",
   "/newsletter": "Newsletter",
+  "/website-analytics": "Website Analytics",
   "/estimates": "Estimates",
   "/pipeline": "Pipeline",
   "/fee-schedule": "Fee Schedule",
