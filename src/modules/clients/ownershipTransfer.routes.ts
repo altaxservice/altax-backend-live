@@ -781,6 +781,25 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
   if (notReady.length) {
     return res.status(400).json({ error: `Every generated filing must be Submitted before applying the new owner: ${notReady.join(" ")}` });
   }
+  // Hard Audit finding, 2026-08-27, product decision: the gate above only
+  // checks filings that were actually linked to this transfer — every
+  // filing type is individually declinable on the wizard, so an admin who
+  // declined all of them (or a transfer created before this app tracked
+  // filings at all) can finalize with literally nothing filed with any
+  // agency. A hard block would be wrong: a legitimate case is syncing this
+  // app's client record to a sale that was already handled — filed
+  // elsewhere, or by a prior accountant — with nothing left for this app
+  // to file. What was missing was any signal that this is what's
+  // happening, so it can't be finalized BY ACCIDENT. Require an explicit,
+  // named acknowledgment specifically for the zero-filings case; any
+  // transfer with at least one real linked filing needs no extra step.
+  const hasAnyLinkedFiling = linkedFilings.some((f) => f.id);
+  if (!hasAnyLinkedFiling && req.body?.acknowledgeNoFilings !== true) {
+    return res.status(400).json({
+      error: "This transfer has no government filings attached (8822-B, MD CRA, Amendment, or Dissolution). Confirm this ownership change was already filed elsewhere, or doesn't require any of these filings, before applying it to the client profile.",
+      requiresAcknowledgeNoFilings: true,
+    });
+  }
   const amendmentWasTaskOnly = !transfer.gov_form_amendment_filing_id && !!transfer.md_amendment_task_id;
 
   const buyerEmail = String(transfer.buyer_email || "").trim() || null;
@@ -904,7 +923,8 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers/:transferId/apply-n
     "Clients", "OWNERSHIP_TRANSFER_APPLIED_TO_PROFILE", transferId, "buyer_name", "", transfer.buyer_name,
     `Applied new owner ${transfer.buyer_name} to client profile for ${clientId}; portal access transferred ` +
       `(${result.portalAction} portal login ${result.portalUserId}) by ${req.user!.email}.` +
-      (amendmentWasTaskOnly ? " Note: MD Amendment on this transfer was only tracked as a reminder task, not a filed form." : ""),
+      (amendmentWasTaskOnly ? " Note: MD Amendment on this transfer was only tracked as a reminder task, not a filed form." : "") +
+      (!hasAnyLinkedFiling ? " Note: applied with no government filings attached — admin acknowledged this was intentional." : ""),
     req.user!.email
   );
 

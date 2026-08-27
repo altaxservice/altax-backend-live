@@ -39,6 +39,7 @@ interface OwnershipTransfer {
   gov_form_amendment_filing_id: string | null;
   gov_form_dissolution_filing_id: string | null;
   md_amendment_task_id: string | null;
+  created_by: string | null;
   created_at: string;
   /** Set once "Apply New Owner to Client Profile" has been run for this transfer — see POST .../apply-new-owner. Null until then. */
   applied_to_profile_at: string | null;
@@ -250,22 +251,35 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
 
   async function handleApplyNewOwner(t: OwnershipTransfer) {
     const amendmentWasTaskOnly = !t.gov_form_amendment_filing_id && !!t.md_amendment_task_id;
+    // No second-admin approval is required to finalize a transfer (a
+    // deliberate call — see ownershipTransfer.routes.ts's comment on this
+    // route) — this app is used by a small admin team, and requiring a
+    // DIFFERENT admin than whoever created/edited the transfer would be
+    // disproportionate friction for the actual insider-risk it defends
+    // against, when the full audit trail (who created, edited, and applied,
+    // with timestamps) already gives after-the-fact accountability. What
+    // this dialog adds instead is making sure whoever clicks Apply sees
+    // who set this up, so a self-check happens before an irreversible action.
     const ok = await confirmDialog({
       title: "Apply New Owner to Client Profile",
       message:
-        `This will update ${clientName}'s Responsible Party contact info to ${t.buyer_name} (from ${t.buyer_email || "no email on file"}), ` +
+        `This transfer was created by ${t.created_by || "an unknown user"}. Applying it will update ${clientName}'s Responsible Party contact info to ${t.buyer_name} (from ${t.buyer_email || "no email on file"}), ` +
         `deactivate the OLD owner's portal login and clear their password/2FA so it can no longer be used, and email a NEW portal invite to the new owner. ` +
         `This cannot be undone from here.` +
         (amendmentWasTaskOnly ? ` Note: the MD Articles of Amendment for this transfer was only tracked as a reminder task, not filed as a real form.` : ""),
       confirmLabel: "Apply New Owner", danger: true,
     });
     if (!ok) return;
+    await submitApplyNewOwner(t, false);
+  }
+
+  async function submitApplyNewOwner(t: OwnershipTransfer, acknowledgeNoFilings: boolean) {
     setApplyingId(t.transfer_id);
     try {
       const res = await api.post<{
         ok: boolean; portalUserId: string; portalAction: "reprovisioned" | "created";
         inviteEmailed: boolean; inviteEmailError?: string; inviteLink?: string; amendmentWasTaskOnly: boolean;
-      }>(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/apply-new-owner`, {});
+      }>(`/clients/${clientId}/ownership-transfers/${t.transfer_id}/apply-new-owner`, { acknowledgeNoFilings });
       toast(
         `New owner applied. Portal login ${res.portalAction === "created" ? "created" : "transferred"} for ${t.buyer_name}` +
         (res.inviteEmailed ? " — invite emailed." : res.inviteLink ? " — invite email failed to send; share the invite link manually." : ".")
@@ -274,6 +288,24 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
       loadFilings();
       onClientUpdated?.();
     } catch (err) {
+      // A 400 with requiresAcknowledgeNoFilings means this transfer has no
+      // government filings attached at all — not an error to just show and
+      // drop, but a real decision the admin needs to make explicitly rather
+      // than the app finalizing it silently (Hard Audit finding, 2026-08-27).
+      const body = err instanceof ApiError ? (err.body as { requiresAcknowledgeNoFilings?: boolean } | undefined) : undefined;
+      if (body?.requiresAcknowledgeNoFilings && !acknowledgeNoFilings) {
+        setApplyingId(null);
+        const ack = await confirmDialog({
+          title: "No Government Filings Attached",
+          message:
+            `${t.buyer_name}'s ownership transfer has no 8822-B, MD CRA, Amendment, or Dissolution filing attached. ` +
+            `Only confirm if this was already filed elsewhere (or genuinely doesn't need any of these filings) — ` +
+            `this will be noted on the audit trail.`,
+          confirmLabel: "Confirm — Nothing Left to File", danger: true,
+        });
+        if (ack) await submitApplyNewOwner(t, true);
+        return;
+      }
       await notify(err instanceof ApiError ? err.message : "Could not apply the new owner.");
     } finally {
       setApplyingId(null);
