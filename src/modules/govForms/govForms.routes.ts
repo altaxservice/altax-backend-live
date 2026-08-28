@@ -7,6 +7,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
 import { decryptClientPii, decryptValue, encryptValue } from "../../common/encryption";
+import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
 import { applySignatureOverlay, type SignableFormType } from "./signOverlay";
 import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
@@ -511,9 +512,9 @@ govFormsRouter.get("/mine/:filingId/pdf", requireAuth, asyncHandler(async (req: 
   }
 
   if (filing.attached_upload_id) {
-    const upload = await queryOne<any>(`SELECT file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
-    if (upload?.file_data) {
-      const bytes = Buffer.from(decryptTolerant(upload.file_data), "base64");
+    const upload = await queryOne<any>(`SELECT file_data, blob_backend, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
+    if (upload && (upload.blob_backend === "r2" || upload.file_data)) {
+      const bytes = Buffer.from(await readUploadBlob(filing.attached_upload_id, upload.file_data, upload.blob_backend), "base64");
       res.setHeader("Content-Type", upload.mime_type || "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="Form_${filing.form_type}_${filing.filing_id}.pdf"`);
       return res.send(bytes);
@@ -610,16 +611,16 @@ govFormsRouter.post("/my/:filingId/sign", requireAuth, asyncHandler(async (req: 
   const uploadId = `DOC-${idSuffix()}`;
   const downloadToken = crypto.randomBytes(24).toString("hex");
   const fileName = `${FORM_LABELS[filing.form_type] || filing.form_type} - Signed.pdf`;
-  const fileData = encryptValue(Buffer.from(signedPdf).toString("base64"));
+  const { fileData, blobBackend } = await writeUploadBlob(uploadId, Buffer.from(signedPdf).toString("base64"));
   await query(
     `INSERT INTO altax.v3_document_uploads
        (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Employee to Firm','Generated',$10,false,'Node Web App',$1,$11)`,
+        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Employee to Firm','Generated',$10,false,'Node Web App',$1,$11,$12)`,
     [
       uploadId, employee.client_id, employee.client_name, employee.employee_id, fileName,
       `/documents/uploads/${uploadId}/download?t=${downloadToken}`, fileData, signedPdf.byteLength,
-      req.user!.email, `Electronically signed and submitted by ${employee.employee_name} via the employee portal.`, downloadToken,
+      req.user!.email, `Electronically signed and submitted by ${employee.employee_name} via the employee portal.`, downloadToken, blobBackend,
     ]
   );
 
@@ -702,9 +703,9 @@ govFormsRouter.get("/:filingId/pdf", requireAuth, requireRole("admin", "staff"),
   if (filing === "forbidden") return res.status(403).json({ error: "You do not have access to this filing." });
 
   if (filing.status !== "Draft" && filing.attached_upload_id) {
-    const upload = await queryOne<any>(`SELECT file_data, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
-    if (upload?.file_data) {
-      const bytes = Buffer.from(decryptTolerant(upload.file_data), "base64");
+    const upload = await queryOne<any>(`SELECT file_data, blob_backend, mime_type FROM altax.v3_document_uploads WHERE upload_id = $1`, [filing.attached_upload_id]);
+    if (upload && (upload.blob_backend === "r2" || upload.file_data)) {
+      const bytes = Buffer.from(await readUploadBlob(filing.attached_upload_id, upload.file_data, upload.blob_backend), "base64");
       res.setHeader("Content-Type", upload.mime_type || "application/pdf");
       res.setHeader("Content-Disposition", `inline; filename="Form_${filing.form_type}_${filing.filing_id}.pdf"`);
       return res.send(bytes);
@@ -755,16 +756,16 @@ govFormsRouter.post("/:filingId/sign", requireAuth, requireRole("admin", "staff"
     uploadId = `DOC-${idSuffix()}`;
     const downloadToken = crypto.randomBytes(24).toString("hex");
     const fileName = `${FORM_LABELS[filing.form_type] || filing.form_type} - Signed.pdf`;
-    const fileData = encryptValue(Buffer.from(pdfBytes).toString("base64"));
+    const { fileData, blobBackend } = await writeUploadBlob(uploadId, Buffer.from(pdfBytes).toString("base64"));
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Firm to Client','Generated',$10,false,'Node Web App',$1,$11)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,'application/pdf',$8,$9,now(),'Firm to Client','Generated',$10,false,'Node Web App',$1,$11,$12)`,
       [
         uploadId, clientId, clientName, filing.employee_id || null, fileName,
         `/documents/uploads/${uploadId}/download?t=${downloadToken}`, fileData, pdfBytes.byteLength,
-        req.user!.email, `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, downloadToken,
+        req.user!.email, `Recorded as signed in person by "${signerName}", logged by ${req.user!.email}.`, downloadToken, blobBackend,
       ]
     );
   } catch (err: any) {

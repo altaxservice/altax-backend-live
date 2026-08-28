@@ -10,7 +10,8 @@ import { parseEmailList } from "../../common/notifications";
 import { getFirmProfile } from "../../common/firmProfile";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_BYTES } from "../documents/documents.routes";
-import { encryptValue, decryptClientPii } from "../../common/encryption";
+import { decryptClientPii } from "../../common/encryption";
+import { writeUploadBlob } from "../../common/uploadBlobStorage";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { resolveTemplate, substitutePlaceholders, computeClientPeriodSummary, computeClientPeriodSummaryArabic, computeClientPeriodSummaryTable } from "../templates/templates.routes";
 
@@ -60,13 +61,14 @@ async function saveMessageAttachmentAsDocument(
   const uploadId = `DOC-${docUploadIdSuffix()}`;
   const downloadToken = generateShareToken();
   const fileUrl = `/documents/uploads/${uploadId}/download?t=${downloadToken}`;
+  const { fileData, blobBackend } = await writeUploadBlob(uploadId, attachment.contentBase64);
   await query(
     `INSERT INTO altax.v3_document_uploads
        (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1,$12)`,
-    [uploadId, clientId, clientName, attachment.filename, fileUrl, encryptValue(attachment.contentBase64), mimeType, sizeBytes, uploadedBy,
-      "Attached to a message.", !clientId, downloadToken]
+        uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+     VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client','Uploaded',$10,$11,'Node Web App Message',$1,$12,$13)`,
+    [uploadId, clientId, clientName, attachment.filename, fileUrl, fileData, mimeType, sizeBytes, uploadedBy,
+      "Attached to a message.", !clientId, downloadToken, blobBackend]
   );
   return { fileUrl };
 }

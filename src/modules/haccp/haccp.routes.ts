@@ -5,7 +5,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit, logClientActivity } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
-import { encryptValue } from "../../common/encryption";
+import { writeUploadBlob } from "../../common/uploadBlobStorage";
 import { generateHaccpPdf, type HaccpPdfData } from "./haccpPdf";
 import { generateHaccpDocx } from "./haccpDocx";
 import {
@@ -562,14 +562,14 @@ haccpRouter.post("/plans/:planId/save-to-documents", requireAuth, requireRole("a
   for (const doc of docs) {
     const uploadId = `DOC-${idSuffix()}`;
     const downloadToken = crypto.randomBytes(24).toString("hex");
-    const fileData = encryptValue(Buffer.from(doc.bytes).toString("base64"));
+    const { fileData, blobBackend } = await writeUploadBlob(uploadId, Buffer.from(doc.bytes).toString("base64"));
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Internal','Generated',$10,true,'Node Web App',$1,$11)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Internal','Generated',$10,true,'Node Web App',$1,$11,$12)`,
       [uploadId, plan.client_id, client?.client_name || plan.business_name, doc.label, `/documents/uploads/${uploadId}/download?t=${downloadToken}`,
-       fileData, doc.mimeType, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`, downloadToken]
+       fileData, doc.mimeType, doc.bytes.length, req.user!.email, `Generated from HACCP plan ${plan.plan_id}.`, downloadToken, blobBackend]
     );
     uploadIds.push(uploadId);
   }

@@ -6,7 +6,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
-import { encryptValue, decryptTolerant } from "../../common/encryption";
+import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
 import { rateLimit } from "../../common/rateLimit";
 import { scanFileForMalware } from "../../common/malwareScan";
 
@@ -586,18 +586,22 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     }
   }
 
-  // Encrypted after size/mime validation (which needs the real plaintext length) but
-  // before it's ever written — every new row's file_data is the "v1:...:..." envelope,
-  // never plaintext. fileSize/mime stay unencrypted since they're needed unauthenticated
-  // (Content-Type/Content-Disposition headers, size display) and reveal nothing sensitive.
-  const fileData = resolved.fileData ? encryptValue(resolved.fileData) : null;
-  let fileUrl = resolved.fileUrl;
   const uploadId = nextUploadId();
+  // Encrypted after size/mime validation (which needs the real plaintext length) but
+  // before it's ever written — every new row's stored bytes are the "v1:...:..."
+  // envelope, never plaintext, whichever backend they end up in (R2 if configured,
+  // the file_data column otherwise — see writeUploadBlob). fileSize/mime stay
+  // unencrypted since they're needed unauthenticated (Content-Type/Content-Disposition
+  // headers, size display) and reveal nothing sensitive.
+  const { fileData, blobBackend } = resolved.fileData
+    ? await writeUploadBlob(uploadId, resolved.fileData)
+    : { fileData: null, blobBackend: "postgres" as const };
+  let fileUrl = resolved.fileUrl;
   // Only self-hosted files (bytes we're serving through our own /download route)
   // need a download token — a pasted external link (fileUrl already set above)
   // never touches that route at all.
-  const downloadToken = fileData ? generateDownloadToken() : null;
-  if (fileData) fileUrl = `/documents/uploads/${uploadId}/download?t=${downloadToken}`;
+  const downloadToken = resolved.fileData ? generateDownloadToken() : null;
+  if (resolved.fileData) fileUrl = `/documents/uploads/${uploadId}/download?t=${downloadToken}`;
 
   if (requestId) {
     const request = await queryOne<any>(`SELECT * FROM altax.v3_document_requests WHERE request_id = $1`, [requestId]);
@@ -612,12 +616,12 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13,$14,$15,false,'Node Web App',$1,$16)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13,$14,$15,false,'Node Web App',$1,$16,$17)`,
       [
         uploadId, requestId, request.task_id || null, request.client_id, request.client_name, request.employee_id || null,
         fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email, direction, String(body.status || "Uploaded").trim(),
-        String(body.notes || "").trim() || null, downloadToken,
+        String(body.notes || "").trim() || null, downloadToken, blobBackend,
       ]
     );
 
@@ -641,11 +645,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Internal',$11,$12,true,'Node Web App',$1,$13)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Internal',$11,$12,true,'Node Web App',$1,$13,$14)`,
       [
         uploadId, taskId, task.client_id, task.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
-        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken,
+        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken, blobBackend,
       ]
     );
   } else if (directEmployeeId) {
@@ -667,11 +671,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, employee_id, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Firm to Employee',$11,$12,false,'Node Web App',$1,$13)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Firm to Employee',$11,$12,false,'Node Web App',$1,$13,$14)`,
       [
         uploadId, employee.client_id, employee.client_name, employee.employee_id, fileName, fileUrl, fileData, mimeType, fileSize,
-        req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken,
+        req.user!.email, String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, downloadToken, blobBackend,
       ]
     );
 
@@ -706,11 +710,11 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     await query(
       `INSERT INTO altax.v3_document_uploads
          (upload_id, request_id, task_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
-          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token)
-       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client',$10,$11,$12,'Node Web App',$1,$13)`,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,now(),'Firm to Client',$10,$11,$12,'Node Web App',$1,$13,$14)`,
       [
         uploadId, client.client_id, client.client_name, fileName, fileUrl, fileData, mimeType, fileSize, req.user!.email,
-        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient), downloadToken,
+        String(body.status || "Uploaded").trim(), String(body.notes || "").trim() || null, Boolean(body.hiddenFromClient), downloadToken, blobBackend,
       ]
     );
 
@@ -769,10 +773,10 @@ const UNAUTHED_DOWNLOAD_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 const downloadLimiter = rateLimit({ name: "doc-download", windowMs: 15 * 60 * 1000, max: 60 });
 documentsRouter.get("/uploads/:uploadId/download", downloadLimiter, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const row = await queryOne<any>(
-    `SELECT file_name, file_data, mime_type, uploaded_at, client_id, employee_id, download_token FROM altax.v3_document_uploads WHERE upload_id = $1`,
+    `SELECT file_name, file_data, blob_backend, mime_type, uploaded_at, client_id, employee_id, download_token FROM altax.v3_document_uploads WHERE upload_id = $1`,
     [req.params.uploadId]
   );
-  if (!row || !row.file_data) return res.status(404).json({ error: "File not found." });
+  if (!row || (row.blob_backend !== "r2" && !row.file_data)) return res.status(404).json({ error: "File not found." });
 
   const authHeader = req.headers.authorization || "";
   const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -823,7 +827,7 @@ documentsRouter.get("/uploads/:uploadId/download", downloadLimiter, asyncHandler
   res.setHeader("Content-Type", row.mime_type || "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${asciiFallbackName}"; filename*=UTF-8''${encodeURIComponent(rawName)}`);
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.send(Buffer.from(decryptTolerant(row.file_data), "base64"));
+  res.send(Buffer.from(await readUploadBlob(req.params.uploadId, row.file_data, row.blob_backend), "base64"));
 }));
 
 /**
