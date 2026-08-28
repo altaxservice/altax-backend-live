@@ -20,6 +20,7 @@ import { GOV_FORM_LABELS, GOV_SUBMIT_VIA_OPTIONS, GOV_STATUS_COLOR } from "../ap
 import { GenerateW4Modal } from "../components/GenerateW4Modal";
 import { GenerateW9Modal } from "../components/GenerateW9Modal";
 import { PAYROLL_FREQS, FEDERAL_FILING_STATUSES, MD_FILING_STATUSES, MD_COUNTIES } from "../utils/clientOptions";
+import { DetailField } from "../components/DetailCard";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -322,19 +323,21 @@ export function EmployeeDetailPage() {
             )}
             {/* The basics repeat the header on purpose — this card is what gets
                 read (and screenshotted) as "the profile", so it must stand alone. */}
-            <DetailRow label="Name" value={employee.employee_name} />
-            <DetailRow label="Worker Type" value={employee.worker_type || "Employee"} />
-            <DetailRow label="Status" value={employee.status} />
-            <DetailRow label="Client" value={employee.client_name as string} />
-            <DetailRow label="Home State (payroll)" value={(employee as any).state} />
-            <DetailRow label="Pay Type" value={employee.pay_type} />
-            <DetailRow label="Pay Rate" value={fmtMoney(employee.pay_rate)} />
-            <DetailRow label="Default Hours" value={employee.default_hours != null ? String(employee.default_hours) : null} />
-            <DetailRow label="Default Gross Wages" value={fmtMoney(employee.default_gross_wages)} />
-            <DetailRow label="Pay Frequency" value={employee.pay_frequency} />
-            {isContractor && <DetailRow label="Service Category" value={employee.service_category} />}
-            <DetailRow label="Email" value={employee.email} />
-            <DetailRow label="Phone" value={employee.phone} />
+            <div className="detail-field-grid">
+              <DetailField label="Name" value={employee.employee_name} />
+              <DetailField label="Worker Type" value={employee.worker_type || "Employee"} />
+              <DetailField label="Status" value={employee.status} />
+              <DetailField label="Client" value={employee.client_name as string} />
+              <DetailField label="Home State (payroll)" value={(employee as any).state} />
+              <DetailField label="Pay Type" value={employee.pay_type} />
+              <DetailField label="Pay Rate" value={fmtMoney(employee.pay_rate)} />
+              <DetailField label="Default Hours" value={employee.default_hours != null ? String(employee.default_hours) : null} />
+              <DetailField label="Default Gross Wages" value={fmtMoney(employee.default_gross_wages)} />
+              <DetailField label="Pay Frequency" value={employee.pay_frequency} />
+              {isContractor && <DetailField label="Service Category" value={employee.service_category} />}
+              <DetailField label="Email" value={employee.email} />
+              <DetailField label="Phone" value={employee.phone} />
+            </div>
           </div>
         )
       )}
@@ -391,47 +394,47 @@ export function EmployeeDetailPage() {
           </div>
           <p className="muted" style={{ marginBottom: 12 }}>SSN/EIN/TIN and bank account numbers are encrypted; only admins can reveal or edit them.</p>
           {!isAdmin && (
-            <>
-              <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
-              <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
-              <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
-            </>
+            <div className="detail-field-grid">
+              <DetailField label="W-9 Status" value={employee.w9_status as string | undefined} />
+              <DetailField label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
+              <DetailField label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
+            </div>
           )}
           {isAdmin && !sensitive && !editingSensitive && (
-            <>
-              <DetailRow label="W-9 Status" value={employee.w9_status as string | undefined} />
-              <DetailRow label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
-              <DetailRow label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
-            </>
+            <div className="detail-field-grid">
+              <DetailField label="W-9 Status" value={employee.w9_status as string | undefined} />
+              <DetailField label="1099 Eligible" value={employee.is_1099_eligible ? "Yes" : "No"} />
+              <DetailField label="Bank Account" value={employee.bank_last4 ? `****${employee.bank_last4}` : null} />
+            </div>
           )}
           {isAdmin && sensitive && !editingSensitive && (
-            <>
-              <DetailRow label="SSN" value={sensitive.ssn} />
-              <DetailRow label="EIN" value={sensitive.ein} />
-              <DetailRow label="TIN" value={sensitive.tin} />
-              <DetailRow label="Street Address" value={sensitive.streetAddress || sensitive.address} />
-              <DetailRow label="City" value={sensitive.city} />
-              <DetailRow label="Home State (drives state withholding/SUTA)" value={sensitive.state} />
-              <DetailRow label="ZIP" value={sensitive.zipCode} />
-              <DetailRow label="Federal Filing Status" value={sensitive.federalFilingStatus} />
-              <DetailRow label="State Filing Status" value={sensitive.stateFilingStatus} />
-              <DetailRow label="Maryland County" value={sensitive.county} />
-              <DetailRow label="MD Exemptions (Form MW507)" value={sensitive.mdExemptions != null && sensitive.mdExemptions !== "" ? String(sensitive.mdExemptions) : null} />
-              <DetailRow label="State Exemptions (VA-4 / DC / DE)" value={sensitive.stateExemptions != null && sensitive.stateExemptions !== "" ? String(sensitive.stateExemptions) : null} />
-              <DetailRow label="VA Age 65+/Blind Exemptions" value={sensitive.ageBlindExemptions != null && sensitive.ageBlindExemptions !== "" ? String(sensitive.ageBlindExemptions) : null} />
-              <DetailRow label="W-9 Status" value={sensitive.w9Status} />
-              <DetailRow label="TIN Verification" value={sensitive.tinVerificationStatus} />
-              <DetailRow label="Vendor Classification" value={sensitive.vendorClassification} />
-              <DetailRow label="Contractor Payment Type" value={sensitive.contractorPaymentType} />
-              <DetailRow label="Fixed Project Amount" value={sensitive.fixedProjectAmount != null ? fmtMoney(sensitive.fixedProjectAmount) : null} />
-              <DetailRow label="1099 Eligible" value={sensitive.is1099Eligible ? "Yes" : "No"} />
-              <DetailRow label="Payment Method" value={sensitive.paymentMethod} />
-              <DetailRow label="Direct Deposit" value={sensitive.directDeposit ? "Yes" : "No"} />
-              <DetailRow label="Bank Name" value={sensitive.paymentBankName} />
-              <DetailRow label="Routing Number" value={sensitive.paymentRoutingNumber} />
-              <DetailRow label="Account Number" value={sensitive.paymentAccountNumber} />
-              <DetailRow label="Account Type" value={sensitive.paymentAccountType} />
-            </>
+            <div className="detail-field-grid">
+              <DetailField label="SSN" value={sensitive.ssn} />
+              <DetailField label="EIN" value={sensitive.ein} />
+              <DetailField label="TIN" value={sensitive.tin} />
+              <DetailField label="Street Address" value={sensitive.streetAddress || sensitive.address} />
+              <DetailField label="City" value={sensitive.city} />
+              <DetailField label="Home State (drives state withholding/SUTA)" value={sensitive.state} />
+              <DetailField label="ZIP" value={sensitive.zipCode} />
+              <DetailField label="Federal Filing Status" value={sensitive.federalFilingStatus} />
+              <DetailField label="State Filing Status" value={sensitive.stateFilingStatus} />
+              <DetailField label="Maryland County" value={sensitive.county} />
+              <DetailField label="MD Exemptions (Form MW507)" value={sensitive.mdExemptions != null && sensitive.mdExemptions !== "" ? String(sensitive.mdExemptions) : null} />
+              <DetailField label="State Exemptions (VA-4 / DC / DE)" value={sensitive.stateExemptions != null && sensitive.stateExemptions !== "" ? String(sensitive.stateExemptions) : null} />
+              <DetailField label="VA Age 65+/Blind Exemptions" value={sensitive.ageBlindExemptions != null && sensitive.ageBlindExemptions !== "" ? String(sensitive.ageBlindExemptions) : null} />
+              <DetailField label="W-9 Status" value={sensitive.w9Status} />
+              <DetailField label="TIN Verification" value={sensitive.tinVerificationStatus} />
+              <DetailField label="Vendor Classification" value={sensitive.vendorClassification} />
+              <DetailField label="Contractor Payment Type" value={sensitive.contractorPaymentType} />
+              <DetailField label="Fixed Project Amount" value={sensitive.fixedProjectAmount != null ? fmtMoney(sensitive.fixedProjectAmount) : null} />
+              <DetailField label="1099 Eligible" value={sensitive.is1099Eligible ? "Yes" : "No"} />
+              <DetailField label="Payment Method" value={sensitive.paymentMethod} />
+              <DetailField label="Direct Deposit" value={sensitive.directDeposit ? "Yes" : "No"} />
+              <DetailField label="Bank Name" value={sensitive.paymentBankName} />
+              <DetailField label="Routing Number" value={sensitive.paymentRoutingNumber} />
+              <DetailField label="Account Number" value={sensitive.paymentAccountNumber} />
+              <DetailField label="Account Type" value={sensitive.paymentAccountType} />
+            </div>
           )}
           {isAdmin && editingSensitive && (
             <form onSubmit={handleSaveSensitive}>
@@ -1085,11 +1088,3 @@ function EmployeeDocumentsSection({ employeeId, employeeName, clientId, clientNa
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13, gap: 16 }}>
-      <span className="muted" style={{ flexShrink: 0 }}>{label}</span>
-      <span style={{ textAlign: "right" }}>{value || "—"}</span>
-    </div>
-  );
-}

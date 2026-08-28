@@ -13,6 +13,7 @@ import { ENTITY_TYPES, BUSINESS_TYPES, SPEEDS, money, stageForEstimate, PIPELINE
 import { METHODS } from "./InvoicesListPage";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateTime } from "../utils/date";
+import { DetailField } from "../components/DetailCard";
 
 /**
  * The estimate builder.
@@ -560,17 +561,17 @@ export function EstimateDetailPage() {
               </div>
             </div>
           ) : (
-            <>
-              <Row label="Entity" value={estimate.entity_type || "—"} />
-              <Row label="Business type" value={estimate.business_type || "—"} />
-              <Row label="Jurisdiction" value={estimate.jurisdiction || "—"} />
-              <Row label="Filing speed" value={estimate.speed} />
-              <Row label="Contact" value={estimate.contact_name || "—"} />
-              <Row label="Email" value={estimate.email || "—"} />
-              <Row label="Phone" value={estimate.phone || "—"} />
-              <Row label="Address" value={[estimate.street, [estimate.city, estimate.state, estimate.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ") || "—"} />
-              <Row label="Valid until" value={estimate.valid_until ? fmtDateTime(estimate.valid_until) : "—"} />
-            </>
+            <div className="detail-field-grid">
+              <DetailField label="Entity" value={estimate.entity_type} />
+              <DetailField label="Business type" value={estimate.business_type} />
+              <DetailField label="Jurisdiction" value={estimate.jurisdiction} />
+              <DetailField label="Filing speed" value={estimate.speed} />
+              <DetailField label="Contact" value={estimate.contact_name} />
+              <DetailField label="Email" value={estimate.email} />
+              <DetailField label="Phone" value={estimate.phone} />
+              <DetailField label="Address" value={[estimate.street, [estimate.city, estimate.state, estimate.zip].filter(Boolean).join(", ")].filter(Boolean).join(", ") || null} wide />
+              <DetailField label="Valid until" value={estimate.valid_until ? fmtDateTime(estimate.valid_until) : null} />
+            </div>
           )}
 
           <div className="field" style={{ marginTop: 12 }}>

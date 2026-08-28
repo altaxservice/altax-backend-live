@@ -38,6 +38,7 @@ import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
+import { DetailField } from "../components/DetailCard";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
 // Display-only fallback if the tiers admin page hasn't loaded here — the
@@ -1061,35 +1062,39 @@ export function ClientDetailPage() {
                     {canEdit && <button className="btn btn-sm" onClick={() => setEditing(true)}>Edit</button>}
                   </div>
                 </div>
-                <DetailRow label="Client Type" value={client.client_type} />
-                <DetailRow label="Entity Type" value={client.entity_type} />
-                <DetailRow label="Date of Formation" value={client.date_of_formation ? fmtDateOnly(client.date_of_formation) : null} />
-                <DetailRow label="State" value={client.state} />
-                <DetailRow label="Service Type" value={client.service_type} />
-                <DetailRow
-                  label="Services Provided"
-                  value={(client.services && client.services.length > 0)
-                    ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
-                    : null}
-                  multiline
-                />
-                <DetailRow
-                  label="Subscription"
-                  value={client.subscription_monthly_fee != null
-                    ? `$${Number(client.subscription_monthly_fee).toFixed(2)}/mo — ${SUBSCRIPTION_TIER_FALLBACK_LABEL[client.subscription_tier || ""] || client.subscription_tier || "—"}${client.subscription_fee_is_custom ? " (custom)" : ""}`
-                    : null}
-                />
-                <DetailRow label="Email" value={client.email} />
-                <DetailRow label="Phone" value={client.phone} />
-                <DetailRow label="Address" value={client.address as string | null} multiline />
-                <DetailRow label="Assigned To (Owner)" value={client.assigned_to} />
-                <DetailRow label="Preferred Contact" value={client.preferred_contact as string | null} />
-                <DetailRow label="Preferred Language" value={client.preferred_language as string | null} />
-                <DetailRow label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
-                <DetailRow label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
-                <DetailRow label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
-                <DetailRow label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
-                <DetailRow label="Referral Source" value={client.referral_source as string | null} />
+                <div className="detail-field-grid">
+                  <DetailField label="Client Type" value={client.client_type} />
+                  <DetailField label="Entity Type" value={client.entity_type} />
+                  <DetailField label="Date of Formation" value={client.date_of_formation ? fmtDateOnly(client.date_of_formation) : null} />
+                  <DetailField label="State" value={client.state} />
+                  <DetailField label="Service Type" value={client.service_type} />
+                  <DetailField
+                    label="Services Provided"
+                    value={(client.services && client.services.length > 0)
+                      ? client.services.map((k) => FIRM_SERVICES.find((s) => s.key === k)?.label || k).join(", ")
+                      : null}
+                    multiline
+                    wide
+                  />
+                  <DetailField
+                    label="Subscription"
+                    value={client.subscription_monthly_fee != null
+                      ? `$${Number(client.subscription_monthly_fee).toFixed(2)}/mo — ${SUBSCRIPTION_TIER_FALLBACK_LABEL[client.subscription_tier || ""] || client.subscription_tier || "—"}${client.subscription_fee_is_custom ? " (custom)" : ""}`
+                      : null}
+                    wide
+                  />
+                  <DetailField label="Email" value={client.email} />
+                  <DetailField label="Phone" value={client.phone} />
+                  <DetailField label="Address" value={client.address as string | null} multiline wide />
+                  <DetailField label="Assigned To (Owner)" value={client.assigned_to} />
+                  <DetailField label="Preferred Contact" value={client.preferred_contact as string | null} />
+                  <DetailField label="Preferred Language" value={client.preferred_language as string | null} />
+                  <DetailField label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
+                  <DetailField label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
+                  <DetailField label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
+                  <DetailField label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
+                  <DetailField label="Referral Source" value={client.referral_source as string | null} />
+                </div>
               </div>
               {String(client.notes || "").trim() && (
                 <div className="card" style={{ maxWidth: 560, marginTop: 20 }}>
@@ -1106,35 +1111,37 @@ export function ClientDetailPage() {
               <p className="muted" style={{ marginBottom: 12 }}>
                 {user?.role === "admin" ? "Shown in full — you are signed in as Admin." : "Sensitive fields are masked for your role."}
               </p>
-              {isBusinessClient ? (
-                <DetailRow label="EIN" value={client.ein as string | null} />
-              ) : (
-                <DetailRow label="Individual SSN" value={client.individual_ssn as string | null} />
-              )}
-              {isBusinessClient && <DetailRow label="State Tax ID" value={client.state_tax_id as string | null} />}
-              {isBusinessClient && <DetailRow label="Secretary of State ID (SDAT)" value={client.secretary_of_state_id as string | null} />}
-              {isBusinessClient && <DetailRow label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
-              {isBusinessClient && <DetailRow label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
-              {isBusinessClient && (
-                <DetailRow label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
-              )}
-              <DetailRow
-                label="Sales Tax Frequency"
-                value={client.sales_tax_frequency
-                  ? (client.sales_tax_frequency_effective_from
-                      ? `${client.sales_tax_frequency} (effective since ${fmtDateOnly(client.sales_tax_frequency_effective_from)})`
-                      : client.sales_tax_frequency)
-                  : null}
-              />
-              <DetailRow label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
-              {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
-              {Boolean(client.payroll_enabled) && <DetailRow label="Payroll Provider" value={client.payroll_system as string | null} />}
-              <DetailRow label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
-              <DetailRow label="MD Withholding Frequency" value={client.md_withholding_frequency as string | null} />
-              <DetailRow label="MD UI Enabled" value={client.mdui_enabled ? "Yes" : "No"} />
-              <DetailRow label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />
-              <DetailRow label="Business Return Type" value={client.business_return_type as string | null} />
-              <DetailRow label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />
+              <div className="detail-field-grid">
+                {isBusinessClient ? (
+                  <DetailField label="EIN" value={client.ein as string | null} />
+                ) : (
+                  <DetailField label="Individual SSN" value={client.individual_ssn as string | null} />
+                )}
+                {isBusinessClient && <DetailField label="State Tax ID" value={client.state_tax_id as string | null} />}
+                {isBusinessClient && <DetailField label="Secretary of State ID (SDAT)" value={client.secretary_of_state_id as string | null} />}
+                {isBusinessClient && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
+                {isBusinessClient && <DetailField label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
+                {isBusinessClient && (
+                  <DetailField label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
+                )}
+                <DetailField
+                  label="Sales Tax Frequency"
+                  value={client.sales_tax_frequency
+                    ? (client.sales_tax_frequency_effective_from
+                        ? `${client.sales_tax_frequency} (effective since ${fmtDateOnly(client.sales_tax_frequency_effective_from)})`
+                        : client.sales_tax_frequency)
+                    : null}
+                />
+                <DetailField label="Payroll Enabled" value={client.payroll_enabled ? "Yes" : "No"} />
+                {Boolean(client.payroll_enabled) && <DetailField label="Payroll Frequency" value={client.payroll_frequency as string | null} />}
+                {Boolean(client.payroll_enabled) && <DetailField label="Payroll Provider" value={client.payroll_system as string | null} />}
+                <DetailField label="EFTPS Enabled" value={client.eftps_enabled ? "Yes" : "No"} />
+                <DetailField label="MD Withholding Frequency" value={client.md_withholding_frequency as string | null} />
+                <DetailField label="MD UI Enabled" value={client.mdui_enabled ? "Yes" : "No"} />
+                <DetailField label="MD Annual Report Enabled" value={client.md_annual_report_enabled ? "Yes" : "No"} />
+                <DetailField label="Business Return Type" value={client.business_return_type as string | null} />
+                <DetailField label="W-2 / 1099 Enabled" value={client.w21099_enabled ? "Yes" : "No"} />
+              </div>
             </div>
           )}
 
@@ -1142,14 +1149,14 @@ export function ClientDetailPage() {
             <div className="card" style={{ maxWidth: 560 }}>
               <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Responsible Party</h2>
               {isBusinessClient ? (
-                <>
-                  <DetailRow label="Owner Name" value={client.company_contact_name as string | null} />
-                  <DetailRow label="Owner Title" value={client.company_contact_title as string | null} />
-                  <DetailRow label="Owner SS No." value={client.company_contact_ssn as string | null} />
-                  <DetailRow label="Owner Email" value={client.company_contact_email as string | null} />
-                  <DetailRow label="Owner Phone" value={client.company_contact_phone as string | null} />
-                  <DetailRow label="Owner Home Address" value={client.company_contact_address as string | null} multiline />
-                </>
+                <div className="detail-field-grid">
+                  <DetailField label="Owner Name" value={client.company_contact_name as string | null} />
+                  <DetailField label="Owner Title" value={client.company_contact_title as string | null} />
+                  <DetailField label="Owner SS No." value={client.company_contact_ssn as string | null} />
+                  <DetailField label="Owner Email" value={client.company_contact_email as string | null} />
+                  <DetailField label="Owner Phone" value={client.company_contact_phone as string | null} />
+                  <DetailField label="Owner Home Address" value={client.company_contact_address as string | null} multiline wide />
+                </div>
               ) : (
                 <p className="muted">Not applicable for individual clients.</p>
               )}
@@ -1164,11 +1171,13 @@ export function ClientDetailPage() {
                   <button className="btn btn-sm btn-danger" onClick={handleArchive}>Archive</button>
                 )}
               </div>
-              <DetailRow label="Open Tasks" value={summary ? String(summary.openTasks) : "—"} />
-              <DetailRow label="Open Document Requests" value={summary ? String(summary.openRequests) : "—"} />
-              <DetailRow label="Open Invoices" value={summary ? String(summary.openInvoices) : "—"} />
-              <DetailRow label="Balance Due" value={summary ? `$${summary.balanceDue.toFixed(2)}` : "—"} />
-              <DetailRow label="Employees" value={summary ? String(summary.employeesCount) : "—"} />
+              <div className="detail-field-grid">
+                <DetailField label="Open Tasks" value={summary ? String(summary.openTasks) : "—"} />
+                <DetailField label="Open Document Requests" value={summary ? String(summary.openRequests) : "—"} />
+                <DetailField label="Open Invoices" value={summary ? String(summary.openInvoices) : "—"} />
+                <DetailField label="Balance Due" value={summary ? `$${summary.balanceDue.toFixed(2)}` : "—"} />
+                <DetailField label="Employees" value={summary ? String(summary.employeesCount) : "—"} />
+              </div>
             </div>
           )}
 
@@ -3577,15 +3586,6 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function DetailRow({ label, value, multiline }: { label: string; value: string | null | undefined; multiline?: boolean }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13, gap: 12 }}>
-      <span className="muted">{label}</span>
-      <span style={{ textAlign: "right", whiteSpace: multiline ? "pre-wrap" : "normal" }}>{value || "—"}</span>
     </div>
   );
 }

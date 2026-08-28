@@ -14,6 +14,7 @@ import { fmtDateTime } from "../utils/date";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { FileDropInput } from "../components/FileDropInput";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
+import { DetailField } from "../components/DetailCard";
 
 const STATUS_OPTIONS_FALLBACK = ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"];
 const PRIORITY_OPTIONS_FALLBACK = ["Normal", "Low", "High", "Urgent"];
@@ -294,11 +295,13 @@ export function DocumentDetailPage() {
         </form>
       ) : (
         <div className="card" style={{ maxWidth: 560, marginBottom: 16 }}>
-          <Row label="Priority" value={request.priority} />
-          <Row label="Request Type" value={request.request_type} />
-          <Row label="Direction" value={request.direction} />
-          <Row label="Assigned To" value={request.assigned_to as string | null} />
-          <Row label="Due From Client" value={request.due_from_client} />
+          <div className="detail-field-grid">
+            <DetailField label="Priority" value={request.priority} />
+            <DetailField label="Request Type" value={request.request_type} />
+            <DetailField label="Direction" value={request.direction} />
+            <DetailField label="Assigned To" value={request.assigned_to as string | null} />
+            <DetailField label="Due From Client" value={request.due_from_client} />
+          </div>
         </div>
       )}
 
@@ -334,15 +337,6 @@ export function DocumentDetailPage() {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value, link }: { label: string; value: string | null | undefined; link?: string | null }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
-      <span className="muted">{label}</span>
-      <span>{link ? <a href={link} target="_blank" rel="noreferrer">{value}</a> : (value || "—")}</span>
     </div>
   );
 }

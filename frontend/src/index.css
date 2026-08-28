@@ -136,7 +136,12 @@ textarea:focus-visible, [tabindex]:focus-visible {
 }
 .btn-primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 .btn-primary:hover { opacity: 0.92; border-color: var(--teal); }
-.btn-danger { color: var(--red); }
+/* Previously identical to .btn except for text color, so a destructive action
+   (Void, Archive, Delete) read no differently than Edit at a glance. An
+   outlined red border gives it real visual weight without going full solid-red
+   (which would read as "primary" and compete with .btn-primary). */
+.btn-danger { color: var(--red); border-color: var(--red-soft); }
+.btn-danger:hover { border-color: var(--red); background: var(--red-soft); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 
 /* ---- Forms ---- */
@@ -178,6 +183,38 @@ textarea:focus-visible, [tabindex]:focus-visible {
   border-radius: 8px;
   box-shadow: var(--shadow);
   padding: 20px;
+}
+
+/* ---- Detail cards: grouped sections, fields two-up, label above value ----
+   Replaces the old single-column key:value row list (DetailRow) used on the
+   Task/Client/Employee/etc detail pages — that pattern forced a left-to-right
+   scan across each row to connect a label with its value, and read as one
+   long undifferentiated list even when the fields covered several unrelated
+   topics (filing info, payment info, portal info, all run together). */
+.detail-section-head {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 18px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detail-section-head:first-child { margin-top: 0; }
+.detail-section-head::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.detail-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+.detail-field { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.detail-field.detail-field-wide { grid-column: 1 / -1; }
+.detail-field-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
+.detail-field-value { font-size: 14px; font-weight: 600; word-break: break-word; font-variant-numeric: tabular-nums; white-space: normal; }
+.detail-field-value.detail-field-multiline { white-space: pre-wrap; font-weight: 500; }
+.detail-field-value a { color: var(--teal); }
+.detail-notes-box { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; white-space: pre-wrap; }
+.detail-meta-line { font-size: 12px; color: var(--muted); margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+@media (max-width: 480px) {
+  .detail-field-grid { grid-template-columns: 1fr; }
 }
 
 .command-panel {

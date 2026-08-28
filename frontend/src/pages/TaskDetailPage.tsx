@@ -9,6 +9,7 @@ import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
 import { statusOptionsForTaskType } from "../components/TaskCells";
+import { DetailSectionHead, DetailField } from "../components/DetailCard";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -351,26 +352,39 @@ export function TaskDetailPage() {
             </div>
           </form>
         ) : (
-          <div className="card" style={{ maxWidth: 560 }}>
-            <DetailRow label="Service Line" value={task.service_line} />
-            <DetailRow label="Priority" value={task.priority || "Normal"} />
-            <DetailRow label="Period" value={task.period} />
-            <DetailRow label="Frequency" value={task.frequency} />
-            <DetailRow label="Assigned To" value={task.assigned_to} />
-            <DetailRow label="Agency Due Date" value={task.agency_due_date ? fmtDateOnly(task.agency_due_date) : null} />
-            <DetailRow label="Staff Due Date" value={task.staff_due_date ? fmtDateOnly(task.staff_due_date) : null} />
-            <DetailRow label="Portal Name" value={task.portal_name} />
-            <DetailRow label="Portal URL" value={task.portal_url} link />
-            <DetailRow label="Payment Required" value={task.payment_required ? "Yes" : "No"} />
-            <DetailRow label="Payment Amount" value={task.payment_amount != null ? fmtMoney(task.payment_amount) : null} />
-            <DetailRow label="Filed Date" value={task.filed_date ? fmtDateOnly(task.filed_date) : null} />
-            <DetailRow label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
-            <DetailRow label="Confirmation Number" value={task.confirmation_number} />
-            <DetailRow label="Notes" value={task.notes} />
-            <DetailRow
-              label="Last Updated"
-              value={task.updated_at ? `${fmtDateTime(task.updated_at)}${task.updated_by ? ` by ${task.updated_by}` : ""}` : null}
-            />
+          <div className="card" style={{ maxWidth: 640 }}>
+            <DetailSectionHead>Filing</DetailSectionHead>
+            <div className="detail-field-grid">
+              <DetailField label="Service Line" value={task.service_line} />
+              <DetailField label="Priority" value={task.priority || "Normal"} />
+              <DetailField label="Period" value={task.period} />
+              <DetailField label="Frequency" value={task.frequency} />
+              <DetailField label="Assigned To" value={task.assigned_to} />
+              <DetailField label="Agency Due Date" value={task.agency_due_date ? fmtDateOnly(task.agency_due_date) : null} />
+              <DetailField label="Staff Due Date" value={task.staff_due_date ? fmtDateOnly(task.staff_due_date) : null} />
+            </div>
+
+            <DetailSectionHead>Payment</DetailSectionHead>
+            <div className="detail-field-grid">
+              <DetailField label="Payment Required" value={task.payment_required ? "Yes" : "No"} />
+              <DetailField label="Payment Amount" value={task.payment_amount != null ? fmtMoney(task.payment_amount) : null} />
+              <DetailField label="Filed Date" value={task.filed_date ? fmtDateOnly(task.filed_date) : null} />
+              <DetailField label="Paid Date" value={task.paid_date ? fmtDateOnly(task.paid_date) : null} />
+              <DetailField label="Confirmation Number" value={task.confirmation_number} />
+            </div>
+
+            <DetailSectionHead>Portal</DetailSectionHead>
+            <div className="detail-field-grid">
+              <DetailField label="Portal Name" value={task.portal_name} />
+              <DetailField label="Portal URL" value={task.portal_url} link />
+            </div>
+
+            <DetailSectionHead>Notes</DetailSectionHead>
+            <div className="detail-notes-box">{task.notes || "—"}</div>
+
+            <div className="detail-meta-line">
+              Last updated {task.updated_at ? fmtDateTime(task.updated_at) : "—"}{task.updated_by ? ` by ${task.updated_by}` : ""}
+            </div>
           </div>
         )
       )}
@@ -570,18 +584,6 @@ function TaskThread({ taskId, clientId, initialMode = "note" }: { taskId: string
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function DetailRow({ label, value, link }: { label: string; value: string | null | undefined; link?: boolean }) {
-  const href = link && value ? (/^https?:\/\//i.test(value) ? value : `https://${value}`) : null;
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13, gap: 16 }}>
-      <span className="muted" style={{ flexShrink: 0 }}>{label}</span>
-      <span style={{ textAlign: "right" }}>
-        {href ? <a href={href} target="_blank" rel="noreferrer">{value}</a> : (value || "—")}
-      </span>
     </div>
   );
 }
