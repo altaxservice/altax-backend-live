@@ -90,6 +90,7 @@ export function TasksListPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{ taskId: string; taskName: string; clientName: string; status: string; notifyEmail: boolean; notifySms: boolean } | null>(null);
   const [sortKey, setSortKey] = useStickyState<SortKey>("tasks.sortKey", "agency_due_date");
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("tasks.sortDir", "asc");
 
@@ -353,7 +354,19 @@ export function TasksListPage() {
     }
   }
 
-  async function handleStatusChange(taskId: string, status: string) {
+  // Opens the Send Status to Client picker instead of saving immediately —
+  // actually saving (with or without notifying) happens in
+  // commitStatusChange below. Direct owner request, 2026-08-27: the inline
+  // list-view status dropdown only ever saved immediately with no way to
+  // notify the client, unlike the full detail page's equivalent control.
+  function handleStatusChange(taskId: string, status: string) {
+    const task = (pageTasks || tasks || []).find((t) => t.task_id === taskId);
+    setPendingStatusChange({ taskId, taskName: task?.task_name || "this task", clientName: task?.client_name || "the client", status, notifyEmail: false, notifySms: false });
+  }
+
+  async function commitStatusChange(notifyChannels: string[]) {
+    if (!pendingStatusChange) return;
+    const { taskId, status } = pendingStatusChange;
     setSavingStatusId(taskId);
     const previousPageTasks = pageTasks;
     const previousTasks = tasks;
@@ -366,8 +379,9 @@ export function TasksListPage() {
     // tab, tasks for the All History view) — the other's map is a no-op.
     setPageTasks((prev) => prev?.map((t) => (t.task_id === taskId ? { ...t, status } : t)) ?? prev);
     setTasks((prev) => prev?.map((t) => (t.task_id === taskId ? { ...t, status } : t)) ?? prev);
+    setPendingStatusChange(null);
     try {
-      await api.patch(`/tasks/${taskId}`, { status });
+      await api.patch(`/tasks/${taskId}`, { status, notifyStatusChannels: notifyChannels });
       toast("Status updated.");
       reloadCurrentView();
     } catch (err) {
@@ -742,6 +756,46 @@ export function TasksListPage() {
           onClose={() => setRequestDocTask(null)}
           onDone={() => reloadCurrentView()}
         />
+      )}
+
+      {pendingStatusChange && (
+        <div className="modal-overlay" onClick={() => setPendingStatusChange(null)}>
+          <div className="modal-panel" style={{ maxWidth: 420 }} role="dialog" aria-modal="true" aria-labelledby="status-notify-title" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="status-notify-title">Update status to &quot;{pendingStatusChange.status}&quot;</h2>
+              <button className="btn btn-sm" onClick={() => setPendingStatusChange(null)}>Close</button>
+            </div>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Send a status update to {pendingStatusChange.clientName}? Only channels the client has opted into actually send.
+            </p>
+            <div style={{ display: "flex", gap: 16, margin: "12px 0" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={pendingStatusChange.notifyEmail}
+                  onChange={(e) => setPendingStatusChange({ ...pendingStatusChange, notifyEmail: e.target.checked })}
+                /> Email
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={pendingStatusChange.notifySms}
+                  onChange={(e) => setPendingStatusChange({ ...pendingStatusChange, notifySms: e.target.checked })}
+                /> SMS
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => commitStatusChange([...(pendingStatusChange.notifyEmail ? ["email"] : []), ...(pendingStatusChange.notifySms ? ["sms"] : [])])}
+              >
+                {(pendingStatusChange.notifyEmail || pendingStatusChange.notifySms) ? "Update & Send Status to Client" : "Update Status"}
+              </button>
+              <button type="button" className="btn" onClick={() => setPendingStatusChange(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
