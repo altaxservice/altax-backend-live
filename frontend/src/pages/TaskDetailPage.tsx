@@ -369,7 +369,7 @@ export function TaskDetailPage() {
             <DetailRow label="Notes" value={task.notes} />
             <DetailRow
               label="Last Updated"
-              value={task.updated_at ? `${fmtDateOnly(task.updated_at)}${task.updated_by ? ` by ${task.updated_by}` : ""}` : null}
+              value={task.updated_at ? `${fmtDateTime(task.updated_at)}${task.updated_by ? ` by ${task.updated_by}` : ""}` : null}
             />
           </div>
         )

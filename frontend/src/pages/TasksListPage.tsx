@@ -10,7 +10,7 @@ import { useToast } from "../components/Toast";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useAuth } from "../auth/AuthContext";
-import { fmtDateOnly } from "../utils/date";
+import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
 import { TASK_STATUSES, statusOptionsForTaskType, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
@@ -675,7 +675,7 @@ export function TasksListPage() {
                   <td className="muted" data-label="Owner">
                     <div>
                       <div>{t.assigned_to || "Unassigned"}</div>
-                      <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateOnly(t.updated_at)}` : "Not updated"}</div>
+                      <div style={{ fontSize: 11 }}>{t.updated_at ? `Upd. ${fmtDateTime(t.updated_at)}` : "Not updated"}</div>
                       {t.updated_by && <div style={{ fontSize: 11 }}>by {t.updated_by}</div>}
                     </div>
                   </td>
