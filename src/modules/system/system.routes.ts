@@ -176,6 +176,16 @@ systemRouter.post("/backup/restore", requireAuth, requireRole("admin"), restoreB
       const rows: any[] = Array.isArray(backup.data[table]) ? backup.data[table] : [];
       restoredCounts[table] = 0;
       if (rows.length === 0) continue;
+      // The backup carries real file bytes in file_data for every upload, r2-backed
+      // or not (see buildBackupObject's R2 enrichment step) — but blob_backend='r2'
+      // in that same row would make readUploadBlob() go straight to R2 and never
+      // look at the file_data we just restored. R2 may well be exactly what's
+      // missing/broken in a real restore scenario, so land these rows pointed at
+      // the column that's actually guaranteed to hold the bytes right now; the
+      // next backfillUploadsToR2.ts run re-migrates them, same as any other row.
+      if (table === "v3_document_uploads") {
+        for (const row of rows) if (row.file_data) row.blob_backend = "postgres";
+      }
       // Only columns that still exist — an old backup may carry dropped columns,
       // and columns added since simply take their defaults.
       const liveColRows = (await client.query(

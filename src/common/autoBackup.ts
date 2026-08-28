@@ -4,6 +4,7 @@ import { query } from "../config/db";
 import { logAudit } from "./audit";
 import { sendEmail } from "./notifications";
 import { getFirmProfile } from "./firmProfile";
+import { getObject } from "./objectStorage";
 
 /**
  * Daily automatic backup, encrypted and emailed to the firm's admins. Was
@@ -53,6 +54,24 @@ export async function buildBackupObject(exportedBy: string): Promise<{ backup: R
     data[name] = rows;
     counts[name] = rows.length;
   }
+
+  // v3_document_uploads rows with blob_backend='r2' have file_data=NULL — their
+  // actual bytes live in R2, not this table, so a plain SELECT * (above) silently
+  // drops them from the backup. Pull each one back in so this export stays what
+  // its own doc comment promises: "the mailbox becomes the offsite copy" of
+  // everything, not everything-except-files. Best-effort per file (one R2
+  // hiccup shouldn't abort the whole daily backup) — any that fail are logged
+  // and simply keep file_data=null in this export, same as before this fix.
+  const uploadRows: any[] = Array.isArray(data.v3_document_uploads) ? data.v3_document_uploads : [];
+  for (const row of uploadRows) {
+    if (row.blob_backend !== "r2") continue;
+    try {
+      row.file_data = (await getObject(String(row.upload_id))).toString("utf8");
+    } catch (err: any) {
+      console.error(`[autoBackup] could not fetch ${row.upload_id} from R2 for this backup:`, err?.message || err);
+    }
+  }
+
   const totalRows = Object.values(counts).reduce((sum, n) => sum + n, 0);
   return {
     backup: {
