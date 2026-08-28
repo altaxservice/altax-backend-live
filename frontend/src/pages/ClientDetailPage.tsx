@@ -995,6 +995,18 @@ export function ClientDetailPage() {
                 {t}
               </button>
             ))}
+            {canSeeStaffTabs && (
+              <Link
+                to={`/accounting?client=${client.client_id}`}
+                role="tab"
+                style={{
+                  padding: "10px 16px", fontSize: 14, fontWeight: 500, textDecoration: "none",
+                  color: "var(--muted)", borderBottom: "2px solid transparent",
+                }}
+              >
+                Accounting
+              </Link>
+            )}
           </div>
 
           {tab === "At a Glance" && canSeeStaffTabs && (
