@@ -1375,6 +1375,11 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState("");
+  // Archive is meant to declutter this list, but archived rows used to render
+  // right alongside active ones (just dimmed + labeled "(archived)") — so
+  // clicking Archive visibly did nothing. Now they're hidden by default,
+  // reachable through this toggle so Unarchive is never out of reach.
+  const [showArchived, setShowArchived] = useState(false);
 
   function load() {
     api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
@@ -1466,7 +1471,12 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           <strong style={{ fontSize: 14 }}>Files on File</strong>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <input type="text" placeholder="Search files…" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
-            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${searchedUploads.length} of ${uploads.length} file(s)` : "Loading…"}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${activeUploads.length} of ${uploads.length} file(s)` : "Loading…"}</span>
+            {archivedUploads.length > 0 && (
+              <button type="button" className="link-button" style={{ fontSize: 12 }} onClick={() => setShowArchived((v) => !v)}>
+                {showArchived ? "Hide" : "Show"} archived ({archivedUploads.length})
+              </button>
+            )}
             <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
             <button type="button" className="btn btn-sm" onClick={() => setRequestOpen(true)}>Request Document</button>
           </div>
@@ -1476,12 +1486,17 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
             <thead><tr><th scope="col">File</th><th scope="col">Direction</th><th scope="col">Uploaded</th><th scope="col">By</th><th scope="col">Action</th></tr></thead>
             <tbody>
               {activeUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={false} />)}
-              {archivedUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={true} />)}
+              {showArchived && archivedUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={true} />)}
             </tbody>
           </table>
         </div>
         {uploads && uploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files on file for this client yet.</p>}
         {uploads && uploads.length > 0 && searchedUploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files match "{fileSearch}".</p>}
+        {searchedUploads.length > 0 && activeUploads.length === 0 && !showArchived && (
+          <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+            Every matching file is archived. <button type="button" className="link-button" onClick={() => setShowArchived(true)}>Show archived</button>
+          </p>
+        )}
       </div>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
