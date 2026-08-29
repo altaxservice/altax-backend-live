@@ -115,6 +115,7 @@ export interface ProductService {
   catalog_service_key?: string | null;
   price_context?: "subscription" | "one_time" | null;
   fee_item_id?: string | null;
+  percent_rate?: number | string | null;
   [key: string]: unknown;
 }
 
