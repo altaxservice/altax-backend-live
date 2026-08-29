@@ -153,7 +153,17 @@ export async function authenticateUser(
     const result = await buildAuthSuccess(client, selectedUser, email);
     if (isErrorResult(result)) return result;
 
-    await client.query(`UPDATE altax.v3_users SET previous_login = last_login, last_login = now() WHERE user_id = $1`, [selectedUser.user_id]);
+    // previous_login/last_login are NOT updated here on purpose. This function
+    // only verifies the password — a 2FA-gated account (TOTP, enrollment, or
+    // email-code) still has one more step before a session actually exists, and
+    // each of those verify routes does its own single previous_login/last_login
+    // update once it actually grants one. Updating it here too meant every 2FA
+    // login stamped it twice, seconds apart, so previous_login almost never
+    // reflected a real prior session — see system.routes.ts's
+    // "since your last login" digest, which reads previous_login as its cutoff.
+    // The one path with no further 2FA step (no policy applies to that portal)
+    // does its own update in auth.routes.ts's /login handler, right before it
+    // issues the session token.
     return result;
   } finally {
     client.release();

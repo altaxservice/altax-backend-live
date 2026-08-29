@@ -204,7 +204,11 @@ authRouter.post("/login", loginIpLimiter, loginAccountLimiter, asyncHandler(asyn
   }
 
   // Portal not covered by any policy: sign in as normal. Such a user can still
-  // turn 2FA on voluntarily from the header menu.
+  // turn 2FA on voluntarily from the header menu. This is the one login path
+  // with no further verify step, so it's also the one place besides those
+  // verify routes that actually stamps previous_login/last_login — see the
+  // comment in authenticateUser() for why that update isn't done any earlier.
+  await query(`UPDATE altax.v3_users SET previous_login = last_login, last_login = now() WHERE user_id = $1`, [result.userId]);
   const token = issueSessionToken(result);
   return res.json({ token, user: result });
 }));
