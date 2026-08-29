@@ -173,7 +173,19 @@ function recordValue(fieldKey: string, value: string) {
   if (!isStaffSession()) return;
   const trimmed = value.trim();
   if (!trimmed) return;
-  api.post("/field-suggestions", { fieldKey, value: trimmed }).catch(() => {});
+  api
+    .post("/field-suggestions", { fieldKey, value: trimmed })
+    .then(() => {
+      // Update the in-memory cache immediately so a value typed into one row
+      // shows up as a suggestion in another row added later in the SAME page
+      // session — without this, suggestionsFor's cache (fetched once per
+      // fieldKey) would only reflect a new value after a full page reload.
+      const cached = suggestionCache.get(fieldKey);
+      if (Array.isArray(cached)) {
+        suggestionCache.set(fieldKey, [trimmed, ...cached.filter((v) => v !== trimmed)]);
+      }
+    })
+    .catch(() => {});
 }
 
 function process(el: Element) {
