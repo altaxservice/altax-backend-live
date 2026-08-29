@@ -202,6 +202,7 @@ export function FeeSchedulePage() {
                     </td>
                     <td data-label="" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <button className="btn btn-sm" onClick={() => setEditing({ ...item })}>Edit</button>{" "}
+                      <button className="btn btn-sm" onClick={() => setEditing({ ...item, fee_item_id: undefined })}>Duplicate</button>{" "}
                       {item.active && <button className="btn btn-sm" onClick={() => handleDeactivate(item)}>Remove</button>}
                     </td>
                   </tr>

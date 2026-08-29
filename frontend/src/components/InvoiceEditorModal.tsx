@@ -48,6 +48,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   const isEdit = Boolean(editing);
 
   const [products, setProducts] = useState<ProductService[]>([]);
+  const [ccachRate, setCcachRate] = useState<number | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState<string | null>(null); // row key currently adding a new product
   const [quickAddForm, setQuickAddForm] = useState({ name: "", rate: "", taxable: true });
 
@@ -114,6 +115,19 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
 
   useEffect(() => {
     api.get<{ products: ProductService[] }>("/products").then((r) => setProducts(r.products.filter((p) => p.active))).catch(() => {});
+  }, []);
+
+  // The 3% CC/ACH surcharge rate lives in the Fee Schedule (FEE-SVC-CCACH), not
+  // hardcoded here, so editing it there changes what this button computes next
+  // time — no deploy needed. Percent-based fee items never surface in the
+  // /products list (see feeItemProductSync.ts), so they're read separately.
+  useEffect(() => {
+    api.get<{ feeItems: { fee_item_id: string; amount_kind: string; percent_rate: number | string }[] }>("/estimates/fee-items")
+      .then((r) => {
+        const item = r.feeItems.find((f) => f.fee_item_id === "FEE-SVC-CCACH");
+        setCcachRate(item && item.amount_kind === "percent" ? Number(item.percent_rate) : null);
+      })
+      .catch(() => {});
   }, []);
 
   const selectedClient = clients.find((c) => c.client_id === clientId);
@@ -184,6 +198,12 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   }
   function clearAllLines() {
     setRows([newRow()]);
+  }
+  const hasCcachSurcharge = rows.some((r) => r.productName === "CC/ACH Surcharge");
+  function addCcachSurcharge() {
+    if (ccachRate == null) return;
+    const amount = Math.round(subtotal * (ccachRate / 100) * 100) / 100;
+    setRows((prev) => [...prev, { ...newRow(), productName: "CC/ACH Surcharge", quantity: "1", rate: String(amount), taxable: false }]);
   }
   function selectProduct(key: string, productId: string) {
     if (productId === "__new__") {
@@ -356,6 +376,9 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button type="button" className="btn btn-sm" onClick={addRow}>Add product or service</button>
           <button type="button" className="btn btn-sm" onClick={clearAllLines}>Clear all lines</button>
+          {ccachRate != null && !hasCcachSurcharge && (
+            <button type="button" className="btn btn-sm" onClick={addCcachSurcharge}>{`+ Add CC/ACH Surcharge (${ccachRate}%)`}</button>
+          )}
         </div>
 
         {showQuickAdd && (
