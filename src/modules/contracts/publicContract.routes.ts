@@ -54,13 +54,31 @@ publicContractRouter.post("/:token/sign", contractLimiter, asyncHandler(async (r
   const signerIp = String(req.ip || req.socket.remoteAddress || "").slice(0, 64) || null;
   const signerUserAgent = String(req.headers["user-agent"] || "").slice(0, 500) || null;
 
-  await query(
+  // Hard Audit finding, 2026-08-29: the status check above and this UPDATE
+  // weren't atomic — two concurrent submissions on the same link (forwarded
+  // and opened twice, or a slow request retried) could both read "not yet
+  // signed" before either committed, both pass, and both write. The second
+  // one silently overwrote the first signer's name/IP/timestamp, the entire
+  // evidentiary point of an e-signature record. The WHERE clause here makes
+  // the claim atomic: only the request that actually flips status away from
+  // Sent can win, and RETURNING tells us whether this request was the one.
+  const claimed = await query<{ contract_id: string }>(
     `UPDATE altax.v3_client_contracts
         SET status='Signed', signer_name=$2, signer_title=$3, agreed=true, signed_at=now(),
             signer_ip=$4, signer_user_agent=$5, updated_at=now()
-      WHERE contract_id=$1`,
+      WHERE contract_id=$1 AND status NOT IN ('Signed', 'Void')
+      RETURNING contract_id`,
     [contract.contract_id, signerName, signerTitle, signerIp, signerUserAgent]
   );
+  if (claimed.length === 0) {
+    // Someone else's request won the race (or the status changed between our
+    // read above and this write) — report the real current state rather than
+    // a stale one.
+    const current = await findByToken(req.params.token);
+    if (current?.status === "Void") return res.status(410).json({ error: "This contract has been voided and can no longer be signed." });
+    return res.status(400).json({ error: "This contract has already been signed." });
+  }
+
   await logAudit("Contracts", "SIGN", contract.contract_id, "status", contract.status, "Signed",
     `Signed electronically by "${signerName}" from IP ${signerIp || "unknown"}.`, signerName);
 

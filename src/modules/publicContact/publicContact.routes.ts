@@ -34,12 +34,26 @@ publicContactRouter.post("/", contactLimiter, asyncHandler(async (req: Request, 
     return res.status(400).json({ error: "First name, last name, phone, email, and a message are required." });
   }
 
+  // Hard Audit finding, 2026-08-29: nothing bounded these before insert —
+  // company_name/first_name/last_name/phone/email are VARCHAR(255) columns
+  // (would 500 on an oversized value once it hit the DB constraint), and
+  // reason is a plain unbounded TEXT column with no cap at all, so a caller
+  // within the rate limit could store/email an arbitrarily large message.
+  // Same truncate-to-column-width pattern already used in publicTools.routes.ts.
+  if (String(reason).length > 5_000) {
+    return res.status(400).json({ error: "That message is too long — please keep it under 5,000 characters." });
+  }
   const row = await queryOne<any>(
     `INSERT INTO altax.v3_contact_submissions
        (company_name, first_name, last_name, phone, email, reason, sms_consent, ip_address)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, submitted_at`,
-    [company || null, firstName, lastName, phone, email, reason, !!smsConsent, req.ip || null]
+    [
+      company ? String(company).slice(0, 255) : null,
+      String(firstName).slice(0, 255), String(lastName).slice(0, 255),
+      String(phone).slice(0, 255), String(email).slice(0, 255), String(reason),
+      !!smsConsent, req.ip || null,
+    ]
   );
 
   try {
