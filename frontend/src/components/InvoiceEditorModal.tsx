@@ -103,7 +103,10 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   const [discountMode, setDiscountMode] = useState<"percent" | "amount">(editing?.discount_amount ? "amount" : "percent");
   const [discountPercent, setDiscountPercent] = useState(editing?.discount_percent ? String(editing.discount_percent) : "0");
   const [discountAmountInput, setDiscountAmountInput] = useState(editing?.discount_amount ? String(editing.discount_amount) : "0");
-  const [taxMode, setTaxMode] = useState<"auto" | "manual" | "none">(editing?.sales_tax_rate ? "manual" : "auto");
+  // Defaults to No Tax rather than Automatic Calculation — tax must be a deliberate
+  // choice, not something silently applied to every new invoice (direct owner ask,
+  // 2026-08-29). Editing an invoice that already has a manual rate still shows it.
+  const [taxMode, setTaxMode] = useState<"auto" | "manual" | "none">(editing?.sales_tax_rate ? "manual" : "none");
   const [manualTaxRate, setManualTaxRate] = useState(editing?.sales_tax_rate ? String(editing.sales_tax_rate) : "0");
   const [shippingAmount, setShippingAmount] = useState(editing?.shipping_amount ? String(editing.shipping_amount) : "0");
   const [depositAmount, setDepositAmount] = useState(editing?.deposit_amount ? String(editing.deposit_amount) : "0");

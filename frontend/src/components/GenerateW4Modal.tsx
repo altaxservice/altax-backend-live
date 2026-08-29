@@ -141,7 +141,7 @@ export function GenerateW4Modal({ employeeId, onClose, onDone }: { employeeId: s
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w4-ssn">SSN</label>
-                <input id="w4-ssn" value={ssn} onChange={(e) => setSsn(e.target.value)} />
+                <input id="w4-ssn" autoComplete="off" data-no-suggest value={ssn} onChange={(e) => setSsn(e.target.value)} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w4-filing-status">Filing status</label>

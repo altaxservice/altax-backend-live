@@ -622,7 +622,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-ss4-responsible-party-id">Responsible party SSN/ITIN/EIN</label>
-                    <input id="gf-ss4-responsible-party-id" value={ss4.responsiblePartyId} onChange={(e) => setSs4({ ...ss4, responsiblePartyId: e.target.value })} />
+                    <input id="gf-ss4-responsible-party-id" autoComplete="off" data-no-suggest value={ss4.responsiblePartyId} onChange={(e) => setSs4({ ...ss4, responsiblePartyId: e.target.value })} />
                   </div>
                 </div>
 
@@ -800,7 +800,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <input placeholder="Name" value={s.name} onChange={(e) => patchShareholder(i, { name: e.target.value })} />
                         <input placeholder="Address" value={s.address} onChange={(e) => patchShareholder(i, { address: e.target.value })} />
-                        <input placeholder="SSN or EIN" value={s.idNumber} onChange={(e) => patchShareholder(i, { idNumber: e.target.value })} />
+                        <input placeholder="SSN or EIN" autoComplete="off" data-no-suggest value={s.idNumber} onChange={(e) => patchShareholder(i, { idNumber: e.target.value })} />
                         <input placeholder="Shares owned" value={s.sharesOwned} onChange={(e) => patchShareholder(i, { sharesOwned: e.target.value })} />
                         <input placeholder="Date(s) acquired" value={s.dateAcquired} onChange={(e) => patchShareholder(i, { dateAcquired: e.target.value })} />
                         <input placeholder="Tax year ends (month/day)" value={s.taxYearEnd} onChange={(e) => patchShareholder(i, { taxYearEnd: e.target.value })} />
@@ -863,7 +863,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-w9-ssn">SSN <span className="muted">(if applicable)</span></label>
-                    <input id="gf-w9-ssn" value={w9.ssn} onChange={(e) => setW9({ ...w9, ssn: e.target.value })} placeholder="XXX-XX-XXXX" />
+                    <input id="gf-w9-ssn" autoComplete="off" data-no-suggest value={w9.ssn} onChange={(e) => setW9({ ...w9, ssn: e.target.value })} placeholder="XXX-XX-XXXX" />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-w9-ein">EIN <span className="muted">(if applicable)</span></label>
@@ -946,7 +946,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-cra-ssn">Responsible party SSN</label>
-                    <input id="gf-cra-ssn" value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
+                    <input id="gf-cra-ssn" autoComplete="off" data-no-suggest value={cra.ssn} onChange={(e) => setCra({ ...cra, ssn: e.target.value })} />
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-cra-dat-entity-id">SDAT Entity ID</label>
@@ -1030,7 +1030,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                     <input id="gf-cra-officer-first-name" placeholder="First name" value={cra.officerFirstName} onChange={(e) => setCra({ ...cra, officerFirstName: e.target.value })} />
                     <input aria-label="Officer last name" placeholder="Last name" value={cra.officerLastName} onChange={(e) => setCra({ ...cra, officerLastName: e.target.value })} />
                     <input aria-label="Officer title" placeholder="Title" value={cra.officerTitle} onChange={(e) => setCra({ ...cra, officerTitle: e.target.value })} />
-                    <input aria-label="Officer SSN" placeholder="SSN" value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
+                    <input aria-label="Officer SSN" placeholder="SSN" autoComplete="off" data-no-suggest value={cra.officerSsn} onChange={(e) => setCra({ ...cra, officerSsn: e.target.value })} />
                     <input aria-label="Officer telephone" placeholder="Telephone" value={cra.officerPhone} onChange={(e) => setCra({ ...cra, officerPhone: e.target.value })} />
                   </div>
                 </div>
@@ -1144,7 +1144,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label htmlFor="gf-8822b-new-rp-id">New responsible party's SSN/ITIN/EIN <span className="muted">(line 9)</span></label>
-                    <input id="gf-8822b-new-rp-id" value={f8822b.newResponsiblePartyId} onChange={(e) => setF8822b({ ...f8822b, newResponsiblePartyId: e.target.value })} />
+                    <input id="gf-8822b-new-rp-id" autoComplete="off" data-no-suggest value={f8822b.newResponsiblePartyId} onChange={(e) => setF8822b({ ...f8822b, newResponsiblePartyId: e.target.value })} />
                   </div>
                 </div>
 

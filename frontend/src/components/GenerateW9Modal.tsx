@@ -137,11 +137,11 @@ export function GenerateW9Modal({ employeeId, onClose, onDone }: { employeeId: s
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w9-ssn">SSN <span className="muted">(if applicable)</span></label>
-                <input id="w9-ssn" value={ssn} onChange={(e) => setSsn(e.target.value)} placeholder="XXX-XX-XXXX" />
+                <input id="w9-ssn" autoComplete="off" data-no-suggest value={ssn} onChange={(e) => setSsn(e.target.value)} placeholder="XXX-XX-XXXX" />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label htmlFor="w9-ein">EIN <span className="muted">(if applicable)</span></label>
-                <input id="w9-ein" value={ein} onChange={(e) => setEin(e.target.value)} placeholder="XX-XXXXXXX" />
+                <input id="w9-ein" autoComplete="off" data-no-suggest value={ein} onChange={(e) => setEin(e.target.value)} placeholder="XX-XXXXXXX" />
               </div>
             </div>
 

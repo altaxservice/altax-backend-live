@@ -51,7 +51,7 @@ const SUBSCRIPTION_TIER_FALLBACK_LABEL: Record<string, string> = {
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
-interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean; suggestions?: string[] }
+interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean; suggestions?: string[]; sensitive?: boolean }
 
 const hasService = (form: Record<string, any>, key: string) => Array.isArray(form.services) && form.services.includes(key);
 const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
@@ -135,11 +135,11 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
   {
     title: "Business Tax IDs",
     fields: [
-      { key: "state_tax_id", apiKey: "stateTaxId", label: "State Tax ID", kind: "text" },
-      { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f) },
-      { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID (SDAT)", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "cra_registration_number", apiKey: "craRegistrationNumber", label: "CRA / Central Registration No.", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "state_tax_id", apiKey: "stateTaxId", label: "State Tax ID", kind: "text", sensitive: true },
+      { key: "individual_ssn", apiKey: "individualSsn", label: "Individual SS No.", kind: "text", hidden: (f) => isBusiness(f), sensitive: true },
+      { key: "ein", apiKey: "ein", label: "EIN", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "secretary_of_state_id", apiKey: "secretaryOfStateId", label: "Secretary of State ID (SDAT)", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "cra_registration_number", apiKey: "craRegistrationNumber", label: "CRA / Central Registration No.", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       // Employer-specific MD Unemployment Insurance account number + this
       // client's own experience-rated UI tax rate (varies per employer) —
       // grouped here with the other business tax IDs, not under Payroll
@@ -150,7 +150,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // automatically instead of the firm-wide default. Visible for every
       // business client, not gated behind "MD UI Enabled", so it's there to
       // fill in regardless of whether that checkbox has been set yet.
-      { key: "md_ui_employer_id", apiKey: "mdUiEmployerId", label: "MD UI Employer ID", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "md_ui_employer_id", apiKey: "mdUiEmployerId", label: "MD UI Employer ID", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "md_ui_tax_rate", apiKey: "mdUiTaxRate", label: "MD UI Tax Rate (%)", kind: "text", hidden: (f) => !isBusiness(f) },
     ],
   },
@@ -159,7 +159,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
     fields: [
       { key: "company_contact_name", apiKey: "companyContactName", label: "Owner Name", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_title", apiKey: "companyContactTitle", label: "Owner Title", kind: "text", hidden: (f) => !isBusiness(f) },
-      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Owner SS No.", kind: "text", hidden: (f) => !isBusiness(f) },
+      { key: "company_contact_ssn", apiKey: "companyContactSsn", label: "Owner SS No.", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "company_contact_email", apiKey: "companyContactEmail", label: "Owner Email", kind: "text", hidden: (f) => !isBusiness(f) },
       { key: "company_contact_phone", apiKey: "companyContactPhone", label: "Owner Phone", kind: "text", hidden: (f) => !isBusiness(f) },
     ],
@@ -829,7 +829,7 @@ export function ClientDetailPage() {
               ) : (
                 <div className="field" key={f.apiKey}>
                   <label htmlFor={f.apiKey}>{f.label}</label>
-                  <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                  <input id={f.apiKey} list={f.suggestions ? `${f.apiKey}-list` : undefined} data-no-suggest={f.sensitive || undefined} value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
                   {f.suggestions && (
                     <datalist id={`${f.apiKey}-list`}>
                       {f.suggestions.map((o) => <option key={o} value={o} />)}
@@ -3576,16 +3576,16 @@ function PaymentMethodsSection({ clientId }: { clientId: string }) {
             <>
               {form.paymentMethodId && <p className="muted" style={{ fontSize: 12, margin: "0 0 8px" }}>Leave bank fields blank to keep the numbers already on file — only fill them in to replace them.</p>}
               <div className="field"><label htmlFor="cd-pm-bank-name">Bank Name{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-bank-name" value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} /></div>
-              <div className="field"><label htmlFor="cd-pm-routing-number">Routing Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-routing-number" value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
-              <div className="field"><label htmlFor="cd-pm-account-number">Account Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-account-number" value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
-              <div className="field"><label htmlFor="cd-pm-confirm-account-number">Confirm Account Number</label><input id="cd-pm-confirm-account-number" value={form.confirmAccountNumber} onChange={(e) => setForm((f) => ({ ...f, confirmAccountNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-routing-number">Routing Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-routing-number" autoComplete="off" data-no-suggest value={form.routingNumber} onChange={(e) => setForm((f) => ({ ...f, routingNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-account-number">Account Number{form.paymentMethodId ? " (leave blank to keep current)" : ""}</label><input id="cd-pm-account-number" autoComplete="off" data-no-suggest value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-confirm-account-number">Confirm Account Number</label><input id="cd-pm-confirm-account-number" autoComplete="off" data-no-suggest value={form.confirmAccountNumber} onChange={(e) => setForm((f) => ({ ...f, confirmAccountNumber: e.target.value }))} /></div>
             </>
           )}
           {isCardType && (
             <>
-              <div className="field"><label htmlFor="cd-pm-cardholder-name">Cardholder Name</label><input id="cd-pm-cardholder-name" value={form.cardholderName} onChange={(e) => setForm((f) => ({ ...f, cardholderName: e.target.value }))} /></div>
+              <div className="field"><label htmlFor="cd-pm-cardholder-name">Cardholder Name</label><input id="cd-pm-cardholder-name" autoComplete="off" data-no-suggest value={form.cardholderName} onChange={(e) => setForm((f) => ({ ...f, cardholderName: e.target.value }))} /></div>
               <div className="field"><label htmlFor="cd-pm-card-brand">Card Brand</label><select id="cd-pm-card-brand" value={form.cardBrand} onChange={(e) => setForm((f) => ({ ...f, cardBrand: e.target.value }))}>{CARD_BRANDS.map((b) => <option key={b}>{b}</option>)}</select></div>
-              <div className="field"><label htmlFor="cd-pm-card-last4">Last 4 Digits</label><input id="cd-pm-card-last4" value={form.cardLast4} maxLength={4} onChange={(e) => setForm((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "") }))} placeholder="1234" /></div>
+              <div className="field"><label htmlFor="cd-pm-card-last4">Last 4 Digits</label><input id="cd-pm-card-last4" autoComplete="off" data-no-suggest value={form.cardLast4} maxLength={4} onChange={(e) => setForm((f) => ({ ...f, cardLast4: e.target.value.replace(/\D/g, "") }))} placeholder="1234" /></div>
               <div className="form-grid">
                 <div className="field"><label htmlFor="cd-pm-card-exp-month">Expiry Month</label><select id="cd-pm-card-exp-month" value={form.cardExpMonth} onChange={(e) => setForm((f) => ({ ...f, cardExpMonth: e.target.value }))}><option value="">—</option>{EXP_MONTHS.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}</select></div>
                 <div className="field"><label htmlFor="cd-pm-card-exp-year">Expiry Year</label><select id="cd-pm-card-exp-year" value={form.cardExpYear} onChange={(e) => setForm((f) => ({ ...f, cardExpYear: e.target.value }))}><option value="">—</option>{EXP_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}</select></div>
