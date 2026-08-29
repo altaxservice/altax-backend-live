@@ -8,6 +8,7 @@ import { computeTotals, feeItemsFor, linesFromFeeItems, resolveLineAmounts, type
 import { generateEstimatePdf, type EstimatePdfLine } from "./estimatePdf";
 import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
+import { syncFeeItemProduct } from "./feeItemProductSync";
 
 /**
  * Tools → Fee Schedule + Estimates.
@@ -106,6 +107,17 @@ estimatesRouter.post("/fee-items", requireAuth, requireRole("admin", "staff"), a
     );
     await logAudit("Tools", "CREATE_FEE_ITEM", feeItemId, "", "", name, `Fee item created by ${req.user!.email}.`, req.user!.email);
   }
+
+  // Best-effort — a sync hiccup must never block a Fee Schedule save. See
+  // feeItemProductSync.ts: keeps the invoice "Product/Service" picker's
+  // fee-item-derived row matching whatever was just saved here.
+  try {
+    await syncFeeItemProduct(feeItemId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[estimates] fee item product sync failed for "${feeItemId}":`, err);
+  }
+
   res.status(existing ? 200 : 201).json({ ok: true, feeItemId });
 }));
 
@@ -115,6 +127,14 @@ estimatesRouter.post("/fee-items/:feeItemId/delete", requireAuth, requireRole("a
   // their audit trail, and a fee that existed last year is a historical fact.
   await query(`UPDATE altax.v3_fee_items SET active = FALSE, updated_at = now() WHERE fee_item_id = $1`, [feeItemId]);
   await logAudit("Tools", "DEACTIVATE_FEE_ITEM", feeItemId, "active", "true", "false", `Fee item deactivated by ${req.user!.email}.`, req.user!.email);
+
+  try {
+    await syncFeeItemProduct(feeItemId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[estimates] fee item product sync failed for "${feeItemId}":`, err);
+  }
+
   res.json({ ok: true });
 }));
 

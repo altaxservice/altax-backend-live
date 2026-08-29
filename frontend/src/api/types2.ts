@@ -114,6 +114,7 @@ export interface ProductService {
   active: boolean;
   catalog_service_key?: string | null;
   price_context?: "subscription" | "one_time" | null;
+  fee_item_id?: string | null;
   [key: string]: unknown;
 }
 

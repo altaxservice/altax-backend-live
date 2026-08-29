@@ -122,11 +122,14 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   // have to hunt the full list — the client's checked service_keys come through on
   // Client.services (see ClientDetailPage.tsx's Services Provided checklist).
   const engagedServiceKeys = useMemo(() => new Set(selectedClient?.services || []), [selectedClient]);
-  const [clientProducts, otherProducts] = useMemo(() => {
-    if (!selectedClient) return [[], products] as [ProductService[], ProductService[]];
-    const mine: ProductService[] = [], rest: ProductService[] = [];
-    for (const p of products) (p.catalog_service_key && engagedServiceKeys.has(p.catalog_service_key) ? mine : rest).push(p);
-    return [mine, rest];
+  const [clientProducts, agencyProducts, otherProducts] = useMemo(() => {
+    const mine: ProductService[] = [], agency: ProductService[] = [], rest: ProductService[] = [];
+    for (const p of products) {
+      if (selectedClient && p.catalog_service_key && engagedServiceKeys.has(p.catalog_service_key)) mine.push(p);
+      else if (p.fee_item_id) agency.push(p);
+      else rest.push(p);
+    }
+    return [mine, agency, rest];
   }, [products, selectedClient, engagedServiceKeys]);
 
   useEffect(() => {
@@ -313,15 +316,20 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
                     <select value={r.productId} onChange={(e) => selectProduct(r.key, e.target.value)} style={{ width: 160 }}>
                       <option value="">Select…</option>
                       <option value="__new__">+ Add new product/service</option>
-                      {clientProducts.length > 0 ? (
-                        <>
-                          <optgroup label="This Client's Services">
-                            {clientProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
-                          </optgroup>
-                          <optgroup label="All Products & Services">
-                            {otherProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
-                          </optgroup>
-                        </>
+                      {clientProducts.length > 0 && (
+                        <optgroup label="This Client's Services">
+                          {clientProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                        </optgroup>
+                      )}
+                      {agencyProducts.length > 0 && (
+                        <optgroup label="Government & Agency Fees">
+                          {agencyProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                        </optgroup>
+                      )}
+                      {clientProducts.length > 0 || agencyProducts.length > 0 ? (
+                        <optgroup label="All Products & Services">
+                          {otherProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                        </optgroup>
                       ) : (
                         otherProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)
                       )}
