@@ -671,18 +671,26 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Same idempotency-key pattern as InvoiceDetailPage's payment form — stays the
+  // same across repeat submits of this one open form (so a double-click or a
+  // retried request is recognized as the same attempt, not a second sales
+  // receipt), and is cleared once the modal closes so the next one gets its own.
+  const idempotencyKey = useRef<string | null>(null);
 
   async function handleSubmit() {
     if (!form.clientId || !form.amount) { setError("Client and Amount Received are required."); return; }
     setSaving(true);
     setError(null);
     try {
+      if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
       await api.post("/billing/sales-receipt", {
         clientId: form.clientId, date: form.date, amount: Number(form.amount), description: form.description, method: form.method,
         paymentMethodId: form.paymentProfile === MANUAL_PROFILE ? undefined : form.paymentProfile,
         paymentBankName: form.bankName, paymentAccountType: form.accountType, paymentRoutingNumber: form.routingNumber,
         paymentAccountNumber: form.accountNumber, paymentBankLast4: form.bankLast4, confirmationNumber: form.confirmationNumber, notes: form.notes,
+        idempotencyKey: idempotencyKey.current,
       });
+      idempotencyKey.current = null;
       toast("Sales receipt created.");
       onDone();
       onClose();

@@ -238,6 +238,9 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [lines, setLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Same idempotency-key pattern as the other money-recording forms on this
+  // page — stays the same across repeat submits of this one form.
+  const idempotencyKey = useRef<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
   const [editLines, setEditLines] = useState<SalesCategoryLine[]>([{ ...EMPTY_SALES_LINE }]);
@@ -546,11 +549,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     setSaving(true);
     setError(null);
     try {
+      if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
       await api.post("/accounting/sales", {
         clientId, saleDate: form.saleDate, grossSales: Number(form.grossSales) || 0,
         categoryLines: linesForPreview(lines), adjustments: Number(form.adjustments) || 0,
         paymentDate: form.paymentDate, notes: form.notes,
+        idempotencyKey: idempotencyKey.current,
       });
+      idempotencyKey.current = null;
       setForm({ saleDate: "", grossSales: "", adjustments: "", paymentDate: "", notes: "" });
       setLines([{ ...EMPTY_SALES_LINE }]);
       setImportedFromCalculator(false);
@@ -2665,6 +2671,10 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
   const [form, setForm] = useState(EMPTY_CONTRACTOR_PAYMENT_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Same idempotency-key pattern as InvoiceDetailPage's payment form and the
+  // Sales Receipt modal — stays the same across repeat submits of this one
+  // form, cleared once a submit actually succeeds so the next payment gets its own.
+  const idempotencyKey = useRef<string | null>(null);
   const [necContractorId, setNecContractorId] = useState("");
   const [necYear, setNecYear] = useState(String(new Date().getFullYear()));
   const [printingNec, setPrintingNec] = useState(false);
@@ -2727,12 +2737,15 @@ function ContractorsTab({ clientId, clientState }: { clientId: string; clientSta
     setSaving(true);
     setError(null);
     try {
+      if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
       await api.post("/accounting/contractor-payments", {
         clientId, contractorId: form.contractorId, amount: Number(form.amount) || 0, paymentDate: form.paymentDate,
         method: form.method, paymentMethodId: form.paymentMethodId || undefined,
         checkNumber: form.checkNumber || undefined, confirmationNumber: form.confirmationNumber || undefined,
         expenseCategory: form.expenseCategory, eligible1099: form.eligible1099, memo: form.memo,
+        idempotencyKey: idempotencyKey.current,
       });
+      idempotencyKey.current = null;
       setForm(EMPTY_CONTRACTOR_PAYMENT_FORM);
       load();
     } catch (err) {

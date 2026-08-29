@@ -3,6 +3,7 @@ import { query, queryOne, withTransaction } from "../../config/db";
 import { sendChannel } from "../../common/sendChannel";
 import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
+import { escapeHtml } from "../../common/html";
 
 function idSuffix(): string {
   const now = new Date();
@@ -108,6 +109,8 @@ export async function runMonthlyManagementSummary(actorEmail: string): Promise<{
       if (sections.length === 0) { skipped++; continue; }
 
       const subject = `Monthly Client Advisory Summary — ${monthKey}`;
+      // Kept plain here — this is also what gets stored in v3_communications
+      // below. Escaped separately, right before the actual email send.
       const body = `Monthly summary of open SWOT/advisory findings across your assigned clients.\n\n${sections.join("\n\n")}\n\nFull detail on each client's SWOT Analysis tab.`;
 
       // Advisory lock + re-check inside one transaction — the plain alreadySent()
@@ -125,7 +128,7 @@ export async function runMonthlyManagementSummary(actorEmail: string): Promise<{
         );
         if (existing) { outcome = { sent: false, alreadySent: true }; return; }
 
-        const result = await sendChannel("email", email, subject, body, { firmName });
+        const result = await sendChannel("email", email, subject, escapeHtml(body), { firmName });
         await db.query(
           `INSERT INTO altax.v3_communications
              (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,

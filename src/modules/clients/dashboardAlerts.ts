@@ -3,6 +3,7 @@ import { query, queryOne } from "../../config/db";
 import { sendChannel } from "../../common/sendChannel";
 import { getFirmProfile } from "../../common/firmProfile";
 import type { CandidateFinding } from "./swotFindingsEngine";
+import { escapeHtml } from "../../common/html";
 
 /**
  * Firm-wide on/off switch + thresholds for the Red-alert push below. Same
@@ -204,7 +205,9 @@ export async function runDashboardAlertPush(createdFindings: CreatedFindingInfo[
 
     let sent = false;
     let providerMessageId: string | null = null;
-    const emailResult = await sendChannel("email", email, subject, body, { firmName });
+    // Escaped only for the email HTML render — `body` itself stays plain,
+    // since it's also what recipientResults stores for the v3_communications log below.
+    const emailResult = await sendChannel("email", email, subject, escapeHtml(body), { firmName });
     if (emailResult.sent) { sent = true; providerMessageId = emailResult.providerMessageId || null; }
     if (group.phone) {
       const smsBody = n === 1

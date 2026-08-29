@@ -533,7 +533,12 @@ export async function createSalesInputRecord(
   client: { client_id: string; client_name: string; state?: string | null },
   params: CreateSalesInputParams,
   createdByEmail: string,
-  sourceSystem: string = "Node Web App"
+  sourceSystem: string = "Node Web App",
+  // Optional — the bulk-import caller (salesInputImport.routes.ts) has its own
+  // natural per-row dedup and doesn't pass this; only the manual "Add Sale"
+  // form does, since that's the one exposed to a double-click/retry. Same
+  // ACC-019 pattern as billing's payment routes. Hard Audit finding, 2026-08-28.
+  idempotencyKey: string | null = null
 ) {
   const rawLines = Array.isArray(params.categoryLines) ? params.categoryLines : [];
   const adjustments = money(params.adjustments);
@@ -542,7 +547,14 @@ export async function createSalesInputRecord(
 
   const saleId = `SALE-${idSuffix()}`;
   const grossSales = money(params.grossSales);
+  let isDuplicate = false;
+  let duplicateResponse: any = null;
   await withTransaction(async (db) => {
+    if (idempotencyKey) {
+      const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "accounting.create-sales-input");
+      if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
+    }
+
     await db.query(
       `INSERT INTO altax.v3_sales_input
          (sale_id, client_id, client_name, sale_date, gross_sales, adjustments, payment_date, total_tax_due, notes,
@@ -572,7 +584,17 @@ export async function createSalesInputRecord(
       entryDate: params.saleDate, ref: saleId, description: "Sales tax payable",
       account: "Sales Tax Payable", debit: 0, credit: totalTax, source: "Sales Input",
     }, db);
+
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(db, idempotencyKey, "accounting.create-sales-input",
+        { saleId, totalTaxDue: totalTax, lines: computed.lines });
+    }
   });
+
+  if (isDuplicate) {
+    if (duplicateResponse) return { ...duplicateResponse, isDuplicate: true };
+    throw new Error("This sale submission is already being processed. Wait a moment, then check the Sales tab before retrying.");
+  }
 
   await logAudit("Accounting", "CREATE_SALES_INPUT", saleId, "", "", String(totalTax),
     `Sales input created by ${createdByEmail}.`, createdByEmail);
@@ -596,7 +618,7 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
       saleDate: body.saleDate, grossSales: body.grossSales, adjustments: body.adjustments,
       paymentDate: body.paymentDate, notes: body.notes,
       categoryLines: Array.isArray(body.categoryLines) ? body.categoryLines : [],
-    }, req.user!.email);
+    }, req.user!.email, "Node Web App", String(body.idempotencyKey || "").trim() || null);
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
   }
@@ -1730,7 +1752,21 @@ accountingRouter.post("/contractor-payments", requireAuth, requireRole("admin", 
   const paymentDate = String(body.paymentDate || "").trim() || null;
   const paymentMethod = await resolvePaymentMethod(clientId, "payroll", body.paymentMethodId);
 
+  // Same ACC-019 idempotency-key pattern as billing's payment routes — a
+  // double-click or retried submit here otherwise creates two payment rows and
+  // posts the expense/cash GL entries twice, inflating the contractor's YTD
+  // total (which feeds 1099-NEC prep) and overstating cash/expenses. Hard Audit
+  // finding, 2026-08-28.
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  let isDuplicate = false;
+  let duplicateResponse: any = null;
+
   await withTransaction(async (db) => {
+    if (idempotencyKey) {
+      const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "accounting.contractor-payment");
+      if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
+    }
+
     await db.query(
       `INSERT INTO altax.v3_contractor_payments
          (contractor_payment_id, client_id, client_name, contractor_id, contractor_name, payment_date, amount,
@@ -1757,7 +1793,16 @@ accountingRouter.post("/contractor-payments", requireAuth, requireRole("admin", 
       entryDate: paymentDate, ref: paymentId, description: "Contractor payment cash/bank",
       account: "Cash", debit: 0, credit: amount, source: "Contractor Payment",
     }, db);
+
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(db, idempotencyKey, "accounting.contractor-payment", { ok: true, contractorPaymentId: paymentId });
+    }
   });
+
+  if (isDuplicate) {
+    if (duplicateResponse) return res.status(200).json(duplicateResponse);
+    return res.status(409).json({ error: "This contractor payment submission is already being processed. Wait a moment, then check the Contractors tab before retrying." });
+  }
 
   await logAudit("Contractors", "RECORD_PAYMENT", paymentId, "ContractorID", "", contractorId,
     `Contractor payment recorded by ${req.user!.email}.`, req.user!.email);

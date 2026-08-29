@@ -27,6 +27,7 @@ import { computeClientComplianceTimeline, computeClientComplianceScore } from ".
 import { sendEmail } from "../../common/notifications";
 import { sendChannel } from "../../common/sendChannel";
 import { wrapEmailHtml } from "../../common/emailTemplate";
+import { escapeHtml } from "../../common/html";
 import { getFirmProfile } from "../../common/firmProfile";
 import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDABLE_SOURCES, deadlineReminderStableKey, flagReminderStableKey } from "../../common/complianceReminders";
@@ -1324,6 +1325,11 @@ async function buildClientFlagsNotification(clientId: string, selectedKeys?: str
   const flags = selectedKeys ? shareable.filter((f) => selectedKeys.includes(f.key)) : shareable;
   if (flags.length === 0) return null;
 
+  // Kept as PLAIN text here on purpose — this result is reused for SMS, a
+  // staff preview endpoint, and the stored v3_communications log, none of
+  // which should ever see HTML-escaped entities. Only the actual email send
+  // (clientsRouter.post(".../flags/notify-send")) escapes it, right before
+  // building the HTML body.
   const enLines: string[] = [];
   const arLines: string[] = [];
   for (const f of flags) {
@@ -1436,7 +1442,10 @@ clientsRouter.post("/:clientId/flags/notify-send", requireAuth, requireRole("adm
   let providerMessageId: string | null = null;
   const sentToParts: string[] = [];
   if (canEmail) {
-    const r = await sendChannel("email", client.email, content.subject, `${content.messageEnglish}\n\n---\n\n${content.messageArabic}`, { firmName });
+    // Escaped only here, for the HTML email render — content.messageEnglish/
+    // messageArabic stay plain everywhere else (SMS above, the stored log below).
+    const emailBody = `${escapeHtml(content.messageEnglish)}\n\n---\n\n${escapeHtml(content.messageArabic)}`;
+    const r = await sendChannel("email", client.email, content.subject, emailBody, { firmName });
     if (r.sent) { anySent = true; providerMessageId = r.providerMessageId || null; sentToParts.push(client.email); }
   }
   if (canSms) {
@@ -2199,7 +2208,10 @@ export async function runClientMdSalesTaxDeadlineNotifications(actorEmail: strin
       // handling this, no action needed" copy implied the client might file
       // it themselves, which is never true here.
       const subject = `Reminder: Maryland Sales Tax Filing Due ${current.dueDate}`;
-      const body = `Dear ${c.client_name},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nTo file this on time, please send us your sales and tax report for this period as soon as possible. If you've already sent it to us, no action is needed. If you have questions, please contact us.`;
+      // Email body goes through sendChannel's HTML rendering, so the client name
+      // (freely staff-editable) needs escaping; the SMS body is plain text and
+      // must NOT be escaped, or the recipient would see literal "&amp;" etc.
+      const body = `Dear ${escapeHtml(c.client_name)},\n\nYour Maryland sales tax filing for the period ending ${current.end} is due on ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}.\n\nTo file this on time, please send us your sales and tax report for this period as soon as possible. If you've already sent it to us, no action is needed. If you have questions, please contact us.`;
       const smsBody = `${c.client_name}: your Maryland sales tax filing (period ending ${current.end}) is due ${current.dueDate}, in ${daysUntilDue} day${daysUntilDue === 1 ? "" : "s"}. Please send us your sales & tax report so we can file on time. Already sent it? No action needed.`;
 
       let anySent = false;
@@ -2468,7 +2480,7 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // see sql/048_client_md_ui.sql. Saving mdUiTaxRate also syncs a
   // client-scoped SUTA override into v3_tax_rates (below) so payroll
   // actually uses this client's real rate instead of the firm default.
-  mdUiEmployerId: { column: "md_ui_employer_id" },
+  mdUiEmployerId: { column: "md_ui_employer_id", encrypted: true },
   mdUiTaxRate: { column: "md_ui_tax_rate", numeric: true },
   companyContactName: { column: "company_contact_name" },
   companyContactTitle: { column: "company_contact_title" },

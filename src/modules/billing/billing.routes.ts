@@ -1211,7 +1211,21 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
   const accountNumber = String(body.paymentAccountNumber || "").trim() || paymentMethod?.accountNumber || "";
   const bankLast4 = String(body.paymentBankLast4 || "").trim() || accountNumber.replace(/\D/g, "").slice(-4) || paymentMethod?.bankLast4 || "";
 
+  // Same ACC-019 idempotency-key pattern as /invoices/:invoiceId/payments above —
+  // a double-click or retried submit here otherwise creates two Paid invoices and
+  // two payments, each posting its own Dr Cash/Cr Revenue GL entry, silently
+  // doubling the client's recorded revenue and cash received. Hard Audit finding,
+  // 2026-08-28.
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  let isDuplicate = false;
+  let duplicateResponse: any = null;
+
   await withTransaction(async (db) => {
+    if (idempotencyKey) {
+      const { reserved, existingResponse } = await reserveIdempotencyKey(db, idempotencyKey, "billing.sales-receipt");
+      if (!reserved) { isDuplicate = true; duplicateResponse = existingResponse; return; }
+    }
+
     await db.query(
       `INSERT INTO altax.v3_invoices
          (invoice_id, client_id, invoice_date, due_date, description, total_amount, amount_paid,
@@ -1243,7 +1257,16 @@ billingRouter.post("/sales-receipt", requireAuth, requireRole("admin", "staff"),
     const clientName = await getClientName(clientId);
     await postInvoiceTotalGl(clientId, clientName, invoiceId, invoiceDate, amount, db);
     await postInvoicePaymentGl(clientId, clientName, paymentId, invoiceDate, amount, false, db);
+
+    if (idempotencyKey) {
+      await saveIdempotencyResponse(db, idempotencyKey, "billing.sales-receipt", { ok: true, invoiceId, paymentId, amount });
+    }
   });
+
+  if (isDuplicate) {
+    if (duplicateResponse) return res.status(200).json(duplicateResponse);
+    return res.status(409).json({ error: "This sales receipt submission is already being processed. Wait a moment, then check Billing before retrying." });
+  }
 
   await logAudit("Billing", "CREATE_SALES_RECEIPT", invoiceId, "", "", String(amount),
     `Sales receipt created by ${req.user!.email}.`, req.user!.email);
