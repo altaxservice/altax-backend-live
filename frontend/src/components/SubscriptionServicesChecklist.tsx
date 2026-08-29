@@ -93,30 +93,32 @@ export function SubscriptionServicesChecklist({
         {!isBusinessClient && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
       </p>
 
-      <div className="ac-subcard-title" style={{ marginBottom: 6 }}>Recurring Services</div>
-      {groupBy(recurring).map(([group, entries]) => (
-        <div key={group} style={{ marginBottom: 10 }}>
-          <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{group}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px" }}>
-            {entries.map((s) => {
-              const unit = s.pricing_unit || "flat";
-              const unitCount = unit === "per_employee" ? counts.employees : unit === "per_worker" ? counts.workers : null;
-              return (
-                <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                  {s.label}
-                  {s.min_fee != null && (
-                    <span className="muted" style={{ fontSize: 11 }}>
-                      ${Number(s.min_fee).toFixed(0)}{PRICING_UNIT_SUFFIX[unit] || "/mo"}
-                      {unitCount !== null && ` (× ${unitCount} = $${(Number(s.min_fee) * unitCount).toFixed(0)}/mo)`}
-                    </span>
-                  )}
-                </label>
-              );
-            })}
+      <div className="ac-subcard-title" style={{ marginBottom: 8 }}>Recurring Services</div>
+      <div className="service-group-grid">
+        {groupBy(recurring).map(([group, entries]) => (
+          <div key={group} className="service-group">
+            <div className="service-group-label">{group}</div>
+            <div className="service-group-items">
+              {entries.map((s) => {
+                const unit = s.pricing_unit || "flat";
+                const unitCount = unit === "per_employee" ? counts.employees : unit === "per_worker" ? counts.workers : null;
+                return (
+                  <label key={s.service_key} className={`service-item${services.includes(s.service_key) ? " checked" : ""}`}>
+                    <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
+                    <span className="service-item-label">{s.label}</span>
+                    {s.min_fee != null && (
+                      <span className="service-item-price">
+                        ${Number(s.min_fee).toFixed(0)}{PRICING_UNIT_SUFFIX[unit] || "/mo"}
+                        {unitCount !== null && ` (× ${unitCount} = $${(Number(s.min_fee) * unitCount).toFixed(0)}/mo)`}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
       {anyRecurringChecked && (
         <div style={{
@@ -131,43 +133,45 @@ export function SubscriptionServicesChecklist({
 
       {oneTime.length > 0 && (
         <>
-          <div className="ac-subcard-title" style={{ marginBottom: 6, marginTop: anyRecurringChecked ? 0 : 8 }}>One-Time / Project Services</div>
-          <p className="muted" style={{ fontSize: 11.5, margin: "0 0 8px" }}>Billed per engagement — never part of the monthly subscription.</p>
-          {groupBy(oneTime).map(([group, entries]) => (
-            <div key={group} style={{ marginBottom: 10 }}>
-              <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 4 }}>{group}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px" }}>
-                {entries.map((s) => {
-                  // subscriber_discount (sql/110) — knocks a flat $ off a
-                  // one-time fee for a client who already has at least one
-                  // other active recurring service checked, i.e. they're
-                  // already a subscriber, not buying this standalone.
-                  const discount = s.subscriber_discount != null ? Number(s.subscriber_discount) : 0;
-                  const discountApplies = discount > 0 && anyRecurringChecked && services.includes(s.service_key);
-                  const rawFee = s.min_fee != null ? Number(s.min_fee) : null;
-                  return (
-                    <label key={s.service_key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                      <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
-                      {s.label}
-                      {rawFee != null && (
-                        <span className="muted" style={{ fontSize: 11 }}>
-                          {discountApplies ? (
-                            <>
-                              <span style={{ textDecoration: "line-through" }}>${rawFee.toFixed(0)}</span>{" "}
-                              <strong style={{ color: "var(--teal)" }}>${(rawFee - discount).toFixed(0)}</strong> one-time
-                              {" "}(${discount.toFixed(0)} subscriber discount)
-                            </>
-                          ) : (
-                            `$${rawFee.toFixed(0)} one-time${discount > 0 ? ` ($${discount.toFixed(0)} off if bundled with an active subscription)` : ""}`
-                          )}
-                        </span>
-                      )}
-                    </label>
-                  );
-                })}
+          <div className="ac-subcard-title" style={{ marginBottom: 8, marginTop: anyRecurringChecked ? 4 : 8 }}>One-Time / Project Services</div>
+          <p className="muted" style={{ fontSize: 11.5, margin: "0 0 10px" }}>Billed per engagement — never part of the monthly subscription.</p>
+          <div className="service-group-grid">
+            {groupBy(oneTime).map(([group, entries]) => (
+              <div key={group} className="service-group">
+                <div className="service-group-label">{group}</div>
+                <div className="service-group-items">
+                  {entries.map((s) => {
+                    // subscriber_discount (sql/110) — knocks a flat $ off a
+                    // one-time fee for a client who already has at least one
+                    // other active recurring service checked, i.e. they're
+                    // already a subscriber, not buying this standalone.
+                    const discount = s.subscriber_discount != null ? Number(s.subscriber_discount) : 0;
+                    const discountApplies = discount > 0 && anyRecurringChecked && services.includes(s.service_key);
+                    const rawFee = s.min_fee != null ? Number(s.min_fee) : null;
+                    return (
+                      <label key={s.service_key} className={`service-item${services.includes(s.service_key) ? " checked" : ""}`}>
+                        <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />
+                        <span className="service-item-label">{s.label}</span>
+                        {rawFee != null && (
+                          <span className="service-item-price">
+                            {discountApplies ? (
+                              <>
+                                <span style={{ textDecoration: "line-through" }}>${rawFee.toFixed(0)}</span>{" "}
+                                <strong style={{ color: "var(--teal)" }}>${(rawFee - discount).toFixed(0)}</strong> one-time
+                                {" "}(${discount.toFixed(0)} subscriber discount)
+                              </>
+                            ) : (
+                              `$${rawFee.toFixed(0)} one-time${discount > 0 ? ` ($${discount.toFixed(0)} off if bundled with an active subscription)` : ""}`
+                            )}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </>
       )}
     </>

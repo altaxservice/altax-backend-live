@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Client, Task, ServiceCatalogEntry } from "../api/types";
@@ -844,6 +844,25 @@ export function ClientDetailPage() {
               "Owner / Responsible Party": UserRound, "Services Provided": Briefcase,
               "Assignment & Forms": ClipboardList, "Notes": StickyNote,
             };
+            // A distinct color per section so the jump-nav becomes a color key to
+            // the page and each card reads as its own place, not one more slab in
+            // an undifferentiated white scroll. Assignment & Forms/Notes stay
+            // neutral — administrative, not part of the client's own profile data.
+            const EDIT_SECTION_COLORS: Record<string, { color: string; soft: string }> = {
+              "Client Identity": { color: "var(--teal)", soft: "var(--teal-soft)" },
+              "Contact & Address": { color: "var(--blue)", soft: "var(--blue-soft)" },
+              "Business Tax IDs": { color: "var(--amber)", soft: "var(--amber-soft)" },
+              "Owner / Responsible Party": { color: "var(--purple)", soft: "var(--purple-soft)" },
+              "Services Provided": { color: "var(--green)", soft: "var(--green-soft)" },
+            };
+            const sectionColorVars = (title: string): CSSProperties => {
+              const c = EDIT_SECTION_COLORS[title];
+              return c ? ({ "--section-color": c.color, "--section-color-soft": c.soft } as CSSProperties) : {};
+            };
+            const navColorVars = (title: string): CSSProperties => {
+              const c = EDIT_SECTION_COLORS[title];
+              return c ? ({ "--nav-color": c.color, "--nav-color-soft": c.soft } as CSSProperties) : {};
+            };
             const topLevelSections = EDIT_SECTIONS.filter((s) => !s.nestedIn);
             const sectionVisible = (section: (typeof EDIT_SECTIONS)[number]) => {
               const visibleFields = section.fields.filter((f) => !f.hidden || !f.hidden(form));
@@ -864,7 +883,12 @@ export function ClientDetailPage() {
                     {topLevelSections.filter(sectionVisible).map((section) => {
                       const Icon = EDIT_SECTION_ICONS[section.title] || FileText;
                       return (
-                        <button key={section.title} type="button" className={activeEditSection === section.title ? "active" : ""} onClick={() => scrollToEditSection(section.title)}>
+                        <button
+                          key={section.title} type="button"
+                          className={activeEditSection === section.title ? "active" : ""}
+                          style={navColorVars(section.title)}
+                          onClick={() => scrollToEditSection(section.title)}
+                        >
                           <Icon size={15} /> {section.title}
                         </button>
                       );
@@ -886,8 +910,12 @@ export function ClientDetailPage() {
                         data-section-title={section.title}
                         ref={(el) => { editSectionRefs.current[section.title] = el; }}
                         className="ac-card"
+                        style={sectionColorVars(section.title)}
                       >
-                        <div className="ac-card-header"><Icon size={16} /><h3>{section.title}</h3></div>
+                        <div className="ac-card-header">
+                          <span className="ac-card-header-icon"><Icon size={16} /></span>
+                          <h3>{section.title}</h3>
+                        </div>
                         {section.title === "Services Provided" && (
                           <>
                             <SubscriptionServicesChecklist

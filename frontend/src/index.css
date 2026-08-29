@@ -565,19 +565,53 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
   white-space: nowrap;
 }
 .ac-wizard-nav button:not(.ac-wizard-nav-toggle):hover { background: var(--surface); color: var(--ink); }
-.ac-wizard-nav button.active { background: var(--teal-soft); color: var(--teal); }
+/* Picks up the same per-section --nav-color custom property set inline on
+   each nav button (see EDIT_SECTION_COLORS) — the active jump-nav item and
+   the card it points to share one identity, so the sidebar itself becomes
+   a color key to the page instead of one flat teal for every section. */
+.ac-wizard-nav button.active { background: var(--nav-color-soft, var(--teal-soft)); color: var(--nav-color, var(--teal)); font-weight: 800; }
 .ac-wizard-nav button svg { flex: 0 0 auto; }
 .ac-wizard.nav-collapsed .ac-wizard-nav { flex-basis: 36px; }
 .ac-wizard.nav-collapsed .ac-wizard-nav-links { display: none; }
 .ac-wizard.nav-collapsed .ac-wizard-nav-toggle { align-self: center; }
-.ac-wizard-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 16px; }
-.ac-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 20px; background: var(--paper); scroll-margin-top: 16px; }
-.ac-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.ac-card-header svg { color: var(--teal); flex: 0 0 auto; }
-.ac-card-header h3 { font-size: 14px; font-weight: 800; margin: 0; color: var(--ink); }
+.ac-wizard-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 16px; }
+/* Each card's --section-color/--section-color-soft custom properties are set
+   inline per section (see EDIT_SECTION_COLORS in ClientDetailPage.tsx) — a
+   quiet top edge plus a tinted icon tile give each part of a long profile its
+   own identity to navigate by, without a side accent rail on every card. */
+.ac-card {
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--section-color, var(--line));
+  border-radius: 12px; padding: 20px 22px 22px; background: var(--paper); scroll-margin-top: 16px;
+}
+.ac-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.ac-card-header-icon {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 32px; height: 32px; border-radius: 9px;
+  background: var(--section-color-soft, var(--surface)); color: var(--section-color, var(--teal));
+}
+.ac-card-header h3 { font-family: var(--serif); font-size: 16px; font-weight: 700; margin: 0; color: var(--ink); }
 .ac-card-header .muted { font-size: 11.5px; margin-left: auto; }
 .ac-subcard { border: 1px dashed var(--line); border-radius: 10px; padding: 14px 16px 6px; margin-top: 14px; background: var(--surface); }
 .ac-subcard-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); margin-bottom: 10px; }
+
+/* ---- Services Provided checklist — grouped into boxed categories instead of
+   a flat wall of checkboxes, each item giving quiet feedback when checked. ---- */
+.service-group-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.service-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 12px 14px; }
+.service-group-label { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 8px; }
+.service-group-items { display: flex; flex-direction: column; gap: 2px; }
+.service-item {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px;
+  padding: 6px 8px; border-radius: 7px; font-size: 13px; cursor: pointer;
+  transition: background 0.1s ease;
+}
+.service-item:hover { background: var(--paper); }
+.service-item.checked { background: var(--paper); box-shadow: inset 0 0 0 1px var(--teal-soft); }
+.service-item input { flex: 0 0 auto; }
+.service-item-label { font-weight: 500; }
+.service-item.checked .service-item-label { font-weight: 700; }
+.service-item-price { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 860px) {
   .ac-wizard { flex-direction: column; }
