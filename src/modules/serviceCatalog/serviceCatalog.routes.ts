@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
 import { generateSubscriptionBrochurePdf } from "./subscriptionBrochurePdf";
 import { canAccessClient } from "../../common/assignment";
+import { syncCatalogProducts } from "./productSync";
 
 function idSuffix(): string {
   const now = new Date();
@@ -54,17 +55,30 @@ serviceCatalogRouter.patch("/:serviceKey", requireAuth, requireRole("admin"), as
   const subscriberDiscount = body.subscriberDiscount !== undefined
     ? (body.subscriberDiscount === null || body.subscriberDiscount === "" ? null : Number(body.subscriberDiscount))
     : existing.subscriber_discount;
+  const oneTimeFee = body.oneTimeFee !== undefined
+    ? (body.oneTimeFee === null || body.oneTimeFee === "" ? null : Number(body.oneTimeFee))
+    : existing.one_time_fee;
   if (!label) return res.status(400).json({ error: "Label is required." });
   if (!["flat", "per_employee", "per_worker"].includes(pricingUnit)) return res.status(400).json({ error: "Invalid pricing unit." });
 
   await query(
     `UPDATE altax.v3_service_catalog
-        SET label = $2, group_name = $3, min_fee = $4, active = $5, sort_order = $6, pricing_unit = $8, subscriber_discount = $9, updated_at = now(), updated_by = $7
+        SET label = $2, group_name = $3, min_fee = $4, active = $5, sort_order = $6, pricing_unit = $8, subscriber_discount = $9, one_time_fee = $10, updated_at = now(), updated_by = $7
       WHERE service_key = $1`,
-    [serviceKey, label, groupName, minFee, active, sortOrder, req.user!.email, pricingUnit, subscriberDiscount]
+    [serviceKey, label, groupName, minFee, active, sortOrder, req.user!.email, pricingUnit, subscriberDiscount, oneTimeFee]
   );
   await logAudit("Billing", "EDIT_SERVICE_CATALOG", serviceKey, "MinFee", String(existing.min_fee ?? "—"), String(minFee ?? "—"),
     `Fee schedule entry "${label}" edited by ${req.user!.email}.`, req.user!.email);
+
+  // Best-effort — a sync hiccup must never block a Fee Schedule save. See
+  // productSync.ts: keeps the invoice "Product/Service" picker's catalog-derived
+  // rows (SVC-<serviceKey>[-OT]) matching whatever was just saved here.
+  try {
+    await syncCatalogProducts(serviceKey);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[serviceCatalog] product sync failed for "${serviceKey}":`, err);
+  }
 
   res.json({ ok: true });
 }));
@@ -94,14 +108,22 @@ serviceCatalogRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(a
   // subscription total (computeSubscriptionFee skips role='one_time' rows
   // unconditionally regardless of whether min_fee is set).
   const minFee = body.minFee === null || body.minFee === undefined || body.minFee === "" ? null : Number(body.minFee);
+  const oneTimeFee = body.oneTimeFee === null || body.oneTimeFee === undefined || body.oneTimeFee === "" ? null : Number(body.oneTimeFee);
   const maxSort = await queryOne<any>(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM altax.v3_service_catalog`);
 
   await query(
-    `INSERT INTO altax.v3_service_catalog (service_key, label, group_name, role, min_fee, sort_order, active, legacy, updated_at, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, true, false, now(), $7)`,
-    [serviceKey, label, groupName, role, minFee, Number(maxSort?.m || 0) + 10, req.user!.email]
+    `INSERT INTO altax.v3_service_catalog (service_key, label, group_name, role, min_fee, one_time_fee, sort_order, active, legacy, updated_at, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, now(), $8)`,
+    [serviceKey, label, groupName, role, minFee, oneTimeFee, Number(maxSort?.m || 0) + 10, req.user!.email]
   );
   await logAudit("Billing", "CREATE_SERVICE_CATALOG", serviceKey, "", "", label, `Fee schedule entry "${label}" created by ${req.user!.email}.`, req.user!.email);
+
+  try {
+    await syncCatalogProducts(serviceKey);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[serviceCatalog] product sync failed for "${serviceKey}":`, err);
+  }
 
   res.status(201).json({ ok: true, serviceKey });
 }));

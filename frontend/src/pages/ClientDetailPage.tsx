@@ -3704,7 +3704,10 @@ function ClientBillingSection({ client }: { client: Client }) {
         const discount = s.subscriber_discount != null ? Number(s.subscriber_discount) : 0;
         const applies = discount > 0 && anyRecurringChecked;
         const rate = Number(s.min_fee) - (applies ? discount : 0);
-        return { productName: s.label, description: applies ? `${s.label} ($${discount.toFixed(0)} subscriber discount applied)` : s.label, quantity: 1, rate, taxable: true };
+        // Description is left blank for staff to fill in themselves — it's no longer
+        // where the selected service links to (that's productId now); the discount
+        // is still reflected correctly since it's already subtracted from `rate`.
+        return { productId: `SVC-${s.service_key}`, productName: s.label, quantity: 1, rate, taxable: true };
       });
   })();
 

@@ -30,7 +30,7 @@ import { CORE_PILLAR_KEYS } from "../utils/subscriptionPricing";
  * neither should be merged into the other without a real reason to.
  */
 
-type Draft = { label: string; groupName: string; minFee: string; active: boolean; pricingUnit: "flat" | "per_employee" | "per_worker"; subscriberDiscount: string };
+type Draft = { label: string; groupName: string; minFee: string; active: boolean; pricingUnit: "flat" | "per_employee" | "per_worker"; subscriberDiscount: string; oneTimeFee: string };
 
 const PRICING_UNIT_LABEL: Record<string, string> = { flat: "Flat", per_employee: "Per Employee", per_worker: "Per Worker" };
 
@@ -78,6 +78,7 @@ export function SubscriptionPlansPage() {
         label: s.label, groupName: s.group_name, minFee: s.min_fee != null ? String(s.min_fee) : "", active: s.active,
         pricingUnit: s.pricing_unit || "flat",
         subscriberDiscount: s.subscriber_discount != null ? String(s.subscriber_discount) : "",
+        oneTimeFee: s.one_time_fee != null ? String(s.one_time_fee) : "",
       }])));
       setTiers(t.tiers);
       setTierDrafts(Object.fromEntries(t.tiers.map((tr) => [tr.tier_key, { tierName: tr.tier_name, description: tr.description || "" }])));
@@ -109,6 +110,7 @@ export function SubscriptionPlansPage() {
         minFee: d.minFee === "" ? null : Number(d.minFee),
         active: d.active, pricingUnit: d.pricingUnit,
         subscriberDiscount: d.subscriberDiscount === "" ? null : Number(d.subscriberDiscount),
+        oneTimeFee: d.oneTimeFee === "" ? null : Number(d.oneTimeFee),
       });
       load();
     } catch (err) {
@@ -259,7 +261,7 @@ export function SubscriptionPlansPage() {
             <div className="muted" style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{group}</div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">Priced Per</th><th scope="col">Billed</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
+                <thead><tr><th scope="col">Label</th><th scope="col">Type</th><th scope="col">Min. Fee</th><th scope="col">One-Time Price</th><th scope="col">Priced Per</th><th scope="col">Billed</th><th scope="col">Active</th><th scope="col"></th></tr></thead>
                 <tbody>
                   {services.filter((s) => s.group_name === group && !s.legacy).map((s) => {
                     const d = drafts[s.service_key];
@@ -285,6 +287,20 @@ export function SubscriptionPlansPage() {
                             $<input type="number" step="0.01" style={{ width: 70 }} placeholder="—" value={d.minFee} disabled={!isAdmin} onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], minFee: e.target.value } }))} />
                             <span className="muted" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{feeSuffix}</span>
                           </span>
+                        </td>
+                        <td style={{ width: 130 }}>
+                          {s.role === "one_time" ? (
+                            <span className="muted" style={{ fontSize: 11 }}>—</span>
+                          ) : (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                              $<input
+                                type="number" step="0.01" style={{ width: 65 }} placeholder="—" disabled={!isAdmin}
+                                value={d.oneTimeFee}
+                                onChange={(e) => setDrafts((prev) => ({ ...prev, [s.service_key]: { ...prev[s.service_key], oneTimeFee: e.target.value } }))}
+                              />
+                              <span className="muted" style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>one-time</span>
+                            </span>
+                          )}
                         </td>
                         <td style={{ width: 150 }}>
                           {s.role === "one_time" ? (
@@ -321,6 +337,7 @@ export function SubscriptionPlansPage() {
                         <span style={{ fontWeight: 700 }}>${groupTotal.toFixed(2)}</span>
                         <span className="muted" style={{ fontSize: 10.5 }}>/mo</span>
                       </td>
+                      <td></td>
                       <td colSpan={4} className="muted" style={{ fontSize: 11 }}>
                         {[
                           perUnitItems.length > 0

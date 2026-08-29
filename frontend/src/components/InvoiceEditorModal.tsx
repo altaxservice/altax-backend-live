@@ -39,7 +39,7 @@ function money(v: unknown): string {
 export function InvoiceEditorModal({ clients, editing, initialClientId, initialLineItems, onClose, onDone }: {
   clients: Client[]; editing?: Invoice; initialClientId?: string;
   /** Pre-seeds line items in create mode only (ignored when `editing` is set) — e.g. a client profile's "Create Invoice" button seeding the client's currently-checked one-time services. */
-  initialLineItems?: { productName?: string; description?: string; quantity?: number; rate: number; taxable?: boolean }[];
+  initialLineItems?: { productId?: string; productName?: string; description?: string; quantity?: number; rate: number; taxable?: boolean }[];
   onClose: () => void; onDone: (invoiceId: string) => void;
 }) {
   const toast = useToast();
@@ -89,7 +89,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
     }
     if (!editing && initialLineItems?.length) {
       return initialLineItems.map((li) => ({
-        ...newRow(), productName: li.productName || "", description: li.description || "",
+        ...newRow(), productId: li.productId || "", productName: li.productName || "", description: li.description || "",
         quantity: String(li.quantity ?? 1), rate: String(li.rate), taxable: li.taxable !== false,
       }));
     }
@@ -117,6 +117,18 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   }, []);
 
   const selectedClient = clients.find((c) => c.client_id === clientId);
+
+  // Surfaces the services this client is actually engaged for first, so staff don't
+  // have to hunt the full list — the client's checked service_keys come through on
+  // Client.services (see ClientDetailPage.tsx's Services Provided checklist).
+  const engagedServiceKeys = useMemo(() => new Set(selectedClient?.services || []), [selectedClient]);
+  const [clientProducts, otherProducts] = useMemo(() => {
+    if (!selectedClient) return [[], products] as [ProductService[], ProductService[]];
+    const mine: ProductService[] = [], rest: ProductService[] = [];
+    for (const p of products) (p.catalog_service_key && engagedServiceKeys.has(p.catalog_service_key) ? mine : rest).push(p);
+    return [mine, rest];
+  }, [products, selectedClient, engagedServiceKeys]);
+
   useEffect(() => {
     if (!isEdit && selectedClient) {
       if (!billTo) setBillTo(String(selectedClient.address || ""));
@@ -178,7 +190,9 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
     }
     const p = products.find((x) => x.product_id === productId);
     if (!p) { updateRow(key, { productId: "", productName: "" }); return; }
-    updateRow(key, { productId: p.product_id, productName: p.name, description: p.description || "", rate: String(p.rate ?? ""), taxable: p.taxable });
+    // Description is the staff member's own free-text note for this line — picking a
+    // product must never overwrite it (direct owner correction, 2026-08-29).
+    updateRow(key, { productId: p.product_id, productName: p.name, rate: String(p.rate ?? ""), taxable: p.taxable });
   }
 
   async function handleQuickAddProduct() {
@@ -299,7 +313,18 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
                     <select value={r.productId} onChange={(e) => selectProduct(r.key, e.target.value)} style={{ width: 160 }}>
                       <option value="">Select…</option>
                       <option value="__new__">+ Add new product/service</option>
-                      {products.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                      {clientProducts.length > 0 ? (
+                        <>
+                          <optgroup label="This Client's Services">
+                            {clientProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                          </optgroup>
+                          <optgroup label="All Products & Services">
+                            {otherProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)}
+                          </optgroup>
+                        </>
+                      ) : (
+                        otherProducts.map((p) => <option key={p.product_id} value={p.product_id}>{p.name}</option>)
+                      )}
                     </select>
                   </td>
                   <td><input value={r.description} onChange={(e) => updateRow(r.key, { description: e.target.value })} style={{ width: 200 }} /></td>

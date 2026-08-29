@@ -112,6 +112,8 @@ export interface ProductService {
   rate: string | number;
   taxable: boolean;
   active: boolean;
+  catalog_service_key?: string | null;
+  price_context?: "subscription" | "one_time" | null;
   [key: string]: unknown;
 }
 
