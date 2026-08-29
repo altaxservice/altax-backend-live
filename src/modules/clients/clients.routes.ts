@@ -2123,7 +2123,13 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
       allCreatedFindings.push(...result.createdFindings);
       clientsProcessed++;
     } catch (err) {
-      errors.push(`${c.client_id}: ${err instanceof Error ? err.message : String(err)}`);
+      // Hard Audit finding, 2026-08-29: neither helper below deliberately
+      // throws a user-facing message, so anything caught here is a raw
+      // error — logged server-side, replaced with a generic per-client note
+      // rather than folded into this sweep's error summary verbatim.
+      // eslint-disable-next-line no-console
+      console.error(`[swot-sweep] ${c.client_id}:`, err);
+      errors.push(`${c.client_id}: Could not process this client.`);
     }
   }
   if (created > 0 || resolved > 0) {
@@ -2134,7 +2140,9 @@ export async function runSwotFindingsSweep(actorEmail: string): Promise<{ client
     const alertResult = await runDashboardAlertPush(allCreatedFindings, actorEmail);
     alertsPushed = alertResult.pushed;
   } catch (err) {
-    errors.push(`alert push: ${err instanceof Error ? err.message : String(err)}`);
+    // eslint-disable-next-line no-console
+    console.error("[swot-sweep] alert push:", err);
+    errors.push("alert push: Could not send the alert.");
   }
   return { clientsProcessed, created, resolved, alertsPushed, errors };
 }

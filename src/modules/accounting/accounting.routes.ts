@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
-import { asyncHandler } from "../../common/asyncHandler";
+import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient, normalizeText } from "../../common/assignment";
 import { lookupRate, lookupWageCap, capWagesToAnnualLimit, wagesAboveAnnualThreshold, money, rateValue, appendGl, resolvePaymentMethod, postPayrollGl, decryptTolerant } from "../../common/accountingHelpers";
 import { encryptValue, decryptClientPii } from "../../common/encryption";
@@ -505,7 +505,7 @@ export async function computeCategoryLinesTax(rawLines: SalesCategoryLineInput[]
     const taxableAmount = money(raw.taxableAmount);
     if (!categoryId || taxableAmount === 0) continue;
     const category = categoryMap.get(categoryId);
-    if (!category) throw new Error(`Unknown sales tax category: ${categoryId}`);
+    if (!category) throw new ValidationError(`Unknown sales tax category: ${categoryId}`);
     const rate = category.default_rate_id
       ? await lookupRate(category.default_rate_id, 0, clientId, clientState || undefined)
       : 0;
@@ -593,7 +593,7 @@ export async function createSalesInputRecord(
 
   if (isDuplicate) {
     if (duplicateResponse) return { ...duplicateResponse, isDuplicate: true };
-    throw new Error("This sale submission is already being processed. Wait a moment, then check the Sales tab before retrying.");
+    throw new ValidationError("This sale submission is already being processed. Wait a moment, then check the Sales tab before retrying.");
   }
 
   await logAudit("Accounting", "CREATE_SALES_INPUT", saleId, "", "", String(totalTax),
@@ -620,7 +620,13 @@ accountingRouter.post("/sales", requireAuth, requireRole("admin", "staff"), asyn
       categoryLines: Array.isArray(body.categoryLines) ? body.categoryLines : [],
     }, req.user!.email, "Node Web App", String(body.idempotencyKey || "").trim() || null);
   } catch (err) {
-    return res.status(400).json({ error: err instanceof Error ? err.message : "Invalid category lines." });
+    // Hard Audit finding, 2026-08-29: this catch wraps createSalesInputRecord's
+    // real INSERT/GL-posting transaction, not just validation — a raw Postgres
+    // error used to reach the client verbatim alongside intentional messages
+    // like "Invalid category lines." Only a real ValidationError's message is
+    // safe to show.
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
   }
 
   res.status(201).json({ ok: true, ...result });
@@ -1067,7 +1073,7 @@ export async function createSinglePaycheck(
              LIMIT 1`,
           [client.client_id, employeeName, payDateForDupCheck]
         );
-        if (dupeInsideLock) throw new Error(`A paycheck for ${employeeName} on ${payDateForDupCheck} already exists.`);
+        if (dupeInsideLock) throw new ValidationError(`A paycheck for ${employeeName} on ${payDateForDupCheck} already exists.`);
       }
 
       calc = await calculatePaycheck(client.client_id, employeeName, employee, body, client.state);
@@ -1088,16 +1094,16 @@ export async function createSinglePaycheck(
       // show the bad number on screen before the user finishes fixing it; only the actual
       // save is blocked.
       if (netPay < 0) {
-        throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
+        throw new ValidationError(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
       }
       if (gross < 0) {
-        throw new Error("Gross wages cannot be negative.");
+        throw new ValidationError("Gross wages cannot be negative.");
       }
       // Only the lower bound (net >= 0) was ever checked — a negative withholding
       // or deduction value (however entered) can drive net pay above gross with
       // no rejection, the mirror-image bug of the one just above.
       if (netPay > gross + nonTaxableReimbursement) {
-        throw new Error(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
+        throw new ValidationError(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
       }
 
       const payType = String(body.payType || employee.pay_type || "").trim() || null;
@@ -1163,8 +1169,17 @@ export async function createSinglePaycheck(
       `Payroll recorded by ${userEmail}.`, userEmail);
 
     return { ok: true, payrollInputId, paycheckId, gross: calc.gross, netPay: calc.netPay, employeeTaxes: calc.employeeTaxes, employerTaxes: calc.employerTaxes };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || "Could not create this paycheck." };
+  } catch (err) {
+    // Hard Audit finding, 2026-08-29: this catch wraps a real paycheck INSERT +
+    // GL posting, not just validation — err.message used to reach the client
+    // (via both the single-create and batch routes below) even when it was a
+    // raw Postgres error, not one of the intentional ValidationErrors thrown
+    // above. Anything else is logged server-side and replaced with a generic
+    // message, matching how the global error handler treats every other route.
+    if (err instanceof ValidationError) return { ok: false, error: err.message };
+    // eslint-disable-next-line no-console
+    console.error(err);
+    return { ok: false, error: "Could not create this paycheck." };
   }
 }
 
@@ -1507,13 +1522,13 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
     // Same sanity bounds as the create route — a caller-overridden withholding/deduction
     // larger than gross wages previously saved a negative net pay with no rejection.
     if (netPay < 0) {
-      throw new Error(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
+      throw new ValidationError(`Net pay would be negative (${netPay.toFixed(2)}) — withholding/deductions exceed gross wages plus reimbursement. Check the entered amounts.`);
     }
     if (gross < 0) {
-      throw new Error("Gross wages cannot be negative.");
+      throw new ValidationError("Gross wages cannot be negative.");
     }
     if (netPay > gross + nonTaxableReimbursement) {
-      throw new Error(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
+      throw new ValidationError(`Net pay (${netPay.toFixed(2)}) cannot exceed gross wages plus reimbursement (${(gross + nonTaxableReimbursement).toFixed(2)}) — check for a negative withholding or deduction amount.`);
     }
 
     await db.query(
@@ -1545,8 +1560,11 @@ accountingRouter.patch("/paychecks/:paycheckId", requireAuth, requireRole("admin
       gross, nonTaxableReimbursement, netPay, totalDeductions, employerTaxes, employeeTaxes,
     }, db);
   });
-  } catch (err: any) {
-    return res.status(400).json({ error: err?.message || "Could not save this paycheck edit." });
+  } catch (err) {
+    // Hard Audit finding, 2026-08-29: same class of leak as the create route
+    // above — this wraps a real UPDATE + GL repost, not just validation.
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
   }
 
   await logAudit("Accounting", "EDIT_PAYCHECK", paycheckId, "GrossWages", String(existing.gross_wages ?? ""), String(gross),

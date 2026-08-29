@@ -13,7 +13,7 @@
  */
 import { Router, Request, Response } from "express";
 import { query, queryOne, pool } from "../../config/db";
-import { asyncHandler } from "../../common/asyncHandler";
+import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { rateLimit } from "../../common/rateLimit";
 import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { sendPushToUsers } from "../../common/webPush";
@@ -333,7 +333,7 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
         `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 LIMIT 1`,
         [paddedStart, paddedEnd]
       );
-      if (clash.length) throw new Error("That time slot was just booked by someone else — please pick another.");
+      if (clash.length) throw new ValidationError("That time slot was just booked by someone else — please pick another.");
       const created = await createAppointment({
         title: appointmentTypeName || "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
         startTime, endTime, notes: reason || undefined, notifyClient: true,
@@ -342,8 +342,14 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       });
       return created.appointmentId;
     });
-  } catch (err: any) {
-    return res.status(400).json({ error: err?.message || "Could not book this appointment." });
+  } catch (err) {
+    // Hard Audit finding, 2026-08-29: this is a fully unauthenticated public
+    // route — a raw error from createAppointment's INSERT (a malformed date,
+    // an over-length field) used to reach an anonymous site visitor verbatim.
+    // Only a deliberately-thrown ValidationError's message is safe to show;
+    // anything else re-throws to the global handler's generic message.
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
   }
 
   // Best-effort: if this booking matched an existing client (by email, inside

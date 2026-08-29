@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
-import { asyncHandler } from "../../common/asyncHandler";
+import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { readWorkbookSheetByName } from "../../common/xlsxReader";
@@ -205,8 +205,17 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
       }, req.user!.email, "Sales Input Import");
       results.push({ index, saleDate, ok: true, saleId: result.saleId, totalTaxDue: result.totalTaxDue });
       existingDates.add(saleDate);
-    } catch (err: any) {
-      results.push({ index, saleDate, ok: false, error: err?.message || "Could not import this row." });
+    } catch (err) {
+      // Hard Audit finding, 2026-08-29: createSalesInputRecord's real INSERT/GL
+      // posting failing (not just its intentional validation) used to put a raw
+      // Postgres error into this row's reported result.
+      if (err instanceof ValidationError) {
+        results.push({ index, saleDate, ok: false, error: err.message });
+      } else {
+        // eslint-disable-next-line no-console
+        console.error(err);
+        results.push({ index, saleDate, ok: false, error: "Could not import this row." });
+      }
     }
   }
 

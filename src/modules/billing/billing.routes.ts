@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { query, queryOne, withTransaction, type DbClient } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
-import { asyncHandler } from "../../common/asyncHandler";
+import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient, getUserAliases } from "../../common/assignment";
 import { resolvePaymentMethod, postInvoiceTotalGl, postInvoicePaymentGl } from "../../common/accountingHelpers";
 import { composeAddress } from "../../common/address";
@@ -908,9 +908,12 @@ billingRouter.patch("/invoices/:invoiceId", requireAuth, requireRole("admin", "s
     // "trusted" summary column desync from the payments ledger it's supposed to
     // summarize) — the only two ways amount_paid can move now are a real payment/
     // reversal recorded elsewhere, or the explicit status-transition guard below.
+    // balanceDue is the same class of bug, just never fixed alongside it — Hard
+    // Audit finding, 2026-08-29: it's always derived from total/paid/deposit now,
+    // never settable directly, so it can't drift from what those actually add up to.
     paid = oldPaid;
     const deposit = body.depositAmount !== undefined ? money(body.depositAmount) : money(locked.deposit_amount);
-    balance = body.balanceDue !== undefined ? money(body.balanceDue) : Math.max(0, total - paid - deposit);
+    balance = Math.max(0, total - paid - deposit);
     status = String(body.status || locked.status || (balance <= 0 ? "Paid" : paid + deposit > 0 ? "Partial" : "Unpaid")).trim();
 
     /**
@@ -1584,7 +1587,7 @@ billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requir
         [sourceRecordId]
       );
       if (existingInvoice) {
-        throw new Error(`An invoice for this period already exists (${existingInvoice.invoice_id}).`);
+        throw new ValidationError(`An invoice for this period already exists (${existingInvoice.invoice_id}).`);
       }
       await db.query(
         `INSERT INTO altax.v3_invoices
@@ -1598,8 +1601,11 @@ billingRouter.post("/recurring/:recurringBillingId/run-now", requireAuth, requir
       // the GL/Trial Balance/P&L even though the invoice itself existed.
       await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
     });
-  } catch (err: any) {
-    return res.status(400).json({ error: err?.message || "Could not run this recurring billing." });
+  } catch (err) {
+    // Hard Audit finding, 2026-08-29: wraps a real INSERT + GL posting, not
+    // just the duplicate-period check.
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
   }
   await query(
     `UPDATE altax.v3_recurring_billing SET last_run_date=$2, last_invoice_id=$3, next_run_date=$4, updated_at=now() WHERE recurring_billing_id=$1`,
@@ -1703,8 +1709,17 @@ export async function runRecurringBillingSweep(
         // every recurring-billing client (see the second audit round's finding).
         await postInvoiceTotalGl(schedule.client_id, schedule.client_name, invoiceId, runDateString, amount, db);
       });
-    } catch (err: any) {
-      errors.push(`${schedule.recurring_billing_id}: ${err?.message || "Could not create this invoice."}`);
+    } catch (err) {
+      // Same class of fix as the manual "Use Now" route above — wraps a real
+      // INSERT + GL posting, so only a deliberate ValidationError's message is
+      // safe to fold into this sweep's error summary.
+      if (err instanceof ValidationError) {
+        errors.push(`${schedule.recurring_billing_id}: ${err.message}`);
+      } else {
+        // eslint-disable-next-line no-console
+        console.error(err);
+        errors.push(`${schedule.recurring_billing_id}: Could not create this invoice.`);
+      }
       continue;
     }
     if (existingInvoiceId) {
