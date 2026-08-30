@@ -33,6 +33,15 @@ interface TaxLiabilityPreview {
   summary: { federalIncomeTax: number; socialSecurity: number; medicare: number; total941: number };
   action: "create" | "duplicate";
 }
+interface ImportedPaycheckRow {
+  id: string; employee_name: string; pay_date: string; check_number: string | null;
+  federal_withheld: number; social_security_withheld: number; medicare_withheld: number; created_at: string;
+}
+interface ImportedTaxLiabilityRow {
+  id: string; range_start: string; range_end: string;
+  federal_income_tax: number; social_security: number; medicare: number; total_941: number;
+  imported_by: string; imported_at: string;
+}
 
 function money(v: unknown): string {
   const n = Number(v);
@@ -83,13 +92,11 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   // --- Import: Payroll Wages ---
   const [paycheckFile, setPaycheckFile] = useState<File | null>(null);
   const [paycheckPreview, setPaycheckPreview] = useState<{ rows: PaycheckPreviewRow[]; newCount: number; duplicateCount: number } | null>(null);
-  const [paycheckIncludeDupes, setPaycheckIncludeDupes] = useState(false);
   const [paycheckBusy, setPaycheckBusy] = useState<"preview" | "import" | null>(null);
 
   // --- Import: Tax Liability ---
   const [taxLiabilityFile, setTaxLiabilityFile] = useState<File | null>(null);
   const [taxLiabilityPreview, setTaxLiabilityPreview] = useState<TaxLiabilityPreview | null>(null);
-  const [taxLiabilityIncludeDupe, setTaxLiabilityIncludeDupe] = useState(false);
   const [taxLiabilityBusy, setTaxLiabilityBusy] = useState<"preview" | "import" | null>(null);
 
   // --- Review & File: any period, one row per calendar month touched ---
@@ -108,6 +115,66 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       .catch(() => setHistory([]));
   }
   useEffect(loadHistory, [clientId]);
+
+  // --- Imported data: raw rows, so staff can inspect and clean up an import
+  // themselves (e.g. duplicates from before the database gained a unique
+  // constraint) instead of it requiring a direct DB fix every time. ---
+  const [showImportedData, setShowImportedData] = useState(false);
+  const [importedPaychecks, setImportedPaychecks] = useState<ImportedPaycheckRow[] | null>(null);
+  const [importedSnapshots, setImportedSnapshots] = useState<ImportedTaxLiabilityRow[] | null>(null);
+  const [importedRowBusy, setImportedRowBusy] = useState<string | null>(null);
+
+  function loadImportedData() {
+    api.get<{ rows: ImportedPaycheckRow[] }>(`/eftps-deposits/paycheck-import?clientId=${encodeURIComponent(clientId)}`)
+      .then((r) => setImportedPaychecks(r.rows)).catch(() => setImportedPaychecks([]));
+    api.get<{ rows: ImportedTaxLiabilityRow[] }>(`/eftps-deposits/tax-liability-import?clientId=${encodeURIComponent(clientId)}`)
+      .then((r) => setImportedSnapshots(r.rows)).catch(() => setImportedSnapshots([]));
+  }
+  useEffect(loadImportedData, [clientId]);
+
+  async function handleDeletePaycheckRow(id: string) {
+    setImportedRowBusy(id);
+    try {
+      await api.post(`/eftps-deposits/paycheck-import/${id}/delete`, {});
+      loadImportedData();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete this row.");
+    } finally {
+      setImportedRowBusy(null);
+    }
+  }
+
+  async function handleClearAllPaychecks() {
+    if (!importedPaychecks?.length) return;
+    const ok = await confirmDialog({
+      title: "Clear all imported paychecks?",
+      message: `Deletes all ${importedPaychecks.length} imported paycheck row(s) for this client. This does not affect any already-filed EFTPS deposit — only the raw imported data used to compute new ones.`,
+      confirmLabel: "Clear all",
+    });
+    if (!ok) return;
+    setImportedRowBusy("clear-all-paychecks");
+    try {
+      await api.post(`/eftps-deposits/paycheck-import/clear`, { clientId });
+      toast("Cleared.");
+      loadImportedData();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not clear these rows.");
+    } finally {
+      setImportedRowBusy(null);
+    }
+  }
+
+  async function handleDeleteSnapshotRow(id: string) {
+    setImportedRowBusy(id);
+    try {
+      await api.post(`/eftps-deposits/tax-liability-import/${id}/delete`, {});
+      loadImportedData();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete this snapshot.");
+    } finally {
+      setImportedRowBusy(null);
+    }
+  }
 
   // --- History row actions ---
   const [payingDepositId, setPayingDepositId] = useState<string | null>(null);
@@ -133,25 +200,17 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
 
   async function handlePaycheckImport() {
     if (!paycheckPreview) return;
-    if (paycheckIncludeDupes) {
-      const ok = await confirmDialog({
-        title: "Import duplicates anyway?",
-        message: `${paycheckPreview.duplicateCount} paycheck(s) already exist in this client's records. Importing them again will double the totals for those employees on those pay dates.`,
-        confirmLabel: "Import anyway",
-      });
-      if (!ok) return;
-    }
     setError(null);
     setPaycheckBusy("import");
     try {
-      const rows = paycheckPreview.rows
-        .filter((r) => r.action === "create" || paycheckIncludeDupes)
-        .map((r) => ({ ...r, includeIfDuplicate: paycheckIncludeDupes }));
-      const res = await api.post<{ created: number; skipped: number }>("/eftps-deposits/import/payroll-wages/commit", { clientId, rows });
-      toast(`Imported ${res.created} paycheck(s)${res.skipped ? `, skipped ${res.skipped}` : ""}.`);
+      // A true duplicate (same employee + pay date + check number) can never
+      // actually be inserted twice — the database itself rejects it (sql/125)
+      // — so it's always safe to send every previewed row, new or not.
+      const res = await api.post<{ created: number; skipped: number }>("/eftps-deposits/import/payroll-wages/commit", { clientId, rows: paycheckPreview.rows });
+      toast(`Imported ${res.created} paycheck(s)${res.skipped ? `, ${res.skipped} already on file` : ""}.`);
       setPaycheckFile(null);
       setPaycheckPreview(null);
-      setPaycheckIncludeDupes(false);
+      loadImportedData();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not import these paychecks.");
     } finally {
@@ -176,25 +235,19 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
 
   async function handleTaxLiabilityImport() {
     if (!taxLiabilityPreview) return;
-    if (taxLiabilityIncludeDupe) {
-      const ok = await confirmDialog({
-        title: "Import duplicate anyway?",
-        message: `A Tax Liability snapshot for ${fmtDate(taxLiabilityPreview.range.start)} – ${fmtDate(taxLiabilityPreview.range.end)} was already imported. Importing it again will create a duplicate snapshot for this exact range.`,
-        confirmLabel: "Import anyway",
-      });
-      if (!ok) return;
-    }
     setError(null);
     setTaxLiabilityBusy("import");
     try {
+      // Re-importing the same range always refreshes that one snapshot in
+      // place (sql/125's upsert) rather than creating a duplicate row.
       await api.post("/eftps-deposits/import/tax-liability/commit", {
         clientId, rangeStart: taxLiabilityPreview.range.start, rangeEnd: taxLiabilityPreview.range.end,
-        summary: taxLiabilityPreview.summary, includeIfDuplicate: taxLiabilityIncludeDupe,
+        summary: taxLiabilityPreview.summary,
       });
-      toast("Tax Liability snapshot imported.");
+      toast(taxLiabilityPreview.action === "duplicate" ? "Tax Liability snapshot updated." : "Tax Liability snapshot imported.");
+      loadImportedData();
       setTaxLiabilityFile(null);
       setTaxLiabilityPreview(null);
-      setTaxLiabilityIncludeDupe(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not import this snapshot.");
     } finally {
@@ -384,14 +437,8 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         ) : (
           <div style={{ marginTop: 8 }}>
             <p className="muted" style={{ fontSize: 13 }}>
-              {paycheckPreview.newCount} new paycheck(s){paycheckPreview.duplicateCount ? `, ${paycheckPreview.duplicateCount} already imported` : ""}.
+              {paycheckPreview.newCount} new paycheck(s){paycheckPreview.duplicateCount ? `, ${paycheckPreview.duplicateCount} already on file — those will be skipped automatically` : ""}.
             </p>
-            {paycheckPreview.duplicateCount > 0 && (
-              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginBottom: 8 }}>
-                <input type="checkbox" checked={paycheckIncludeDupes} onChange={(e) => setPaycheckIncludeDupes(e.target.checked)} />
-                Import the already-imported ones again too
-              </label>
-            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-primary" onClick={handlePaycheckImport} disabled={paycheckBusy !== null}>
                 {paycheckBusy === "import" ? "Importing…" : "Import"}
@@ -413,23 +460,91 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <div style={{ marginTop: 8 }}>
             <p className="muted" style={{ fontSize: 13 }}>
               Covers {fmtDate(taxLiabilityPreview.range.start)} – {fmtDate(taxLiabilityPreview.range.end)} · Federal Deposit Total {money(taxLiabilityPreview.summary.total941)}
-              {taxLiabilityPreview.action === "duplicate" ? " · already imported for this exact range" : ""}.
+              {taxLiabilityPreview.action === "duplicate" ? " · a snapshot for this exact range already exists — importing will refresh it with these numbers" : ""}.
             </p>
-            {taxLiabilityPreview.action === "duplicate" && (
-              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginBottom: 8 }}>
-                <input type="checkbox" checked={taxLiabilityIncludeDupe} onChange={(e) => setTaxLiabilityIncludeDupe(e.target.checked)} />
-                Import it again anyway
-              </label>
-            )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-primary" onClick={handleTaxLiabilityImport} disabled={taxLiabilityBusy !== null || (taxLiabilityPreview.action === "duplicate" && !taxLiabilityIncludeDupe)}>
-                {taxLiabilityBusy === "import" ? "Importing…" : "Import"}
+              <button className="btn btn-primary" onClick={handleTaxLiabilityImport} disabled={taxLiabilityBusy !== null}>
+                {taxLiabilityBusy === "import" ? "Importing…" : taxLiabilityPreview.action === "duplicate" ? "Update" : "Import"}
               </button>
               <button className="btn" onClick={() => { setTaxLiabilityFile(null); setTaxLiabilityPreview(null); }}>Cancel</button>
             </div>
           </div>
         )}
       </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Imported Data</h3>
+        <button className="btn btn-sm" onClick={() => setShowImportedData((v) => !v)}>
+          {showImportedData ? "Hide" : "Show"} ({(importedPaychecks?.length || 0) + (importedSnapshots?.length || 0)})
+        </button>
+      </div>
+      {showImportedData && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Imported paychecks ({importedPaychecks?.length || 0}) — review and delete any wrong or duplicate rows directly.</p>
+            {!!importedPaychecks?.length && (
+              <button className="btn btn-sm btn-danger" disabled={importedRowBusy !== null} onClick={handleClearAllPaychecks}>
+                {importedRowBusy === "clear-all-paychecks" ? "Clearing…" : "Clear All"}
+              </button>
+            )}
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+            <div className="table-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
+              <table>
+                <thead><tr><th>Employee</th><th>Pay Date</th><th>Check #</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th></th></tr></thead>
+                <tbody>
+                  {(importedPaychecks || []).map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.employee_name}</td>
+                      <td>{fmtDate(r.pay_date)}</td>
+                      <td>{r.check_number || "—"}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.federal_withheld)}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.social_security_withheld)}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.medicare_withheld)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeletePaycheckRow(r.id)}>
+                          {importedRowBusy === r.id ? "…" : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {importedPaychecks && !importedPaychecks.length && (
+                    <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>No paychecks imported yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>Imported Tax Liability snapshots ({importedSnapshots?.length || 0}).</p>
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>Range</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>941 Total</th><th></th></tr></thead>
+                <tbody>
+                  {(importedSnapshots || []).map((r) => (
+                    <tr key={r.id}>
+                      <td>{fmtDate(r.range_start)} – {fmtDate(r.range_end)}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.federal_income_tax)}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.social_security)}</td>
+                      <td style={{ textAlign: "right" }}>{money(r.medicare)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{money(r.total_941)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeleteSnapshotRow(r.id)}>
+                          {importedRowBusy === r.id ? "…" : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {importedSnapshots && !importedSnapshots.length && (
+                    <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 16 }}>No Tax Liability snapshots imported yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>Review & File</h3>
       <div className="card" style={{ marginBottom: 16 }}>

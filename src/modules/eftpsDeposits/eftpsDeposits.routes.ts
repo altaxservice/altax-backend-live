@@ -129,9 +129,16 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const { client } = loaded;
 
-  const rows: (DrakeFederalPaycheckDetail & { includeIfDuplicate?: boolean })[] = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
+  const rows: DrakeFederalPaycheckDetail[] = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
   if (!rows.length) return res.status(400).json({ error: "No rows to import." });
 
+  // ON CONFLICT DO NOTHING against uq_eftps_paycheck_import_key (sql/125) makes
+  // a true duplicate structurally impossible, regardless of how many times this
+  // route is called with the same file — confirmed live on client C-1005: the
+  // same Drake export got re-imported 3 separate times over a few hours despite
+  // an app-level SELECT-then-insert check and a confirm dialog, each time
+  // doubling every federal deposit total. This replaces that fragile check
+  // entirely rather than adding another layer on top of it.
   let created = 0, skipped = 0;
   for (const r of rows) {
     const employeeName = String(r.employeeName || "").trim();
@@ -139,24 +146,20 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
     if (!employeeName || !payDate) { skipped++; continue; }
     const checkNumber = r.checkNumber ? String(r.checkNumber).trim() : null;
 
-    const existing = await queryOne<any>(
-      `SELECT id FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 AND employee_name = $2 AND pay_date = $3 AND COALESCE(check_number,'') = COALESCE($4,'')`,
-      [client.client_id, employeeName, payDate, checkNumber]
-    );
-    if (existing && !r.includeIfDuplicate) { skipped++; continue; }
-
-    await query(
+    const inserted = await query<{ id: string }>(
       `INSERT INTO altax.v3_eftps_paycheck_import
          (id, client_id, employee_name, pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EFTPS Payroll Wages Import',$1)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EFTPS Payroll Wages Import',$1)
+       ON CONFLICT (client_id, employee_name, pay_date, COALESCE(check_number, '')) DO NOTHING
+       RETURNING id`,
       [`EFTPSPC-${idSuffix()}`, client.client_id, employeeName, payDate, checkNumber,
         Number(r.federalWithheld) || 0, Number(r.socialSecurityWithheld) || 0, Number(r.medicareWithheld) || 0]
     );
-    created++;
+    if (inserted.length) created++; else skipped++;
   }
 
   await logAudit("Clients", "IMPORT_EFTPS_PAYCHECKS", client.client_id, "", "", `${created}/${rows.length}`,
-    `Imported ${created} paycheck(s) for EFTPS from Payroll Wages by ${req.user!.email} (${skipped} skipped as duplicates).`, req.user!.email);
+    `Imported ${created} paycheck(s) for EFTPS from Payroll Wages by ${req.user!.email} (${skipped} already on file, skipped).`, req.user!.email);
 
   res.status(201).json({ ok: true, created, skipped });
 }));
@@ -209,18 +212,18 @@ eftpsDepositsRouter.post("/import/tax-liability/commit", requireAuth, requireRol
     const summary: DrakeTaxLiabilitySummary | undefined = body.summary;
     if (!summary) throw new ValidationError("No parsed summary to import.");
 
-    const existing = await queryOne<any>(
-      `SELECT id FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 AND range_start = $2 AND range_end = $3`,
-      [client.client_id, rangeStart, rangeEnd]
-    );
-    if (existing && !body.includeIfDuplicate) {
-      throw new ValidationError("A Tax Liability snapshot for this exact date range was already imported.");
-    }
-
+    // Upsert against uq_eftps_tax_liability_import_key (sql/125) — a snapshot
+    // isn't summed the way paychecks are (only the latest is ever used for
+    // reconciliation), so re-importing the same range is never a correctness
+    // risk; it just refreshes the numbers instead of piling up duplicate rows.
     await query(
       `INSERT INTO altax.v3_eftps_tax_liability_import
          (id, client_id, range_start, range_end, federal_income_tax, social_security, medicare, total_941, imported_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (client_id, range_start, range_end) DO UPDATE SET
+         federal_income_tax = EXCLUDED.federal_income_tax, social_security = EXCLUDED.social_security,
+         medicare = EXCLUDED.medicare, total_941 = EXCLUDED.total_941,
+         imported_by = EXCLUDED.imported_by, imported_at = now()`,
       [`EFTPSTL-${idSuffix()}`, client.client_id, rangeStart, rangeEnd,
         Number(summary.federalIncomeTax) || 0, Number(summary.socialSecurity) || 0, Number(summary.medicare) || 0, Number(summary.total941) || 0,
         req.user!.email]
@@ -234,6 +237,73 @@ eftpsDepositsRouter.post("/import/tax-liability/commit", requireAuth, requireRol
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
   }
+}));
+
+/* ------------------------------------------------------------------ */
+/* Imported data: raw list + delete, so staff can inspect and clean up */
+/* an import themselves instead of it requiring a direct DB fix — the  */
+/* database-level unique constraint (sql/125) prevents new duplicates  */
+/* going forward, but doesn't retroactively clean up rows imported     */
+/* before it existed.                                                  */
+/* ------------------------------------------------------------------ */
+
+eftpsDepositsRouter.get("/paycheck-import", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const rows = await query<any>(
+    `SELECT id, employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, created_at
+       FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 ORDER BY pay_date DESC, employee_name`,
+    [clientId]
+  );
+  res.json({ rows });
+}));
+
+eftpsDepositsRouter.post("/paycheck-import/:id/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT id, client_id, employee_name, pay_date::text AS pay_date FROM altax.v3_eftps_paycheck_import WHERE id = $1`, [req.params.id]);
+  if (!row) return res.status(404).json({ error: "Row not found." });
+  if (!(await canAccessClient(req.user!, row.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  await query(`DELETE FROM altax.v3_eftps_paycheck_import WHERE id = $1`, [row.id]);
+  await logAudit("Clients", "EFTPS_PAYCHECK_IMPORT_DELETED", row.client_id, "", `${row.employee_name} ${row.pay_date}`, "",
+    `Deleted an imported EFTPS paycheck row (${row.employee_name}, ${row.pay_date}) by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+eftpsDepositsRouter.post("/paycheck-import/clear", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String((req.body || {}).clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const result = await query<{ id: string }>(`DELETE FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 RETURNING id`, [clientId]);
+  await logAudit("Clients", "EFTPS_PAYCHECK_IMPORT_CLEARED", clientId, "", String(result.length), "",
+    `Cleared all ${result.length} imported EFTPS paycheck row(s) by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, deleted: result.length });
+}));
+
+eftpsDepositsRouter.get("/tax-liability-import", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const rows = await query<any>(
+    `SELECT id, range_start::text AS range_start, range_end::text AS range_end, federal_income_tax, social_security, medicare, total_941, imported_by, imported_at
+       FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 ORDER BY range_start DESC`,
+    [clientId]
+  );
+  res.json({ rows });
+}));
+
+eftpsDepositsRouter.post("/tax-liability-import/:id/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(`SELECT id, client_id, range_start::text AS range_start, range_end::text AS range_end FROM altax.v3_eftps_tax_liability_import WHERE id = $1`, [req.params.id]);
+  if (!row) return res.status(404).json({ error: "Row not found." });
+  if (!(await canAccessClient(req.user!, row.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+
+  await query(`DELETE FROM altax.v3_eftps_tax_liability_import WHERE id = $1`, [row.id]);
+  await logAudit("Clients", "EFTPS_TAX_LIABILITY_IMPORT_DELETED", row.client_id, "", `${row.range_start} to ${row.range_end}`, "",
+    `Deleted an imported EFTPS Tax Liability snapshot (${row.range_start} to ${row.range_end}) by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
 }));
 
 /* ------------------------------------------------------------------ */
