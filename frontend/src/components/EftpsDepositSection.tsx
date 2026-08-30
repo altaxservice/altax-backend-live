@@ -127,6 +127,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   const [importedPaychecks, setImportedPaychecks] = useState<ImportedPaycheckRow[] | null>(null);
   const [importedSnapshots, setImportedSnapshots] = useState<ImportedTaxLiabilityRow[] | null>(null);
   const [importedRowBusy, setImportedRowBusy] = useState<string | null>(null);
+  const [importedPaycheckSearch, setImportedPaycheckSearch] = useState("");
 
   function loadImportedData() {
     api.get<{ rows: ImportedPaycheckRow[] }>(`/eftps-deposits/paycheck-import?clientId=${encodeURIComponent(clientId)}`)
@@ -342,6 +343,19 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     }
   }
 
+  /** The Review & File month rows keep their own copy of `existingDeposit`
+   * (fetched once when "Review This Period" ran) — a History-only refresh
+   * left that copy stale, so a Review row kept showing "Record Payment"
+   * (and the wrong PAID/status) even after the action had already succeeded
+   * (confirmed live: History showed the real state correctly, the Review
+   * row above it didn't). Patches both in lockstep instead of just one. */
+  function patchMonthDeposit(depositId: string, patch: Partial<EftpsDepositHistoryRow> | null) {
+    setMonths((prev) => prev?.map((m) => m.existingDeposit?.deposit_id !== depositId ? m : {
+      ...m,
+      existingDeposit: patch === null ? null : { ...m.existingDeposit!, ...patch },
+    }) ?? null);
+  }
+
   async function handleRecordPayment(depositId: string) {
     if (!payingDate) return;
     setError(null);
@@ -350,6 +364,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       await api.post(`/eftps-deposits/${depositId}/record-payment`, { paymentDate: payingDate });
       toast("Payment recorded.");
       setPayingDepositId(null);
+      patchMonthDeposit(depositId, { payment_date: payingDate });
       loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not record this payment.");
@@ -364,6 +379,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     try {
       const res = await api.post<{ sent: boolean }>(`/eftps-deposits/${depositId}/send`, {});
       toast(res.sent ? "Report sent to the client." : "Client has no email on file — nothing was sent.");
+      if (res.sent) patchMonthDeposit(depositId, { status: "Sent" });
       loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this report.");
@@ -380,6 +396,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     try {
       await api.post(`/eftps-deposits/${row.deposit_id}/unmark`, {});
       toast("Undone.");
+      patchMonthDeposit(row.deposit_id, null);
       loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not undo this deposit.");
@@ -410,7 +427,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(d.period_start)} – {fmtDate(d.period_end)}</td>
           <td>{fmtDate(d.due_date)}</td>
           <td>{fmtDate(d.filing_date)}</td>
-          <td>{d.payment_date ? fmtDate(d.payment_date) : <span className="muted">Pending</span>}</td>
+          <td>{d.payment_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span> : <span className="muted">Pending</span>}</td>
           <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
           <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
           <td>
@@ -510,20 +527,30 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       </div>
       {showImportedData && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
             <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Imported paychecks ({importedPaychecks?.length || 0}) — review and delete any wrong or duplicate rows directly.</p>
-            {!!importedPaychecks?.length && (
-              <button className="btn btn-sm btn-danger" disabled={importedRowBusy !== null} onClick={handleClearAllPaychecks}>
-                {importedRowBusy === "clear-all-paychecks" ? "Clearing…" : "Clear All"}
-              </button>
-            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="text" value={importedPaycheckSearch} onChange={(e) => setImportedPaycheckSearch(e.target.value)}
+                placeholder="Search employee, date, check #…" style={{ padding: "4px 6px", maxWidth: 200 }} />
+              {!!importedPaychecks?.length && (
+                <button className="btn btn-sm btn-danger" disabled={importedRowBusy !== null} onClick={handleClearAllPaychecks}>
+                  {importedRowBusy === "clear-all-paychecks" ? "Clearing…" : "Clear All"}
+                </button>
+              )}
+            </div>
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
             <div className="table-scroll" style={{ maxHeight: 320, overflowY: "auto" }}>
               <table>
                 <thead><tr><th>Employee</th><th>Pay Date</th><th>Check #</th><th style={{ textAlign: "right" }}>Federal</th><th style={{ textAlign: "right" }}>Soc. Sec.</th><th style={{ textAlign: "right" }}>Medicare</th><th></th></tr></thead>
                 <tbody>
-                  {(importedPaychecks || []).map((r) => (
+                  {(importedPaychecks || [])
+                    .filter((r) => {
+                      const q = importedPaycheckSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return [r.employee_name, fmtDate(r.pay_date), r.check_number].some((v) => String(v || "").toLowerCase().includes(q));
+                    })
+                    .map((r) => (
                     <tr key={r.id}>
                       <td>{r.employee_name}</td>
                       <td>{fmtDate(r.pay_date)}</td>
