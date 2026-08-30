@@ -94,7 +94,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         fileToBase64(taxLiabilityFile), fileToBase64(payrollWagesFile),
       ]);
       const res = await api.post<{ computation: EftpsComputation }>("/eftps-deposits/preview", {
-        clientId, taxLiabilityFileBase64, payrollWagesFileBase64,
+        clientId, periodStart: period.periodStart, periodEnd: period.periodEnd, taxLiabilityFileBase64, payrollWagesFileBase64,
       });
       setComputation(res.computation);
       setPaymentDate(period.dueDate);

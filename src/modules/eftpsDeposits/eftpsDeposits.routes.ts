@@ -14,6 +14,7 @@ import { closeEftpsStaffTask } from "./eftpsStaffTasks";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
   looksLikeDrakePayrollWagesDetail, parseDrakePayrollWagesDetail,
+  parseDrakeReportDateRange,
 } from "../payrollImport/parsers";
 import { computeEftpsBreakdown } from "./eftpsReconciliation";
 
@@ -60,6 +61,10 @@ eftpsDepositsRouter.post("/preview", requireAuth, requireRole("admin", "staff"),
   const loaded = await loadClient(req, String(body.clientId || "").trim());
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
 
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  if (!periodStart || !periodEnd) return res.status(400).json({ error: "Select a period first." });
+
   try {
     const taxLiabilityBuffer = decodeUpload(body.taxLiabilityFileBase64, "Tax Liability by Check Date");
     const payrollWagesBuffer = decodeUpload(body.payrollWagesFileBase64, "Payroll Wages");
@@ -80,9 +85,32 @@ eftpsDepositsRouter.post("/preview", requireAuth, requireRole("admin", "staff"),
       return res.status(400).json({ error: "That doesn't look like Drake's \"Payroll Wages\" report. Please double-check the file." });
     }
 
+    // Guards against exactly what happened in testing: a Drake report run for
+    // the whole year (or any range other than the selected month) getting
+    // silently summed as if it were that one month's deposit. The Tax
+    // Liability report has no per-check breakdown to filter down from, so
+    // its own stated "Check Dates" range must match the selected period
+    // exactly — there's no way to salvage a wrongly-scoped aggregate total.
+    const taxLiabilityRange = parseDrakeReportDateRange(taxLiabilityRows);
+    if (!taxLiabilityRange) {
+      return res.status(400).json({ error: "Could not find a \"Check Dates\" range on the Tax Liability file — please confirm it's a real Drake export." });
+    }
+    if (taxLiabilityRange.start !== periodStart || taxLiabilityRange.end !== periodEnd) {
+      return res.status(400).json({
+        error: `The Tax Liability file covers ${taxLiabilityRange.start} to ${taxLiabilityRange.end}, not the selected period (${periodStart} to ${periodEnd}). Re-export it from Drake with the Check Dates filter set to exactly this month, then try again.`,
+      });
+    }
+
     const taxLiability = parseDrakeTaxLiabilityByCheckDate(taxLiabilityRows);
-    const paychecks = parseDrakePayrollWagesDetail(payrollWagesRows);
-    if (!paychecks.length) return res.status(400).json({ error: "No paychecks were found in the Payroll Wages file." });
+    const allPaychecks = parseDrakePayrollWagesDetail(payrollWagesRows);
+    // Payroll Wages DOES have a real date per paycheck, so — unlike Tax
+    // Liability — it's filtered down to the selected period rather than
+    // required to match exactly; a Payroll Wages export covering a wider
+    // range than the target month is fine as long as it contains it.
+    const paychecks = allPaychecks.filter((p) => p.payDate >= periodStart && p.payDate <= periodEnd);
+    if (!paychecks.length) {
+      return res.status(400).json({ error: `No paychecks in the Payroll Wages file fall within ${periodStart} to ${periodEnd}. Please confirm this is the right file for this period.` });
+    }
 
     const computation = computeEftpsBreakdown(paychecks, taxLiability);
     res.json({ ok: true, computation });

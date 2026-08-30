@@ -92,6 +92,30 @@ function findHeaderIndex(headerRow: string[], matcher: RegExp): number {
   return headerRow.findIndex((h) => matcher.test(String(h || "").trim()));
 }
 
+/**
+ * Every Drake report stamps its own "Check Dates: M/D/YYYY to M/D/YYYY" (or a
+ * bare "M/D/YYYY to M/D/YYYY" on the Tax Liability report) into one of the
+ * first few rows — the actual date range Drake ran the report for, which is
+ * NOT necessarily the period a caller intends to use the file for (e.g. a
+ * report generated for the whole year, then uploaded against a single
+ * month). Used by the EFTPS deposit workflow to catch that mismatch instead
+ * of silently summing a differently-scoped file. Returns null if no such
+ * line is found (report title row layouts vary; callers treat null as "could
+ * not verify" rather than a hard failure).
+ */
+export function parseDrakeReportDateRange(rows: string[][]): { start: string; end: string } | null {
+  const re = /(\d{1,2}\/\d{1,2}\/\d{4})\s+to\s+(\d{1,2}\/\d{1,2}\/\d{4})/i;
+  for (const row of rows.slice(0, 4)) {
+    const m = re.exec(cellText(row, 0));
+    if (m) {
+      const start = parseUsDate(m[1]);
+      const end = parseUsDate(m[2]);
+      if (start && end) return { start, end };
+    }
+  }
+  return null;
+}
+
 /** Sniffs the file's format from its first few rows — every source stamps a real report title into row 1 or 2. */
 export function detectFormat(rows: string[][]): DetectedFormat {
   const firstCell = cellText(rows[1], 0) || cellText(rows[0], 0);
