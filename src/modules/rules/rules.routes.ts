@@ -286,6 +286,7 @@ rulesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(as
   res.json({ rules: rows });
 }));
 
+
 interface RunRuleBatchOpts {
   periodLabel: string;
   dueDate: string;
@@ -748,5 +749,38 @@ rulesRouter.post("/batch-drafts/:id/dismiss", requireAuth, requireRole("admin"),
   );
   await logAudit("Tasks", "TASK_RULES_AGENT_DISMISS", draft.task_batch_draft_id, "", "", "Dismissed",
     `Task Rules Agent draft dismissed by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/**
+ * Single rule — the Rule Detail page. Deliberately registered LAST among GET
+ * routes on this router: a bare "/:ruleId" would otherwise shadow every
+ * single-segment literal path above it (GET /batches, GET /batch-drafts) since
+ * Express matches route registration order, not specificity.
+ */
+rulesRouter.get("/:ruleId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const rule = await queryOne<any>(`SELECT * FROM altax.v3_task_rules WHERE rule_id = $1`, [req.params.ruleId]);
+  if (!rule) return res.status(404).json({ error: "Rule not found." });
+  res.json({ rule });
+}));
+
+/**
+ * Permanent delete — type-to-confirm, matching UsersPage's own permanent-delete
+ * convention, because this one has real, non-obvious side effects worth a staff
+ * member consciously typing through rather than a single click: v3_task_batch_drafts
+ * has ON DELETE CASCADE on rule_id (sql/034_task_rules_agent.sql), so any pending or
+ * already-approved draft still referencing this rule is deleted along with it; and
+ * v3_task_batches has ON DELETE SET NULL (sql/001_init_schema.sql), so historical
+ * batches lose their link back to this rule (the batch and its tasks aren't touched).
+ */
+rulesRouter.post("/:ruleId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const rule = await queryOne<any>(`SELECT rule_id, task_type FROM altax.v3_task_rules WHERE rule_id = $1`, [req.params.ruleId]);
+  if (!rule) return res.status(404).json({ error: "Rule not found." });
+  if (String((req.body || {}).confirm || "").trim() !== "DELETE RULE") {
+    return res.status(400).json({ error: 'Type "DELETE RULE" to confirm this permanent action.' });
+  }
+
+  await query(`DELETE FROM altax.v3_task_rules WHERE rule_id = $1`, [rule.rule_id]);
+  await logAudit("Rules", "DELETE_RULE", rule.rule_id, "", rule.task_type, "", `Task rule ${rule.rule_id} (${rule.task_type}) permanently deleted by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));

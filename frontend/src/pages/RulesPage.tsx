@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { TaskRule, TaskBatch, WebOptions } from "../api/types2";
 import { useToast } from "../components/Toast";
+import { usePrompt } from "../components/ConfirmProvider";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { TaskRulesAgentPanel } from "../components/TaskRulesAgentPanel";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
@@ -23,6 +25,9 @@ const EMPTY_RULE_FORM = {
 
 export function RulesPage() {
   const toast = useToast();
+  const navigate = useNavigate();
+  const promptFor = usePrompt();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rules, setRules] = useState<TaskRule[] | null>(null);
   const [batches, setBatches] = useState<TaskBatch[] | null>(null);
   const [options, setOptions] = useState<WebOptions | null>(null);
@@ -60,17 +65,24 @@ export function RulesPage() {
     setShowForm(true);
   }
 
-  function startEdit(r: TaskRule) {
-    setForm({
-      ruleId: r.rule_id, taskType: r.task_type || "", triggerColumn: String(r.trigger_column || ""),
-      triggerValue: String(r.trigger_value || ""), frequency: String(r.frequency || "Monthly"),
-      paymentRequired: Boolean(r.payment_required), requiresFiling: r.requires_filing !== false,
-      dueDay: String(r.due_day || ""), dueMonth: String(r.due_month || ""), warningDays: String(r.warning_days || "14,7,3"),
-      portalName: String(r.portal_name || ""), portalUrl: String(r.portal_url || ""),
-      active: r.active !== false, notes: String(r.notes || ""),
+  async function handleDelete(r: TaskRule, e: MouseEvent) {
+    e.stopPropagation();
+    const confirmValue = await promptFor({
+      title: "Permanently delete rule",
+      message: `"${r.rule_id}" (${r.task_type}) — this cannot be undone. Any pending or approved draft batch from this rule is deleted with it; historical batches already run from it keep their tasks but lose their link back to this rule. Type DELETE RULE to confirm.`,
+      placeholder: "DELETE RULE",
     });
-    setSaveError(null);
-    setShowForm(true);
+    if (confirmValue === null) return;
+    setDeletingId(r.rule_id);
+    try {
+      await api.post(`/rules/${encodeURIComponent(r.rule_id)}/delete`, { confirm: confirmValue });
+      toast("Rule deleted.");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete this rule.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function handleSave(e: FormEvent) {
@@ -109,7 +121,7 @@ export function RulesPage() {
     <div>
       <div className="portal-banner" style={{ marginBottom: 20 }}>
         <div className="topbar-eyebrow">Automation Rules</div>
-        <h2>Rules</h2>
+        <h2>Task Rules</h2>
         <p>Use rules to create batch work for clients with the same service, frequency, and filing/payment requirements.</p>
       </div>
       {error && <ErrorBanner error={error} />}
@@ -203,7 +215,7 @@ export function RulesPage() {
       {rules && (
         <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px 8px" }}>
-            <h2 style={{ fontSize: 15, margin: 0 }}>Rules</h2>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Task Rules</h2>
             <span className="muted" style={{ fontSize: 12 }}>{filteredRules.length} rules</span>
           </div>
           <div className="table-scroll">
@@ -211,7 +223,7 @@ export function RulesPage() {
             <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Actions</th></tr></thead>
             <tbody>
               {filteredRules.map((r) => (
-                <tr key={r.rule_id}>
+                <tr key={r.rule_id} onClick={() => navigate(`/rules/${r.rule_id}`)} style={{ cursor: "pointer" }}>
                   <td className="muted">{r.rule_id}</td>
                   <td>{r.task_type}</td>
                   <td className="muted">{r.trigger_column ? `${r.trigger_column} = ${r.trigger_value}` : "Manual selection"}</td>
@@ -220,8 +232,8 @@ export function RulesPage() {
                   <td className="muted">{String(r.warning_days || "—")}</td>
                   <td><span className={`status-pill ${r.active ? "status-green" : "status-gray"}`}>{r.active ? "Active" : "Inactive"}</span></td>
                   <td style={{ display: "flex", gap: 6 }}>
-                    <button className="btn btn-sm" onClick={() => startEdit(r)}>Edit Rule</button>
-                    {r.active && <button className="btn btn-sm btn-primary" onClick={() => openBatchModal(r.rule_id)}>Run Batch</button>}
+                    {r.active && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openBatchModal(r.rule_id); }}>Run Batch</button>}
+                    <button className="btn btn-sm btn-danger" disabled={deletingId === r.rule_id} onClick={(e) => handleDelete(r, e)}>{deletingId === r.rule_id ? "…" : "Delete"}</button>
                   </td>
                 </tr>
               ))}

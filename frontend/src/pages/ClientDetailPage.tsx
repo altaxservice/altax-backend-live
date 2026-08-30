@@ -86,7 +86,7 @@ const showEftps = (f: Record<string, any>) => hasService(f, "payroll") || Boolea
 const showMdui = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.mduiEnabled);
 const showW21099 = (f: Record<string, any>) => hasService(f, "payroll") || Boolean(f.payrollEnabled) || Boolean(f.w21099Enabled);
 const showSalesTaxDetails = (f: Record<string, any>) => hasService(f, "sales_tax") || filled(f.salesTaxFrequency);
-const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "tax_prep") || filled(f.businessReturnType);
+const showTaxPrepDetails = (f: Record<string, any>) => hasService(f, "business_tax_prep") || filled(f.businessReturnType);
 const showMdAnnualReport = (f: Record<string, any>) => isBusiness(f) || Boolean(f.mdAnnualReportEnabled);
 const showEntityType = (f: Record<string, any>) => isBusiness(f) || filled(f.entityType);
 

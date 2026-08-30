@@ -26,6 +26,7 @@ import { CommunicationsPage } from "./pages/CommunicationsPage";
 import { AccountingPage } from "./pages/AccountingPage";
 import { EmployeeDetailPage } from "./pages/EmployeeDetailPage";
 import { RulesPage } from "./pages/RulesPage";
+import { RuleDetailPage } from "./pages/RuleDetailPage";
 import { HaccpGeneratorPage } from "./pages/HaccpGeneratorPage";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
@@ -139,6 +140,7 @@ function App() {
                 <Route path="/payroll-agent" element={<PayrollAgentPage />} />
                 <Route path="/employees/:employeeId" element={<EmployeeDetailPage />} />
                 <Route path="/rules" element={<RulesPage />} />
+                <Route path="/rules/:ruleId" element={<RuleDetailPage />} />
                 <Route path="/haccp" element={<HaccpGeneratorPage />} />
                 <Route path="/reports" element={<ReportsPage />} />
                 <Route path="/templates" element={<TemplatesPage />} />

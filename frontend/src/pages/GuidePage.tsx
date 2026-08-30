@@ -396,8 +396,8 @@ const SECTIONS: Section[] = [
   // ---------------- Work: Rules ----------------
   {
     key: "rules",
-    label: "Rules",
-    title: "Rules & batch tasks",
+    label: "Task Rules",
+    title: "Task Rules & batch tasks",
     roles: ADMIN_STAFF_ROLES,
     group: "Work",
     intro: "Rules are how almost every recurring task in the system actually gets created — most staff will never need to build one, but everyone should understand how they work so a task's origin makes sense.",
@@ -411,9 +411,9 @@ const SECTIONS: Section[] = [
       },
       {
         heading: "Running a batch",
-        route: "/rules", routeLabel: "Rules",
+        route: "/rules", routeLabel: "Task Rules",
         steps: [
-          "Go to Rules in the sidebar. Click Create Batch Tasks (or Run Batch on a specific rule's row).",
+          "Go to Task Rules in the sidebar. Click Create Batch Tasks (or Run Batch on a specific rule's row).",
           "The batch preview shows exactly which clients would get a new task before anything is created — review it, then confirm.",
         ],
         useWhen: "Use Create Batch Tasks at the start of a filing period (e.g. \"create every Sales Tax Filing task for this quarter\") instead of adding each client's task by hand.",
@@ -422,13 +422,13 @@ const SECTIONS: Section[] = [
         heading: "Adding a new rule (admin)",
         steps: [
           "Click Add Rule. Pick the task type it creates, the trigger condition, the frequency, and the warning windows.",
-          "Save — the rule is now available to run as a batch any time it applies.",
+          "Save — the rule is now available to run as a batch any time it applies. Click a rule's row any time afterward to open its detail page — edit or permanently delete it from there.",
         ],
       },
       {
         heading: "Task Rules Agent — auto-drafted batches, reviewed before they post",
         steps: [
-          "The Task Rules Agent panel (top of the Rules page) runs every rule automatically overnight and drops the result here as a draft batch, instead of someone having to remember to click Create Batch Tasks — nothing it drafts becomes a real task until a person approves it.",
+          "The Task Rules Agent panel (top of the Task Rules page) runs every rule automatically overnight and drops the result here as a draft batch, instead of someone having to remember to click Create Batch Tasks — nothing it drafts becomes a real task until a person approves it.",
           "Each pending batch shows which rule it's from and how many clients would get a task. Reassign lets you change who a batch's tasks go to before approving; Dismiss throws the whole batch away.",
           "Select multiple batches with their checkboxes, then Approve Selected — or approve one at a time. Approving is what actually creates the tasks.",
           "\"Turn off automatic nightly drafting\" only pauses the automatic overnight run — Run Agent Now (manual, on demand) and the plain Create Batch Tasks flow above still work regardless of that setting.",
