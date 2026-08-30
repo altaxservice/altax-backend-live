@@ -1,5 +1,7 @@
 import { Router, Response } from "express";
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
+import { publicBaseUrl } from "../../common/publicUrl";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
@@ -2753,7 +2755,7 @@ async function loadSalesDatesAndTaxForPeriod(clientId: string, from: string, to:
   return rows.map((r: any) => ({ saleDate: r.sale_date, totalTaxDue: Number(r.total_tax_due) || 0, paymentDate: r.payment_date }));
 }
 
-async function loadSalesTaxForPeriod(clientId: string, from: string, to: string) {
+export async function loadSalesTaxForPeriod(clientId: string, from: string, to: string) {
   const sales = await query<any>(
     `SELECT sale_id, sale_date, gross_sales, total_tax_due, adjustments
        FROM altax.v3_sales_input
@@ -2989,6 +2991,52 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
  * immediately and, if payment isn't recorded yet, schedules the 24h-before-
  * due-date reminder (see src/common/paymentReminders.ts).
  */
+const SALES_TAX_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * Derives the same period-label format the Task Rules Agent's own
+ * computeDuePeriod (rules.routes.ts) uses for TR-001 (Monthly)/TR-003
+ * (Quarterly) — "August 2026" / "Q3 2026" — directly from a period's actual
+ * start date rather than re-deriving it from "today", since this is called
+ * with the specific period just filed, not the sweep's own current period.
+ * Null for Semiannual/Annual/unset frequency — TR-001/TR-003 don't cover those.
+ */
+function deriveSalesTaxPeriodLabel(periodStart: string, salesTaxFrequency: string | null | undefined): string | null {
+  const freq = String(salesTaxFrequency || "").trim().toLowerCase();
+  const d = new Date(`${periodStart}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  if (freq === "monthly") return `${SALES_TAX_MONTH_NAMES[m]} ${y}`;
+  if (freq === "quarterly") return `Q${Math.floor(m / 3) + 1} ${y}`;
+  return null;
+}
+
+/**
+ * Closes the real Task-Rules-Agent-generated v3_tasks row for this
+ * client+period, once a period is genuinely marked filed here — mirrors
+ * closeEftpsStaffTask's intent (eftpsStaffTasks.ts) but against a different
+ * task-creation mechanism (the generic Task Rules Agent's TR-001/TR-003,
+ * not EFTPS's own bespoke sweep), so it reuses runRuleBatch's own
+ * client_id+task_name+period idempotency key (rules.routes.ts) instead of
+ * source_system/source_record_id — runRuleBatch sets those to the batch's
+ * own ID, shared across every client in the batch, not a per-client-period
+ * key, so they can't be used to look up "the task for this client+period."
+ * A safe no-op when no matching task exists (e.g. it was filed manually
+ * without ever going through the Agent, or already closed).
+ */
+async function closeSalesTaxTask(clientId: string, periodStart: string, salesTaxFrequency: string | null | undefined): Promise<void> {
+  const periodLabel = deriveSalesTaxPeriodLabel(periodStart, salesTaxFrequency);
+  if (!periodLabel) return;
+  await query(
+    `UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now()
+      WHERE client_id = $1 AND lower(task_name) = lower('Sales Tax Filing & Payment')
+        AND lower(coalesce(period,'')) = lower($2)
+        AND lower(status) NOT IN ('completed','closed','archived','void')`,
+    [clientId, periodLabel]
+  );
+}
+
 reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
@@ -3011,32 +3059,41 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
   const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
   const dueDate = mdDueDateForPeriod(periodEnd);
   const result = paidDate ? await computeMdFiling(taxDue, dueDate, filedDate, paidDate) : null;
+  // Generated once, only on first insert — COALESCE keeps it stable across
+  // an edit/refiling of the same period (this route re-runs via ON CONFLICT
+  // DO UPDATE), since the token may already be out in an emailed link.
+  const newShareToken = crypto.randomBytes(24).toString("hex");
 
-  await query(
-    `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  const row = await queryOne<{ share_token: string }>(
+    `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by, share_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (client_id, period_end) DO UPDATE SET
        period_start = EXCLUDED.period_start, filed_date = EXCLUDED.filed_date, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
-       balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now()`,
-    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email]
+       balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now(),
+       share_token = COALESCE(altax.v3_md_filing_payments.share_token, EXCLUDED.share_token)
+     RETURNING share_token`,
+    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email, newShareToken]
   );
   await logAudit("Accounting", "MD_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
+
+  await closeSalesTaxTask(client.clientId, periodStart, client.salesTaxFrequency);
 
   if (notify) {
     const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
     const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
     const sourceRecordId = `${client.clientId}:${periodEnd}`;
+    const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${row?.share_token}`;
     await sendFilingConfirmation({
       client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed) },
       sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: `${periodStart} – ${periodEnd}`,
-      filedDate, amount: taxDue, paymentDueDate: dueDate, paidDate, req,
+      filedDate, amount: taxDue, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
     if (!paidDate) {
       const { schedulePaymentReminder } = await import("../../common/paymentReminders");
       await schedulePaymentReminder({
         sourceSystem: "MdFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Sales & Use Tax",
-        periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email,
+        periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
       });
     }
   }

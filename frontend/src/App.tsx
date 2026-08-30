@@ -61,6 +61,7 @@ import { MyBusinessPage } from "./pages/MyBusinessPage";
 import { AgreementsPage } from "./pages/AgreementsPage";
 import { GovFilingsPage } from "./pages/GovFilingsPage";
 import { PublicEftpsDepositPage } from "./pages/PublicEftpsDepositPage";
+import { PublicMdFilingPage } from "./pages/PublicMdFilingPage";
 
 function App() {
   return (
@@ -83,6 +84,7 @@ function App() {
           <Route path="/public/contract/:token" element={<PublicContractPage />} />
           <Route path="/public/message/:token" element={<PublicMessagePage />} />
           <Route path="/public/eftps-deposits/:token" element={<PublicEftpsDepositPage />} />
+          <Route path="/public/md-filing/:token" element={<PublicMdFilingPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<DashboardPage />} />

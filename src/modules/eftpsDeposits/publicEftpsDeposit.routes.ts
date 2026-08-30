@@ -10,6 +10,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { rateLimit } from "../../common/rateLimit";
 import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
+import { notifyStaffOfObligationConfirmed } from "../../common/obligationNotifications";
 
 export const publicEftpsDepositRouter = Router();
 
@@ -63,8 +64,16 @@ publicEftpsDepositRouter.post("/:token/acknowledge", eftpsDepositLimiter, asyncH
   );
   if (claimed.length === 0) return res.json({ ok: true, alreadyAcknowledged: true });
 
-  await logAudit("Clients", "EFTPS_DEPOSIT_ACKNOWLEDGED", deposit.client_id, "acknowledged_at", "", new Date().toISOString(),
+  const acknowledgedAt = new Date().toISOString();
+  await logAudit("Clients", "EFTPS_DEPOSIT_ACKNOWLEDGED", deposit.client_id, "acknowledged_at", "", acknowledgedAt,
     `EFTPS deposit report ${deposit.deposit_id} acknowledged by the client from IP ${ip || "unknown"}.`, "Client");
+
+  const client = await queryOne<any>(`SELECT client_name FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
+  await notifyStaffOfObligationConfirmed({
+    clientId: deposit.client_id, clientName: client?.client_name || deposit.client_id,
+    filingType: "EFTPS Federal Tax Deposit", periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
+    amount: Number(deposit.total_amount), acknowledgedAt, acknowledgedIp: ip, req,
+  });
 
   res.json({ ok: true, alreadyAcknowledged: false });
 }));

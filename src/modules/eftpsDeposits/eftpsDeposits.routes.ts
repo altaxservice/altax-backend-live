@@ -562,7 +562,7 @@ eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff
       await schedulePaymentReminder({
         sourceSystem: "ObligationCompletion", sourceRecordId, clientId: client.client_id,
         filingType: "EFTPS Deposit", periodLabel, amount: computation.totalAmount, paymentDueDate: dueDate,
-        createdBy: req.user!.email, leadDays: 2,
+        createdBy: req.user!.email, leadDays: 3,
       });
       const deposit = await queryOne<any>(`SELECT * FROM altax.v3_eftps_deposits WHERE deposit_id = $1`, [depositId]);
       emailResult = await buildSendPayload(deposit, req);

@@ -77,6 +77,7 @@ export interface FilingConfirmationInput {
   amount: number;
   paymentDueDate: string;
   paidDate: string | null;
+  acknowledgeUrl?: string;
   req?: Request;
 }
 
@@ -96,6 +97,9 @@ function filingConfirmationBody(input: FilingConfirmationInput): string {
         </table>
       </td></tr>
     </table>
+    ${input.acknowledgeUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+      <tr><td style="border-radius:6px; background:#0f766e;"><a href="${esc(input.acknowledgeUrl)}" style="display:inline-block; padding:11px 22px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none;">View & Acknowledge Report</a></td></tr>
+    </table>` : ""}
     <p style="margin:0; color:#6b7280; font-size:12.5px;">${input.paidDate ? "This filing is paid in full." : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email."} <bdi dir="rtl">${input.paidDate ? "تم دفع هذا الإقرار بالكامل." : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديك أي أسئلة، فقط قم بالرد على هذا البريد الإلكتروني."}</bdi></p>`;
 }
 
@@ -128,7 +132,7 @@ export interface PaymentDueReminderInput {
 
 function paymentDueReminderBody(input: PaymentDueReminderInput): string {
   return `
-    <p style="margin:0 0 18px;">Reminder — your payment for ${esc(input.filingType)}${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is due tomorrow. <bdi dir="rtl" style="color:#9ca3af;">/ تذكير — دفعتك مستحقة غداً.</bdi></p>
+    <p style="margin:0 0 18px;">Reminder — your payment for ${esc(input.filingType)}${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is coming up. <bdi dir="rtl" style="color:#9ca3af;">/ تذكير — موعد دفعتك يقترب.</bdi></p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
            style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #b45309; border-radius:6px; margin:0 0 18px;">
       <tr><td style="padding:14px 18px;">
@@ -146,7 +150,7 @@ function paymentDueReminderBody(input: PaymentDueReminderInput): string {
 /** Sends the 9AM-ET-day-before payment-due reminder. Same consent gating and logging convention as sendFilingConfirmation. */
 export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Promise<{ sent: boolean }> {
   if (!input.client.emailAllowed || !input.client.email) return { sent: false };
-  const subject = `Reminder: Payment Due Tomorrow — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
+  const subject = `Reminder: Payment Due Soon — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
   const body = paymentDueReminderBody(input);
   try {
     const html = await wrapEmailHtml(body, input.req);

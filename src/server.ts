@@ -29,6 +29,7 @@ import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled 
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
 import { eftpsDepositsRouter } from "./modules/eftpsDeposits/eftpsDeposits.routes";
 import { publicEftpsDepositRouter } from "./modules/eftpsDeposits/publicEftpsDeposit.routes";
+import { publicMdFilingRouter } from "./modules/reports/publicMdFiling.routes";
 import { ensureEftpsStaffTasks } from "./modules/eftpsDeposits/eftpsStaffTasks";
 import { salesInputImportRouter } from "./modules/salesInputImport/salesInputImport.routes";
 import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
@@ -285,6 +286,8 @@ app.get("*", (req, res, next) => {
   // page is a real binary download via a plain <a href>, which needed the
   // same carve-out the comment above already explains for contracts/invoices.
   if (/^\/public\/eftps-deposits\/[^/]+\/pdf$/.test(req.path)) return next();
+  // Same carve-out, same reason, for MD Sales Tax's public acknowledge page.
+  if (/^\/public\/md-filing\/[^/]+\/pdf$/.test(req.path)) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);
@@ -326,6 +329,7 @@ app.use("/accounting/payroll-agent", payrollAgentRouter);
 app.use("/import", payrollImportRouter);
 app.use("/eftps-deposits", eftpsDepositsRouter);
 app.use("/public/eftps-deposits", publicEftpsDepositRouter);
+app.use("/public/md-filing", publicMdFilingRouter);
 app.use("/sales-input-import", salesInputImportRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
