@@ -38,7 +38,6 @@ import { ClientAtAGlance } from "../components/ClientAtAGlance";
 import { ClientSwotSection } from "../components/ClientSwotSection";
 import { OwnershipTransferSection } from "../components/OwnershipTransferSection";
 import { SubscriptionServicesChecklist } from "../components/SubscriptionServicesChecklist";
-import { EftpsDepositSection } from "../components/EftpsDepositSection";
 import { DetailField } from "../components/DetailCard";
 import { Building2, MapPin, FileText, UserRound, Briefcase, ClipboardList, StickyNote, PanelLeftClose, PanelLeft } from "lucide-react";
 
@@ -244,12 +243,12 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
 ];
 const ALL_FIELDS = EDIT_SECTIONS.flatMap((s) => s.fields);
 
-const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms", "EFTPS Deposits"] as const;
+const DETAIL_TABS = ["At a Glance", "SWOT Analysis", "Profile", "Compliance", "Responsible Party", "Account", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Permits & Compliance", "Vault & Payment Methods", "Tax Forms"] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 // Every client/employee can see their own basic profile & compliance info;
 // the remaining tabs are internal staff tooling (task pipeline, contract
 // drafting, vault secrets, payment method management, employer tax forms).
-const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Vault & Payment Methods", "Tax Forms", "EFTPS Deposits"];
+const STAFF_ONLY_TABS: DetailTab[] = ["At a Glance", "SWOT Analysis", "Activity Timeline", "Task Notes", "Tasks", "Documents", "Communications", "Billing", "Tax Payments", "Contracts", "Gov Forms", "Notices", "Tax Return Production", "Vault & Payment Methods", "Tax Forms"];
 
 interface ClientSummary { openTasks: number; openRequests: number; openInvoices: number; balanceDue: number; employeesCount: number }
 
@@ -1304,10 +1303,6 @@ export function ClientDetailPage() {
 
           {tab === "Contracts" && canSeeStaffTabs && (
             <ContractsSection clientId={client.client_id} clientName={client.client_name} clientServices={client.services || []} />
-          )}
-
-          {tab === "EFTPS Deposits" && canSeeStaffTabs && (
-            <EftpsDepositSection clientId={client.client_id} />
           )}
 
           {tab === "Gov Forms" && canSeeStaffTabs && (
