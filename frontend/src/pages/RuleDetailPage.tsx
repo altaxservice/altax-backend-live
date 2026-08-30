@@ -21,7 +21,7 @@ function formFromRule(r: TaskRule) {
     paymentRequired: Boolean(r.payment_required), requiresFiling: r.requires_filing !== false,
     dueDay: String(r.due_day || ""), dueMonth: String(r.due_month || ""), warningDays: String(r.warning_days || "14,7,3"),
     portalName: String(r.portal_name || ""), portalUrl: String(r.portal_url || ""),
-    active: r.active !== false, notes: String(r.notes || ""),
+    active: r.active !== false, agentEnabled: r.agent_enabled !== false, notes: String(r.notes || ""),
   };
 }
 
@@ -101,6 +101,7 @@ export function RuleDetailPage() {
         <p>
           {rule.trigger_column ? `${rule.trigger_column} = ${rule.trigger_value}` : "Manual selection (no auto-trigger)"} · {rule.frequency}
           {" · "}<span className={`status-pill ${rule.active ? "status-green" : "status-gray"}`}>{rule.active ? "Active" : "Inactive"}</span>
+          {" · "}<span className={`status-pill ${rule.agent_enabled ? "status-green" : "status-gray"}`}>{rule.agent_enabled ? "Agent: Included" : "Agent: Excluded"}</span>
         </p>
       </div>
 
@@ -163,7 +164,14 @@ export function RuleDetailPage() {
             <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => f && ({ ...f, active: e.target.checked }))} />
             Active
           </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+            <input type="checkbox" checked={form.agentEnabled} onChange={(e) => setForm((f) => f && ({ ...f, agentEnabled: e.target.checked }))} />
+            Included in Task Rules Agent's nightly sweep
+          </label>
         </div>
+        <p className="muted" style={{ fontSize: 11.5, margin: "-6px 0 8px" }}>
+          Active controls whether this rule can be used at all (manual batches, Run Batch). This controls only whether the Agent may auto-draft it overnight — leave it off for a rule you only ever want to run yourself.
+        </p>
         <div className="field"><label htmlFor="rule-notes">Notes</label><textarea id="rule-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => f && ({ ...f, notes: e.target.value }))} /></div>
         <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "space-between" }}>
           <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Rule"}</button>

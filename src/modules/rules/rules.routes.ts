@@ -261,6 +261,7 @@ rulesRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
     portal_name: String(body.portalName || "").trim() || null,
     warning_days: String(body.warningDays || "14,7,3").trim() || null,
     active: body.active === undefined ? true : Boolean(body.active),
+    agent_enabled: body.agentEnabled === undefined ? true : Boolean(body.agentEnabled),
     notes: String(body.notes || "").trim() || null,
     depends_on: String(body.dependsOn || "").trim() || null,
     portal_url: String(body.portalUrl || "").trim() || null,
@@ -513,7 +514,12 @@ async function notifyStaffOfNewTaskBatches(created: { draftId: string; ruleId: s
  */
 export async function runTaskRulesAgentSweep(actorEmail: string, opts: { runDate?: string } = {}): Promise<{ created: any[]; skipped: number; errors: string[] }> {
   const runDate = dateOnly(opts.runDate);
-  const rules = await query<any>(`SELECT * FROM altax.v3_task_rules WHERE active = true`);
+  // active alone used to be the only gate — every active rule got swept
+  // whether or not that was ever a deliberate choice for automation
+  // specifically (sql/126_task_rules_agent_enabled.sql). agent_enabled is
+  // the explicit "yes, draft this one automatically" opt-in; active still
+  // independently controls whether a rule can be used for a manual batch.
+  const rules = await query<any>(`SELECT * FROM altax.v3_task_rules WHERE active = true AND agent_enabled = true`);
   const created: any[] = [];
   const errors: string[] = [];
   let skipped = 0;

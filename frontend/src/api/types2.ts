@@ -226,6 +226,7 @@ export interface TaskRule {
   trigger_value: string | null;
   frequency: string | null;
   active: boolean;
+  agent_enabled: boolean;
   [key: string]: unknown;
 }
 

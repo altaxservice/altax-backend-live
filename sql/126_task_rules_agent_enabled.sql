@@ -1,0 +1,13 @@
+-- Separates "usable" (active) from "picked up by the nightly Task Rules
+-- Agent sweep" — today those are the exact same flag, so every active rule
+-- gets auto-drafted whether or not that was ever a deliberate choice.
+-- Owner's own words: "Task Rules Agent should pick up only what we give him
+-- not all the active Rules" / "the idea is not to let the agent pick
+-- unnecessary task."
+--
+-- Defaults to TRUE for every existing rule so tomorrow's nightly sweep keeps
+-- behaving exactly as it does today (no silently-missed real deadline) —
+-- the owner reviews and turns OFF the ones that shouldn't be auto-drafted,
+-- rather than the sweep going quiet on everything until each rule is
+-- individually re-opted-in.
+ALTER TABLE altax.v3_task_rules ADD COLUMN IF NOT EXISTS agent_enabled BOOLEAN NOT NULL DEFAULT true;

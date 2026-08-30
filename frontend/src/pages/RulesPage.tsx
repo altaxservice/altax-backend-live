@@ -20,7 +20,7 @@ const FREQUENCIES = ["One-Time", "Weekly", "Monthly", "Quarterly", "Semiannual",
 const EMPTY_RULE_FORM = {
   ruleId: "", taskType: "", triggerColumn: "", triggerValue: "", frequency: "Monthly",
   paymentRequired: false, requiresFiling: true, dueDay: "", dueMonth: "", warningDays: "14,7,3",
-  portalName: "", portalUrl: "", active: true, notes: "",
+  portalName: "", portalUrl: "", active: true, agentEnabled: true, notes: "",
 };
 
 export function RulesPage() {
@@ -201,7 +201,14 @@ export function RulesPage() {
               <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
               Active
             </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+              <input type="checkbox" checked={form.agentEnabled} onChange={(e) => setForm((f) => ({ ...f, agentEnabled: e.target.checked }))} />
+              Included in Task Rules Agent's nightly sweep
+            </label>
           </div>
+          <p className="muted" style={{ fontSize: 11.5, margin: "-6px 0 8px" }}>
+            Active controls whether this rule can be used at all (manual batches, Run Batch). This controls only whether the Agent may auto-draft it overnight — leave it off for a rule you only ever want to run yourself.
+          </p>
           <div className="field"><label htmlFor="rule-notes">Notes</label><textarea id="rule-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.ruleId ? "Save Rule" : "Create Rule"}</button>
@@ -220,7 +227,7 @@ export function RulesPage() {
           </div>
           <div className="table-scroll">
           <table>
-            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Actions</th></tr></thead>
+            <thead><tr><th scope="col">Rule</th><th scope="col">Task Type</th><th scope="col">Trigger</th><th scope="col">Frequency</th><th scope="col">Portal</th><th scope="col">Warnings</th><th scope="col">Active</th><th scope="col">Agent</th><th scope="col">Actions</th></tr></thead>
             <tbody>
               {filteredRules.map((r) => (
                 <tr key={r.rule_id} onClick={() => navigate(`/rules/${r.rule_id}`)} style={{ cursor: "pointer" }}>
@@ -231,6 +238,7 @@ export function RulesPage() {
                   <td className="muted">{String(r.portal_name || "—")}</td>
                   <td className="muted">{String(r.warning_days || "—")}</td>
                   <td><span className={`status-pill ${r.active ? "status-green" : "status-gray"}`}>{r.active ? "Active" : "Inactive"}</span></td>
+                  <td><span className={`status-pill ${r.agent_enabled ? "status-green" : "status-gray"}`}>{r.agent_enabled ? "Included" : "Excluded"}</span></td>
                   <td style={{ display: "flex", gap: 6 }}>
                     {r.active && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); openBatchModal(r.rule_id); }}>Run Batch</button>}
                     <button className="btn btn-sm btn-danger" disabled={deletingId === r.rule_id} onClick={(e) => handleDelete(r, e)}>{deletingId === r.rule_id ? "…" : "Delete"}</button>
