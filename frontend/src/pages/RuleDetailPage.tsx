@@ -105,9 +105,14 @@ export function RuleDetailPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSave} className="card" style={{ maxWidth: 560, marginBottom: 24 }}>
+      <form onSubmit={handleSave} className="card" style={{ maxWidth: 620, marginBottom: 24 }}>
         {saveError && <ErrorBanner error={saveError} />}
-        <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Edit {rule.rule_id}</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <h2 style={{ fontSize: 15, margin: 0 }}>Edit {rule.rule_id}</h2>
+          <button type="button" className="btn btn-sm" onClick={() => navigate("/rules")} aria-label="Close">✕ Close</button>
+        </div>
+
+        <h3 style={{ ...sectionHeadingStyle, borderTop: "none", paddingTop: 0, marginTop: 4 }}>Task</h3>
         <div className="form-grid">
           <div className="field">
             <label htmlFor="rule-task-type">Task Type</label>
@@ -123,6 +128,11 @@ export function RuleDetailPage() {
               {FREQUENCIES.map((o) => <option key={o}>{o}</option>)}
             </select>
           </div>
+        </div>
+
+        <h3 style={sectionHeadingStyle}>Trigger</h3>
+        <p className="muted" style={{ fontSize: 12, margin: "-4px 0 10px" }}>Which clients this rule matches. Leave blank to match every client (used for one-off rules only).</p>
+        <div className="form-grid">
           <div className="field">
             <label htmlFor="rule-trigger-column">Trigger Column</label>
             <select id="rule-trigger-column" value={form.triggerColumn} onChange={(e) => setForm((f) => f && ({ ...f, triggerColumn: e.target.value }))}>
@@ -141,6 +151,10 @@ export function RuleDetailPage() {
               <input id="rule-trigger-value" value={form.triggerValue} onChange={(e) => setForm((f) => f && ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
             )}
           </div>
+        </div>
+
+        <h3 style={sectionHeadingStyle}>Schedule</h3>
+        <div className="form-grid">
           <div className="field"><label htmlFor="rule-due-day">Due Day</label><input id="rule-due-day" value={form.dueDay} onChange={(e) => setForm((f) => f && ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
           {(form.frequency === "Semiannual" || form.frequency === "Annual") && (
             <div className="field">
@@ -150,34 +164,51 @@ export function RuleDetailPage() {
             </div>
           )}
           <div className="field"><label htmlFor="rule-warning-days">Warning Days</label><input id="rule-warning-days" value={form.warningDays} onChange={(e) => setForm((f) => f && ({ ...f, warningDays: e.target.value }))} placeholder="14,7,3" /></div>
+        </div>
+
+        <h3 style={sectionHeadingStyle}>Portal</h3>
+        <div className="form-grid">
           <div className="field"><label htmlFor="rule-portal-name">Portal Name</label><input id="rule-portal-name" value={form.portalName} onChange={(e) => setForm((f) => f && ({ ...f, portalName: e.target.value }))} /></div>
           <div className="field"><label htmlFor="rule-portal-url">Portal URL</label><input id="rule-portal-url" value={form.portalUrl} onChange={(e) => setForm((f) => f && ({ ...f, portalUrl: e.target.value }))} /></div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+        </div>
+
+        <h3 style={sectionHeadingStyle}>Options</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
+          <label style={optionRowStyle}>
             <input type="checkbox" checked={form.paymentRequired} onChange={(e) => setForm((f) => f && ({ ...f, paymentRequired: e.target.checked }))} />
             Payment required
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+          <label style={optionRowStyle}>
             <input type="checkbox" checked={form.requiresFiling} onChange={(e) => setForm((f) => f && ({ ...f, requiresFiling: e.target.checked }))} />
             Requires filing
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+          <label style={optionRowStyle}>
             <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => f && ({ ...f, active: e.target.checked }))} />
-            Active
+            Active — this rule can be used at all (manual batches, Run Batch)
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 22 }}>
+          <label style={optionRowStyle}>
             <input type="checkbox" checked={form.agentEnabled} onChange={(e) => setForm((f) => f && ({ ...f, agentEnabled: e.target.checked }))} />
-            Included in Task Rules Agent's nightly sweep
+            Included in the Task Rules Agent's nightly sweep
           </label>
+          <p className="muted" style={{ fontSize: 11.5, margin: "-4px 0 0 26px" }}>
+            The two are independent — a rule can be Active (usable for manual batches) without ever being auto-drafted, and vice versa.
+          </p>
         </div>
-        <p className="muted" style={{ fontSize: 11.5, margin: "-6px 0 8px" }}>
-          Active controls whether this rule can be used at all (manual batches, Run Batch). This controls only whether the Agent may auto-draft it overnight — leave it off for a rule you only ever want to run yourself.
-        </p>
-        <div className="field"><label htmlFor="rule-notes">Notes</label><textarea id="rule-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => f && ({ ...f, notes: e.target.value }))} /></div>
-        <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "space-between" }}>
-          <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Rule"}</button>
+
+        <h3 style={sectionHeadingStyle}>Notes</h3>
+        <div className="field"><textarea id="rule-notes" rows={2} value={form.notes} onChange={(e) => setForm((f) => f && ({ ...f, notes: e.target.value }))} /></div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "space-between" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Rule"}</button>
+            <button type="button" className="btn" onClick={() => navigate("/rules")}>Close</button>
+          </div>
           <button type="button" className="btn btn-danger" disabled={deleting} onClick={handleDelete}>{deleting ? "Deleting…" : "Delete Rule"}</button>
         </div>
       </form>
     </div>
   );
 }
+
+const sectionHeadingStyle = { fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase" as const, color: "var(--muted)", fontWeight: 700, margin: "20px 0 8px", paddingTop: 12, borderTop: "1px solid var(--line)" };
+const optionRowStyle = { display: "flex", alignItems: "center", gap: 8, fontSize: 13 };
