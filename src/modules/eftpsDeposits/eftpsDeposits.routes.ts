@@ -272,13 +272,21 @@ eftpsDepositsRouter.post("/paycheck-import/:id/delete", requireAuth, requireRole
 }));
 
 eftpsDepositsRouter.post("/paycheck-import/clear", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const clientId = String((req.body || {}).clientId || "").trim();
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
   if (!clientId) return res.status(400).json({ error: "Client is required." });
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
-  const result = await query<{ id: string }>(`DELETE FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 RETURNING id`, [clientId]);
+  // periodStart/periodEnd are optional — omitted clears everything for the
+  // client (the "Imported Data" section's own Clear All), provided scopes it
+  // to just that range (a single month's Delete button in Review & File).
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const result = periodStart && periodEnd
+    ? await query<{ id: string }>(`DELETE FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 AND pay_date >= $2 AND pay_date <= $3 RETURNING id`, [clientId, periodStart, periodEnd])
+    : await query<{ id: string }>(`DELETE FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 RETURNING id`, [clientId]);
   await logAudit("Clients", "EFTPS_PAYCHECK_IMPORT_CLEARED", clientId, "", String(result.length), "",
-    `Cleared all ${result.length} imported EFTPS paycheck row(s) by ${req.user!.email}.`, req.user!.email);
+    `Cleared ${result.length} imported EFTPS paycheck row(s)${periodStart && periodEnd ? ` (${periodStart} to ${periodEnd})` : " (all)"} by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true, deleted: result.length });
 }));
 

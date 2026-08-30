@@ -317,6 +317,31 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     }
   }
 
+  /** Deletes this month's imported paychecks directly from the review row — a
+   * shortcut for the same thing the "Imported Data" section's per-row/Clear
+   * All actions already do, scoped to just this one month's date range. */
+  async function handleDeleteMonthPaychecks(month: EftpsMonthReview) {
+    const ok = await confirmDialog({
+      title: "Delete this month's imported paychecks?",
+      message: `Deletes all ${month.paycheckCount} imported paycheck(s) for ${month.label}. This does not affect any already-filed EFTPS deposit — only the raw imported data used to compute a new one.`,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    setError(null);
+    const busyKey = `${month.monthKey}:delete`;
+    setFilingBusy(busyKey);
+    try {
+      await api.post("/eftps-deposits/paycheck-import/clear", { clientId, periodStart: month.periodStart, periodEnd: month.periodEnd });
+      toast("Deleted.");
+      setMonths((prev) => prev?.map((m) => m.monthKey !== month.monthKey ? m : { ...m, paycheckCount: 0, computation: null }) ?? null);
+      loadImportedData();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not delete these paychecks.");
+    } finally {
+      setFilingBusy(null);
+    }
+  }
+
   async function handleRecordPayment(depositId: string) {
     if (!payingDate) return;
     setError(null);
@@ -670,6 +695,9 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                                   </button>
                                   <button className="btn btn-primary" onClick={() => handleMarkFiled(m, true)} disabled={filingBusy !== null}>
                                     {filingBusy === `${m.monthKey}:send` ? "Filing…" : "Mark Filed and Send"}
+                                  </button>
+                                  <button className="btn btn-danger" onClick={() => handleDeleteMonthPaychecks(m)} disabled={filingBusy !== null}>
+                                    {filingBusy === `${m.monthKey}:delete` ? "Deleting…" : "Delete"}
                                   </button>
                                 </div>
                               </>
