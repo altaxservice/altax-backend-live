@@ -193,7 +193,8 @@ function fmtCardParts(d: Date): { month: string; day: string; weekday: string } 
 
 export type AppointmentNoticeType =
   | "Appointment Confirmation" | "Appointment Reminder" | "Appointment Cancelled"
-  | "Appointment Confirmation Request" | "Appointment Rescheduled" | "Appointment Completed";
+  | "Appointment Confirmation Request" | "Appointment Rescheduled" | "Appointment Completed"
+  | "Appointment Confirmed";
 
 // The "please confirm" ask's lead time is admin-configurable (settings.confirmationRequestLeadMinutes,
 // appointmentSettings.ts — default 24h, matching the old hardcoded value)
@@ -415,6 +416,9 @@ export function buildAppointmentSmsText(
     const manage = manageUrl ? ` Manage: ${manageUrl}` : "";
     return `Your "${title}" is now ${dateLabel} at ${timeLabel}${was}.${manage}`;
   }
+  if (noticeType === "Appointment Confirmed") {
+    return `Thanks for confirming "${title}" on ${dateLabel} at ${timeLabel}. See you then!`;
+  }
   const lead = noticeType === "Appointment Reminder" ? "Reminder:" : "You're booked!";
   const closer = noticeType === "Appointment Reminder" ? "See you soon!" : "We can't wait to see you!";
   const durationSuffix = durationMinutes ? ` (${durationMinutes} min)` : "";
@@ -477,6 +481,10 @@ export async function notifyAppointment(appt: any, templateName: AppointmentNoti
     : templateName === "Appointment Confirmation Request" ? "CONFREQ"
     : templateName === "Appointment Rescheduled" ? "RESCHED"
     : templateName === "Appointment Completed" ? "DONE"
+    // Distinct from the original booking's "CONF" marker — this is the
+    // client's later confirm-click, a separate v3_communications row, not
+    // the same event replayed.
+    : templateName === "Appointment Confirmed" ? "CONFIRMED"
     : "CONF";
   const channels: { channel: "Email" | "SMS"; to: string }[] = [];
   if (email && (settings.clientReminderChannel === "email" || settings.clientReminderChannel === "both")) channels.push({ channel: "Email", to: email });
@@ -654,7 +662,7 @@ async function notifyStaffAssigned(appt: any, req?: Request): Promise<void> {
  * the change themselves.
  */
 export async function notifyStaffOfAppointmentChange(
-  appt: any, kind: "Cancelled" | "Rescheduled", req?: Request, previousStartTime?: string, excludeIdentifier?: string
+  appt: any, kind: "Cancelled" | "Rescheduled" | "Confirmed", req?: Request, previousStartTime?: string, excludeIdentifier?: string
 ): Promise<void> {
   const recipients = await resolveStaffRecipients(appt);
   if (recipients.size === 0) return;
@@ -663,18 +671,21 @@ export async function notifyStaffOfAppointmentChange(
   const newStart = new Date(appt.start_time);
   const detailLine = kind === "Cancelled"
     ? `Was scheduled for ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
-    : previousStartTime
-      ? `Moved from ${fmtDate(new Date(previousStartTime))} ${fmtTime(new Date(previousStartTime))} to ${fmtDate(newStart)} ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
-      : `New time: ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`;
-  const label = kind === "Cancelled" ? "Client cancelled" : "Appointment rescheduled";
+    : kind === "Confirmed"
+      ? `Confirmed for ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
+      : previousStartTime
+        ? `Moved from ${fmtDate(new Date(previousStartTime))} ${fmtTime(new Date(previousStartTime))} to ${fmtDate(newStart)} ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
+        : `New time: ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`;
+  const label = kind === "Cancelled" ? "Client cancelled" : kind === "Confirmed" ? "Client confirmed" : "Appointment rescheduled";
   const subject = `${label}: ${appt.title || "Appointment"} with ${who}`;
   // Only Rescheduled has anything to add to a calendar — a cancellation
-  // removes the appointment, nothing new to invite anyone to.
+  // removes the appointment and a confirmation doesn't change anything
+  // already on staff's calendar, so neither has new info to (re-)invite to.
   const calendarInput = kind === "Rescheduled"
     ? { uid: appt.appointment_id, title: appt.title || "Appointment", startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined }
     : null;
   const html = buildStaffApptNoticeHtml({
-    color: kind === "Cancelled" ? "#7a1f1f" : "#1f2937", label, title: appt.title || "Appointment", who,
+    color: kind === "Cancelled" ? "#7a1f1f" : kind === "Confirmed" ? "#0f5132" : "#1f2937", label, title: appt.title || "Appointment", who,
     rows: [
       { label: "Details", value: escapeHtml(detailLine) },
       ...(appt.assigned_to ? [{ label: "Assigned", value: escapeHtml(appt.assigned_to) }] : []),

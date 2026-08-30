@@ -523,6 +523,21 @@ publicAppointmentsRouter.post("/manage/:token/confirm", manageLimiter, asyncHand
   await query(`UPDATE altax.v3_appointments SET client_confirmed_at = now() WHERE appointment_id = $1`, [appt.appointment_id]);
   await logAudit("Calendar", "CONFIRM_APPOINTMENT", appt.appointment_id, "", "", "Confirmed",
     `Appointment "${appt.title}" confirmed by the client via the manage-appointment link.`, "Public Manage Link");
+  // Mirrors cancel/reschedule exactly — both the client and the firm get a
+  // notice, matching the owner's own words: "he and our firm should receive
+  // a confirmation message saying that appointment is confirmed." Previously
+  // this route only wrote the timestamp and logged the audit entry — no
+  // notification fired on either side.
+  try {
+    await notifyAppointment(appt, "Appointment Confirmed", "Public Manage Link", req);
+  } catch {
+    // Best-effort — the confirmation itself already succeeded and is logged above.
+  }
+  try {
+    await notifyStaffOfAppointmentChange(appt, "Confirmed", req);
+  } catch {
+    // Best-effort — same as above.
+  }
   res.json({ ok: true });
 }));
 
