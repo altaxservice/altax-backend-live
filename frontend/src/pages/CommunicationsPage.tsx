@@ -10,6 +10,7 @@ import { exportCsv } from "../components/FilterBar";
 import { FileDropInput } from "../components/FileDropInput";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 import { PAYROLL_PROVIDERS } from "../utils/clientOptions";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 
 /**
  * Every composer on this page now uses explicit "Save and Close" / "Save and
@@ -28,12 +29,53 @@ async function fileToAttachment(file: File): Promise<{ filename: string; content
   return { filename: file.name, contentBase64: await fileToBase64(file), contentType: file.type || undefined };
 }
 
+/** Lightweight section divider inside the compose form — same uppercase-label convention used elsewhere this session (RuleDetailPage) so a dense form reads as grouped sections instead of one flat list of fields. */
+const sectionHeadingStyle: React.CSSProperties = {
+  fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700,
+  margin: "20px 0 8px", paddingTop: 12, borderTop: "1px solid var(--line)",
+};
+
+/** The current calendar quarter's [start, end] as YYYY-MM-DD — same "quick-range" convenience the Form 941/MD UI obligation tabs already use, so composing a real quarterly report doesn't mean hand-typing three months of dates. Exported for ReportsPage's equivalent date picker. */
+export function thisQuarterRange(): { start: string; end: string } {
+  const now = new Date();
+  const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  const start = new Date(now.getFullYear(), quarterStartMonth, 1);
+  const end = new Date(now.getFullYear(), quarterStartMonth + 3, 0);
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+}
+
 /** Mirrors REPORT_TEMPLATE_NAMES in communications.routes.ts — these auto-attach a real PDF server-side even with no file manually chosen, so the frontend needs to know which templates that applies to (e.g. to show the "sensitive document" option). */
 const REPORT_TEMPLATE_NAMES = new Set(["Client Tax and Payroll Update", "Payroll Summary", "Sales Tax Summary"]);
 
 interface StaffDirectoryEntry { name: string; email: string; phone: string | null; role: string }
 interface TemplateRow { templateId: string | null; name: string; category: string; subject: string; source: string }
 interface TemplateDetail { subject: string; message_english: string | null; message_arabic: string | null }
+
+/** Fixed reading order for the grouped template dropdown — Reports first (the ones staff reach for most), General last (catch-all). Any category not in this list (e.g. a custom override with its own category) falls in after, alphabetically. */
+const TEMPLATE_CATEGORY_ORDER = ["Reports", "Appointments", "Reminders & Notices", "Requests & Questions", "General"];
+
+/** Groups templates into <optgroup>s in a fixed reading order instead of one flat 30-item list — same options, same values, just organized. */
+function TemplateOptions({ templates }: { templates: TemplateRow[] }) {
+  const byCategory = new Map<string, TemplateRow[]>();
+  for (const t of templates) {
+    const list = byCategory.get(t.category) || [];
+    list.push(t);
+    byCategory.set(t.category, list);
+  }
+  const orderedCategories = [
+    ...TEMPLATE_CATEGORY_ORDER.filter((c) => byCategory.has(c)),
+    ...Array.from(byCategory.keys()).filter((c) => !TEMPLATE_CATEGORY_ORDER.includes(c)).sort(),
+  ];
+  return (
+    <>
+      {orderedCategories.map((category) => (
+        <optgroup key={category} label={category}>
+          {byCategory.get(category)!.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 
 // SMS/WhatsApp are wired end-to-end in the backend but not connected — no Twilio
 // credentials configured — so picking either here would just fail with a "not
@@ -51,9 +93,23 @@ const ROLE_HEADER: Record<string, { title: string; note: string }> = {
   employee: { title: "Employee Message Center", note: "Message AL TAX about your pay or account and review your message history." },
 };
 
-function Panel({ title, note, action, children }: { title: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+/** `resize` is optional — when omitted, Panel behaves exactly as before (fixed-width card in whatever layout its parent uses). When passed, the panel becomes an independently draggable-width `.resizable-card`, matching the pattern already used for the client Profile/edit-form cards (ClientDetailPage.tsx). */
+function Panel({ title, note, action, children, resize }: {
+  title: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode;
+  resize?: { width: number; resizing: boolean; onResizeStart: (e: React.MouseEvent) => void };
+}) {
   return (
-    <div className="command-panel" style={{ marginBottom: 20 }}>
+    <div
+      className={`command-panel${resize ? " resizable-card" : ""}`}
+      style={{ marginBottom: 20, ...(resize ? { width: resize.width, maxWidth: "100%" } : {}) }}
+    >
+      {resize && (
+        <div
+          className={`resizable-card-handle ${resize.resizing ? "dragging" : ""}`}
+          onMouseDown={resize.onResizeStart}
+          title="Drag to resize"
+        />
+      )}
       <div className="command-panel-header">
         <div>
           <h2 className="command-panel-title">{title}</h2>
@@ -631,7 +687,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
           <label htmlFor="bulk-template">Template</label>
           <select id="bulk-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
             <option value="">Custom</option>
-            {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+            <TemplateOptions templates={templates} />
           </select>
         </div>
         <div className="form-grid">
@@ -695,6 +751,8 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
       end: new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10),
     };
   });
+  const composeResize = useResizableWidth({ storageKey: "altax_comms_compose_width", defaultWidth: 560, min: 380, max: 900 });
+  const historyResize = useResizableWidth({ storageKey: "altax_comms_history_width", defaultWidth: 480, min: 320, max: 900 });
 
   useEffect(() => {
     api.get<{ templates: TemplateRow[] }>("/templates").then((r) => setTemplates(r.templates)).catch(() => {});
@@ -785,16 +843,20 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
   }
 
   return (
-    <div className="compose-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-      <Panel title="Send / Save Client Message" note={sendToEmail || undefined}>
+    <div className="compose-split" style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+      <Panel
+        title="Send / Save Client Message" note={sendToEmail || undefined}
+        resize={{ width: composeResize.width, resizing: composeResize.resizing, onResizeStart: composeResize.startResize }}
+      >
         <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
           {error && <ErrorBanner error={error} />}
           <SendResults results={results} />
+          <div style={sectionHeadingStyle}>Message</div>
           <div className="field">
             <label htmlFor="cm-template">Template</label>
             <select id="cm-template" value={templateName} onChange={(e) => applyTemplate(e.target.value)}>
               <option value="">Custom</option>
-              {templates.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+              <TemplateOptions templates={templates} />
             </select>
           </div>
           <div className="form-grid">
@@ -807,6 +869,14 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
               <input id="cm-period-end" type="date" value={period.end} onChange={(e) => { const next = { ...period, end: e.target.value }; setPeriod(next); if (templateName) applyTemplate(templateName, next); }} />
             </div>
           </div>
+          <button
+            type="button" className="link-button" style={{ fontSize: 12, margin: "-6px 0 12px" }}
+            onClick={() => { const next = thisQuarterRange(); setPeriod(next); if (templateName) applyTemplate(templateName, next); }}
+          >
+            Use this quarter
+          </button>
+
+          <div style={sectionHeadingStyle}>Recipient</div>
           <div className="form-grid">
             <div className="field">
               <label htmlFor="cm-send-to">Send To (Email)</label>
@@ -829,9 +899,13 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
               )}
             </div>
           </div>
+
+          <div style={sectionHeadingStyle}>Content</div>
           <div className="field"><label htmlFor="cm-subject">Subject</label><input id="cm-subject" required value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
           <div className="field"><label htmlFor="cm-message-english">English Message</label><textarea id="cm-message-english" rows={3} value={messageEnglish} onChange={(e) => setMessageEnglish(e.target.value)} /></div>
           <div className="field"><label htmlFor="cm-message-arabic">Arabic Message</label><textarea id="cm-message-arabic" rows={3} dir="rtl" value={messageArabic} onChange={(e) => setMessageArabic(e.target.value)} /></div>
+
+          <div style={sectionHeadingStyle}>Delivery</div>
           <div className="field"><label>Add Attachment <span className="muted">(optional — Email only)</span></label><FileDropInput file={attachment} onChange={setAttachment} /></div>
           {(attachment || REPORT_TEMPLATE_NAMES.has(templateName)) && (
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "0 0 12px" }}>
@@ -848,7 +922,10 @@ export function ClientMessages({ client, messages, onSent }: { client: Client; m
           </div>
         </form>
       </Panel>
-      <Panel title="History" note={`${messages.length} messages`}>
+      <Panel
+        title="History" note={`${messages.length} messages`}
+        resize={{ width: historyResize.width, resizing: historyResize.resizing, onResizeStart: historyResize.startResize }}
+      >
         {messages.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No messages for this client yet.</p>}
         <div className="scroll-list" style={{ padding: messages.length ? "0 16px 16px" : 0 }}>
           {messages.map((m) => <CommunicationCard key={m.communication_id} c={m} />)}

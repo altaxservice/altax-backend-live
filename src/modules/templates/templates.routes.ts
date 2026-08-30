@@ -17,94 +17,94 @@ export const templatesRouter = Router();
  * template with the same name creates/updates a v3_templates row that overrides it.
  */
 export const BUILT_IN: { name: string; category: string; subject: string; english: string; arabic: string }[] = [
-  { name: "Appointment Confirmation", category: "Communications", subject: "🎉 Confirmed: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
+  { name: "Appointment Confirmation", category: "Appointments", subject: "🎉 Confirmed: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nYou're all set! We've saved your spot for \"{{appointmentTitle}}\" on {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}}.\n\nWe're genuinely looking forward to sitting down with you. If anything comes up, use the button below anytime to reschedule or cancel — no call needed.\n\nSee you soon,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nتم حجز موعدكم بنجاح! لقد حجزنا لكم \"{{appointmentTitle}}\" بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}}.\n\nنتطلع بكل سرور للقائكم. إذا طرأ أي تغيير، يمكنكم استخدام الزر أدناه في أي وقت لإعادة الجدولة أو الإلغاء دون الحاجة للاتصال بنا.\n\nنراكم قريباً،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Reminder", category: "Communications", subject: "⏰ Reminder: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
+  { name: "Appointment Reminder", category: "Appointments", subject: "⏰ Reminder: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nJust a friendly heads-up — your appointment \"{{appointmentTitle}}\" is coming up on {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}}. We can't wait to see you!\n\nIf your plans changed, you can reschedule or cancel anytime using the button below.\n\nSee you then,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nهذا تذكير ودي بموعدكم \"{{appointmentTitle}}\" يوم {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}}. يسعدنا لقاؤكم قريباً!\n\nإذا تغيرت خططكم، يمكنكم إعادة الجدولة أو الإلغاء في أي وقت عبر الزر أدناه.\n\nنراكم قريباً،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Confirmation Request", category: "Communications", subject: "Please confirm: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
+  { name: "Appointment Confirmation Request", category: "Appointments", subject: "Please confirm: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nYour appointment \"{{appointmentTitle}}\" is tomorrow, {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}}. Could you confirm you're still able to make it?\n\nUse the button below to confirm, pick a new time, or reach us directly if anything's come up — whichever's easiest.\n\nLooking forward to it,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nموعدكم \"{{appointmentTitle}}\" غداً، بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}}. هل يمكنكم تأكيد قدرتكم على الحضور؟\n\nاستخدموا الزر أدناه للتأكيد، أو اختيار موعد جديد، أو التواصل معنا مباشرة إذا طرأ أي أمر — أيهما أنسب لكم.\n\nنتطلع للقائكم،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Confirmed", category: "Communications", subject: "✅ Confirmed: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
+  { name: "Appointment Confirmed", category: "Appointments", subject: "✅ Confirmed: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nThanks for confirming! We've got you down for \"{{appointmentTitle}}\" on {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}}.\n\nSee you then,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nشكراً لتأكيدكم! موعدكم \"{{appointmentTitle}}\" بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}} مؤكد.\n\nنراكم قريباً،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Rescheduled", category: "Communications", subject: "Updated: {{appointmentTitle}} is now {{appointmentDate}} at {{appointmentTime}}",
+  { name: "Appointment Rescheduled", category: "Appointments", subject: "Updated: {{appointmentTitle}} is now {{appointmentDate}} at {{appointmentTime}}",
     english: "Hi {{clientName}},\n\nYour appointment \"{{appointmentTitle}}\" has a new time: {{appointmentDate}} at {{appointmentTime}}{{appointmentLocation}} (previously {{previousDate}} at {{previousTime}}).\n\nPlease make a note of the change. If this new time doesn't work, use the button below to pick another or reach out and we'll sort it out.\n\nSee you then,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nتم تحديد موعد جديد لـ \"{{appointmentTitle}}\": {{appointmentDate}} الساعة {{appointmentTime}}{{appointmentLocationAr}} (بدلاً من {{previousDate}} الساعة {{previousTime}}).\n\nيرجى تدوين هذا التغيير. إذا لم يكن هذا الموعد الجديد مناسباً، استخدموا الزر أدناه لاختيار وقت آخر أو تواصلوا معنا وسنرتب الأمر.\n\nنراكم قريباً،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Cancelled", category: "Communications", subject: "Cancelled: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
+  { name: "Appointment Cancelled", category: "Appointments", subject: "Cancelled: {{appointmentDate}} at {{appointmentTime}} — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nYour appointment \"{{appointmentTitle}}\" on {{appointmentDate}} at {{appointmentTime}} has been cancelled.\n\nNo worries at all — whenever you're ready, we'd love to have you back. Just pick a new time using the button below, or reply to this message and we'll take care of it.\n\nWarmly,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nتم إلغاء موعدكم \"{{appointmentTitle}}\" الذي كان مقرراً بتاريخ {{appointmentDate}} الساعة {{appointmentTime}}.\n\nلا داعي للقلق — يسعدنا استقبالكم من جديد في أي وقت يناسبكم. اختاروا موعداً جديداً عبر الزر أدناه، أو ردّوا على هذه الرسالة وسنتولى الأمر.\n\nبكل ود،\nفريق AL TAX SERVICE" },
-  { name: "Appointment Completed", category: "Communications", subject: "Thanks for coming in — {{appointmentTitle}}",
+  { name: "Appointment Completed", category: "Appointments", subject: "Thanks for coming in — {{appointmentTitle}}",
     english: "Hi {{clientName}},\n\nThank you for coming in for \"{{appointmentTitle}}\" — it was great to see you. If anything comes up or you think of a question afterward, just reply to this message or give us a call.\n\nWhenever you're ready for your next visit, use the button below to book a time.\n\nThanks again,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nشكراً لحضوركم موعد \"{{appointmentTitle}}\" — كان من دواعي سرورنا لقاؤكم. إذا طرأ أي أمر أو خطر ببالكم سؤال لاحقاً، فقط ردّوا على هذه الرسالة أو اتصلوا بنا.\n\nمتى ما كنتم جاهزين لزيارتكم القادمة، استخدموا الزر أدناه لحجز موعد.\n\nشكراً لكم مجدداً،\nفريق AL TAX SERVICE" },
-  { name: "Bank Statement Request", category: "Communications", subject: "Bank statement needed to continue your bookkeeping",
+  { name: "Bank Statement Request", category: "Requests & Questions", subject: "Bank statement needed to continue your bookkeeping",
     english: "Hello {{clientName}},\n\nTo keep your bookkeeping and reconciliation on track, we need a copy of your most recent bank statement(s). Please upload them through your client portal, or reply to this message with them attached.\n\nThank you for helping us keep your books current.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nلمواصلة أعمال المحاسبة والتسوية الخاصة بكم دون انقطاع، نحتاج إلى نسخة من كشف/كشوفات حسابكم المصرفي الأخيرة. يرجى رفعها عبر بوابة العميل، أو إرفاقها عند الرد على هذه الرسالة.\n\nشكراً لتعاونكم في إبقاء سجلاتكم المحاسبية محدّثة.\n\nفريق AL TAX SERVICE" },
-  { name: "Client Follow Up", category: "Communications", subject: "Checking in — anything we can help with?",
+  { name: "Client Follow Up", category: "General", subject: "Checking in — anything we can help with?",
     english: "Hi {{clientName}},\n\nJust checking in on your account — everything on track on your end? If you have any questions, an upcoming deadline you'd like to talk through, or anything at all we can help with, just reply to this message or give us a call.\n\nTalk soon,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nنتواصل معكم للاطمئنان على وضع حسابكم — هل كل شيء يسير كما هو مخطط؟ إذا كان لديكم أي استفسار، أو موعد نهائي قادم تودّون مناقشته، أو أي شيء يمكننا مساعدتكم فيه، فقط ردّوا على هذه الرسالة أو اتصلوا بنا.\n\nنتحدث قريباً،\nفريق AL TAX SERVICE" },
-  { name: "Client Tax and Payroll Update", category: "Communications", subject: "Your tax and payroll update{{periodLabel}}",
+  { name: "Client Tax and Payroll Update", category: "Reports", subject: "Your tax and payroll update{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your tax and payroll update{{periodLabel}}:\n\n{{periodSummary}}\n\nLet us know if you have any questions about any of this.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nإليكم تحديث الضرائب والرواتب الخاص بكم{{periodLabelAr}}:\n\n{{periodSummaryAr}}\n\nيرجى إعلامنا إذا كان لديكم أي استفسار حول أي مما ورد أعلاه.\n\nفريق AL TAX SERVICE" },
-  { name: "Direct Deposit Question", category: "Communications", subject: "A quick question about your direct deposit",
+  { name: "Direct Deposit Question", category: "Requests & Questions", subject: "A quick question about your direct deposit",
     english: "Hello,\n\nWe have a quick question about your direct deposit setup and want to make sure everything is entered correctly before your next payment goes out. Could you reply to this message or give us a call at your earliest convenience?\n\nThank you.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً،\n\nلدينا سؤال سريع بخصوص إعدادات الإيداع المباشر الخاصة بكم، ونود التأكد من صحة جميع البيانات قبل صرف دفعتكم القادمة. يرجى الرد على هذه الرسالة أو الاتصال بنا في أقرب وقت ممكن.\n\nشكراً لكم.\n\nفريق AL TAX SERVICE" },
-  { name: "Document Request", category: "Communications", subject: "Documents needed to continue",
+  { name: "Document Request", category: "Requests & Questions", subject: "Documents needed to continue",
     english: "Hello {{clientName}},\n\nWe need the following from you to continue:\n\n{{itemsList}}\n\nPlease upload these through your client portal or reply to this message with them attached. Let us know if you have any questions about what's needed.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nنحتاج إلى ما يلي منكم للمتابعة:\n\n{{itemsList}}\n\nيرجى رفعها عبر بوابة العميل الخاصة بكم، أو إرفاقها عند الرد على هذه الرسالة. لا تترددوا في التواصل إذا كان لديكم أي استفسار حول ما هو مطلوب.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Document Upload Note", category: "Communications", subject: "New documents ready for your review",
+  { name: "Document Upload Note", category: "Requests & Questions", subject: "New documents ready for your review",
     english: "Hello {{clientName}},\n\nWe've uploaded new documents to your account. Please log in to your client portal to review them, and let us know if you have any questions.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nقمنا برفع مستندات جديدة إلى حسابكم. يرجى تسجيل الدخول إلى بوابة العميل لمراجعتها، ولا تترددوا في التواصل معنا إذا كان لديكم أي استفسار.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Employee Paystub Notice", category: "Communications", subject: "Your paystub is ready to view",
+  { name: "Employee Paystub Notice", category: "Requests & Questions", subject: "Your paystub is ready to view",
     english: "Hello,\n\nYour latest paystub is now available for review in your employee portal. Please log in to view it, and let us know if anything looks off.\n\nThank you.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً،\n\nقسيمة راتبكم الأخيرة متوفرة الآن للمراجعة في بوابة الموظف الخاصة بكم. يرجى تسجيل الدخول للاطلاع عليها، وإعلامنا في حال وجود أي ملاحظة.\n\nشكراً لكم.\n\nفريق AL TAX SERVICE" },
-  { name: "Employee Paystub Question", category: "Communications", subject: "A question about your paystub",
+  { name: "Employee Paystub Question", category: "Requests & Questions", subject: "A question about your paystub",
     english: "Hello,\n\nWe have a question about your recent paystub and want to make sure it's accurate. Could you reply to this message or give us a call at your earliest convenience?\n\nThank you.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً،\n\nلدينا سؤال بخصوص قسيمة راتبكم الأخيرة، ونود التأكد من دقتها. يرجى الرد على هذه الرسالة أو الاتصال بنا في أقرب وقت ممكن.\n\nشكراً لكم.\n\nفريق AL TAX SERVICE" },
-  { name: "ID Verification Request", category: "Communications", subject: "ID verification needed",
+  { name: "ID Verification Request", category: "Requests & Questions", subject: "ID verification needed",
     english: "Hello {{clientName}},\n\nFor verification purposes, please upload a copy of a valid, government-issued photo ID through your client portal.\n\nThank you for helping us keep your file secure and up to date.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nلأغراض التحقق، يرجى رفع نسخة من بطاقة هوية سارية صادرة عن جهة حكومية تحمل صورتكم عبر بوابة العميل.\n\nشكراً لتعاونكم في الحفاظ على ملفكم آمناً ومحدّثاً.\n\nفريق AL TAX SERVICE" },
-  { name: "Missing Information", category: "Communications", subject: "A few details still needed on your account",
+  { name: "Missing Information", category: "Requests & Questions", subject: "A few details still needed on your account",
     english: "Hello {{clientName}},\n\nWe reviewed the documents you sent and found a few details that are still missing or unclear. Please reply to this message or give us a call so we can sort them out together — the sooner we hear from you, the sooner we can move forward.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nراجعنا المستندات التي أرسلتموها ولاحظنا وجود بعض التفاصيل لا تزال ناقصة أو غير واضحة. يرجى الرد على هذه الرسالة أو الاتصال بنا لاستكمالها معاً — كلما تواصلتم معنا أسرع، كلما تمكّنا من المتابعة أسرع.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Payment Question", category: "Communications", subject: "A quick question about a recent payment",
+  { name: "Payment Question", category: "Requests & Questions", subject: "A quick question about a recent payment",
     english: "Hello,\n\nWe have a quick question about a recent payment on your account. Could you reply to this message or give us a call at your earliest convenience so we can sort it out?\n\nThank you.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً،\n\nلدينا سؤال سريع بخصوص دفعة أخيرة على حسابكم. يرجى الرد على هذه الرسالة أو الاتصال بنا في أقرب وقت ممكن لإيضاح الأمر.\n\nشكراً لكم.\n\nفريق AL TAX SERVICE" },
-  { name: "Payment Reminder", category: "Communications", subject: "Payment reminder — balance due {{balanceDue}}",
+  { name: "Payment Reminder", category: "Reminders & Notices", subject: "Payment reminder — balance due {{balanceDue}}",
     english: "Hello {{clientName}},\n\nThis is a reminder that you have an outstanding balance of {{balanceDue}}. Please arrange payment at your earliest convenience — reply to this message if you have any questions or need to discuss payment options.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nهذا تذكير بأن لديكم رصيداً مستحقاً غير مسدد بقيمة {{balanceDue}}. يرجى ترتيب السداد في أقرب وقت ممكن — وإذا كان لديكم أي استفسار أو رغبتم بمناقشة خيارات الدفع، يرجى الرد على هذه الرسالة.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Payroll Summary", category: "Communications", subject: "Your payroll summary{{periodLabel}}",
+  { name: "Payroll Summary", category: "Reports", subject: "Your payroll summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your payroll summary{{periodLabel}}:\n\n{{periodSummary}}\n\nLet us know if you have any questions about any of this.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص الرواتب الخاص بكم{{periodLabelAr}}:\n\n{{periodSummaryAr}}\n\nيرجى إعلامنا إذا كان لديكم أي استفسار حول أي مما ورد أعلاه.\n\nفريق AL TAX SERVICE" },
-  { name: "Payroll Tax Question", category: "Communications", subject: "A question about your payroll taxes",
+  { name: "Payroll Tax Question", category: "Requests & Questions", subject: "A question about your payroll taxes",
     english: "Hello,\n\nWe have a question about your payroll taxes and want to make sure everything is filed correctly. Could you reply to this message or give us a call at your earliest convenience?\n\nThank you.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً،\n\nلدينا سؤال بخصوص ضرائب الرواتب الخاصة بكم، ونود التأكد من صحة تقديمها. يرجى الرد على هذه الرسالة أو الاتصال بنا في أقرب وقت ممكن.\n\nشكراً لكم.\n\nفريق AL TAX SERVICE" },
-  { name: "Question to AL TAX", category: "Communications", subject: "New question from the client portal",
+  { name: "Question to AL TAX", category: "General", subject: "New question from the client portal",
     english: "A client submitted a question through the client portal. Please review it and follow up directly.",
     arabic: "قام أحد العملاء بإرسال استفسار عبر بوابة العميل. يرجى مراجعته والتواصل معه مباشرة." },
-  { name: "Refund Notice", category: "Communications", subject: "An update on your refund",
+  { name: "Refund Notice", category: "Reminders & Notices", subject: "An update on your refund",
     english: "Hello {{clientName}},\n\nWe have an update regarding your refund. Please reply to this message or contact our office and we'll walk you through the details.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nلدينا تحديث بخصوص المبلغ المسترد الخاص بكم. يرجى الرد على هذه الرسالة أو التواصل مع مكتبنا وسنوضح لكم التفاصيل.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Request Information", category: "Communications", subject: "A bit more information needed from you",
+  { name: "Request Information", category: "Requests & Questions", subject: "A bit more information needed from you",
     english: "Hello {{clientName}},\n\nWe need a bit more information from you to move forward. Please reply to this message or call our office at your earliest convenience — we're happy to walk through it together if that's easier.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nنحتاج إلى بعض المعلومات الإضافية منكم للمتابعة. يرجى الرد على هذه الرسالة أو الاتصال بمكتبنا في أقرب وقت ممكن — يسعدنا مراجعة الأمر معكم مباشرة إذا كان ذلك أنسب.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Sales Tax Summary", category: "Communications", subject: "Your sales tax summary{{periodLabel}}",
+  { name: "Sales Tax Summary", category: "Reports", subject: "Your sales tax summary{{periodLabel}}",
     english: "Hello {{clientName}},\n\nHere is your sales tax summary{{periodLabel}}:\n\n{{periodSummary}}\n\nLet us know if you have any questions about any of this.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nإليكم ملخص ضريبة المبيعات الخاص بكم{{periodLabelAr}}:\n\n{{periodSummaryAr}}\n\nيرجى إعلامنا إذا كان لديكم أي استفسار حول أي مما ورد أعلاه.\n\nفريق AL TAX SERVICE" },
-  { name: "Signature Required", category: "Communications", subject: "Your signature is needed",
+  { name: "Signature Required", category: "Requests & Questions", subject: "Your signature is needed",
     english: "Hello {{clientName}},\n\nA document is waiting for your signature in your client portal. Please review and sign it at your earliest convenience so we can keep things moving.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nهناك مستند بانتظار توقيعكم في بوابة العميل الخاصة بكم. يرجى مراجعته وتوقيعه في أقرب وقت ممكن حتى نتمكن من مواصلة العمل.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Staff Task Reminder", category: "Communications", subject: "Task reminder: {{taskName}}",
+  { name: "Staff Task Reminder", category: "Reminders & Notices", subject: "Task reminder: {{taskName}}",
     english: `Task: {{taskName}}\nClient: {{clientName}}\nStatus: {{taskStatus}}\nDue: {{dueDate}}\n\nPlease review and update this task in ${APP_NAME}.`,
     arabic: `المهمة: {{taskName}}\nالعميل: {{clientName}}\nالحالة: {{taskStatus}}\nتاريخ الاستحقاق: {{dueDate}}\n\nيرجى مراجعة هذه المهمة وتحديثها في نظام ${APP_NAME}.` },
-  { name: "Tax Return Ready for Review", category: "Communications", subject: "Your tax return is ready for review",
+  { name: "Tax Return Ready for Review", category: "Reminders & Notices", subject: "Your tax return is ready for review",
     english: "Hello {{clientName}},\n\nYour tax return is ready for review. Please log in to your client portal to review and sign it, or reply to this message with any questions first.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nإقراركم الضريبي جاهز للمراجعة. يرجى تسجيل الدخول إلى بوابة العميل الخاصة بكم لمراجعته وتوقيعه، أو الرد على هذه الرسالة أولاً في حال وجود أي استفسار.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "W-9 Request", category: "Communications", subject: "W-9 form needed",
+  { name: "W-9 Request", category: "Requests & Questions", subject: "W-9 form needed",
     english: "Hello {{clientName}},\n\nWe need a completed Form W-9 on file for you. Please upload a signed copy through your client portal or reply to this message with it attached.\n\nThank you,\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nنحتاج إلى نموذج W-9 موقّع ومكتمل لحفظه في ملفكم. يرجى رفع نسخة موقعة عبر بوابة العميل، أو إرفاقها عند الرد على هذه الرسالة.\n\nشكراً لكم،\nفريق AL TAX SERVICE" },
-  { name: "Welcome New Client", category: "Communications", subject: "Welcome to AL TAX SERVICE",
+  { name: "Welcome New Client", category: "General", subject: "Welcome to AL TAX SERVICE",
     english: "Hello {{clientName}},\n\nWelcome to AL TAX SERVICE! We're glad to have you as a client. You can access your documents, invoices, and messages anytime through your client portal.\n\nLet us know if you have any questions as we get started — we're here to help.\n\nThe AL TAX SERVICE Team",
     arabic: "مرحباً {{clientName}}،\n\nنرحب بكم في AL TAX SERVICE! يسعدنا انضمامكم كعميل لدينا. يمكنكم الوصول إلى مستنداتكم وفواتيركم ورسائلكم في أي وقت عبر بوابة العميل الخاصة بكم.\n\nلا تترددوا في التواصل إذا كان لديكم أي استفسار ونحن نبدأ معاً — نحن هنا لمساعدتكم.\n\nفريق AL TAX SERVICE" },
 ];
@@ -239,6 +239,17 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
   return dates;
 }
 
+/** A DATE column comes back from a raw SELECT as a JS Date — String(date) shifts UTC midnight back a day in local time, so it must go through toISOString() rather than straight into a "YYYY-MM-DD..." string. Same fix already applied elsewhere in this codebase (filingConfirmationEmail.ts's fmtDate). */
+function toIsoDateStr(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+function daysBetweenInclusive(startIso: string, endIso: string): number {
+  const start = new Date(`${startIso}T00:00:00Z`).getTime();
+  const end = new Date(`${endIso}T00:00:00Z`).getTime();
+  return Math.round((end - start) / 86400000) + 1;
+}
+
 interface PeriodFigures {
   sales: any[];
   paychecks: any[];
@@ -260,7 +271,13 @@ interface PeriodFigures {
   stateTax: number;
   suta: number;
   importantDates: { label: string; date: Date }[];
-  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; filedDate: string; paidDate: string }) | null;
+  mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; filedDate: string; paidDate: string; sourced: "filed" | "estimated" }) | null;
+  /** Real EFTPS federal deposits recorded for periods inside the requested range. Omitted (null) rather than estimated when nothing's been deposited yet — there's no honest "live estimate" of a federal deposit that hasn't happened. */
+  eftps: { federalIncomeTax: number; socialSecurity: number; medicare: number; total: number; periodsFiled: number } | null;
+  /** Real Form 941 filings (already netted against that quarter's EFTPS deposits) for quarters fully inside the requested range. */
+  form941: { grossLiability: number; eftpsDepositsApplied: number; balanceDue: number; quarters: number[] } | null;
+  annualReport: { amount: number; filedDate: string } | null;
+  mdUi: { amount: number; filedDate: string } | null;
 }
 
 /**
@@ -319,17 +336,98 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
   // covers a fixed past/future period with a fixed statutory due date.
   // Paid date defaults to today (the date this summary is being generated),
   // same convention the Calculator/Sales Input use for their own default.
-  const salesTaxDue = sum(sales, "total_tax_due");
+  //
+  // Prefers the REAL filed record (v3_md_filing_payments) over a live
+  // recompute when one exists covering the whole requested range — a client
+  // shouldn't see a live "estimate" for a period the firm has already
+  // actually filed and reconciled. Falls back to the live estimate (as
+  // before) when nothing's filed yet, or when the filed rows only partially
+  // cover the range — blending partial coverage into one number is a real
+  // future refinement, not attempted here; partial coverage is treated as
+  // "not filed" for this purpose and estimated in full.
+  let salesTaxDue = sum(sales, "total_tax_due");
   let mdFiling: PeriodFigures["mdFiling"] = null;
-  if (client?.state === "MD" && salesTaxDue > 0 && !Number.isNaN(periodEndDate.getTime())) {
+  if (client?.state === "MD" && !Number.isNaN(periodEndDate.getTime())) {
+    const filedMdRows = await query<any>(
+      `SELECT period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time
+         FROM altax.v3_md_filing_payments
+        WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date
+        ORDER BY period_end ASC`,
+      [clientId, periodStart, periodEnd]
+    );
+    const rangeDays = daysBetweenInclusive(periodStart, periodEnd);
+    const filedDays = filedMdRows.reduce((s, r) => s + daysBetweenInclusive(toIsoDateStr(r.period_start), toIsoDateStr(r.period_end)), 0);
+    const fullyFiled = filedMdRows.length > 0 && filedDays >= rangeDays;
+
     const { computeMdFiling, mdDueDateForPeriod } = await import("../../common/mdFiling");
-    const dueDate = mdDueDateForPeriod(periodEnd);
-    const today = new Date().toISOString().slice(0, 10);
-    const filedDate = mdFiledDate && /^\d{4}-\d{2}-\d{2}$/.test(mdFiledDate) ? mdFiledDate : today;
-    const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : today;
-    const result = await computeMdFiling(salesTaxDue, dueDate, filedDate, paidDate);
-    mdFiling = { ...result, dueDate, filedDate, paidDate };
+    if (fullyFiled) {
+      const taxDue = filedMdRows.reduce((s, r) => s + (Number(r.tax_due) || 0), 0);
+      const balanceDue = filedMdRows.reduce((s, r) => s + (Number(r.balance_due) || 0), 0);
+      const onTime = filedMdRows.every((r) => r.on_time !== false);
+      const lastRow = filedMdRows[filedMdRows.length - 1];
+      const filedDate = filedMdRows.map((r) => r.filed_date).filter(Boolean).map(toIsoDateStr).sort().slice(-1)[0] || "";
+      const paidDate = filedMdRows.every((r) => r.paid_date) ? filedMdRows.map((r) => r.paid_date).map(toIsoDateStr).sort().slice(-1)[0] : "";
+      salesTaxDue = taxDue;
+      mdFiling = {
+        taxDue, onTime, discount: 0, penalty: 0, penaltyRate: 0, interest: 0, interestRateMonthly: 0, monthsLate: 0, balanceDue,
+        dueDate: mdDueDateForPeriod(toIsoDateStr(lastRow.period_end)), filedDate, paidDate, sourced: "filed",
+      };
+    } else if (salesTaxDue > 0) {
+      const dueDate = mdDueDateForPeriod(periodEnd);
+      const today = new Date().toISOString().slice(0, 10);
+      const filedDate = mdFiledDate && /^\d{4}-\d{2}-\d{2}$/.test(mdFiledDate) ? mdFiledDate : today;
+      const paidDate = mdPaidDate && /^\d{4}-\d{2}-\d{2}$/.test(mdPaidDate) ? mdPaidDate : today;
+      const result = await computeMdFiling(salesTaxDue, dueDate, filedDate, paidDate);
+      mdFiling = { ...result, dueDate, filedDate, paidDate, sourced: "estimated" };
+    }
   }
+
+  // Real EFTPS federal deposits recorded for this range — omitted entirely
+  // (not estimated) when nothing's been deposited yet for any period in
+  // range, since there's no honest live substitute for "money actually sent
+  // to the IRS."
+  const eftpsRows = await query<any>(
+    `SELECT federal_income_tax_total, social_security_total, medicare_total, total_amount
+       FROM altax.v3_eftps_deposits WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date`,
+    [clientId, periodStart, periodEnd]
+  );
+  const eftps: PeriodFigures["eftps"] = eftpsRows.length
+    ? {
+        federalIncomeTax: sum(eftpsRows, "federal_income_tax_total"), socialSecurity: sum(eftpsRows, "social_security_total"),
+        medicare: sum(eftpsRows, "medicare_total"), total: sum(eftpsRows, "total_amount"), periodsFiled: eftpsRows.length,
+      }
+    : null;
+
+  // Real Form 941 filings — already netted against that quarter's EFTPS
+  // deposits (v3_form941_filings.balance_due) at filing time, so this is
+  // the true remaining federal balance, not a re-derived estimate.
+  const form941Rows = await query<any>(
+    `SELECT quarter, gross_liability, eftps_deposits_applied, balance_due
+       FROM altax.v3_form941_filings WHERE client_id = $1 AND period_start >= $2::date AND period_end <= $3::date`,
+    [clientId, periodStart, periodEnd]
+  );
+  const form941: PeriodFigures["form941"] = form941Rows.length
+    ? {
+        grossLiability: sum(form941Rows, "gross_liability"), eftpsDepositsApplied: sum(form941Rows, "eftps_deposits_applied"),
+        balanceDue: sum(form941Rows, "balance_due"), quarters: form941Rows.map((r) => Number(r.quarter)),
+      }
+    : null;
+
+  const annualReportRows = await query<any>(
+    `SELECT amount, filed_date FROM altax.v3_annual_report_filings WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date ORDER BY period_end`,
+    [clientId, periodStart, periodEnd]
+  );
+  const annualReport: PeriodFigures["annualReport"] = annualReportRows.length
+    ? { amount: sum(annualReportRows, "amount"), filedDate: toIsoDateStr(annualReportRows[annualReportRows.length - 1].filed_date) }
+    : null;
+
+  const mdUiRows = await query<any>(
+    `SELECT amount, filed_date FROM altax.v3_md_ui_filings WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date ORDER BY period_end`,
+    [clientId, periodStart, periodEnd]
+  );
+  const mdUi: PeriodFigures["mdUi"] = mdUiRows.length
+    ? { amount: sum(mdUiRows, "amount"), filedDate: toIsoDateStr(mdUiRows[mdUiRows.length - 1].filed_date) }
+    : null;
 
   return {
     sales, paychecks,
@@ -352,6 +450,7 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
     suta: sum(paychecks, "suta"),
     importantDates,
     mdFiling,
+    eftps, form941, annualReport, mdUi,
   };
 }
 
@@ -369,16 +468,20 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
   const { sales, paychecks } = f;
 
   const lines: string[] = ["SUMMARY"];
-  if (sales.length) lines.push(`Sales tax due: ${fmtMoney(f.salesTaxDue)}`);
+  if (sales.length || f.mdFiling) lines.push(`Sales tax due: ${fmtMoney(f.salesTaxDue)}`);
   if (paychecks.length) {
     lines.push(`Payroll checks: ${paychecks.length}`);
     lines.push(`Payroll gross wages: ${fmtMoney(f.grossWages)}`);
     lines.push(`Net payroll paid: ${fmtMoney(f.netPay)}`);
     lines.push(`Payroll taxes: employee ${fmtMoney(f.employeeTaxes)} | employer ${fmtMoney(f.employerTaxes)}`);
   }
-  if (!sales.length && !paychecks.length) lines.push("No sales or payroll activity recorded for this period.");
+  if (!sales.length && !paychecks.length && !f.mdFiling && !f.eftps && !f.form941 && !f.annualReport && !f.mdUi) lines.push("No sales or payroll activity recorded for this period.");
 
-  if (sales.length) {
+  // Gated on mdFiling too, not just sales.length — a period whose MD sales
+  // tax was already filed still deserves this section even if its raw
+  // v3_sales_input rows are no longer in range (e.g. archived, or the range
+  // being reported on is narrower than what the filing itself covered).
+  if (sales.length || f.mdFiling) {
     lines.push("", "SALES TAX DETAIL");
     lines.push(`Gross sales: ${fmtMoney(f.grossSales)}`);
     for (const [categoryName, { taxable, tax }] of f.byCategory) {
@@ -389,13 +492,17 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
     if (f.lastPayment) lines.push(`Last recorded payment date: ${fmtDate(f.lastPayment)}`);
     if (f.mdFiling) {
       lines.push(`Return due date: ${fmtDate(f.mdFiling.dueDate)}`);
-      if (f.mdFiling.onTime) {
+      if (f.mdFiling.sourced === "filed") {
+        lines.push(`Filed date: ${fmtDate(f.mdFiling.filedDate)}`);
+        if (f.mdFiling.paidDate) lines.push(`Payment date: ${fmtDate(f.mdFiling.paidDate)}`);
+        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (filed amount)`);
+      } else if (f.mdFiling.onTime) {
         lines.push(`Timely discount: -${fmtMoney(f.mdFiling.discount)}`);
-        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)}`);
+        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (estimated — not yet filed)`);
       } else {
         lines.push(`Late penalty (10%): ${fmtMoney(f.mdFiling.penalty)}`);
         lines.push(`Interest (${f.mdFiling.monthsLate} mo): ${fmtMoney(f.mdFiling.interest)}`);
-        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)}`);
+        lines.push(`Balance due: ${fmtMoney(f.mdFiling.balanceDue)} (estimated — not yet filed)`);
       }
     }
   }
@@ -417,6 +524,24 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
     lines.push(`State withholding: ${fmtMoney(f.stateTax)}`);
     lines.push(`State unemployment (SUTA): ${fmtMoney(f.suta)}`);
   }
+
+  if (f.eftps) {
+    lines.push("", "EFTPS FEDERAL TAX DEPOSITS");
+    lines.push(`Federal income tax: ${fmtMoney(f.eftps.federalIncomeTax)}`);
+    lines.push(`Social Security: ${fmtMoney(f.eftps.socialSecurity)}`);
+    lines.push(`Medicare: ${fmtMoney(f.eftps.medicare)}`);
+    lines.push(`Total deposited: ${fmtMoney(f.eftps.total)} (filed amount, ${f.eftps.periodsFiled} period${f.eftps.periodsFiled === 1 ? "" : "s"})`);
+  }
+
+  if (f.form941) {
+    lines.push("", "FORM 941 FEDERAL PAYROLL TAX RETURN");
+    lines.push(`Gross liability: ${fmtMoney(f.form941.grossLiability)}`);
+    lines.push(`EFTPS deposits applied: -${fmtMoney(f.form941.eftpsDepositsApplied)}`);
+    lines.push(`Balance due: ${fmtMoney(f.form941.balanceDue)} (filed amount)`);
+  }
+
+  if (f.annualReport) lines.push("", `MD ANNUAL REPORT: ${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`);
+  if (f.mdUi) lines.push("", `MD UNEMPLOYMENT INSURANCE: ${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`);
 
   if (f.importantDates.length) {
     lines.push("", "IMPORTANT DATES");
@@ -447,7 +572,7 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
   const row = (label: string, labelAr: string, value: string): SummaryTableRow => ({ label, labelAr, value });
 
   const summaryRows: SummaryTableRow[] = [];
-  if (sales.length) summaryRows.push(row("Sales tax due", "ضريبة المبيعات المستحقة", fmtMoney(f.salesTaxDue)));
+  if (sales.length || f.mdFiling) summaryRows.push(row("Sales tax due", "ضريبة المبيعات المستحقة", fmtMoney(f.salesTaxDue)));
   if (paychecks.length) {
     summaryRows.push(row("Payroll checks", "عدد شيكات الرواتب", String(paychecks.length)));
     summaryRows.push(row("Payroll gross wages", "إجمالي الأجور", fmtMoney(f.grossWages)));
@@ -455,12 +580,14 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
     summaryRows.push(row("Payroll taxes — employee", "ضرائب الرواتب — الموظف", fmtMoney(f.employeeTaxes)));
     summaryRows.push(row("Payroll taxes — employer", "ضرائب الرواتب — صاحب العمل", fmtMoney(f.employerTaxes)));
   }
-  if (!sales.length && !paychecks.length) {
+  if (!sales.length && !paychecks.length && !f.mdFiling && !f.eftps && !f.form941 && !f.annualReport && !f.mdUi) {
     summaryRows.push(row("No sales or payroll activity recorded for this period.", "لا يوجد نشاط مبيعات أو رواتب مسجل لهذه الفترة.", ""));
   }
   sections.push({ title: "Summary", titleAr: "الملخص", rows: summaryRows });
 
-  if (sales.length) {
+  // Gated on mdFiling too, not just sales.length — see the same note in
+  // computeClientPeriodSummary above.
+  if (sales.length || f.mdFiling) {
     const rows: SummaryTableRow[] = [row("Gross sales", "إجمالي المبيعات", fmtMoney(f.grossSales))];
     for (const [categoryName, { taxable, tax }] of f.byCategory) {
       rows.push(row(categoryName, categoryName, `${fmtMoney(taxable)} taxable, ${fmtMoney(tax)} tax`));
@@ -470,13 +597,17 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
     if (f.lastPayment) rows.push(row("Last recorded payment date", "تاريخ آخر دفعة مسجلة", fmtDate(f.lastPayment)));
     if (f.mdFiling) {
       rows.push(row("Return due date", "تاريخ استحقاق الإقرار", fmtDate(f.mdFiling.dueDate)));
-      if (f.mdFiling.onTime) {
+      if (f.mdFiling.sourced === "filed") {
+        rows.push(row("Filed date", "تاريخ التقديم", fmtDate(f.mdFiling.filedDate)));
+        if (f.mdFiling.paidDate) rows.push(row("Payment date", "تاريخ الدفع", fmtDate(f.mdFiling.paidDate)));
+        rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (filed / تم التقديم)`));
+      } else if (f.mdFiling.onTime) {
         rows.push(row("Timely discount", "الخصم مقابل السداد في الموعد", `− ${fmtMoney(f.mdFiling.discount)}`));
-        rows.push(row("Balance due", "الرصيد المستحق", fmtMoney(f.mdFiling.balanceDue)));
+        rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (estimated / تقديري)`));
       } else {
         rows.push(row("Late penalty (10%)", "غرامة التأخير (10%)", fmtMoney(f.mdFiling.penalty)));
         rows.push(row(`Interest (${f.mdFiling.monthsLate} mo)`, `الفائدة (${f.mdFiling.monthsLate} شهر)`, fmtMoney(f.mdFiling.interest)));
-        rows.push(row("Balance due", "الرصيد المستحق", fmtMoney(f.mdFiling.balanceDue)));
+        rows.push(row("Balance due", "الرصيد المستحق", `${fmtMoney(f.mdFiling.balanceDue)} (estimated / تقديري)`));
       }
     }
     sections.push({ title: "Sales Tax Detail", titleAr: "تفاصيل ضريبة المبيعات", rows });
@@ -508,6 +639,36 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
     });
   }
 
+  if (f.eftps) {
+    sections.push({
+      title: "EFTPS Federal Tax Deposits", titleAr: "إيداعات EFTPS الفيدرالية",
+      rows: [
+        row("Federal income tax", "ضريبة الدخل الفيدرالية", fmtMoney(f.eftps.federalIncomeTax)),
+        row("Social Security", "الضمان الاجتماعي", fmtMoney(f.eftps.socialSecurity)),
+        row("Medicare", "الرعاية الطبية (ميديكير)", fmtMoney(f.eftps.medicare)),
+        row("Total deposited", "إجمالي المودع", `${fmtMoney(f.eftps.total)} (filed / تم الإيداع)`),
+      ],
+    });
+  }
+
+  if (f.form941) {
+    sections.push({
+      title: "Form 941 Federal Payroll Tax Return", titleAr: "إقرار الضريبة الفيدرالية للرواتب (نموذج 941)",
+      rows: [
+        row("Gross liability", "إجمالي المستحق", fmtMoney(f.form941.grossLiability)),
+        row("EFTPS deposits applied", "الإيداعات المطبقة عبر EFTPS", `− ${fmtMoney(f.form941.eftpsDepositsApplied)}`),
+        row("Balance due", "الرصيد المستحق", `${fmtMoney(f.form941.balanceDue)} (filed / تم التقديم)`),
+      ],
+    });
+  }
+
+  if (f.annualReport || f.mdUi) {
+    const rows: SummaryTableRow[] = [];
+    if (f.annualReport) rows.push(row("MD Annual Report", "التقرير السنوي لولاية ماريلاند", `${fmtMoney(f.annualReport.amount)} (filed ${fmtDate(f.annualReport.filedDate)})`));
+    if (f.mdUi) rows.push(row("MD Unemployment Insurance", "تأمين البطالة لولاية ماريلاند", `${fmtMoney(f.mdUi.amount)} (filed ${fmtDate(f.mdUi.filedDate)})`));
+    sections.push({ title: "Other Filings", titleAr: "إقرارات أخرى", rows });
+  }
+
   if (f.importantDates.length) {
     sections.push({
       title: "Important Dates", titleAr: "تواريخ مهمة",
@@ -515,7 +676,7 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
     });
   }
 
-  return { sections, hasData: sales.length > 0 || paychecks.length > 0 };
+  return { sections, hasData: sales.length > 0 || paychecks.length > 0 || Boolean(f.eftps || f.form941 || f.annualReport || f.mdUi) };
 }
 
 /**

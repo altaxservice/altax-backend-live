@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Client, Task } from "../api/types";
@@ -11,15 +11,12 @@ import { NotifyClientFlagsModal } from "./NotifyClientFlagsModal";
 import { type ClientFlag, fmtMoney, flagLabel } from "../utils/clientFlags";
 import { fmtDateTime, daysSince, fmtCheckedAt } from "../utils/date";
 import { useAuth } from "../auth/AuthContext";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 
 const OPEN_TASK_STATUSES_EXCLUDE = ["completed", "closed", "void", "archived"];
 const PANEL_WIDTH_MIN = 260;
 const PANEL_WIDTH_MAX = 520;
 const PANEL_WIDTH_KEY = "altax_client_panel_width";
-
-function clampPanelWidth(n: number): number {
-  return Math.min(PANEL_WIDTH_MAX, Math.max(PANEL_WIDTH_MIN, n));
-}
 
 interface Summary {
   openTasks: number;
@@ -93,32 +90,12 @@ export function ClientContextPanel() {
   const [firmNoteError, setFirmNoteError] = useState<string | null>(null);
   const [showFlagHistory, setShowFlagHistory] = useState(false);
   const [flagHistory, setFlagHistory] = useState<ClientFlag[] | null>(null);
-  const [panelWidth, setPanelWidth] = useState<number>(() => {
-    const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
-    return Number.isFinite(saved) && saved > 0 ? clampPanelWidth(saved) : PANEL_WIDTH_MIN;
+  // Handle sits on the panel's LEFT edge, panel is flush against the right
+  // side of the screen — dragging left widens it, hence edge: "left".
+  const { width: panelWidth, resizing, startResize } = useResizableWidth({
+    storageKey: PANEL_WIDTH_KEY, defaultWidth: PANEL_WIDTH_MIN, min: PANEL_WIDTH_MIN, max: PANEL_WIDTH_MAX, edge: "left",
   });
-  const [resizing, setResizing] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<{ clientNoteUnread: number; taskNoteUnread: number } | null>(null);
-
-  function startResize(e: ReactMouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-    setResizing(true);
-    function onMove(ev: MouseEvent) {
-      // Handle sits on the panel's LEFT edge, panel is flush against the
-      // right side of the screen — dragging left (clientX decreasing) widens it.
-      setPanelWidth(clampPanelWidth(startWidth + (startX - ev.clientX)));
-    }
-    function onUp() {
-      setResizing(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      setPanelWidth((w) => { localStorage.setItem(PANEL_WIDTH_KEY, String(w)); return w; });
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }
 
   function loadOptions() {
     setOptionsError(false);

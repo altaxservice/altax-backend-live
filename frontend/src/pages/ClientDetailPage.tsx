@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, downloadAnyFile, printAnyFile, buildFilename } from "../api/client";
 import type { Client, Task, ServiceCatalogEntry } from "../api/types";
@@ -10,6 +10,7 @@ import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
 import { DraftRestoreBanner } from "../components/DraftRestoreBanner";
 import { useFormDraft } from "../hooks/useFormDraft";
+import { useResizableWidth } from "../hooks/useResizableWidth";
 import { UploadFileModal } from "../components/UploadFileModal";
 import { ChangePortalEmailModal } from "../components/ChangePortalEmailModal";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
@@ -61,12 +62,10 @@ const filled = (v: unknown) => Boolean(v) && v !== "N/A";
 const PROFILE_CARD_WIDTH_MIN = 360;
 const PROFILE_CARD_WIDTH_MAX = 900;
 const PROFILE_CARD_WIDTH_KEY = "altax_client_profile_card_width";
-const clampProfileCardWidth = (n: number) => Math.min(PROFILE_CARD_WIDTH_MAX, Math.max(PROFILE_CARD_WIDTH_MIN, n));
 
 const EDIT_FORM_WIDTH_MIN = 700;
 const EDIT_FORM_WIDTH_MAX = 1600;
 const EDIT_FORM_WIDTH_KEY = "altax_client_edit_form_width";
-const clampEditFormWidth = (n: number) => Math.min(EDIT_FORM_WIDTH_MAX, Math.max(EDIT_FORM_WIDTH_MIN, n));
 // "Services Provided" is a brand-new field — almost every existing client has
 // services=[] until someone opens and re-saves them, even if they've had real
 // payroll/sales-tax/tax-prep settings configured for years. Gating a whole
@@ -307,50 +306,12 @@ export function ClientDetailPage() {
   const [form, setForm] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [profileCardWidth, setProfileCardWidth] = useState<number>(() => {
-    const saved = Number(localStorage.getItem(PROFILE_CARD_WIDTH_KEY));
-    return Number.isFinite(saved) && saved > 0 ? clampProfileCardWidth(saved) : 560;
+  const { width: profileCardWidth, resizing: resizingProfileCard, startResize: startProfileCardResize } = useResizableWidth({
+    storageKey: PROFILE_CARD_WIDTH_KEY, defaultWidth: 560, min: PROFILE_CARD_WIDTH_MIN, max: PROFILE_CARD_WIDTH_MAX,
   });
-  const [resizingProfileCard, setResizingProfileCard] = useState(false);
-  function startProfileCardResize(e: ReactMouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = profileCardWidth;
-    setResizingProfileCard(true);
-    function onMove(ev: MouseEvent) {
-      setProfileCardWidth(clampProfileCardWidth(startWidth + (ev.clientX - startX)));
-    }
-    function onUp() {
-      setResizingProfileCard(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      setProfileCardWidth((w) => { localStorage.setItem(PROFILE_CARD_WIDTH_KEY, String(w)); return w; });
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }
-  const [editFormWidth, setEditFormWidth] = useState<number>(() => {
-    const saved = Number(localStorage.getItem(EDIT_FORM_WIDTH_KEY));
-    return Number.isFinite(saved) && saved > 0 ? clampEditFormWidth(saved) : 1180;
+  const { width: editFormWidth, resizing: resizingEditForm, startResize: startEditFormResize } = useResizableWidth({
+    storageKey: EDIT_FORM_WIDTH_KEY, defaultWidth: 1180, min: EDIT_FORM_WIDTH_MIN, max: EDIT_FORM_WIDTH_MAX,
   });
-  const [resizingEditForm, setResizingEditForm] = useState(false);
-  function startEditFormResize(e: ReactMouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = editFormWidth;
-    setResizingEditForm(true);
-    function onMove(ev: MouseEvent) {
-      setEditFormWidth(clampEditFormWidth(startWidth + (ev.clientX - startX)));
-    }
-    function onUp() {
-      setResizingEditForm(false);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      setEditFormWidth((w) => { localStorage.setItem(EDIT_FORM_WIDTH_KEY, String(w)); return w; });
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }
 
   // Edit form jump-nav — same sticky-nav + scroll-spy pattern as the Add
   // Client wizard (ClientsListPage.tsx), so a client's profile edit form

@@ -5,7 +5,7 @@ import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useSelectedClient } from "../context/SelectedClientContext";
-import { CLIENT_MESSAGE_HANDOFF_KEY } from "./CommunicationsPage";
+import { CLIENT_MESSAGE_HANDOFF_KEY, thisQuarterRange } from "./CommunicationsPage";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
@@ -631,6 +631,7 @@ export function ReportsPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
               <div className="field" style={{ margin: 0 }}><label htmlFor="rep-from">From</label><input id="rep-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
               <div className="field" style={{ margin: 0 }}><label htmlFor="rep-to">To</label><input id="rep-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+              <button type="button" className="btn btn-sm" onClick={() => { const q = thisQuarterRange(); setFrom(q.start); setTo(q.end); }}>This Quarter</button>
             </div>
           </div>
 
