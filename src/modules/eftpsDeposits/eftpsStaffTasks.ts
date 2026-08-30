@@ -1,11 +1,16 @@
+import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { computeDuePeriod } from "../rules/rules.routes";
 
+// A 3-digit random suffix collided in a same-second bulk-insert loop
+// elsewhere in this module (eftpsDeposits.routes.ts) — this sweep also loops
+// over every eftps_enabled client within one run, so it uses the same
+// higher-entropy UUID-derived suffix as a precaution, not just a one-off fix.
 function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `${ts}-${Math.floor(100 + Math.random() * 900)}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 /**

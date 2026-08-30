@@ -14,7 +14,7 @@ import { closeEftpsStaffTask } from "./eftpsStaffTasks";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
   looksLikeDrakePayrollWagesDetail, parseDrakePayrollWagesDetail,
-  parseDrakeReportDateRange,
+  parseDrakeReportDateRange, type DrakeFederalPaycheckDetail, type DrakeTaxLiabilitySummary,
 } from "../payrollImport/parsers";
 import { computeEftpsBreakdown } from "./eftpsReconciliation";
 
@@ -22,11 +22,19 @@ export const eftpsDepositsRouter = Router();
 
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
+/**
+ * A 3-digit random suffix (900 possible values) is fine for one-off record
+ * creation elsewhere in this app, but genuinely collision-prone here: a
+ * paycheck-import commit inserts many rows in a tight loop within the same
+ * second (confirmed live — 24 rows, real collision on row ~15). Matches
+ * paymentReminders.ts's approach instead: a UUID-derived suffix has enough
+ * entropy that a same-second collision is not a real risk.
+ */
 function idSuffix(): string {
   const now = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `${ts}-${Math.floor(100 + Math.random() * 900)}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 
 type LoadClientResult = { error: string; status: number } | { client: { client_id: string; client_name: string; email: string | null; email_allowed: boolean } };
@@ -51,79 +59,214 @@ function decodeUpload(fileBase64: string, label: string): Buffer {
   }
 }
 
-/**
- * Parses both Drake reports and computes the reconciled per-employee federal
- * breakdown. Writes nothing — the frontend echoes this same computation back
- * to POST / on commit, matching the existing payrollImport preview/commit split.
- */
-eftpsDepositsRouter.post("/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+/* ------------------------------------------------------------------ */
+/* Import: Payroll Wages — any date range, any time, no period gate    */
+/* ------------------------------------------------------------------ */
+
+eftpsDepositsRouter.post("/import/payroll-wages/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const loaded = await loadClient(req, String(body.clientId || "").trim());
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-
-  const periodStart = String(body.periodStart || "").trim();
-  const periodEnd = String(body.periodEnd || "").trim();
-  if (!periodStart || !periodEnd) return res.status(400).json({ error: "Select a period first." });
+  const { client } = loaded;
 
   try {
-    const taxLiabilityBuffer = decodeUpload(body.taxLiabilityFileBase64, "Tax Liability by Check Date");
-    const payrollWagesBuffer = decodeUpload(body.payrollWagesFileBase64, "Payroll Wages");
+    const buffer = decodeUpload(body.fileBase64, "Payroll Wages");
+    const scan = await scanFileForMalware(buffer, "eftps-payroll-wages");
+    if (!scan.clean) return res.status(400).json({ error: "This file failed a security scan and could not be processed." });
 
-    const [taxLiabilityScan, payrollWagesScan] = await Promise.all([
-      scanFileForMalware(taxLiabilityBuffer, "eftps-tax-liability"),
-      scanFileForMalware(payrollWagesBuffer, "eftps-payroll-wages"),
-    ]);
-    if (!taxLiabilityScan.clean) return res.status(400).json({ error: "The Tax Liability file failed a security scan and could not be processed." });
-    if (!payrollWagesScan.clean) return res.status(400).json({ error: "The Payroll Wages file failed a security scan and could not be processed." });
-
-    const taxLiabilityRows = readWorkbookRows(taxLiabilityBuffer);
-    if (!looksLikeDrakeTaxLiabilityByCheckDate(taxLiabilityRows)) {
-      return res.status(400).json({ error: "That doesn't look like Drake's \"Tax Liability by Check Date\" report. Please double-check the file." });
-    }
-    const payrollWagesRows = readWorkbookRows(payrollWagesBuffer);
-    if (!looksLikeDrakePayrollWagesDetail(payrollWagesRows)) {
+    const rows = readWorkbookRows(buffer);
+    if (!looksLikeDrakePayrollWagesDetail(rows)) {
       return res.status(400).json({ error: "That doesn't look like Drake's \"Payroll Wages\" report. Please double-check the file." });
     }
+    const paychecks = parseDrakePayrollWagesDetail(rows);
+    if (!paychecks.length) return res.status(400).json({ error: "No paychecks were found in this file." });
 
-    // Guards against exactly what happened in testing: a Drake report run for
-    // the whole year (or any range other than the selected month) getting
-    // silently summed as if it were that one month's deposit. The Tax
-    // Liability report has no per-check breakdown to filter down from, so
-    // its own stated "Check Dates" range must match the selected period
-    // exactly — there's no way to salvage a wrongly-scoped aggregate total.
-    const taxLiabilityRange = parseDrakeReportDateRange(taxLiabilityRows);
-    if (!taxLiabilityRange) {
-      return res.status(400).json({ error: "Could not find a \"Check Dates\" range on the Tax Liability file — please confirm it's a real Drake export." });
-    }
-    if (taxLiabilityRange.start !== periodStart || taxLiabilityRange.end !== periodEnd) {
-      return res.status(400).json({
-        error: `The Tax Liability file covers ${taxLiabilityRange.start} to ${taxLiabilityRange.end}, not the selected period (${periodStart} to ${periodEnd}). Re-export it from Drake with the Check Dates filter set to exactly this month, then try again.`,
-      });
-    }
+    // Same dedup convention as the Sales Tax importer: checked against what's
+    // already stored, marked (not blocked) as duplicate, and left unselected
+    // by default in the frontend rather than silently skipped or overwritten.
+    const existing = await query<any>(
+      `SELECT employee_name, pay_date::text AS pay_date, check_number FROM altax.v3_eftps_paycheck_import WHERE client_id = $1`,
+      [client.client_id]
+    );
+    const existingKeys = new Set(existing.map((r: any) => `${r.employee_name}|${r.pay_date}|${r.check_number || ""}`));
 
-    const taxLiability = parseDrakeTaxLiabilityByCheckDate(taxLiabilityRows);
-    const allPaychecks = parseDrakePayrollWagesDetail(payrollWagesRows);
-    // Payroll Wages DOES have a real date per paycheck, so — unlike Tax
-    // Liability — it's filtered down to the selected period rather than
-    // required to match exactly; a Payroll Wages export covering a wider
-    // range than the target month is fine as long as it contains it.
-    const paychecks = allPaychecks.filter((p) => p.payDate >= periodStart && p.payDate <= periodEnd);
-    if (!paychecks.length) {
-      return res.status(400).json({ error: `No paychecks in the Payroll Wages file fall within ${periodStart} to ${periodEnd}. Please confirm this is the right file for this period.` });
-    }
-
-    const computation = computeEftpsBreakdown(paychecks, taxLiability);
-    res.json({ ok: true, computation });
+    const previewRows = paychecks.map((p) => {
+      const key = `${p.employeeName}|${p.payDate}|${p.checkNumber || ""}`;
+      return { ...p, action: existingKeys.has(key) ? "duplicate" : "create" };
+    });
+    const newCount = previewRows.filter((r) => r.action === "create").length;
+    res.json({ ok: true, rows: previewRows, newCount, duplicateCount: previewRows.length - newCount });
   } catch (err) {
-    // decodeUpload throws ValidationError for anything meant to reach the client
-    // (missing/oversized/unreadable file) — anything else re-throws to the
-    // global handler's generic message, never a raw internal error string.
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
   }
 }));
 
-/** Save & Close / Save & Send — writes the deposit + line items, upserts the shared obligation-tracking row, closes the proactive staff task, schedules the client reminder, and (Save & Send only) emails the report. */
+eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const rows: (DrakeFederalPaycheckDetail & { includeIfDuplicate?: boolean })[] = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
+  if (!rows.length) throw new ValidationError("No rows to import.");
+
+  let created = 0, skipped = 0;
+  for (const r of rows) {
+    const employeeName = String(r.employeeName || "").trim();
+    const payDate = String(r.payDate || "").trim();
+    if (!employeeName || !payDate) { skipped++; continue; }
+    const checkNumber = r.checkNumber ? String(r.checkNumber).trim() : null;
+
+    // Re-checked fresh at commit time, same as the Sales importer, so a
+    // concurrent import from another staff session can't create a real
+    // duplicate — only an explicit includeIfDuplicate opt-in forces one through.
+    const existing = await queryOne<any>(
+      `SELECT id FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 AND employee_name = $2 AND pay_date = $3 AND COALESCE(check_number,'') = COALESCE($4,'')`,
+      [client.client_id, employeeName, payDate, checkNumber]
+    );
+    if (existing && !r.includeIfDuplicate) { skipped++; continue; }
+
+    await query(
+      `INSERT INTO altax.v3_eftps_paycheck_import
+         (id, client_id, employee_name, pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld, source_system, source_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'EFTPS Payroll Wages Import',$1)`,
+      [`EFTPSPC-${idSuffix()}`, client.client_id, employeeName, payDate, checkNumber,
+        Number(r.federalWithheld) || 0, Number(r.socialSecurityWithheld) || 0, Number(r.medicareWithheld) || 0]
+    );
+    created++;
+  }
+
+  await logAudit("Clients", "IMPORT_EFTPS_PAYCHECKS", client.client_id, "", "", `${created}/${rows.length}`,
+    `Imported ${created} paycheck(s) for EFTPS from Payroll Wages by ${req.user!.email} (${skipped} skipped as duplicates).`, req.user!.email);
+
+  res.status(201).json({ ok: true, created, skipped });
+}));
+
+/* ------------------------------------------------------------------ */
+/* Import: Tax Liability by Check Date — one snapshot per upload       */
+/* ------------------------------------------------------------------ */
+
+eftpsDepositsRouter.post("/import/tax-liability/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  try {
+    const buffer = decodeUpload(body.fileBase64, "Tax Liability by Check Date");
+    const scan = await scanFileForMalware(buffer, "eftps-tax-liability");
+    if (!scan.clean) return res.status(400).json({ error: "This file failed a security scan and could not be processed." });
+
+    const rows = readWorkbookRows(buffer);
+    if (!looksLikeDrakeTaxLiabilityByCheckDate(rows)) {
+      return res.status(400).json({ error: "That doesn't look like Drake's \"Tax Liability by Check Date\" report. Please double-check the file." });
+    }
+    const range = parseDrakeReportDateRange(rows);
+    if (!range) return res.status(400).json({ error: "Could not find a \"Check Dates\" range on this file — please confirm it's a real Drake export." });
+    const summary = parseDrakeTaxLiabilityByCheckDate(rows);
+
+    const existing = await queryOne<any>(
+      `SELECT id FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 AND range_start = $2 AND range_end = $3`,
+      [client.client_id, range.start, range.end]
+    );
+
+    res.json({ ok: true, range, summary, action: existing ? "duplicate" : "create" });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+}));
+
+eftpsDepositsRouter.post("/import/tax-liability/commit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const rangeStart = String(body.rangeStart || "").trim();
+  const rangeEnd = String(body.rangeEnd || "").trim();
+  if (!rangeStart || !rangeEnd) throw new ValidationError("A valid date range is required.");
+  const summary: DrakeTaxLiabilitySummary | undefined = body.summary;
+  if (!summary) throw new ValidationError("No parsed summary to import.");
+
+  const existing = await queryOne<any>(
+    `SELECT id FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 AND range_start = $2 AND range_end = $3`,
+    [client.client_id, rangeStart, rangeEnd]
+  );
+  if (existing && !body.includeIfDuplicate) {
+    throw new ValidationError("A Tax Liability snapshot for this exact date range was already imported.");
+  }
+
+  await query(
+    `INSERT INTO altax.v3_eftps_tax_liability_import
+       (id, client_id, range_start, range_end, federal_income_tax, social_security, medicare, total_941, imported_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [`EFTPSTL-${idSuffix()}`, client.client_id, rangeStart, rangeEnd,
+      Number(summary.federalIncomeTax) || 0, Number(summary.socialSecurity) || 0, Number(summary.medicare) || 0, Number(summary.total941) || 0,
+      req.user!.email]
+  );
+
+  await logAudit("Clients", "IMPORT_EFTPS_TAX_LIABILITY", client.client_id, "", "", `${rangeStart} to ${rangeEnd}`,
+    `Imported a Tax Liability snapshot (${rangeStart} to ${rangeEnd}) by ${req.user!.email}.`, req.user!.email);
+
+  res.status(201).json({ ok: true });
+}));
+
+/* ------------------------------------------------------------------ */
+/* Review: any period, computed live from stored imports               */
+/* ------------------------------------------------------------------ */
+
+async function computeForPeriod(clientId: string, periodStart: string, periodEnd: string) {
+  const rows = await query<any>(
+    `SELECT employee_name, pay_date::text AS pay_date, check_number, federal_withheld, social_security_withheld, medicare_withheld
+       FROM altax.v3_eftps_paycheck_import
+      WHERE client_id = $1 AND pay_date >= $2 AND pay_date <= $3`,
+    [clientId, periodStart, periodEnd]
+  );
+  const paychecks: DrakeFederalPaycheckDetail[] = rows.map((r: any) => ({
+    employeeName: r.employee_name, payDate: r.pay_date, checkNumber: r.check_number || undefined,
+    federalWithheld: Number(r.federal_withheld) || 0,
+    socialSecurityWithheld: Number(r.social_security_withheld) || 0,
+    medicareWithheld: Number(r.medicare_withheld) || 0,
+  }));
+
+  // Reconciliation reference only when a snapshot's range exactly matches the
+  // reviewed period — an aggregate report can't be narrowed to a sub-range,
+  // so no exact match means no reference, not a block (direct owner
+  // correction, 2026-08-29: don't force the period to match at import time).
+  const snapshot = await queryOne<any>(
+    `SELECT federal_income_tax, social_security, medicare, total_941 FROM altax.v3_eftps_tax_liability_import
+      WHERE client_id = $1 AND range_start = $2 AND range_end = $3
+      ORDER BY imported_at DESC LIMIT 1`,
+    [clientId, periodStart, periodEnd]
+  );
+  const taxLiability: DrakeTaxLiabilitySummary | null = snapshot
+    ? { federalIncomeTax: Number(snapshot.federal_income_tax) || 0, socialSecurity: Number(snapshot.social_security) || 0, medicare: Number(snapshot.medicare) || 0, total941: Number(snapshot.total_941) || 0, futa: 0, total940: 0, stateTotal: 0, localTotal: 0, grandTotal: 0 }
+    : null;
+
+  return { computation: computeEftpsBreakdown(paychecks, taxLiability), hasReconciliationReference: Boolean(snapshot), paycheckCount: paychecks.length };
+}
+
+eftpsDepositsRouter.get("/review", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const periodStart = String(req.query.periodStart || "").trim();
+  const periodEnd = String(req.query.periodEnd || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  if (!periodStart || !periodEnd) return res.status(400).json({ error: "Select a period." });
+
+  const result = await computeForPeriod(clientId, periodStart, periodEnd);
+  if (!result.paycheckCount) {
+    return res.json({ ok: true, computation: null, hasReconciliationReference: false, paycheckCount: 0 });
+  }
+  res.json({ ok: true, ...result });
+}));
+
+/* ------------------------------------------------------------------ */
+/* Save: recomputed server-side from storage, never trusts client input */
+/* ------------------------------------------------------------------ */
+
 eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const loaded = await loadClient(req, String(body.clientId || "").trim());
@@ -138,34 +281,22 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
     const paymentDate = String(body.paymentDate || "").trim();
     const periodLabel = String(body.periodLabel || `${periodStart} to ${periodEnd}`).trim();
     const action = body.action === "send" ? "send" : "close";
-    const employees = Array.isArray(body.employees) ? body.employees : [];
 
     if (!periodStart || !periodEnd || !dueDate) throw new ValidationError("Period start, period end, and due date are required.");
     if (!filingDate) throw new ValidationError("Filing date is required.");
     if (!paymentDate) throw new ValidationError("Payment date is required.");
-    if (!employees.length) throw new ValidationError("At least one employee's breakdown is required.");
 
-    const existing = await queryOne<any>(
+    const existingDeposit = await queryOne<any>(
       `SELECT deposit_id FROM altax.v3_eftps_deposits WHERE client_id = $1 AND period_start = $2 AND period_end = $3`,
       [client.client_id, periodStart, periodEnd]
     );
-    if (existing) throw new ValidationError("An EFTPS deposit for this period has already been saved. View it in the deposit history instead of creating a new one.");
+    if (existingDeposit) throw new ValidationError("An EFTPS deposit for this period has already been saved. View it in the deposit history instead of creating a new one.");
 
-    // Recomputed server-side from the submitted breakdown, not trusted from the
-    // client, the same way invoice totals are always server-computed from line
-    // items rather than a client-sent total.
-    const round2 = (n: number) => Math.round(n * 100) / 100;
-    const normalizedEmployees = employees.map((e: any) => {
-      const federalIncomeTax = round2(Number(e.federalIncomeTax) || 0);
-      const socialSecurity = round2(Number(e.socialSecurity) || 0);
-      const medicare = round2(Number(e.medicare) || 0);
-      return { employeeName: String(e.employeeName || "").trim() || "Unknown", federalIncomeTax, socialSecurity, medicare, subtotal: round2(federalIncomeTax + socialSecurity + medicare) };
-    });
-    const federalIncomeTaxTotal = round2(normalizedEmployees.reduce((s: number, e: any) => s + e.federalIncomeTax, 0));
-    const socialSecurityTotal = round2(normalizedEmployees.reduce((s: number, e: any) => s + e.socialSecurity, 0));
-    const medicareTotal = round2(normalizedEmployees.reduce((s: number, e: any) => s + e.medicare, 0));
-    const totalAmount = round2(federalIncomeTaxTotal + socialSecurityTotal + medicareTotal);
-    const reconciliationStatus = body.reconciliationStatus === "Mismatch" ? "Mismatch" : "Matched";
+    // Recomputed here, live, from what's actually stored — never trusts a
+    // client-submitted total, same principle as the MD filing "mark filed"
+    // route this workflow mirrors.
+    const { computation, paycheckCount } = await computeForPeriod(client.client_id, periodStart, periodEnd);
+    if (!paycheckCount) throw new ValidationError("No imported paychecks fall within this period — nothing to save.");
 
     const depositId = `EFTPS-${idSuffix()}`;
     const shareToken = crypto.randomBytes(24).toString("hex");
@@ -178,11 +309,11 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
           reconciliation_status, status, share_token, created_by, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now(), now())`,
       [depositId, client.client_id, periodStart, periodEnd, dueDate, filingDate, paymentDate,
-        federalIncomeTaxTotal, socialSecurityTotal, medicareTotal, totalAmount,
-        reconciliationStatus, status, shareToken, req.user!.email]
+        computation.federalIncomeTaxTotal, computation.socialSecurityTotal, computation.medicareTotal, computation.totalAmount,
+        computation.reconciliationStatus, status, shareToken, req.user!.email]
     );
 
-    for (const e of normalizedEmployees) {
+    for (const e of computation.employees) {
       await query(
         `INSERT INTO altax.v3_eftps_deposit_lines (line_id, deposit_id, employee_name, federal_income_tax, social_security, medicare, subtotal)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -200,7 +331,7 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
        ON CONFLICT (client_id, source, due_date) DO UPDATE SET
          label = EXCLUDED.label, completed_date = EXCLUDED.completed_date, completed_by = EXCLUDED.completed_by,
          amount = EXCLUDED.amount, paid_date = EXCLUDED.paid_date, completed_at = now()`,
-      [client.client_id, dueDate, `EFTPS Deposit — ${periodLabel}`, filingDate, req.user!.email, totalAmount, paymentDate]
+      [client.client_id, dueDate, `EFTPS Deposit — ${periodLabel}`, filingDate, req.user!.email, computation.totalAmount, paymentDate]
     );
 
     await closeEftpsStaffTask(client.client_id, periodEnd);
@@ -208,7 +339,7 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
     const sourceRecordId = `${client.client_id}:EFTPS:${dueDate}`;
     await schedulePaymentReminder({
       sourceSystem: "ObligationCompletion", sourceRecordId, clientId: client.client_id,
-      filingType: "EFTPS Deposit", periodLabel, amount: totalAmount, paymentDueDate: paymentDate,
+      filingType: "EFTPS Deposit", periodLabel, amount: computation.totalAmount, paymentDueDate: paymentDate,
       createdBy: req.user!.email, leadDays: 2,
     });
 
@@ -218,12 +349,13 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
       emailResult = await sendEftpsDepositReport({
         client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
         sourceRecordId: depositId, periodLabel, filingDate, paymentDate,
-        federalIncomeTaxTotal, socialSecurityTotal, medicareTotal, totalAmount,
-        employees: normalizedEmployees, acknowledgeUrl, req,
+        federalIncomeTaxTotal: computation.federalIncomeTaxTotal, socialSecurityTotal: computation.socialSecurityTotal,
+        medicareTotal: computation.medicareTotal, totalAmount: computation.totalAmount,
+        employees: computation.employees, acknowledgeUrl, req,
       });
     }
 
-    await logAudit("Clients", "EFTPS_DEPOSIT_SAVED", client.client_id, "amount", "", String(totalAmount),
+    await logAudit("Clients", "EFTPS_DEPOSIT_SAVED", client.client_id, "amount", "", String(computation.totalAmount),
       `EFTPS deposit for ${periodLabel} (${depositId}) ${action === "send" ? "saved and sent" : "saved"} by ${req.user!.email}.`, req.user!.email);
 
     res.status(201).json({ ok: true, depositId, emailSent: emailResult.sent });
