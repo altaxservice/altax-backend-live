@@ -45,7 +45,7 @@ function toDateOnlyStr(v: unknown): string {
 }
 
 export interface ScheduleReminderInput {
-  sourceSystem: "MdFiling" | "ObligationCompletion" | "Task";
+  sourceSystem: "MdFiling" | "ObligationCompletion" | "Task" | "AnnualReportFiling" | "MdUiFiling";
   sourceRecordId: string;
   clientId: string;
   filingType: string;
@@ -119,6 +119,12 @@ async function isStillUnpaid(sourceSystem: string, sourceRecordId: string): Prom
     const row = await queryOne<any>(`SELECT paid_date FROM altax.v3_tasks WHERE task_id = $1`, [sourceRecordId]);
     if (row) return !row.paid_date;
     return false; // task no longer in the live table (archived/deleted) — archiveTask() already cancels its reminder, and either way there's nothing actionable left to remind about
+  }
+  if (sourceSystem === "AnnualReportFiling" || sourceSystem === "MdUiFiling") {
+    const [clientId, periodEnd] = sourceRecordId.split(":");
+    const table = sourceSystem === "AnnualReportFiling" ? "v3_annual_report_filings" : "v3_md_ui_filings";
+    const row = await queryOne<any>(`SELECT paid_date FROM altax.${table} WHERE client_id = $1 AND period_end = $2`, [clientId, periodEnd]);
+    return !row || !row.paid_date;
   }
   return false;
 }

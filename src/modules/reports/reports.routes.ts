@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { publicBaseUrl } from "../../common/publicUrl";
+import { deriveTaskRulesPeriodLabel, closeTaskRulesAgentTask } from "../../common/taskRulesAgentBridge";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
@@ -2991,52 +2992,6 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
  * immediately and, if payment isn't recorded yet, schedules the 24h-before-
  * due-date reminder (see src/common/paymentReminders.ts).
  */
-const SALES_TAX_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-/**
- * Derives the same period-label format the Task Rules Agent's own
- * computeDuePeriod (rules.routes.ts) uses for TR-001 (Monthly)/TR-003
- * (Quarterly) — "August 2026" / "Q3 2026" — directly from a period's actual
- * start date rather than re-deriving it from "today", since this is called
- * with the specific period just filed, not the sweep's own current period.
- * Null for Semiannual/Annual/unset frequency — TR-001/TR-003 don't cover those.
- */
-function deriveSalesTaxPeriodLabel(periodStart: string, salesTaxFrequency: string | null | undefined): string | null {
-  const freq = String(salesTaxFrequency || "").trim().toLowerCase();
-  const d = new Date(`${periodStart}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  if (freq === "monthly") return `${SALES_TAX_MONTH_NAMES[m]} ${y}`;
-  if (freq === "quarterly") return `Q${Math.floor(m / 3) + 1} ${y}`;
-  return null;
-}
-
-/**
- * Closes the real Task-Rules-Agent-generated v3_tasks row for this
- * client+period, once a period is genuinely marked filed here — mirrors
- * closeEftpsStaffTask's intent (eftpsStaffTasks.ts) but against a different
- * task-creation mechanism (the generic Task Rules Agent's TR-001/TR-003,
- * not EFTPS's own bespoke sweep), so it reuses runRuleBatch's own
- * client_id+task_name+period idempotency key (rules.routes.ts) instead of
- * source_system/source_record_id — runRuleBatch sets those to the batch's
- * own ID, shared across every client in the batch, not a per-client-period
- * key, so they can't be used to look up "the task for this client+period."
- * A safe no-op when no matching task exists (e.g. it was filed manually
- * without ever going through the Agent, or already closed).
- */
-async function closeSalesTaxTask(clientId: string, periodStart: string, salesTaxFrequency: string | null | undefined): Promise<void> {
-  const periodLabel = deriveSalesTaxPeriodLabel(periodStart, salesTaxFrequency);
-  if (!periodLabel) return;
-  await query(
-    `UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now()
-      WHERE client_id = $1 AND lower(task_name) = lower('Sales Tax Filing & Payment')
-        AND lower(coalesce(period,'')) = lower($2)
-        AND lower(status) NOT IN ('completed','closed','archived','void')`,
-    [clientId, periodLabel]
-  );
-}
-
 reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });
@@ -3077,7 +3032,7 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
   await logAudit("Accounting", "MD_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
 
-  await closeSalesTaxTask(client.clientId, periodStart, client.salesTaxFrequency);
+  await closeTaskRulesAgentTask(client.clientId, "Sales Tax Filing & Payment", deriveTaskRulesPeriodLabel(periodStart, client.salesTaxFrequency));
 
   if (notify) {
     const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
