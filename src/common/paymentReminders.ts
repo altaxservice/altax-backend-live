@@ -53,18 +53,22 @@ export interface ScheduleReminderInput {
   amount: number;
   paymentDueDate: string; // YYYY-MM-DD
   createdBy: string;
+  /** Days before paymentDueDate to remind, at 9:00 AM ET. Default 1 (the original "day before" behavior) — EFTPS deposits pass 2, since the client needs enough notice to have funds in the account, not just a courtesy heads-up. */
+  leadDays?: number;
 }
 
 /**
- * Schedules (or re-schedules) a payment-due reminder for 9:00 AM America/New_York
- * the day before paymentDueDate. If that instant has already passed (the due
- * date is today, tomorrow, or in the past by the time this is called), does
- * NOT schedule anything — the immediate filing-confirmation email already
- * covers it, and a reminder that would fire in the past is meaningless.
+ * Schedules (or re-schedules) a payment-due reminder for 9:00 AM America/New_York,
+ * leadDays before paymentDueDate (default 1, the original "day before" behavior).
+ * If that instant has already passed (the due date is too close, or in the past,
+ * by the time this is called), does NOT schedule anything — the immediate
+ * filing-confirmation email already covers it, and a reminder that would fire in
+ * the past is meaningless.
  */
 export async function schedulePaymentReminder(input: ScheduleReminderInput): Promise<void> {
+  const leadDays = input.leadDays ?? 1;
   const [y, m, d] = input.paymentDueDate.split("-").map(Number);
-  const dayBeforeStr = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  const dayBeforeStr = new Date(Date.UTC(y, m - 1, d - leadDays)).toISOString().slice(0, 10);
   const remindAt = etWallClockToUtc(dayBeforeStr, 9, 0);
   if (remindAt.getTime() <= Date.now()) return;
 

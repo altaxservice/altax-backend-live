@@ -72,8 +72,14 @@ interface ClientRatios {
 interface ClientArAging { current: number; d1_30: number; d31_60: number; d61_90: number; d90Plus: number; total: number }
 interface BudgetVsActualRow { accountName: string; budget: number; actual: number; variance: number }
 interface Deadline { label: string; date: string; source?: string }
-/** Obligation types with a lightweight "Mark Done" record (v3_obligation_completions) — see clients.routes.ts's /obligations/mark-done. */
-const MARKABLE_DEADLINE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
+/**
+ * Obligation types with a lightweight "Mark Done" record (v3_obligation_completions)
+ * — see clients.routes.ts's /obligations/mark-done. EFTPS deliberately excluded,
+ * 2026-08-29: the dedicated EFTPS Deposit workflow is now the one path for it —
+ * this generic one-click button has no way to produce a per-employee breakdown,
+ * reconciliation, or the real client report that workflow builds.
+ */
+const MARKABLE_DEADLINE_SOURCES = new Set(["MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
 interface MonthlySnapshot { periodLabel: string; revenue: number; expenses: number; profit: number; cashBalance: number; arBalance: number; apBalance: number; taxLiabilities: number; payrollCost: number; healthScore: number | null; healthBand: string | null; openTasks: number | null }
 
 interface ClientDashboard {

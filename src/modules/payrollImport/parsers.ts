@@ -312,3 +312,145 @@ export function parseDrakePayrollSummary(rows: string[][]): ParsedPaycheck[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Drake — Tax Liability by Check Date (EFTPS deposit workflow)
+// ---------------------------------------------------------------------------
+export interface DrakeTaxLiabilitySummary {
+  federalIncomeTax: number;
+  socialSecurity: number;
+  medicare: number;
+  total941: number;
+  futa: number;
+  total940: number;
+  stateTotal: number;
+  localTotal: number;
+  grandTotal: number;
+}
+
+export function looksLikeDrakeTaxLiabilityByCheckDate(rows: string[][]): boolean {
+  return cellText(rows[0], 0).includes("Tax Liability by Check Date");
+}
+
+/**
+ * Company-wide, already split into Federal/State/Local sections. The "941 Total"
+ * row (Federal Income Tax + both shares of Social Security + both shares of
+ * Medicare) is the authoritative EFTPS deposit amount used to reconcile against
+ * the per-employee breakdown computed from parseDrakePayrollWagesDetail — FUTA/
+ * State/Local are read too, only to confirm they're excluded from what this app
+ * treats as "the EFTPS number," never to include them in it.
+ */
+export function parseDrakeTaxLiabilityByCheckDate(rows: string[][]): DrakeTaxLiabilitySummary | null {
+  const headerRowIdx = rows.findIndex((r) => r.some((c) => String(c || "").trim() === "Tax Description"));
+  if (headerRowIdx === -1) return null;
+  const header = rows[headerRowIdx];
+  const colLabel = header.findIndex((c) => String(c || "").trim() === "Tax Description");
+  const colTotal = header.findIndex((c) => String(c || "").trim() === "Tax Liability");
+  if (colLabel === -1 || colTotal === -1) return null;
+
+  // Sub-items ("Federal Income Tax", "941 Total", ...) carry their label at
+  // colLabel; the grand total ("Tax Liability Total") is a less-indented row
+  // with its label at column 0 instead — check both rather than assume one.
+  const totals: Record<string, number> = {};
+  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const label = cellText(row, 0) || cellText(row, colLabel);
+    if (!label) continue;
+    const value = parseMoney(cellText(row, colTotal));
+    if (value === undefined) continue;
+    totals[label] = value;
+  }
+
+  return {
+    federalIncomeTax: totals["Federal Income Tax"] ?? 0,
+    socialSecurity: totals["Social Security Wages"] ?? 0,
+    medicare: totals["Medicare Wages & Tips"] ?? 0,
+    total941: totals["941 Total"] ?? 0,
+    futa: totals["Futa"] ?? 0,
+    total940: totals["940 Total"] ?? 0,
+    stateTotal: totals["State Total"] ?? 0,
+    localTotal: totals["Local Totals"] ?? 0,
+    grandTotal: totals["Tax Liability Total"] ?? 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Drake — Payroll Wages (EFTPS deposit workflow, per-employee breakdown)
+// ---------------------------------------------------------------------------
+export interface DrakeFederalPaycheckDetail {
+  employeeName: string;
+  payDate: string;
+  checkNumber?: string;
+  socialSecurityWageBase?: number;
+  socialSecurityWithheld?: number;
+  medicareWageBase?: number;
+  medicareWithheld?: number;
+  federalWithheld?: number;
+}
+
+export function looksLikeDrakePayrollWagesDetail(rows: string[][]): boolean {
+  return cellText(rows[0], 0).includes("Payroll Wages");
+}
+
+/**
+ * Per employee, per paycheck, two rows per check: the first carries each tax
+ * type's taxable WAGE BASE, the second (same check, blank Check Number/Date)
+ * carries the WITHHELD amount. Only the withheld amounts feed the EFTPS
+ * computation — Drake already applies the annual Social Security wage-cap rule
+ * when it computes withholding, so simply doubling the withheld Social
+ * Security/Medicare figures for the employer match is correct even for an
+ * employee who crosses the cap mid-year (their withheld amount, and so the
+ * doubled total, is already $0 or partial for that check) — no separate cap
+ * check needed here. Wage-base figures are still captured, for display only.
+ */
+export function parseDrakePayrollWagesDetail(rows: string[][]): DrakeFederalPaycheckDetail[] {
+  const headerIdx = rows.findIndex((r) => cellText(r, 0) === "Check Number");
+  if (headerIdx === -1) return [];
+  const colSocSec = 2, colMedicare = 3, colFederal = 6;
+
+  const out: DrakeFederalPaycheckDetail[] = [];
+  let currentEmployee: string | null = null;
+  let pending: { checkNumber?: string; payDate: string; ssBase?: number; medicareBase?: number } | null = null;
+
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const colA = cellText(row, 0);
+    const colB = cellText(row, 1);
+
+    if (colA.includes(" --- ")) {
+      currentEmployee = colA.split(" --- ")[0].trim();
+      pending = null;
+      continue;
+    }
+    if (colA === "Employee Total" || colA === "Total All Employees" || colB === "YTD" || colB === "Date Range" || colB === "DateRange") {
+      pending = null;
+      continue;
+    }
+
+    const payDate = parseUsDate(colB);
+    if (payDate) {
+      pending = {
+        checkNumber: colA || undefined,
+        payDate,
+        ssBase: parseMoney(cellText(row, colSocSec)),
+        medicareBase: parseMoney(cellText(row, colMedicare)),
+      };
+      continue;
+    }
+
+    if (pending && currentEmployee && !colA && !colB) {
+      out.push({
+        employeeName: currentEmployee,
+        payDate: pending.payDate,
+        checkNumber: pending.checkNumber,
+        socialSecurityWageBase: pending.ssBase,
+        socialSecurityWithheld: parseMoney(cellText(row, colSocSec)),
+        medicareWageBase: pending.medicareBase,
+        medicareWithheld: parseMoney(cellText(row, colMedicare)),
+        federalWithheld: parseMoney(cellText(row, colFederal)),
+      });
+      pending = null;
+    }
+  }
+  return out;
+}

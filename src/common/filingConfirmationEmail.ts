@@ -155,6 +155,99 @@ export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Pr
   }
 }
 
+export interface EftpsEmployeeLine {
+  employeeName: string;
+  federalIncomeTax: number;
+  socialSecurity: number;
+  medicare: number;
+  subtotal: number;
+}
+
+export interface EftpsDepositReportInput {
+  client: FilingClientInfo;
+  sourceRecordId: string;
+  periodLabel: string;
+  filingDate: string;
+  paymentDate: string;
+  federalIncomeTaxTotal: number;
+  socialSecurityTotal: number;
+  medicareTotal: number;
+  totalAmount: number;
+  employees: EftpsEmployeeLine[];
+  acknowledgeUrl: string;
+  req?: Request;
+}
+
+/**
+ * Federal-only, by design — deliberately never includes State withholding or
+ * Unemployment Insurance (direct owner instruction, 2026-08-29): this report
+ * confirms the EFTPS federal deposit specifically, not the client's full
+ * payroll tax picture, which is a separate quarterly report.
+ */
+function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
+  const employeeRows = input.employees
+    .map(
+      (e) => `
+        <tr>
+          <td style="padding:5px 8px; font-size:12.5px; border-bottom:1px solid #e5e7eb;">${esc(e.employeeName)}</td>
+          <td align="right" style="padding:5px 8px; font-size:12.5px; border-bottom:1px solid #e5e7eb;">${money2(e.federalIncomeTax)}</td>
+          <td align="right" style="padding:5px 8px; font-size:12.5px; border-bottom:1px solid #e5e7eb;">${money2(e.socialSecurity)}</td>
+          <td align="right" style="padding:5px 8px; font-size:12.5px; border-bottom:1px solid #e5e7eb;">${money2(e.medicare)}</td>
+          <td align="right" style="padding:5px 8px; font-size:12.5px; font-weight:600; border-bottom:1px solid #e5e7eb;">${money2(e.subtotal)}</td>
+        </tr>`
+    )
+    .join("");
+
+  return `
+    <p style="margin:0 0 18px;">This is a confirmation of your federal payroll tax deposit (EFTPS) for ${esc(input.periodLabel)}. <bdi dir="rtl" style="color:#9ca3af;">/ هذا تأكيد لإيداع ضريبة الرواتب الفيدرالية الخاصة بكم عن الفترة المذكورة.</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
+      <tr><td style="padding:14px 18px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          ${row("Period", "الفترة", esc(input.periodLabel))}
+          ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filingDate))}
+          ${row("Payment Date", "تاريخ الدفع", fmtDate(input.paymentDate))}
+          ${row("Federal Income Tax", "ضريبة الدخل الفيدرالية", money2(input.federalIncomeTaxTotal))}
+          ${row("Social Security", "الضمان الاجتماعي", money2(input.socialSecurityTotal))}
+          ${row("Medicare", "الرعاية الطبية", money2(input.medicareTotal))}
+          ${row("Total Federal Deposit", "إجمالي الإيداع الفيدرالي", money2(input.totalAmount), true)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 8px; font-size:13px; font-weight:600; color:#374151;">By Employee <bdi dir="rtl" style="color:#9ca3af; font-weight:400;">/ حسب الموظف</bdi></p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
+      <tr style="background:#f3f4f6;">
+        <td style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Employee</td>
+        <td align="right" style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Federal Income Tax</td>
+        <td align="right" style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Social Security</td>
+        <td align="right" style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Medicare</td>
+        <td align="right" style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Total</td>
+      </tr>
+      ${employeeRows}
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+      <tr><td style="border-radius:6px; background:#0f766e;"><a href="${esc(input.acknowledgeUrl)}" style="display:inline-block; padding:11px 22px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none;">View & Acknowledge Report</a></td></tr>
+    </table>
+    <p style="margin:0; color:#6b7280; font-size:12.5px;">This report covers federal deposit amounts only — state withholding and unemployment insurance are covered separately in your quarterly payroll report. <bdi dir="rtl">يغطي هذا التقرير مبالغ الإيداع الفيدرالي فقط.</bdi></p>`;
+}
+
+/** Save & Send for the EFTPS deposit workflow — a real per-employee federal breakdown, not the single-amount shape sendFilingConfirmation uses elsewhere. Same consent gating and logging convention as the rest of this file. */
+export async function sendEftpsDepositReport(input: EftpsDepositReportInput): Promise<{ sent: boolean }> {
+  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
+  const subject = `Federal Tax Deposit Report — ${input.periodLabel}`;
+  const body = eftpsDepositReportBody(input);
+  try {
+    const html = await wrapEmailHtml(body, input.req);
+    await sendEmail({ to: input.client.email, subject, html });
+    await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+    return { sent: true };
+  } catch (err) {
+    await recordNotificationFailure(`eftpsDepositReport:${input.sourceRecordId}`, err);
+    await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    return { sent: false };
+  }
+}
+
 export interface NoticeReceivedInput {
   client: FilingClientInfo;
   sourceRecordId: string;

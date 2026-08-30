@@ -925,7 +925,13 @@ clientsRouter.post("/:clientId/flags", requireAuth, requireRole("admin", "staff"
   res.status(201).json({ ok: true, flagId });
 }));
 
-const OBLIGATION_MARK_DONE_SOURCES = new Set(["EFTPS", "MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
+// EFTPS deliberately excluded, 2026-08-29: the dedicated EFTPS Deposit workflow
+// (src/modules/eftpsDeposits/) is now the one path for EFTPS specifically — it
+// writes the same (client, source, due_date) row this generic route does, plus
+// a real per-employee breakdown, reconciliation, and client report this route
+// has no way to produce. Keeping "EFTPS" here would let staff bypass all of
+// that with a flat, undetailed completion on the same key.
+const OBLIGATION_MARK_DONE_SOURCES = new Set(["MD Withholding", "MD UI", "Business Tax Return", "Individual Tax Return", "Estimated Tax", "MD Annual Report", "Federal Payroll Tax", "1099/W-2"]);
 
 /**
  * One click, right on the dashboard, to silence a specific upcoming/overdue

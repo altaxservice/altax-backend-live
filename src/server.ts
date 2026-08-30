@@ -27,6 +27,9 @@ import { communicationsRouter } from "./modules/communications/communications.ro
 import { accountingRouter } from "./modules/accounting/accounting.routes";
 import { payrollAgentRouter, runPayrollAgentSweep, isPayrollAgentAutoRunEnabled } from "./modules/accounting/payrollAgent.routes";
 import { payrollImportRouter } from "./modules/payrollImport/payrollImport.routes";
+import { eftpsDepositsRouter } from "./modules/eftpsDeposits/eftpsDeposits.routes";
+import { publicEftpsDepositRouter } from "./modules/eftpsDeposits/publicEftpsDeposit.routes";
+import { ensureEftpsStaffTasks } from "./modules/eftpsDeposits/eftpsStaffTasks";
 import { salesInputImportRouter } from "./modules/salesInputImport/salesInputImport.routes";
 import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
@@ -312,6 +315,8 @@ app.use("/communications", communicationsRouter);
 app.use("/accounting", accountingRouter);
 app.use("/accounting/payroll-agent", payrollAgentRouter);
 app.use("/import", payrollImportRouter);
+app.use("/eftps-deposits", eftpsDepositsRouter);
+app.use("/public/eftps-deposits", publicEftpsDepositRouter);
 app.use("/sales-input-import", salesInputImportRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
@@ -550,6 +555,15 @@ console.log("Client MD sales tax deadline notice scheduled for 6:27AM America/Ne
 cron.schedule("29 6 * * *", runScheduledJob("Client Compliance Deadline Reminders", () => runComplianceDeadlineReminders("System (Compliance Reminder Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Client compliance deadline reminders scheduled for 6:29AM America/New_York.");
+
+// EFTPS staff safety-net task — direct owner request, 2026-08-29: a real
+// lead-time reminder against EFTPS's hard "8PM ET, one calendar day before
+// due date" submission cutoff, not just a courtesy nudge. Idempotent per
+// (client, period) — creates nothing once that period's deposit is already
+// processed via the EFTPS Deposit workflow.
+cron.schedule("31 6 * * *", runScheduledJob("EFTPS Staff Task Sweep", () => ensureEftpsStaffTasks()), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("EFTPS staff task sweep scheduled for 6:31AM America/New_York.");
 
 // Client risk-flag sweep (UX-005) — the "push" counterpart to the At-Risk
 // Clients dashboard panel (UX-001): logs one audit event per client newly
