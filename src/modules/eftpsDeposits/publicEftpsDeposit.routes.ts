@@ -9,6 +9,7 @@ import { query, queryOne } from "../../config/db";
 import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { rateLimit } from "../../common/rateLimit";
+import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
 
 export const publicEftpsDepositRouter = Router();
 
@@ -18,6 +19,15 @@ const eftpsDepositLimiter = rateLimit({ name: "public-eftps-deposit", windowMs: 
 
 async function findByToken(token: string) {
   return queryOne<any>(`SELECT * FROM altax.v3_eftps_deposits WHERE share_token = $1`, [token]);
+}
+
+function fmtPeriodLabel(start: unknown, end: unknown): string {
+  const fmt = (v: unknown) => {
+    const raw = v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+    const d = new Date(`${raw}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? raw : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  };
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 publicEftpsDepositRouter.get("/:token", eftpsDepositLimiter, asyncHandler(async (req: Request, res: Response) => {
@@ -57,4 +67,26 @@ publicEftpsDepositRouter.post("/:token/acknowledge", eftpsDepositLimiter, asyncH
     `EFTPS deposit report ${deposit.deposit_id} acknowledged by the client from IP ${ip || "unknown"}.`, "Client");
 
   res.json({ ok: true, alreadyAcknowledged: false });
+}));
+
+/** Same document the staff-authed route generates — client-facing Download/Print, no login required, gated by the same opaque token as the view/acknowledge routes above. */
+publicEftpsDepositRouter.get("/:token/pdf", eftpsDepositLimiter, asyncHandler(async (req: Request, res: Response) => {
+  const deposit = await findByToken(req.params.token);
+  if (!deposit) return res.status(404).json({ error: "This link is invalid or has expired." });
+
+  const client = await queryOne<any>(`SELECT client_id, client_name, ein, address FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
+  const lines = await query<any>(`SELECT employee_name, federal_income_tax, social_security, medicare, subtotal FROM altax.v3_eftps_deposit_lines WHERE deposit_id = $1 ORDER BY employee_name`, [deposit.deposit_id]);
+
+  const pdfBytes = await generateEftpsDepositPdf({
+    client: { clientName: client?.client_name || "", clientId: deposit.client_id, ein: client?.ein || null, address: client?.address || null },
+    periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
+    filingDate: deposit.filing_date, paymentDate: deposit.payment_date,
+    federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
+    medicareTotal: Number(deposit.medicare_total), totalAmount: Number(deposit.total_amount),
+    employees: lines.map((l: any) => ({ employeeName: l.employee_name, federalIncomeTax: Number(l.federal_income_tax), socialSecurity: Number(l.social_security), medicare: Number(l.medicare), subtotal: Number(l.subtotal) })),
+  });
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="EFTPS_${deposit.deposit_id}.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 }));

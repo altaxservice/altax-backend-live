@@ -28,9 +28,13 @@ function idSuffix(): string {
 function esc(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function fmtDate(v: string | null): string {
+function fmtDate(v: string | Date | null): string {
   if (!v) return "—";
-  const d = new Date(`${String(v).slice(0, 10)}T00:00:00Z`);
+  // A DATE column comes back from `SELECT *` as a JS Date — String(date) shifts
+  // UTC midnight back a day in local time, so it must go through toISOString()
+  // rather than straight into a "YYYY-MM-DDT..." string.
+  const raw = v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+  const d = new Date(`${raw}T00:00:00Z`);
   return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
 }
 function money2(n: number): string {

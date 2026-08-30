@@ -8,9 +8,10 @@ import { logAudit } from "../../common/audit";
 import { readWorkbookRows } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { schedulePaymentReminder } from "../../common/paymentReminders";
+import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
 import { sendEftpsDepositReport } from "../../common/filingConfirmationEmail";
 import { closeEftpsStaffTask } from "./eftpsStaffTasks";
+import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
   looksLikeDrakePayrollWagesDetail, parseDrakePayrollWagesDetail,
@@ -23,10 +24,8 @@ export const eftpsDepositsRouter = Router();
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
 
 /**
- * A 3-digit random suffix (900 possible values) is fine for one-off record
- * creation elsewhere in this app, but genuinely collision-prone here: a
- * paycheck-import commit inserts many rows in a tight loop within the same
- * second (confirmed live — 24 rows, real collision on row ~15). Matches
+ * A 3-digit random suffix (900 possible values) collided under a same-second
+ * bulk-insert loop (confirmed live — 24 paychecks imported at once). Matches
  * paymentReminders.ts's approach instead: a UUID-derived suffix has enough
  * entropy that a same-second collision is not a real risk.
  */
@@ -45,6 +44,31 @@ async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadCli
   const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { error: "Client not found.", status: 404 };
   return { client };
+}
+
+type LoadDepositResult = { error: string; status: number } | { deposit: any };
+
+async function loadDeposit(req: AuthedRequest, depositId: string): Promise<LoadDepositResult> {
+  if (!depositId) return { error: "Deposit is required.", status: 400 };
+  const deposit = await queryOne<any>(`SELECT * FROM altax.v3_eftps_deposits WHERE deposit_id = $1`, [depositId]);
+  if (!deposit) return { error: "Deposit not found.", status: 404 };
+  if (!(await canAccessClient(req.user!, deposit.client_id))) return { error: "You do not have access to this client.", status: 403 };
+  return { deposit };
+}
+
+/** v3_eftps_deposits.due_date comes back from `SELECT *` as a JS Date object, not a string — String(date) yields a locale format ("Tue Sep 15 2026 ..."), not ISO, so it must go through toISOString() before use in a reminder's source_record_id. */
+function isoDate(v: unknown): string {
+  return new Date(v as string).toISOString().slice(0, 10);
+}
+
+/** v3_eftps_deposits has no stored label column — period_start/period_end are always the source of truth, formatted fresh wherever a human-readable label is needed (email, PDF). Accepts either a plain "YYYY-MM-DD" string (request-body values) or a JS Date object (a `SELECT *` row) — String(date) would shift UTC midnight back a day in local time, so a Date always goes through isoDate() first. */
+function fmtPeriodLabel(start: unknown, end: unknown): string {
+  const fmt = (v: unknown) => {
+    const raw = v instanceof Date ? isoDate(v) : String(v).slice(0, 10);
+    const d = new Date(`${raw}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? raw : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  };
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 function decodeUpload(fileBase64: string, label: string): Buffer {
@@ -81,9 +105,6 @@ eftpsDepositsRouter.post("/import/payroll-wages/preview", requireAuth, requireRo
     const paychecks = parseDrakePayrollWagesDetail(rows);
     if (!paychecks.length) return res.status(400).json({ error: "No paychecks were found in this file." });
 
-    // Same dedup convention as the Sales Tax importer: checked against what's
-    // already stored, marked (not blocked) as duplicate, and left unselected
-    // by default in the frontend rather than silently skipped or overwritten.
     const existing = await query<any>(
       `SELECT employee_name, pay_date::text AS pay_date, check_number FROM altax.v3_eftps_paycheck_import WHERE client_id = $1`,
       [client.client_id]
@@ -109,7 +130,7 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
   const { client } = loaded;
 
   const rows: (DrakeFederalPaycheckDetail & { includeIfDuplicate?: boolean })[] = Array.isArray(body.rows) ? body.rows.slice(0, 2000) : [];
-  if (!rows.length) throw new ValidationError("No rows to import.");
+  if (!rows.length) return res.status(400).json({ error: "No rows to import." });
 
   let created = 0, skipped = 0;
   for (const r of rows) {
@@ -118,9 +139,6 @@ eftpsDepositsRouter.post("/import/payroll-wages/commit", requireAuth, requireRol
     if (!employeeName || !payDate) { skipped++; continue; }
     const checkNumber = r.checkNumber ? String(r.checkNumber).trim() : null;
 
-    // Re-checked fresh at commit time, same as the Sales importer, so a
-    // concurrent import from another staff session can't create a real
-    // duplicate — only an explicit includeIfDuplicate opt-in forces one through.
     const existing = await queryOne<any>(
       `SELECT id FROM altax.v3_eftps_paycheck_import WHERE client_id = $1 AND employee_name = $2 AND pay_date = $3 AND COALESCE(check_number,'') = COALESCE($4,'')`,
       [client.client_id, employeeName, payDate, checkNumber]
@@ -184,33 +202,38 @@ eftpsDepositsRouter.post("/import/tax-liability/commit", requireAuth, requireRol
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
   const { client } = loaded;
 
-  const rangeStart = String(body.rangeStart || "").trim();
-  const rangeEnd = String(body.rangeEnd || "").trim();
-  if (!rangeStart || !rangeEnd) throw new ValidationError("A valid date range is required.");
-  const summary: DrakeTaxLiabilitySummary | undefined = body.summary;
-  if (!summary) throw new ValidationError("No parsed summary to import.");
+  try {
+    const rangeStart = String(body.rangeStart || "").trim();
+    const rangeEnd = String(body.rangeEnd || "").trim();
+    if (!rangeStart || !rangeEnd) throw new ValidationError("A valid date range is required.");
+    const summary: DrakeTaxLiabilitySummary | undefined = body.summary;
+    if (!summary) throw new ValidationError("No parsed summary to import.");
 
-  const existing = await queryOne<any>(
-    `SELECT id FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 AND range_start = $2 AND range_end = $3`,
-    [client.client_id, rangeStart, rangeEnd]
-  );
-  if (existing && !body.includeIfDuplicate) {
-    throw new ValidationError("A Tax Liability snapshot for this exact date range was already imported.");
+    const existing = await queryOne<any>(
+      `SELECT id FROM altax.v3_eftps_tax_liability_import WHERE client_id = $1 AND range_start = $2 AND range_end = $3`,
+      [client.client_id, rangeStart, rangeEnd]
+    );
+    if (existing && !body.includeIfDuplicate) {
+      throw new ValidationError("A Tax Liability snapshot for this exact date range was already imported.");
+    }
+
+    await query(
+      `INSERT INTO altax.v3_eftps_tax_liability_import
+         (id, client_id, range_start, range_end, federal_income_tax, social_security, medicare, total_941, imported_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [`EFTPSTL-${idSuffix()}`, client.client_id, rangeStart, rangeEnd,
+        Number(summary.federalIncomeTax) || 0, Number(summary.socialSecurity) || 0, Number(summary.medicare) || 0, Number(summary.total941) || 0,
+        req.user!.email]
+    );
+
+    await logAudit("Clients", "IMPORT_EFTPS_TAX_LIABILITY", client.client_id, "", "", `${rangeStart} to ${rangeEnd}`,
+      `Imported a Tax Liability snapshot (${rangeStart} to ${rangeEnd}) by ${req.user!.email}.`, req.user!.email);
+
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
   }
-
-  await query(
-    `INSERT INTO altax.v3_eftps_tax_liability_import
-       (id, client_id, range_start, range_end, federal_income_tax, social_security, medicare, total_941, imported_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [`EFTPSTL-${idSuffix()}`, client.client_id, rangeStart, rangeEnd,
-      Number(summary.federalIncomeTax) || 0, Number(summary.socialSecurity) || 0, Number(summary.medicare) || 0, Number(summary.total941) || 0,
-      req.user!.email]
-  );
-
-  await logAudit("Clients", "IMPORT_EFTPS_TAX_LIABILITY", client.client_id, "", "", `${rangeStart} to ${rangeEnd}`,
-    `Imported a Tax Liability snapshot (${rangeStart} to ${rangeEnd}) by ${req.user!.email}.`, req.user!.email);
-
-  res.status(201).json({ ok: true });
 }));
 
 /* ------------------------------------------------------------------ */
@@ -231,10 +254,6 @@ async function computeForPeriod(clientId: string, periodStart: string, periodEnd
     medicareWithheld: Number(r.medicare_withheld) || 0,
   }));
 
-  // Reconciliation reference only when a snapshot's range exactly matches the
-  // reviewed period — an aggregate report can't be narrowed to a sub-range,
-  // so no exact match means no reference, not a block (direct owner
-  // correction, 2026-08-29: don't force the period to match at import time).
   const snapshot = await queryOne<any>(
     `SELECT federal_income_tax, social_security, medicare, total_941 FROM altax.v3_eftps_tax_liability_import
       WHERE client_id = $1 AND range_start = $2 AND range_end = $3
@@ -264,10 +283,26 @@ eftpsDepositsRouter.get("/review", requireAuth, requireRole("admin", "staff"), a
 }));
 
 /* ------------------------------------------------------------------ */
-/* Save: recomputed server-side from storage, never trusts client input */
+/* Mark Filed / Record Payment / Send / Undo — separate steps,         */
+/* mirroring the MD Sales Tax filing workflow exactly                  */
 /* ------------------------------------------------------------------ */
 
-eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+async function buildSendPayload(deposit: any, req: AuthedRequest) {
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
+  const lines = await query<any>(`SELECT employee_name, federal_income_tax, social_security, medicare, subtotal FROM altax.v3_eftps_deposit_lines WHERE deposit_id = $1 ORDER BY employee_name`, [deposit.deposit_id]);
+  const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/eftps-deposits/${deposit.share_token}`;
+  return sendEftpsDepositReport({
+    client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
+    sourceRecordId: deposit.deposit_id, periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
+    filingDate: deposit.filing_date, paymentDate: deposit.payment_date,
+    federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
+    medicareTotal: Number(deposit.medicare_total), totalAmount: Number(deposit.total_amount),
+    employees: lines.map((l: any) => ({ employeeName: l.employee_name, federalIncomeTax: Number(l.federal_income_tax), socialSecurity: Number(l.social_security), medicare: Number(l.medicare), subtotal: Number(l.subtotal) })),
+    acknowledgeUrl, req,
+  });
+}
+
+eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const loaded = await loadClient(req, String(body.clientId || "").trim());
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
@@ -278,39 +313,38 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
     const periodEnd = String(body.periodEnd || "").trim();
     const dueDate = String(body.dueDate || "").trim();
     const filingDate = String(body.filingDate || "").trim();
-    const paymentDate = String(body.paymentDate || "").trim();
     const periodLabel = String(body.periodLabel || `${periodStart} to ${periodEnd}`).trim();
-    const action = body.action === "send" ? "send" : "close";
+    const notify = body.notify === true;
 
     if (!periodStart || !periodEnd || !dueDate) throw new ValidationError("Period start, period end, and due date are required.");
     if (!filingDate) throw new ValidationError("Filing date is required.");
-    if (!paymentDate) throw new ValidationError("Payment date is required.");
 
     const existingDeposit = await queryOne<any>(
       `SELECT deposit_id FROM altax.v3_eftps_deposits WHERE client_id = $1 AND period_start = $2 AND period_end = $3`,
       [client.client_id, periodStart, periodEnd]
     );
-    if (existingDeposit) throw new ValidationError("An EFTPS deposit for this period has already been saved. View it in the deposit history instead of creating a new one.");
+    if (existingDeposit) throw new ValidationError("An EFTPS deposit for this period has already been filed. View it in the deposit history instead of creating a new one.");
 
     // Recomputed here, live, from what's actually stored — never trusts a
-    // client-submitted total, same principle as the MD filing "mark filed"
-    // route this workflow mirrors.
+    // client-submitted total, same principle as the MD filing "mark filed" route.
     const { computation, paycheckCount } = await computeForPeriod(client.client_id, periodStart, periodEnd);
-    if (!paycheckCount) throw new ValidationError("No imported paychecks fall within this period — nothing to save.");
+    if (!paycheckCount) throw new ValidationError("No imported paychecks fall within this period — nothing to file.");
 
     const depositId = `EFTPS-${idSuffix()}`;
     const shareToken = crypto.randomBytes(24).toString("hex");
-    const status = action === "send" ? "Sent" : "Filed";
 
+    // payment_date is deliberately NULL here — filing and payment are separate
+    // facts (direct owner correction, 2026-08-29: "I have not filed it yet"
+    // was being forced to also fabricate a payment date to save at all).
     await query(
       `INSERT INTO altax.v3_eftps_deposits
          (deposit_id, client_id, period_start, period_end, due_date, filing_date, payment_date,
           federal_income_tax_total, social_security_total, medicare_total, total_amount,
           reconciliation_status, status, share_token, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now(), now())`,
-      [depositId, client.client_id, periodStart, periodEnd, dueDate, filingDate, paymentDate,
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13,$14, now(), now())`,
+      [depositId, client.client_id, periodStart, periodEnd, dueDate, filingDate,
         computation.federalIncomeTaxTotal, computation.socialSecurityTotal, computation.medicareTotal, computation.totalAmount,
-        computation.reconciliationStatus, status, shareToken, req.user!.email]
+        computation.reconciliationStatus, notify ? "Sent" : "Filed", shareToken, req.user!.email]
     );
 
     for (const e of computation.employees) {
@@ -323,46 +357,121 @@ eftpsDepositsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncH
 
     // Keeps the existing compliance-calendar deadline list, the generic
     // obligation UI, and the reminder re-check-at-fire-time logic all working
-    // with zero changes to that code — this is the same (client, source,
-    // due_date) key the generic "Mark Done" button already writes.
+    // with zero changes to that code — paid_date stays NULL until Record
+    // Payment is called separately.
     await query(
       `INSERT INTO altax.v3_obligation_completions (client_id, source, due_date, label, completed_date, completed_by, amount, paid_date)
-       VALUES ($1,'EFTPS',$2,$3,$4,$5,$6,$7)
+       VALUES ($1,'EFTPS',$2,$3,$4,$5,$6,NULL)
        ON CONFLICT (client_id, source, due_date) DO UPDATE SET
          label = EXCLUDED.label, completed_date = EXCLUDED.completed_date, completed_by = EXCLUDED.completed_by,
-         amount = EXCLUDED.amount, paid_date = EXCLUDED.paid_date, completed_at = now()`,
-      [client.client_id, dueDate, `EFTPS Deposit — ${periodLabel}`, filingDate, req.user!.email, computation.totalAmount, paymentDate]
+         amount = EXCLUDED.amount, paid_date = NULL, completed_at = now()`,
+      [client.client_id, dueDate, `EFTPS Deposit — ${periodLabel}`, filingDate, req.user!.email, computation.totalAmount]
     );
 
     await closeEftpsStaffTask(client.client_id, periodEnd);
 
-    const sourceRecordId = `${client.client_id}:EFTPS:${dueDate}`;
-    await schedulePaymentReminder({
-      sourceSystem: "ObligationCompletion", sourceRecordId, clientId: client.client_id,
-      filingType: "EFTPS Deposit", periodLabel, amount: computation.totalAmount, paymentDueDate: paymentDate,
-      createdBy: req.user!.email, leadDays: 2,
-    });
-
     let emailResult: { sent: boolean } = { sent: false };
-    if (action === "send") {
-      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/eftps-deposits/${shareToken}`;
-      emailResult = await sendEftpsDepositReport({
-        client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
-        sourceRecordId: depositId, periodLabel, filingDate, paymentDate,
-        federalIncomeTaxTotal: computation.federalIncomeTaxTotal, socialSecurityTotal: computation.socialSecurityTotal,
-        medicareTotal: computation.medicareTotal, totalAmount: computation.totalAmount,
-        employees: computation.employees, acknowledgeUrl, req,
+    if (notify) {
+      // Mirrors mark-filed's own notify && !paidDate gating exactly — payment
+      // is never known at this point, so the reminder always gets scheduled
+      // here when the client is being notified at all.
+      const sourceRecordId = `${client.client_id}:EFTPS:${dueDate}`;
+      await schedulePaymentReminder({
+        sourceSystem: "ObligationCompletion", sourceRecordId, clientId: client.client_id,
+        filingType: "EFTPS Deposit", periodLabel, amount: computation.totalAmount, paymentDueDate: dueDate,
+        createdBy: req.user!.email, leadDays: 2,
       });
+      const deposit = await queryOne<any>(`SELECT * FROM altax.v3_eftps_deposits WHERE deposit_id = $1`, [depositId]);
+      emailResult = await buildSendPayload(deposit, req);
     }
 
-    await logAudit("Clients", "EFTPS_DEPOSIT_SAVED", client.client_id, "amount", "", String(computation.totalAmount),
-      `EFTPS deposit for ${periodLabel} (${depositId}) ${action === "send" ? "saved and sent" : "saved"} by ${req.user!.email}.`, req.user!.email);
+    await logAudit("Clients", "EFTPS_DEPOSIT_FILED", client.client_id, "amount", "", String(computation.totalAmount),
+      `EFTPS deposit for ${periodLabel} (${depositId}) filed${notify ? " and sent" : ""} by ${req.user!.email}.`, req.user!.email);
 
     res.status(201).json({ ok: true, depositId, emailSent: emailResult.sent });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
   }
+}));
+
+eftpsDepositsRouter.post("/:depositId/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadDeposit(req, req.params.depositId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { deposit } = loaded;
+
+  try {
+    const paymentDate = String((req.body || {}).paymentDate || "").trim();
+    if (!paymentDate) throw new ValidationError("A payment date is required.");
+    if (deposit.payment_date) throw new ValidationError("This deposit already has a payment date recorded. Undo it first if you need to correct it.");
+
+    await query(`UPDATE altax.v3_eftps_deposits SET payment_date = $2, updated_at = now() WHERE deposit_id = $1`, [deposit.deposit_id, paymentDate]);
+    await query(
+      `UPDATE altax.v3_obligation_completions SET paid_date = $3, completed_at = now() WHERE client_id = $1 AND source = 'EFTPS' AND due_date = $2`,
+      [deposit.client_id, deposit.due_date, paymentDate]
+    );
+    await cancelPaymentReminder("ObligationCompletion", `${deposit.client_id}:EFTPS:${isoDate(deposit.due_date)}`, "Payment recorded");
+
+    await logAudit("Clients", "EFTPS_DEPOSIT_PAYMENT_RECORDED", deposit.client_id, "payment_date", "", paymentDate,
+      `Payment recorded for EFTPS deposit ${deposit.deposit_id} by ${req.user!.email}.`, req.user!.email);
+
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+}));
+
+eftpsDepositsRouter.post("/:depositId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadDeposit(req, req.params.depositId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { deposit } = loaded;
+
+  const result = await buildSendPayload(deposit, req);
+  if (result.sent && deposit.status !== "Sent") {
+    await query(`UPDATE altax.v3_eftps_deposits SET status = 'Sent', updated_at = now() WHERE deposit_id = $1`, [deposit.deposit_id]);
+  }
+  await logAudit("Clients", "EFTPS_DEPOSIT_SENT", deposit.client_id, "", "", deposit.deposit_id,
+    `EFTPS deposit report ${deposit.deposit_id} sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, sent: result.sent });
+}));
+
+eftpsDepositsRouter.post("/:depositId/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadDeposit(req, req.params.depositId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { deposit } = loaded;
+
+  await query(`DELETE FROM altax.v3_eftps_deposits WHERE deposit_id = $1`, [deposit.deposit_id]);
+  await query(`DELETE FROM altax.v3_obligation_completions WHERE client_id = $1 AND source = 'EFTPS' AND due_date = $2`, [deposit.client_id, deposit.due_date]);
+  await cancelPaymentReminder("ObligationCompletion", `${deposit.client_id}:EFTPS:${isoDate(deposit.due_date)}`, "Deposit undone");
+
+  await logAudit("Clients", "EFTPS_DEPOSIT_UNMARKED", deposit.client_id, "", String(deposit.total_amount), "",
+    `EFTPS deposit ${deposit.deposit_id} undone by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
+eftpsDepositsRouter.get("/:depositId/pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadDeposit(req, req.params.depositId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { deposit } = loaded;
+
+  const client = await queryOne<any>(`SELECT client_id, client_name, ein, address FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
+  const lines = await query<any>(`SELECT employee_name, federal_income_tax, social_security, medicare, subtotal FROM altax.v3_eftps_deposit_lines WHERE deposit_id = $1 ORDER BY employee_name`, [deposit.deposit_id]);
+
+  const pdfBytes = await generateEftpsDepositPdf({
+    client: { clientName: client?.client_name || "", clientId: deposit.client_id, ein: client?.ein || null, address: client?.address || null },
+    periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
+    filingDate: deposit.filing_date, paymentDate: deposit.payment_date,
+    federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
+    medicareTotal: Number(deposit.medicare_total), totalAmount: Number(deposit.total_amount),
+    employees: lines.map((l: any) => ({ employeeName: l.employee_name, federalIncomeTax: Number(l.federal_income_tax), socialSecurity: Number(l.social_security), medicare: Number(l.medicare), subtotal: Number(l.subtotal) })),
+  });
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="EFTPS_${deposit.client_id}_${isoDate(deposit.period_end)}.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 }));
 
 eftpsDepositsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, resolveFileUrl } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { PublicPageShell } from "../components/PublicPageShell";
 
@@ -64,9 +64,14 @@ export function PublicEftpsDepositPage() {
   return (
     <PublicPageShell>
       <div style={pageStyle}>
-        <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>{deposit.client_name}</div>
-        <h1 style={{ fontSize: 22, margin: "4px 0 16px" }}>Federal Tax Deposit Report</h1>
-        <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>{deposit.client_name}</div>
+            <h1 style={{ fontSize: 22, margin: "4px 0 0" }}>Federal Tax Deposit Report</h1>
+          </div>
+          <a className="btn" href={resolveFileUrl(`/public/eftps-deposits/${token}/pdf`)} target="_blank" rel="noopener noreferrer">Download PDF</a>
+        </div>
+        <p className="muted" style={{ fontSize: 13, margin: "8px 0 20px" }}>
           Period {fmtDate(deposit.period_start)} – {fmtDate(deposit.period_end)}
         </p>
 
