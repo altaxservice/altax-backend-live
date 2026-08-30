@@ -107,6 +107,10 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   // Keyed by monthKey — each month row needs its own independently-editable Filing/Due date pair.
   const [monthInputs, setMonthInputs] = useState<Record<string, { filingDate: string; dueDate: string }>>({});
   const [filingBusy, setFilingBusy] = useState<string | null>(null); // `${monthKey}:close` | `${monthKey}:send`
+  // Only one month's detail is expanded at a time — a compact row list reads
+  // far better than every month's full breakdown + filing form all open at
+  // once, which repeats the same reconciliation disclaimer text on every card.
+  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
 
   const [history, setHistory] = useState<EftpsDepositHistoryRow[] | null>(null);
   function loadHistory() {
@@ -267,6 +271,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       const inputs: Record<string, { filingDate: string; dueDate: string }> = {};
       for (const m of res.months) inputs[m.monthKey] = { filingDate: todayStr(), dueDate: suggestDueDate(m.periodEnd) };
       setMonthInputs(inputs);
+      setExpandedMonthKey(null);
       if (res.months.every((m) => !m.paycheckCount)) setError(`No imported paychecks fall within ${periodStart} to ${periodEnd}.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this period.");
@@ -562,93 +567,124 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         </button>
       </div>
 
-      {months && months.map((m) => (
-        <div key={m.monthKey} className="card" style={{ marginBottom: 16 }}>
-          <h4 style={{ margin: "0 0 8px" }}>{m.label}</h4>
-          {!m.paycheckCount ? (
-            <p className="muted" style={{ fontSize: 12.5 }}>No imported paychecks fall within this month.</p>
-          ) : m.existingDeposit ? (
-            <div className="table-scroll">
-              <table>
-                <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
-                <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
-              </table>
-            </div>
-          ) : (
-            <>
-              {!m.hasReconciliationReference ? (
-                <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                  No Tax Liability snapshot has been imported for this exact date range — the breakdown below is computed directly from imported paychecks.
-                </p>
-              ) : m.computation!.reconciliationStatus === "Mismatch" ? (
-                <div className="card" style={{ borderColor: "var(--red)", marginBottom: 12, padding: 10 }}>
-                  <strong style={{ color: "var(--red)" }}>Reconciliation mismatch</strong>
-                  <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                    Computed total {money(m.computation!.totalAmount)} vs. Drake's own 941 Total {money(m.computation!.drakeTotal941)}
-                    {m.computation!.reconciliationDifference !== null && ` (difference: ${money(Math.abs(m.computation!.reconciliationDifference))})`}.
-                    Please review before filing.
-                  </div>
-                </div>
-              ) : (
-                <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                  Reconciled against Drake's own 941 Total ({money(m.computation!.drakeTotal941)}) — within normal rounding tolerance.
-                </div>
-              )}
-
-              <table style={{ width: "100%", marginBottom: 16 }}>
-                <tbody>
-                  <tr><td className="muted">Federal Income Tax</td><td style={{ textAlign: "right" }}>{money(m.computation!.federalIncomeTaxTotal)}</td></tr>
-                  <tr><td className="muted">Social Security</td><td style={{ textAlign: "right" }}>{money(m.computation!.socialSecurityTotal)}</td></tr>
-                  <tr><td className="muted">Medicare</td><td style={{ textAlign: "right" }}>{money(m.computation!.medicareTotal)}</td></tr>
-                  <tr><td style={{ fontWeight: 700 }}>Total Federal Deposit</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(m.computation!.totalAmount)}</td></tr>
-                </tbody>
-              </table>
-
-              <div className="table-scroll" style={{ marginBottom: 16 }}>
-                <table>
-                  <thead><tr><th>Employee</th><th style={{ textAlign: "right" }}>Federal Income Tax</th><th style={{ textAlign: "right" }}>Social Security</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
-                  <tbody>
-                    {m.computation!.employees.map((e, i) => (
-                      <tr key={i}>
-                        <td>{e.employeeName}</td>
-                        <td style={{ textAlign: "right" }}>{money(e.federalIncomeTax)}</td>
-                        <td style={{ textAlign: "right" }}>{money(e.socialSecurity)}</td>
-                        <td style={{ textAlign: "right" }}>{money(e.medicare)}</td>
-                        <td style={{ textAlign: "right", fontWeight: 600 }}>{money(e.subtotal)}</td>
+      {months && (
+        <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>Period</th><th style={{ textAlign: "right" }}>Paychecks</th><th style={{ textAlign: "right" }}>Total</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {months.map((m) => {
+                  const isExpanded = expandedMonthKey === m.monthKey;
+                  const statusLabel = !m.paycheckCount ? "No paychecks" : m.existingDeposit ? m.existingDeposit.status : "Not filed";
+                  const totalDisplay = m.existingDeposit ? money(m.existingDeposit.total_amount) : m.computation ? money(m.computation.totalAmount) : "—";
+                  return (
+                    <Fragment key={m.monthKey}>
+                      <tr
+                        onClick={() => setExpandedMonthKey(isExpanded ? null : m.monthKey)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <td>{m.label}</td>
+                        <td style={{ textAlign: "right" }}>{m.paycheckCount}</td>
+                        <td style={{ textAlign: "right" }}>{totalDisplay}</td>
+                        <td>{statusLabel}{m.existingDeposit?.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
+                        <td style={{ textAlign: "right" }}>{isExpanded ? "▲" : "▼"}</td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={5} style={{ background: "var(--surface-2, #f8fafb)", padding: 16 }}>
+                            {!m.paycheckCount ? (
+                              <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>No imported paychecks fall within this month.</p>
+                            ) : m.existingDeposit ? (
+                              <div className="table-scroll">
+                                <table>
+                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                                  <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <>
+                                {!m.hasReconciliationReference ? (
+                                  <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                                    No Tax Liability snapshot has been imported for this exact date range — the breakdown below is computed directly from imported paychecks.
+                                  </p>
+                                ) : m.computation!.reconciliationStatus === "Mismatch" ? (
+                                  <div className="card" style={{ borderColor: "var(--red)", marginBottom: 12, padding: 10 }}>
+                                    <strong style={{ color: "var(--red)" }}>Reconciliation mismatch</strong>
+                                    <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                                      Computed total {money(m.computation!.totalAmount)} vs. Drake's own 941 Total {money(m.computation!.drakeTotal941)}
+                                      {m.computation!.reconciliationDifference !== null && ` (difference: ${money(Math.abs(m.computation!.reconciliationDifference))})`}.
+                                      Please review before filing.
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                                    Reconciled against Drake's own 941 Total ({money(m.computation!.drakeTotal941)}) — within normal rounding tolerance.
+                                  </div>
+                                )}
 
-              <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                Pay this amount on EFTPS's website. Once you've actually filed it, record the filing date below — you can
-                record the payment date separately afterward, once it's confirmed.
-              </p>
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor={`eftps-filed-${m.monthKey}`}>Filing Date</label>
-                  <input id={`eftps-filed-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.filingDate || ""}
-                    onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], filingDate: e.target.value } }))} />
-                </div>
-                <div className="field">
-                  <label htmlFor={`eftps-due-${m.monthKey}`}>Due Date</label>
-                  <input id={`eftps-due-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.dueDate || ""}
-                    onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], dueDate: e.target.value } }))} />
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button className="btn" onClick={() => handleMarkFiled(m, false)} disabled={filingBusy !== null}>
-                  {filingBusy === `${m.monthKey}:close` ? "Filing…" : "Mark Filed"}
-                </button>
-                <button className="btn btn-primary" onClick={() => handleMarkFiled(m, true)} disabled={filingBusy !== null}>
-                  {filingBusy === `${m.monthKey}:send` ? "Filing…" : "Mark Filed and Send"}
-                </button>
-              </div>
-            </>
-          )}
+                                <table style={{ width: "100%", marginBottom: 16 }}>
+                                  <tbody>
+                                    <tr><td className="muted">Federal Income Tax</td><td style={{ textAlign: "right" }}>{money(m.computation!.federalIncomeTaxTotal)}</td></tr>
+                                    <tr><td className="muted">Social Security</td><td style={{ textAlign: "right" }}>{money(m.computation!.socialSecurityTotal)}</td></tr>
+                                    <tr><td className="muted">Medicare</td><td style={{ textAlign: "right" }}>{money(m.computation!.medicareTotal)}</td></tr>
+                                    <tr><td style={{ fontWeight: 700 }}>Total Federal Deposit</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(m.computation!.totalAmount)}</td></tr>
+                                  </tbody>
+                                </table>
+
+                                <div className="table-scroll" style={{ marginBottom: 16 }}>
+                                  <table>
+                                    <thead><tr><th>Employee</th><th style={{ textAlign: "right" }}>Federal Income Tax</th><th style={{ textAlign: "right" }}>Social Security</th><th style={{ textAlign: "right" }}>Medicare</th><th style={{ textAlign: "right" }}>Total</th></tr></thead>
+                                    <tbody>
+                                      {m.computation!.employees.map((e, i) => (
+                                        <tr key={i}>
+                                          <td>{e.employeeName}</td>
+                                          <td style={{ textAlign: "right" }}>{money(e.federalIncomeTax)}</td>
+                                          <td style={{ textAlign: "right" }}>{money(e.socialSecurity)}</td>
+                                          <td style={{ textAlign: "right" }}>{money(e.medicare)}</td>
+                                          <td style={{ textAlign: "right", fontWeight: 600 }}>{money(e.subtotal)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+
+                                <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                                  Pay this amount on EFTPS's website. Once you've actually filed it, record the filing date below — you can
+                                  record the payment date separately afterward, once it's confirmed.
+                                </p>
+                                <div className="form-grid">
+                                  <div className="field">
+                                    <label htmlFor={`eftps-filed-${m.monthKey}`}>Filing Date</label>
+                                    <input id={`eftps-filed-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.filingDate || ""}
+                                      onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], filingDate: e.target.value } }))} />
+                                  </div>
+                                  <div className="field">
+                                    <label htmlFor={`eftps-due-${m.monthKey}`}>Due Date</label>
+                                    <input id={`eftps-due-${m.monthKey}`} type="date" value={monthInputs[m.monthKey]?.dueDate || ""}
+                                      onChange={(e) => setMonthInputs((p) => ({ ...p, [m.monthKey]: { ...p[m.monthKey], dueDate: e.target.value } }))} />
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <button className="btn" onClick={() => handleMarkFiled(m, false)} disabled={filingBusy !== null}>
+                                    {filingBusy === `${m.monthKey}:close` ? "Filing…" : "Mark Filed"}
+                                  </button>
+                                  <button className="btn btn-primary" onClick={() => handleMarkFiled(m, true)} disabled={filingBusy !== null}>
+                                    {filingBusy === `${m.monthKey}:send` ? "Filing…" : "Mark Filed and Send"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      ))}
+      )}
 
       <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>History</h3>
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
