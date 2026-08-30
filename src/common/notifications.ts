@@ -9,6 +9,7 @@
 import { Resend } from "resend";
 import twilio from "twilio";
 import { publicBaseUrl } from "./publicUrl";
+import { getFirmProfile } from "./firmProfile";
 
 // Unlike the database (see config/db.ts's DATABASE_URL_DEV split), there's no
 // separate dev/prod credential for Resend/Twilio — whatever's in .env is live.
@@ -90,8 +91,17 @@ export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[
   if (!apiKey) throw new NotConfiguredError("Email is not connected yet — add RESEND_API_KEY to the backend .env to enable sending.");
   const from = process.env.RESEND_FROM_EMAIL || "AL Tax Service <onboarding@resend.dev>";
   const resend = new Resend(apiKey);
+  // The `from` address is typically a noreply@ sending domain (Resend requires
+  // a verified domain, and firms rarely want to receive at that address), but
+  // every template in this app tells the client to "just reply to this email"
+  // — without an explicit reply-to, that reply would silently land at noreply@
+  // and never reach anyone. Routes replies to the firm's own real, monitored
+  // address instead (Firm Settings — the same address shown in the email
+  // footer via wrapEmailHtml), so "reply to this email" is actually true.
+  const profile = await getFirmProfile();
   const result = await resend.emails.send({
     from, to: [opts.to], subject: opts.subject, html: opts.html,
+    replyTo: profile.email || undefined,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
     attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),

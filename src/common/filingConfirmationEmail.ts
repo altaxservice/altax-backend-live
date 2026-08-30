@@ -49,6 +49,46 @@ function row(label: string, labelAr: string, value: string, boldValue = false): 
     </tr>`;
 }
 
+/**
+ * A real English block followed by a real Arabic block — each with its own
+ * `dir`/`text-align`, not one line of English with a muted "/ Arabic" phrase
+ * tacked onto the end. Same pattern portalInviteEmailHtml already uses;
+ * applied here too so the two don't read as two different design languages.
+ */
+function bilingualParagraph(en: string, ar: string, opts: { color?: string; marginBottom?: number } = {}): string {
+  const color = opts.color ?? "#1a1a1a";
+  const mb = opts.marginBottom ?? 18;
+  return `
+    <div dir="ltr" style="text-align:left; margin:0 0 4px; color:${color};">${en}</div>
+    <div dir="rtl" style="text-align:right; margin:0 0 ${mb}px; color:${color};">${ar}</div>`;
+}
+
+/** A single button carrying both languages on one line ("Label · التسمية"), matching the convention every appointment email button already uses — rather than an English-only button with no Arabic anywhere near it. */
+function bilingualButtonHtml(url: string, enLabel: string, arLabel: string, color = "#0f766e"): string {
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+      <tr><td style="border-radius:6px; background:${color};">
+        <a href="${esc(url)}" style="display:inline-block; padding:12px 24px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none; text-align:center;">
+          ${esc(enLabel)} &nbsp;·&nbsp; <bdi dir="rtl">${esc(arLabel)}</bdi>
+        </a>
+      </td></tr>
+    </table>`;
+}
+
+/**
+ * Guards against ever emailing a client a dead link — the same defensive
+ * check wrapEmailHtml already applies to the logo image, extended here to
+ * the acknowledge button. A request made against a local dev server (e.g.
+ * testing via curl/Postman directly, rather than through the deployed app)
+ * resolves publicBaseUrl(req) to http://localhost:xxxx, which is real and
+ * "correct" for that request but unreachable from anyone else's phone or
+ * inbox — better to omit the button than send a link that can only ever
+ * 404/timeout for the person receiving it.
+ */
+function isPubliclyReachable(url: string | undefined): url is string {
+  return Boolean(url) && /^https?:\/\//i.test(url!) && !/localhost|127\.0\.0\.1/i.test(url!);
+}
+
 export interface FilingClientInfo {
   clientId: string;
   clientName: string;
@@ -83,24 +123,34 @@ export interface FilingConfirmationInput {
 
 /** Body used both as the email HTML and (plain-text-ish) as the v3_communications log entry. */
 function filingConfirmationBody(input: FilingConfirmationInput): string {
+  const canAcknowledge = isPubliclyReachable(input.acknowledgeUrl);
   return `
-    <p style="margin:0 0 18px;">This is a confirmation that we filed your ${esc(input.filingType)}${input.periodLabel ? ` for the period ${esc(input.periodLabel)}` : ""}. <bdi dir="rtl" style="color:#9ca3af;">/ هذا تأكيد بأننا قدمنا إقرارك${input.periodLabel ? " عن الفترة المذكورة" : ""}.</bdi></p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
-      <tr><td style="padding:14px 18px;">
+    ${bilingualParagraph(
+      `This is a confirmation that we filed your <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` for the period <strong>${esc(input.periodLabel)}</strong>` : ""}.`,
+      `هذا تأكيد بأننا قدّمنا <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` الخاص بكم عن الفترة <strong>${esc(input.periodLabel)}</strong>` : ""}.`
+    )}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px; overflow:hidden; margin:0 0 18px; border:1px solid #e5e7eb;">
+      <tr><td style="background:#0f2d3e; padding:16px 18px;">
+        <div style="color:#9fb4bf; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">
+          Amount &nbsp;/&nbsp; <bdi dir="rtl">المبلغ</bdi>
+        </div>
+        <div style="color:#ffffff; font-size:28px; font-weight:800; margin-top:2px;">${money2(input.amount)}</div>
+      </td></tr>
+      <tr><td style="background:#f8fafb; padding:14px 18px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           ${row("Filing Type", "نوع الإقرار", esc(input.filingType))}
           ${input.periodLabel ? row("Period", "الفترة", esc(input.periodLabel)) : ""}
           ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filedDate))}
-          ${row("Amount", "المبلغ", money2(input.amount), true)}
           ${input.paidDate ? row("Payment Date", "تاريخ الدفع", fmtDate(input.paidDate)) : row("Payment Due Date", "تاريخ استحقاق الدفع", fmtDate(input.paymentDueDate))}
         </table>
       </td></tr>
     </table>
-    ${input.acknowledgeUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
-      <tr><td style="border-radius:6px; background:#0f766e;"><a href="${esc(input.acknowledgeUrl)}" style="display:inline-block; padding:11px 22px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none;">View & Acknowledge Report</a></td></tr>
-    </table>` : ""}
-    <p style="margin:0; color:#6b7280; font-size:12.5px;">${input.paidDate ? "This filing is paid in full." : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email."} <bdi dir="rtl">${input.paidDate ? "تم دفع هذا الإقرار بالكامل." : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديك أي أسئلة، فقط قم بالرد على هذا البريد الإلكتروني."}</bdi></p>`;
+    ${canAcknowledge ? bilingualButtonHtml(input.acknowledgeUrl!, "View & Acknowledge Report", "عرض الإقرار وتأكيد الاستلام") : ""}
+    ${bilingualParagraph(
+      input.paidDate ? "This filing is paid in full." : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email.",
+      input.paidDate ? "تم دفع هذا الإقرار بالكامل." : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.",
+      { color: "#6b7280", marginBottom: 0 }
+    )}`;
 }
 
 /** Sends the immediate "we filed this" confirmation. Silent no-op (not a failure) when the client has no email consent on file, matching runClientMdSalesTaxDeadlineNotifications's convention. */
@@ -132,7 +182,10 @@ export interface PaymentDueReminderInput {
 
 function paymentDueReminderBody(input: PaymentDueReminderInput): string {
   return `
-    <p style="margin:0 0 18px;">Reminder — your payment for ${esc(input.filingType)}${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is coming up. <bdi dir="rtl" style="color:#9ca3af;">/ تذكير — موعد دفعتك يقترب.</bdi></p>
+    ${bilingualParagraph(
+      `Reminder — your payment for <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} is coming up.`,
+      `تذكير — موعد دفعة <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` (${esc(input.periodLabel)})` : ""} يقترب.`
+    )}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
            style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #b45309; border-radius:6px; margin:0 0 18px;">
       <tr><td style="padding:14px 18px;">
@@ -144,7 +197,11 @@ function paymentDueReminderBody(input: PaymentDueReminderInput): string {
         </table>
       </td></tr>
     </table>
-    <p style="margin:0; color:#6b7280; font-size:12.5px;">If this has already been paid, please disregard this message. <bdi dir="rtl">إذا كان قد تم دفع هذا المبلغ بالفعل، يرجى تجاهل هذه الرسالة.</bdi></p>`;
+    ${bilingualParagraph(
+      "If this has already been paid, please disregard this message.",
+      "إذا كان قد تم دفع هذا المبلغ بالفعل، يرجى تجاهل هذه الرسالة.",
+      { color: "#6b7280", marginBottom: 0 }
+    )}`;
 }
 
 /** Sends the 9AM-ET-day-before payment-due reminder. Same consent gating and logging convention as sendFilingConfirmation. */
@@ -218,11 +275,20 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
     )
     .join("");
 
+  const canAcknowledge = isPubliclyReachable(input.acknowledgeUrl);
   return `
-    <p style="margin:0 0 18px;">This is a confirmation of your federal payroll tax deposit (EFTPS) for ${esc(input.periodLabel)}. <bdi dir="rtl" style="color:#9ca3af;">/ هذا تأكيد لإيداع ضريبة الرواتب الفيدرالية الخاصة بكم عن الفترة المذكورة.</bdi></p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-           style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #0f766e; border-radius:6px; margin:0 0 18px;">
-      <tr><td style="padding:14px 18px;">
+    ${bilingualParagraph(
+      `This is a confirmation of your federal payroll tax deposit (EFTPS) for <strong>${esc(input.periodLabel)}</strong>.`,
+      `هذا تأكيد لإيداع ضريبة الرواتب الفيدرالية (EFTPS) الخاص بكم عن الفترة <strong>${esc(input.periodLabel)}</strong>.`
+    )}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px; overflow:hidden; margin:0 0 18px; border:1px solid #e5e7eb;">
+      <tr><td style="background:#0f2d3e; padding:16px 18px;">
+        <div style="color:#9fb4bf; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">
+          Total Federal Deposit &nbsp;/&nbsp; <bdi dir="rtl">إجمالي الإيداع الفيدرالي</bdi>
+        </div>
+        <div style="color:#ffffff; font-size:28px; font-weight:800; margin-top:2px;">${money2(input.totalAmount)}</div>
+      </td></tr>
+      <tr><td style="background:#f8fafb; padding:14px 18px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           ${row("Period", "الفترة", esc(input.periodLabel))}
           ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filingDate))}
@@ -231,11 +297,10 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
           ${row("Federal Income Tax", "ضريبة الدخل الفيدرالية", money2(input.federalIncomeTaxTotal))}
           ${row("Social Security", "الضمان الاجتماعي", money2(input.socialSecurityTotal))}
           ${row("Medicare", "الرعاية الطبية", money2(input.medicareTotal))}
-          ${row("Total Federal Deposit", "إجمالي الإيداع الفيدرالي", money2(input.totalAmount), true)}
         </table>
       </td></tr>
     </table>
-    <p style="margin:0 0 8px; font-size:13px; font-weight:600; color:#374151;">By Employee <bdi dir="rtl" style="color:#9ca3af; font-weight:400;">/ حسب الموظف</bdi></p>
+    <p style="margin:0 0 8px; font-size:13px; font-weight:600; color:#374151;">By Employee &nbsp;/&nbsp; <bdi dir="rtl" style="color:#9ca3af; font-weight:400;">حسب الموظف</bdi></p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden;">
       <tr style="background:#f3f4f6;">
         <td style="padding:6px 8px; font-size:11.5px; color:#6b7280; text-transform:uppercase;">Employee</td>
@@ -246,11 +311,13 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
       </tr>
       ${employeeRows}
     </table>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 4px;">
-      <tr><td style="border-radius:6px; background:#0f766e;"><a href="${esc(input.acknowledgeUrl)}" style="display:inline-block; padding:11px 22px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none;">View & Acknowledge Report</a></td></tr>
-    </table>
+    ${canAcknowledge ? bilingualButtonHtml(input.acknowledgeUrl, "View & Acknowledge Report", "عرض الإقرار وتأكيد الاستلام").replace("margin:0 0 18px;", "margin:0 0 4px;") : ""}
     ${googleCalendarUrl ? buildAddToCalendarButtonHtml(googleCalendarUrl, { theme: "green" }).replace('margin-top:10px', 'margin:4px 0 18px; text-align:left') : ""}
-    <p style="margin:0; color:#6b7280; font-size:12.5px;">This report covers federal deposit amounts only — state withholding and unemployment insurance are covered separately in your quarterly payroll report. <bdi dir="rtl">يغطي هذا التقرير مبالغ الإيداع الفيدرالي فقط.</bdi></p>`;
+    ${bilingualParagraph(
+      "This report covers federal deposit amounts only — state withholding and unemployment insurance are covered separately in your quarterly payroll report.",
+      "يغطي هذا التقرير مبالغ الإيداع الفيدرالي فقط — يتم تغطية الضريبة الحكومية المقتطعة وتأمين البطالة بشكل منفصل ضمن تقرير الرواتب الفصلي.",
+      { color: "#6b7280", marginBottom: 0 }
+    )}`;
 }
 
 /** Save & Send for the EFTPS deposit workflow — a real per-employee federal breakdown, not the single-amount shape sendFilingConfirmation uses elsewhere. Same consent gating and logging convention as the rest of this file. */
@@ -283,7 +350,10 @@ export interface NoticeReceivedInput {
 
 function noticeReceivedBody(input: NoticeReceivedInput): string {
   return `
-    <p style="margin:0 0 18px;">We wanted to let you know that we've received a notice from ${esc(input.agency)}. <bdi dir="rtl" style="color:#9ca3af;">/ نود إعلامكم بأننا استلمنا إشعاراً من ${esc(input.agency)}.</bdi></p>
+    ${bilingualParagraph(
+      `We wanted to let you know that we've received a notice from <strong>${esc(input.agency)}</strong>.`,
+      `نود إعلامكم بأننا استلمنا إشعاراً من <strong>${esc(input.agency)}</strong>.`
+    )}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
            style="background:#f8fafb; border:1px solid #e5e7eb; border-left:3px solid #b45309; border-radius:6px; margin:0 0 18px;">
       <tr><td style="padding:14px 18px;">
@@ -296,7 +366,11 @@ function noticeReceivedBody(input: NoticeReceivedInput): string {
         </table>
       </td></tr>
     </table>
-    <p style="margin:0; color:#6b7280; font-size:12.5px;">We're reviewing it now and will reach out if we need anything from you. If you receive any related mail from ${esc(input.agency)}, please forward it to us right away. <bdi dir="rtl">سنقوم بمراجعته وسنتواصل معكم إذا احتجنا إلى أي شيء. إذا استلمتم أي مراسلات متعلقة بهذا من ${esc(input.agency)}، يرجى إرسالها إلينا فوراً.</bdi></p>`;
+    ${bilingualParagraph(
+      `We're reviewing it now and will reach out if we need anything from you. If you receive any related mail from ${esc(input.agency)}, please forward it to us right away.`,
+      `سنقوم بمراجعته وسنتواصل معكم إذا احتجنا إلى أي شيء. إذا استلمتم أي مراسلات متعلقة بهذا من ${esc(input.agency)}، يرجى إرسالها إلينا فوراً.`,
+      { color: "#6b7280", marginBottom: 0 }
+    )}`;
 }
 
 /** Sends the "we received a notice from the agency" heads-up — opt-in per notice (staff checks "Notify Client" when logging it), same as sendFilingConfirmation's "Save and Send". Silent no-op without email consent. */
