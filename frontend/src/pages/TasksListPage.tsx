@@ -76,7 +76,14 @@ export function TasksListPage() {
   // Sticky for the session so opening a task and pressing Back returns you to the
   // same filtered, sorted list — with the task you were working on still in it.
   const [search, setSearch] = useStickyState("tasks.search", "");
-  const [quickTab, setQuickTab] = useStickyState<QuickTab>("tasks.tab", "Active");
+  // Seeded from ?tab= the same way staffFilter/statusFilter seed from
+  // ?staff=/?status= below — lets Command Center's "Overdue tasks" exception
+  // deep-link straight into the filtered Overdue tab instead of dumping the
+  // admin on the unfiltered default.
+  const tabParam = searchParams.get("tab");
+  const [quickTab, setQuickTab] = useStickyState<QuickTab>(
+    "tasks.tab", (tabParam && (QUICK_TABS as readonly string[]).includes(tabParam) ? tabParam : "Active") as QuickTab
+  );
   // UX-003: seeded from ?staff= the same way statusFilter seeds from ?status=
   // below — lets the new admin-dashboard Staff Load panel deep-link straight
   // into a filtered pipeline instead of dumping the admin on the unfiltered one.

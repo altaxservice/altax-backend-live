@@ -58,7 +58,11 @@ export function InvoicesListPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [period, setPeriod] = useState(activeViewDates());
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Seeded from ?status= the same way clientIdFilter seeds from ?clientId=
+  // above — lets Command Center's "Overdue invoices" exception deep-link
+  // straight into the filtered list instead of dumping the admin on the
+  // unfiltered default.
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [search, setSearch] = useState("");
 
   const [showCreateInvoice, setShowCreateInvoice] = useState(false);
@@ -289,7 +293,16 @@ export function InvoicesListPage() {
     if (!invoices) return [];
     let rows = invoices;
     if (clientIdFilter) rows = rows.filter((i) => i.client_id === clientIdFilter);
-    if (statusFilter !== "all") rows = rows.filter((i) => i.status === statusFilter);
+    if (statusFilter === "Overdue") {
+      // Not a real status value (INVOICE_STATUSES is Unpaid/Partial/Paid/Void
+      // only) — this is the same "past due, still owed" computation the KPI
+      // tile above already uses (open + due_date in the past), reused here so
+      // that tile's own onClick (setStatusFilter("Overdue")) actually filters
+      // the list instead of literal-matching a status string that never exists.
+      rows = rows.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()) && (daysUntil(i.due_date) ?? 0) < 0);
+    } else if (statusFilter !== "all") {
+      rows = rows.filter((i) => i.status === statusFilter);
+    }
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter((i) => [i.invoice_id, clientName(i.client_id), i.description, i.total_amount].some((v) => String(v || "").toLowerCase().includes(q)));
     return rows;

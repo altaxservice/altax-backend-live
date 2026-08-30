@@ -1440,7 +1440,7 @@ export interface ManagementException {
  * As-of-today only (no from/to) — this reports current risk, not a period.
  */
 export async function computeManagementExceptions(): Promise<ManagementException[]> {
-  const [arAging, mdMissed, overdueTaskRow, verificationRow, overdueInvoiceRow, noticesOverdueRow, noticesDueSoonRow, overdueReturnsRow] = await Promise.all([
+  const [arAging, mdMissed, overdueTaskRow, verificationRows, overdueInvoiceRow, noticesOverdueRows, noticesDueSoonRows, overdueReturnsRows] = await Promise.all([
     computeArAging(),
     computeFirmWideMdSalesTaxMissedFilings(),
     queryOne<any>(
@@ -1448,82 +1448,120 @@ export async function computeManagementExceptions(): Promise<ManagementException
         WHERE lower(status) NOT IN ('completed','void','closed','archived')
           AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE`
     ),
-    queryOne<any>(
-      `SELECT COUNT(*)::int AS count FROM altax.v3_clients
+    // Was COUNT(*)-only — every row here now carries client_id too, so the
+    // exception can link straight to the worst offender's own record instead
+    // of a bare, unfiltered list page (owner's own words: "clicking on any
+    // item row does not take us to the exact item but it goes to the general
+    // page"). ORDER BY picks the single most overdue as the link target;
+    // count/amount for the summary line still comes from the full row set.
+    query<any>(
+      `SELECT client_id, mdtaxconnect_verified_at, md_business_express_verified_at FROM altax.v3_clients
         WHERE state = 'MD' AND (status IS NULL OR lower(status) NOT IN ('no','false','inactive','archived'))
           AND (mdtaxconnect_verified_at IS NULL OR mdtaxconnect_verified_at <= CURRENT_DATE - INTERVAL '30 days'
-               OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= CURRENT_DATE - INTERVAL '30 days')`
+               OR md_business_express_verified_at IS NULL OR md_business_express_verified_at <= CURRENT_DATE - INTERVAL '30 days')
+        ORDER BY LEAST(COALESCE(mdtaxconnect_verified_at, '1900-01-01'), COALESCE(md_business_express_verified_at, '1900-01-01')) ASC`
     ),
     queryOne<any>(
       `SELECT COUNT(*)::int AS count, COALESCE(SUM(balance_due), 0) AS total FROM altax.v3_invoices
         WHERE lower(status) NOT IN ('paid', 'void') AND balance_due > 0
           AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`
     ),
-    queryOne<any>(
-      `SELECT COUNT(*)::int AS count FROM altax.v3_notices
-        WHERE status <> 'Resolved' AND response_deadline IS NOT NULL AND response_deadline::date < CURRENT_DATE`
+    query<any>(
+      `SELECT client_id, response_deadline::date::text AS response_deadline FROM altax.v3_notices
+        WHERE status <> 'Resolved' AND response_deadline IS NOT NULL AND response_deadline::date < CURRENT_DATE
+        ORDER BY response_deadline ASC`
     ),
-    queryOne<any>(
-      `SELECT COUNT(*)::int AS count FROM altax.v3_notices
+    query<any>(
+      `SELECT client_id, response_deadline::date::text AS response_deadline FROM altax.v3_notices
         WHERE status <> 'Resolved' AND response_deadline IS NOT NULL
-          AND response_deadline::date >= CURRENT_DATE AND response_deadline::date <= CURRENT_DATE + INTERVAL '7 days'`
+          AND response_deadline::date >= CURRENT_DATE AND response_deadline::date <= CURRENT_DATE + INTERVAL '7 days'
+        ORDER BY response_deadline ASC`
     ),
-    queryOne<any>(
-      `SELECT COUNT(*)::int AS count FROM altax.v3_tax_returns
-        WHERE status NOT IN ('Accepted', 'Completed') AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE`
+    query<any>(
+      `SELECT client_id, due_date::date::text AS due_date FROM altax.v3_tax_returns
+        WHERE status NOT IN ('Accepted', 'Completed') AND due_date IS NOT NULL AND due_date::date < CURRENT_DATE
+        ORDER BY due_date ASC`
     ),
   ]);
 
   const items: ManagementException[] = [];
+  // Every exception below links to one specific client (the worst/most
+  // overdue) rather than a blank list page — but the label/count still
+  // describes everyone affected, so a multi-client exception needs this
+  // said explicitly or clicking "3 client(s)" and landing on just one reads
+  // as broken rather than as "here's the most urgent one first."
+  const clickHint = (n: number) => (n > 1 ? " Click for the most urgent." : "");
 
   if (arAging.totals.d90Plus > 0) {
+    const worstClients = arAging.rows.filter((r: any) => r.d90Plus > 0);
     items.push({
       severity: "critical", label: "A/R over 90 days past due",
-      count: arAging.rows.filter((r: any) => r.d90Plus > 0).length, amount: arAging.totals.d90Plus,
-      detail: `${fmtMoney(arAging.totals.d90Plus)} across ${arAging.rows.filter((r: any) => r.d90Plus > 0).length} client(s).`,
-      link: "/billing",
+      count: worstClients.length, amount: arAging.totals.d90Plus,
+      detail: `${fmtMoney(arAging.totals.d90Plus)} across ${worstClients.length} client(s).${clickHint(worstClients.length)}`,
+      link: `/billing?clientId=${worstClients[0].clientId}`,
     });
   }
   if (mdMissed.length > 0) {
     const total = mdMissed.reduce((s, f) => s + f.balanceDue, 0);
+    // Same deep-link shape as the At-Risk Clients / Missing Sales Tax Filings
+    // panels' own mdSalesTaxDeepLink() (frontend/src/pages/DashboardPage.tsx)
+    // — a year-plus lookback ending on the missed period so the actual unfiled
+    // period is guaranteed to be on screen without a second click to widen it.
+    const worst = mdMissed[0];
+    const periodEnd = new Date(`${worst.periodEnd}T00:00:00Z`);
+    const from = new Date(periodEnd);
+    from.setUTCDate(from.getUTCDate() - 370);
     items.push({
       severity: "critical", label: "Missed MD Sales Tax filings", count: mdMissed.length, amount: total,
-      detail: `${mdMissed.length} client(s), ${fmtMoney(total)} tax due.`,
-      link: "/clients",
+      detail: `${mdMissed.length} client(s), ${fmtMoney(total)} tax due.${clickHint(mdMissed.length)}`,
+      link: `/accounting?client=${worst.clientId}&tab=Sales&from=${from.toISOString().slice(0, 10)}&to=${worst.periodEnd}`,
     });
   }
   const overdueTasks = Number(overdueTaskRow?.count || 0);
   if (overdueTasks > 0) {
-    items.push({ severity: "critical", label: "Overdue tasks", count: overdueTasks, detail: `${overdueTasks} task(s) past their agency due date.`, link: "/tasks" });
+    items.push({ severity: "critical", label: "Overdue tasks", count: overdueTasks, detail: `${overdueTasks} task(s) past their agency due date.`, link: "/tasks?tab=Overdue" });
   }
   const overdueInvoiceCount = Number(overdueInvoiceRow?.count || 0);
   if (overdueInvoiceCount > 0) {
     const total = Number(overdueInvoiceRow?.total || 0);
-    items.push({ severity: "warning", label: "Overdue invoices", count: overdueInvoiceCount, amount: total, detail: `${overdueInvoiceCount} invoice(s), ${fmtMoney(total)} outstanding.`, link: "/billing" });
+    items.push({ severity: "warning", label: "Overdue invoices", count: overdueInvoiceCount, amount: total, detail: `${overdueInvoiceCount} invoice(s), ${fmtMoney(total)} outstanding.`, link: "/billing?status=Overdue" });
   }
   if (arAging.totals.d61_90 > 0) {
+    const worstClients = arAging.rows.filter((r: any) => r.d61_90 > 0);
     items.push({
       severity: "warning", label: "A/R in the 61-90 day bucket",
-      count: arAging.rows.filter((r: any) => r.d61_90 > 0).length, amount: arAging.totals.d61_90,
-      detail: `${fmtMoney(arAging.totals.d61_90)} — will become critical (90+) if not collected soon.`,
-      link: "/billing",
+      count: worstClients.length, amount: arAging.totals.d61_90,
+      detail: `${fmtMoney(arAging.totals.d61_90)} — will become critical (90+) if not collected soon.${clickHint(worstClients.length)}`,
+      link: `/billing?clientId=${worstClients[0].clientId}`,
     });
   }
-  const verificationDue = Number(verificationRow?.count || 0);
-  if (verificationDue > 0) {
-    items.push({ severity: "warning", label: "MD portal verification overdue", count: verificationDue, detail: `${verificationDue} MD client(s) not checked in MDTAXCONNECT/MD Business Express in 30+ days.`, link: "/clients" });
+  if (verificationRows.length > 0) {
+    items.push({
+      severity: "warning", label: "MD portal verification overdue", count: verificationRows.length,
+      detail: `${verificationRows.length} MD client(s) not checked in MDTAXCONNECT/MD Business Express in 30+ days.${clickHint(verificationRows.length)}`,
+      link: `/clients/${verificationRows[0].client_id}`,
+    });
   }
-  const noticesOverdue = Number(noticesOverdueRow?.count || 0);
-  if (noticesOverdue > 0) {
-    items.push({ severity: "critical", label: "IRS/state notice response deadlines missed", count: noticesOverdue, detail: `${noticesOverdue} open notice(s) past their response deadline.`, link: "/clients" });
+  if (noticesOverdueRows.length > 0) {
+    items.push({
+      severity: "critical", label: "IRS/state notice response deadlines missed", count: noticesOverdueRows.length,
+      detail: `${noticesOverdueRows.length} open notice(s) past their response deadline.${clickHint(noticesOverdueRows.length)}`,
+      link: `/clients/${noticesOverdueRows[0].client_id}`,
+    });
   }
-  const noticesDueSoon = Number(noticesDueSoonRow?.count || 0);
-  if (noticesDueSoon > 0) {
-    items.push({ severity: "warning", label: "IRS/state notice deadlines within 7 days", count: noticesDueSoon, detail: `${noticesDueSoon} open notice(s) due to respond within a week.`, link: "/clients" });
+  if (noticesDueSoonRows.length > 0) {
+    items.push({
+      severity: "warning", label: "IRS/state notice deadlines within 7 days", count: noticesDueSoonRows.length,
+      detail: `${noticesDueSoonRows.length} open notice(s) due to respond within a week.${clickHint(noticesDueSoonRows.length)}`,
+      link: `/clients/${noticesDueSoonRows[0].client_id}`,
+    });
   }
-  const overdueReturns = Number(overdueReturnsRow?.count || 0);
-  if (overdueReturns > 0) {
-    items.push({ severity: "critical", label: "Tax returns past their due date, not yet filed", count: overdueReturns, detail: `${overdueReturns} return(s) still in production past their due date.`, link: "/clients" });
+  if (overdueReturnsRows.length > 0) {
+    items.push({
+      severity: "critical", label: "Tax returns past their due date, not yet filed", count: overdueReturnsRows.length,
+      detail: `${overdueReturnsRows.length} return(s) still in production past their due date.${clickHint(overdueReturnsRows.length)}`,
+      link: `/clients/${overdueReturnsRows[0].client_id}`,
+    });
   }
 
   const order: Record<string, number> = { critical: 0, warning: 1 };
