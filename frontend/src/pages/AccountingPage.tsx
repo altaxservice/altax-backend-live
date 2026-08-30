@@ -479,6 +479,25 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     return () => clearTimeout(t);
   }, [clientId, clientState, period.start, period.end, mdFiledDate, mdPaidDate, mdFilingReloadKey]);
 
+  // Persistent History — every real filed period, independent of whatever
+  // date range Review & File happens to be showing right now (that section
+  // is a live lookup for the *selected* range; History is "everything ever
+  // filed"), same split EFTPS Deposits already has between its Review
+  // table and its own History card below. Reuses the exact same
+  // GET /reports/md-filing endpoint (already returns markedFiledDate per
+  // period) over a wide span rather than adding a new backend route,
+  // filtered down to periods actually filed.
+  const [historyPeriods, setHistoryPeriods] = useState<NonNullable<typeof mdFiling>["periods"] | null>(null);
+  useEffect(() => {
+    if (clientState !== "MD") { setHistoryPeriods(null); return; }
+    const today = new Date();
+    const wideFrom = "2015-01-01";
+    const wideTo = new Date(today.getFullYear() + 2, 11, 31).toISOString().slice(0, 10);
+    api.get<{ mdFiling: typeof mdFiling }>(`/reports/md-filing/${clientId}?from=${wideFrom}&to=${wideTo}&includeZeroTaxPeriods=true`)
+      .then((r) => setHistoryPeriods((r.mdFiling?.periods || []).filter((p) => p.markedFiledDate)))
+      .catch(() => setHistoryPeriods([]));
+  }, [clientId, clientState, mdFilingReloadKey]);
+
   /**
    * Records a period as actually filed — paidDate is now OPTIONAL (filing and
    * paying are separate events; see reports.routes.ts's mark-filed doc
@@ -543,6 +562,89 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     } finally {
       setMarkingPeriodEnd(null);
     }
+  }
+
+  /**
+   * One row shape for both the Review & File table and the persistent
+   * History table below it — previously two separately-maintained JSX
+   * blocks (a single-period "big view" and an N-period table), which is
+   * exactly the inconsistency that made this tab feel different from
+   * EFTPS Deposits (same row logic, reused in both its Review and History
+   * sections). Clicking a row jumps the picker above to that period so its
+   * actual sales entries show below, same in both tables.
+   */
+  function renderMdPeriodRow(p: NonNullable<typeof mdFiling>["periods"][number]) {
+    return (
+      <tr
+        key={`${p.start}-${p.end}`}
+        onClick={() => setPeriod({ start: p.start, end: p.end })}
+        style={{ cursor: "pointer" }}
+        title="View this period's actual sales entries below"
+      >
+        <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
+        <td>{fmtDate(p.dueDate)}</td>
+        <td className="muted">{fmtDate(p.targetFilingDate)}</td>
+        <td>{fmtMoney(p.taxDue)}</td>
+        <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !p.markedPaidDate ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !p.markedPaidDate ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
+          {p.markedPaidDate ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? "Filed — payment pending" : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+        </td>
+        <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
+        <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
+        <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
+        <td onClick={(e) => e.stopPropagation()}>
+          {p.markedPaidDate ? (
+            <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
+              {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
+            </button>
+          ) : p.markedFiledDate ? (
+            pickRecordPaymentEnd === p.end ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
+                <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickRecordPaymentDate} onClick={() => handleRecordPayment(p, pickRecordPaymentDate)}>
+                    {markingPeriodEnd === p.end ? "…" : "Record"}
+                  </button>
+                  <button type="button" className="btn btn-sm" onClick={() => setPickRecordPaymentEnd(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end} onClick={() => { setPickRecordPaymentEnd(p.end); setPickRecordPaymentDate(p.dueDate); }}>
+                  Record Payment
+                </button>
+                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
+                  Undo
+                </button>
+              </div>
+            )
+          ) : pickingPeriodEnd === p.end ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
+              <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <div style={{ display: "flex", gap: 4 }}>
+                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleMarkFiled(p, pickFiledDate, pickPaidDate, false)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save and Close"}
+                </button>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleMarkFiled(p, pickFiledDate, pickPaidDate, true)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save and Send"}
+                </button>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={markingPeriodEnd === p.end}
+              onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(""); }}
+              title="Enter this period's actual filed date (and payment date, if already paid)"
+            >
+              Mark Filed
+            </button>
+          )}
+        </td>
+      </tr>
+    );
   }
 
   function handleClearForm() {
@@ -771,110 +873,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                   </p>
                 )}
 
-                {mdFiling && mdFiling.periods.length === 1 && (
-                  <>
-                    <div style={{ marginBottom: 10, display: "flex", gap: 24 }}>
-                      <div>
-                        <div className="small-label" style={{ marginBottom: 2 }}>Return due date</div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdFiling.periods[0].dueDate)}</div>
-                      </div>
-                      <div>
-                        <div className="small-label" style={{ marginBottom: 2 }}>Target filing date</div>
-                        <div className="muted" style={{ fontSize: 14, fontWeight: 700 }}>{fmtDate(mdFiling.periods[0].targetFilingDate)}</div>
-                      </div>
-                    </div>
-                    <div style={{
-                      display: "inline-block", padding: "3px 10px", borderRadius: 12, fontSize: 11.5, fontWeight: 700, marginBottom: 10,
-                      background: mdFiling.periods[0].markedPaidDate ? "var(--teal-soft)" : mdFiling.periods[0].markedFiledDate ? "var(--amber-soft)" : mdFiling.periods[0].onTime ? "var(--green-soft)" : "var(--red-soft)",
-                      color: mdFiling.periods[0].markedPaidDate ? "var(--teal)" : mdFiling.periods[0].markedFiledDate ? "var(--amber)" : mdFiling.periods[0].onTime ? "var(--green)" : "var(--red)",
-                    }}>
-                      {mdFiling.periods[0].markedPaidDate
-                        ? (mdFiling.periods[0].markedFiledDate === mdFiling.periods[0].markedPaidDate
-                            ? `✓ Filed & Paid ${fmtDate(mdFiling.periods[0].markedPaidDate)}`
-                            : `✓ Filed ${fmtDate(mdFiling.periods[0].markedFiledDate!)}, Paid ${fmtDate(mdFiling.periods[0].markedPaidDate)}`)
-                        : mdFiling.periods[0].markedFiledDate
-                          ? `Filed ${fmtDate(mdFiling.periods[0].markedFiledDate)} — payment pending`
-                          : mdFiling.periods[0].onTime ? "✓ On time — eligible for the discount" : `⚠ Late — ${mdFiling.periods[0].monthsLate} month${mdFiling.periods[0].monthsLate === 1 ? "" : "s"} past due`}
-                    </div>
-                    <div className="metric-grid metric-grid-3">
-                      {mdFiling.periods[0].markedFiledDate && !mdFiling.periods[0].markedPaidDate ? (
-                        // Discount/penalty math needs a real payment date — not knowable yet.
-                        <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.periods[0].balanceDue)}</div><div className="metric-note">Discount/penalty pending payment</div></div>
-                      ) : mdFiling.periods[0].onTime ? (
-                        <>
-                          <div className="metric"><div className="metric-label">Timely Discount</div><div className="metric-value">− {fmtMoney(mdFiling.periods[0].discount)}</div><div className="metric-note">Line 18</div></div>
-                          <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.periods[0].balanceDue)}</div><div className="metric-note">Line 20</div></div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="metric"><div className="metric-label">Penalty — 10%</div><div className="metric-value">{fmtMoney(mdFiling.periods[0].penalty)}</div><div className="metric-note">Line 37a</div></div>
-                          <div className="metric"><div className="metric-label">Interest</div><div className="metric-value">{fmtMoney(mdFiling.periods[0].interest)}</div><div className="metric-note">Line 37b</div></div>
-                          <div className="metric"><div className="metric-label">Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.periods[0].balanceDue)}</div><div className="metric-note">Line 38</div></div>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      {mdFiling.periods[0].markedPaidDate ? (
-                        <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleUnmarkPeriodFiled(mdFiling.periods[0])}>
-                          {markingPeriodEnd === mdFiling.periods[0].end ? "Undoing…" : "Undo — this wasn't actually filed"}
-                        </button>
-                      ) : mdFiling.periods[0].markedFiledDate ? (
-                        // Filed, payment still pending — record the payment when it comes in, or undo the whole filing.
-                        pickRecordPaymentEnd === mdFiling.periods[0].end ? (
-                          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                            <div className="field" style={{ maxWidth: 180, margin: 0 }}>
-                              <label>Actual payment date</label>
-                              <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} style={{ padding: "4px 6px" }} />
-                            </div>
-                            <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end || !pickRecordPaymentDate} onClick={() => handleRecordPayment(mdFiling.periods[0], pickRecordPaymentDate)}>
-                              {markingPeriodEnd === mdFiling.periods[0].end ? "Recording…" : "Record Payment"}
-                            </button>
-                            <button type="button" className="btn btn-sm" onClick={() => setPickRecordPaymentEnd(null)}>Cancel</button>
-                          </div>
-                        ) : (
-                          <div style={{ display: "flex", gap: 8 }}>
-                            <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => { setPickRecordPaymentEnd(mdFiling.periods[0].end); setPickRecordPaymentDate(mdFiling.periods[0].dueDate); }}>
-                              Record Payment
-                            </button>
-                            <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === mdFiling.periods[0].end} onClick={() => handleUnmarkPeriodFiled(mdFiling.periods[0])}>
-                              Undo — this wasn't actually filed
-                            </button>
-                          </div>
-                        )
-                      ) : pickingPeriodEnd === mdFiling.periods[0].end ? (
-                        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                          <div className="field" style={{ maxWidth: 180, margin: 0 }}>
-                            <label>Actual filed date</label>
-                            <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
-                          </div>
-                          <div className="field" style={{ maxWidth: 180, margin: 0 }}>
-                            <label>Actual payment date (optional — leave blank if not yet paid)</label>
-                            <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
-                          </div>
-                          <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === mdFiling.periods[0].end || !pickFiledDate} onClick={() => handleMarkFiled(mdFiling.periods[0], pickFiledDate, pickPaidDate, false)}>
-                            {markingPeriodEnd === mdFiling.periods[0].end ? "Saving…" : "Save and Close"}
-                          </button>
-                          <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === mdFiling.periods[0].end || !pickFiledDate} onClick={() => handleMarkFiled(mdFiling.periods[0], pickFiledDate, pickPaidDate, true)}>
-                            {markingPeriodEnd === mdFiling.periods[0].end ? "Sending…" : "Save and Send"}
-                          </button>
-                          <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          disabled={markingPeriodEnd === mdFiling.periods[0].end}
-                          onClick={() => { setPickingPeriodEnd(mdFiling.periods[0].end); setPickFiledDate(mdFiling.periods[0].dueDate); setPickPaidDate(""); }}
-                          title="Enter this period's actual filed date (and payment date, if already paid)"
-                        >
-                          Mark Filed
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
 
-                {mdFiling && mdFiling.periods.length > 1 && (
+                {mdFiling && mdFiling.periods.length > 0 && (
                   <>
                     <div className="table-scroll">
                       <table>
@@ -884,90 +884,50 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                             <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          {mdFiling.periods.map((p) => (
-                            <tr
-                              key={`${p.start}-${p.end}`}
-                              onClick={() => setPeriod({ start: p.start, end: p.end })}
-                              style={{ cursor: "pointer" }}
-                              title="View this period's actual sales entries below"
-                            >
-                              <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
-                              <td>{fmtDate(p.dueDate)}</td>
-                              <td className="muted">{fmtDate(p.targetFilingDate)}</td>
-                              <td>{fmtMoney(p.taxDue)}</td>
-                              <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !p.markedPaidDate ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !p.markedPaidDate ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
-                                {p.markedPaidDate ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? "Filed — payment pending" : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
-                              </td>
-                              <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
-                              <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
-                              <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
-                              <td onClick={(e) => e.stopPropagation()}>
-                                {p.markedPaidDate ? (
-                                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
-                                    {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
-                                  </button>
-                                ) : p.markedFiledDate ? (
-                                  pickRecordPaymentEnd === p.end ? (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                                      <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
-                                      <div style={{ display: "flex", gap: 4 }}>
-                                        <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickRecordPaymentDate} onClick={() => handleRecordPayment(p, pickRecordPaymentDate)}>
-                                          {markingPeriodEnd === p.end ? "…" : "Record"}
-                                        </button>
-                                        <button type="button" className="btn btn-sm" onClick={() => setPickRecordPaymentEnd(null)}>Cancel</button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                      <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end} onClick={() => { setPickRecordPaymentEnd(p.end); setPickRecordPaymentDate(p.dueDate); }}>
-                                        Record Payment
-                                      </button>
-                                      <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
-                                        Undo
-                                      </button>
-                                    </div>
-                                  )
-                                ) : pickingPeriodEnd === p.end ? (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
-                                    <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
-                                    <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
-                                    <div style={{ display: "flex", gap: 4 }}>
-                                      <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleMarkFiled(p, pickFiledDate, pickPaidDate, false)}>
-                                        {markingPeriodEnd === p.end ? "…" : "Save and Close"}
-                                      </button>
-                                      <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleMarkFiled(p, pickFiledDate, pickPaidDate, true)}>
-                                        {markingPeriodEnd === p.end ? "…" : "Save and Send"}
-                                      </button>
-                                    </div>
-                                    <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm"
-                                    disabled={markingPeriodEnd === p.end}
-                                    onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(""); }}
-                                    title="Enter this period's actual filed date (and payment date, if already paid)"
-                                  >
-                                    Mark Filed
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        <tbody>{mdFiling.periods.map((p) => renderMdPeriodRow(p))}</tbody>
                       </table>
                     </div>
-                    <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Click any row to view that period's actual sales entries below.</p>
-                    <div className="metric-grid metric-grid-3" style={{ marginTop: 12 }}>
-                      <div className="metric"><div className="metric-label">Total Discount</div><div className="metric-value">− {fmtMoney(mdFiling.totals.discount)}</div></div>
-                      <div className="metric"><div className="metric-label">Total Penalty + Interest</div><div className="metric-value">{fmtMoney(mdFiling.totals.penalty + mdFiling.totals.interest)}</div></div>
-                      <div className="metric"><div className="metric-label">Total Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.totals.balanceDue)}</div></div>
-                    </div>
+                    {mdFiling.periods.length > 1 && (
+                      <>
+                        <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Click any row to view that period's actual sales entries below.</p>
+                        <div className="metric-grid metric-grid-3" style={{ marginTop: 12 }}>
+                          <div className="metric"><div className="metric-label">Total Discount</div><div className="metric-value">− {fmtMoney(mdFiling.totals.discount)}</div></div>
+                          <div className="metric"><div className="metric-label">Total Penalty + Interest</div><div className="metric-value">{fmtMoney(mdFiling.totals.penalty + mdFiling.totals.interest)}</div></div>
+                          <div className="metric"><div className="metric-label">Total Balance Due</div><div className="metric-value">{fmtMoney(mdFiling.totals.balanceDue)}</div></div>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </>
+            )}
+          </div>
+        )}
+        {/* Persistent History — every real filed period, independent of
+            whatever range Review & File above happens to be showing right
+            now, same split EFTPS Deposits already has between its Review
+            table and its own History card. Reuses renderMdPeriodRow so a
+            filed period looks identical whether it's found via Review or
+            History. */}
+        {clientState === "MD" && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <div className="small-label" style={{ marginBottom: 6 }}>History</div>
+            {historyPeriods === null ? (
+              <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+            ) : historyPeriods.length === 0 ? (
+              <p className="muted" style={{ fontSize: 12.5 }}>No MD Sales Tax filings recorded yet.</p>
+            ) : (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
+                      <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
+                    </tr>
+                  </thead>
+                  <tbody>{historyPeriods.map((p) => renderMdPeriodRow(p))}</tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

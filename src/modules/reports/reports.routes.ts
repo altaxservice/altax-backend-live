@@ -2969,7 +2969,13 @@ reportsRouter.get("/md-filing/:clientId", requireAuth, requireRole("admin", "sta
   const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
   const mdFiledDate = String(req.query.mdFiledDate || "").trim() || undefined;
   const mdPaidDate = String(req.query.mdPaidDate || "").trim() || undefined;
-  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate);
+  // Default behavior (computeMdFilingBreakdown) hides a $0 period with
+  // nothing left to act on — right for the Review/PDF/CSV use this route
+  // was built for, wrong for a "show every real filed period" History
+  // list (AccountingPage.tsx), which explicitly opts in here so an
+  // already-filed $0 period doesn't silently vanish from its own history.
+  const includeZeroTaxPeriods = String(req.query.includeZeroTaxPeriods || "") === "true";
+  const mdFiling = await computeMdFilingForReport(client, period.from, period.to, mdFiledDate, mdPaidDate, { includeZeroTaxPeriods });
   res.json({ mdFiling });
 }));
 
@@ -3009,25 +3015,24 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
     return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD (paidDate too, if provided)." });
   }
 
+  const existing = await queryOne<{ period_end: string }>(
+    `SELECT period_end FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Undo it first if you need to re-file." });
+
   const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
   const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, periodStart, periodEnd);
   const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
   const dueDate = mdDueDateForPeriod(periodEnd);
   const result = paidDate ? await computeMdFiling(taxDue, dueDate, filedDate, paidDate) : null;
-  // Generated once, only on first insert — COALESCE keeps it stable across
-  // an edit/refiling of the same period (this route re-runs via ON CONFLICT
-  // DO UPDATE), since the token may already be out in an emailed link.
-  const newShareToken = crypto.randomBytes(24).toString("hex");
+  const shareToken = crypto.randomBytes(24).toString("hex");
 
   const row = await queryOne<{ share_token: string }>(
     `INSERT INTO altax.v3_md_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by, share_token)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     ON CONFLICT (client_id, period_end) DO UPDATE SET
-       period_start = EXCLUDED.period_start, filed_date = EXCLUDED.filed_date, paid_date = EXCLUDED.paid_date, tax_due = EXCLUDED.tax_due,
-       balance_due = EXCLUDED.balance_due, on_time = EXCLUDED.on_time, filed_by = EXCLUDED.filed_by, filed_at = now(),
-       share_token = COALESCE(altax.v3_md_filing_payments.share_token, EXCLUDED.share_token)
      RETURNING share_token`,
-    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email, newShareToken]
+    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email, shareToken]
   );
   await logAudit("Accounting", "MD_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);

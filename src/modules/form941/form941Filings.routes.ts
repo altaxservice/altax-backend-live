@@ -48,6 +48,12 @@ function quarterPeriod(year: number, quarter: number): { start: string; end: str
   const pad2 = (n: number) => String(n).padStart(2, "0");
   return { start: `${year}-${pad2(qStartMonth0 + 1)}-01`, end: `${year}-${pad2(qEndMonth0 + 1)}-${pad2(lastDay)}` };
 }
+/** A DATE column comes back from SELECT * as a JS Date — String(date) gives "Mon Jun 30 2026...", not an ISO string, so the date must be read off the Date object's own toISOString(), not stringified directly. Same fix already applied elsewhere this session (templates.routes.ts's toIsoDateStr). */
+function toIsoDateStr(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
 /** IRS's real Form 941 due dates (matches complianceCalendar.ts's FORM_941_DUE_DATES). */
 function form941DueDate(year: number, quarter: number): string {
   const dueDates: Record<number, [number, number, number]> = {
@@ -73,19 +79,48 @@ form941FilingsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncH
   res.json({ filings: rows });
 }));
 
-/** Live-computed preview before filing — same numbers mark-filed will use, no DB write. */
-form941FilingsRouter.get("/preview", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+/**
+ * EFTPS-style Review & File: splits the requested range into real quarters
+ * (reusing splitIntoMdFilingPeriods with a fixed "Quarterly" frequency —
+ * Form 941 has no variable client frequency), and for each quarter returns
+ * the live-computed totals plus whether it's already filed.
+ */
+form941FilingsRouter.get("/review", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const clientId = String(req.query.clientId || "").trim();
   const loaded = await loadClient(req, clientId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const parsed = parseYearQuarter(req);
-  if (!parsed) return res.status(400).json({ error: "A valid year and quarter (1-4) are required." });
+  const periodStart = String(req.query.periodStart || "").trim();
+  const periodEnd = String(req.query.periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
+  }
 
-  const period = quarterPeriod(parsed.year, parsed.quarter);
-  const totals = await computeForm941Quarter(clientId, parsed.year, parsed.quarter);
-  const eftpsDepositsApplied = await sumEftpsDepositsInPeriod(clientId, period.start, period.end);
-  const balanceDue = totals.grossLiability - eftpsDepositsApplied;
-  res.json({ ...totals, eftpsDepositsApplied, balanceDue, periodStart: period.start, periodEnd: period.end, dueDate: form941DueDate(parsed.year, parsed.quarter) });
+  const { splitIntoMdFilingPeriods } = await import("../../common/mdFiling");
+  const { periods } = splitIntoMdFilingPeriods(periodStart, periodEnd, "Quarterly");
+  if (!periods.length) return res.json({ quarters: [] });
+
+  const existingRows = await query<any>(
+    `SELECT * FROM altax.v3_form941_filings WHERE client_id = $1 AND period_end >= $2::date AND period_end <= $3::date`,
+    [clientId, periods[0].start, periods[periods.length - 1].end]
+  );
+  const existingByPeriodEnd = new Map(existingRows.map((r: any) => [toIsoDateStr(r.period_end), r]));
+
+  const quarters = [];
+  for (const p of periods) {
+    const m = Number(p.start.slice(5, 7));
+    const quarter = (Math.floor((m - 1) / 3) + 1) as 1 | 2 | 3 | 4;
+    const year = Number(p.start.slice(0, 4));
+    const existingRaw = existingByPeriodEnd.get(p.end) || null;
+    const existingFiling = existingRaw ? { ...existingRaw, period_end: toIsoDateStr(existingRaw.period_end) } : null;
+    let totals = null;
+    if (!existingFiling) {
+      const computed = await computeForm941Quarter(clientId, year, quarter);
+      const eftpsDepositsApplied = await sumEftpsDepositsInPeriod(clientId, p.start, p.end);
+      totals = { ...computed, eftpsDepositsApplied, balanceDue: computed.grossLiability - eftpsDepositsApplied };
+    }
+    quarters.push({ periodStart: p.start, periodEnd: p.end, quarter, year, dueDate: form941DueDate(year, quarter), totals, existingFiling });
+  }
+  res.json({ quarters });
 }));
 
 form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -106,27 +141,27 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
 
   const period = quarterPeriod(parsed.year, parsed.quarter);
   const dueDate = form941DueDate(parsed.year, parsed.quarter);
+
+  const existing = await queryOne<{ period_end: string }>(
+    `SELECT period_end FROM altax.v3_form941_filings WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, period.end]
+  );
+  if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Undo it first if you need to re-file." });
+
   const totals = await computeForm941Quarter(client.clientId, parsed.year, parsed.quarter);
   const eftpsDepositsApplied = await sumEftpsDepositsInPeriod(client.clientId, period.start, period.end);
   const balanceDue = totals.grossLiability - eftpsDepositsApplied;
 
-  const newShareToken = crypto.randomBytes(24).toString("hex");
+  const shareToken = crypto.randomBytes(24).toString("hex");
   const row = await queryOne<{ share_token: string }>(
     `INSERT INTO altax.v3_form941_filings
        (client_id, period_start, period_end, quarter, employee_count, wages, federal_withholding, social_security_wages,
         medicare_wages, gross_liability, eftps_deposits_applied, balance_due, filed_date, paid_date, filed_by, share_token)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-     ON CONFLICT (client_id, period_end) DO UPDATE SET
-       employee_count = EXCLUDED.employee_count, wages = EXCLUDED.wages, federal_withholding = EXCLUDED.federal_withholding,
-       social_security_wages = EXCLUDED.social_security_wages, medicare_wages = EXCLUDED.medicare_wages,
-       gross_liability = EXCLUDED.gross_liability, eftps_deposits_applied = EXCLUDED.eftps_deposits_applied,
-       balance_due = EXCLUDED.balance_due, filed_date = EXCLUDED.filed_date, paid_date = EXCLUDED.paid_date,
-       filed_by = EXCLUDED.filed_by, filed_at = now(),
-       share_token = COALESCE(altax.v3_form941_filings.share_token, EXCLUDED.share_token)
      RETURNING share_token`,
     [client.clientId, period.start, period.end, parsed.quarter, totals.employeeCount, totals.wages, totals.federalWithholding,
       totals.socialSecurityWages, totals.medicareWages, totals.grossLiability, eftpsDepositsApplied, balanceDue,
-      filedDate, paidDate, req.user!.email, newShareToken]
+      filedDate, paidDate, req.user!.email, shareToken]
   );
   await logAudit("Accounting", "FORM_941_FILED", client.clientId, "Quarter", "", `${parsed.year} Q${parsed.quarter}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `Form 941 (${parsed.year} Q${parsed.quarter}) marked filed ${filedDate}, balance due ${balanceDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);

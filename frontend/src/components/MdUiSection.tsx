@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
@@ -8,6 +8,10 @@ interface MdUiFiling {
   client_id: string; period_start: string; period_end: string;
   filed_date: string; paid_date: string | null; amount: number;
   share_token: string | null; acknowledged_at: string | null;
+}
+interface MdUiQuarterReview {
+  periodStart: string; periodEnd: string; dueDate: string;
+  suggestedAmount: number | null; existingFiling: MdUiFiling | null;
 }
 
 function fmtDate(v: string | null): string {
@@ -20,180 +24,298 @@ function money(v: unknown): string {
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
 function pad2(n: number): string { return String(n).padStart(2, "0"); }
-function quarterPeriod(year: number, quarter: number): { start: string; end: string } {
+function todayStr(): string { return new Date().toISOString().slice(0, 10); }
+function quarterOf(dateStr: string): { year: number; quarter: number } {
+  const [y, m] = dateStr.split("-").map(Number);
+  return { year: y, quarter: Math.floor((m - 1) / 3) + 1 };
+}
+function quarterBounds(year: number, quarter: number): { start: string; end: string } {
   const qStartMonth0 = (quarter - 1) * 3;
-  const qEndMonth0 = qStartMonth0 + 2;
-  const lastDay = new Date(Date.UTC(year, qEndMonth0 + 1, 0)).getUTCDate();
-  return { start: `${year}-${pad2(qStartMonth0 + 1)}-01`, end: `${year}-${pad2(qEndMonth0 + 1)}-${pad2(lastDay)}` };
+  const lastDay = new Date(Date.UTC(year, qStartMonth0 + 3, 0)).getUTCDate();
+  return { start: `${year}-${pad2(qStartMonth0 + 1)}-01`, end: `${year}-${pad2(qStartMonth0 + 3)}-${pad2(lastDay)}` };
 }
-/** MD's real, fixed statutory deadline — the 24th of the month after quarter-end, matching TR-009's rule config (due_day=24), same convention as mdFiling.ts's mdDueDateForPeriod being a hardcoded statutory fact. */
-function mdUiDueDate(year: number, quarter: number): string {
-  const qEndMonth0 = quarter * 3 - 1;
-  const dueMonth0 = qEndMonth0 === 11 ? 0 : qEndMonth0 + 1;
-  const dueYear = qEndMonth0 === 11 ? year + 1 : year;
-  return `${dueYear}-${pad2(dueMonth0 + 1)}-24`;
+function periodLabel(periodStart: string): string {
+  const { year, quarter } = quarterOf(periodStart);
+  return `Q${quarter} ${year}`;
 }
+/** Same preset shape as EftpsDepositSection's PERIOD_PRESETS, adapted to quarters. */
+const PERIOD_PRESETS = [
+  { label: "This Quarter", range: () => { const { year, quarter } = quarterOf(todayStr()); return quarterBounds(year, quarter); } },
+  { label: "Last Quarter", range: () => { const { year, quarter } = quarterOf(todayStr()); const py = quarter === 1 ? year - 1 : year; const pq = quarter === 1 ? 4 : quarter - 1; return quarterBounds(py, pq); } },
+  { label: "Last 4 Quarters", range: () => { const { year, quarter } = quarterOf(todayStr()); const startQ = quarterBounds(year, quarter); const back = new Date(`${startQ.start}T00:00:00Z`); back.setUTCMonth(back.getUTCMonth() - 9); const b = quarterOf(back.toISOString().slice(0, 10)); return { start: quarterBounds(b.year, b.quarter).start, end: startQ.end }; } },
+];
 
 export function MdUiSection({ clientId }: { clientId: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
-  const [filings, setFilings] = useState<MdUiFiling[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [quarter, setQuarter] = useState(Math.floor(now.getMonth() / 3) + 1);
-  const [filedDate, setFiledDate] = useState("");
-  const [amount, setAmount] = useState("");
-  const [suggestedAmount, setSuggestedAmount] = useState<number | null>(null);
-  const [paidDate, setPaidDate] = useState("");
-  const [notify, setNotify] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [recordPaymentDates, setRecordPaymentDates] = useState<Record<string, string>>({});
 
-  function load() {
-    setLoading(true);
-    api.get<{ filings: MdUiFiling[] }>(`/md-ui-filings?clientId=${clientId}`)
-      // period_end comes back as a full ISO datetime (Postgres DATE columns
-      // serialize via Date.toJSON()) — normalized to YYYY-MM-DD here, once,
-      // so every downstream use (URL paths, the recordPaymentDates map key,
-      // the alreadyFiled equality check) works with a clean date string.
-      .then((r) => setFilings(r.filings.map((f) => ({ ...f, period_end: f.period_end.slice(0, 10) }))))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load MD UI filings."))
-      .finally(() => setLoading(false));
+  const initial = PERIOD_PRESETS[0].range();
+  const [periodStart, setPeriodStart] = useState(initial.start);
+  const [periodEnd, setPeriodEnd] = useState(initial.end);
+  const [reviewing, setReviewing] = useState(false);
+  const [quarters, setQuarters] = useState<MdUiQuarterReview[] | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [quarterInputs, setQuarterInputs] = useState<Record<string, { amount: string; filedDate: string; paidDate: string; notify: boolean }>>({});
+  const [filingBusy, setFilingBusy] = useState<string | null>(null);
+
+  const [history, setHistory] = useState<MdUiFiling[] | null>(null);
+  function loadHistory() {
+    api.get<{ filings: MdUiFiling[] }>(`/md-ui-filings?clientId=${encodeURIComponent(clientId)}`)
+      .then((r) => setHistory(r.filings.map((f) => ({ ...f, period_end: f.period_end.slice(0, 10) }))))
+      .catch(() => setHistory([]));
   }
-  useEffect(load, [clientId]);
+  useEffect(loadHistory, [clientId]);
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
 
-  useEffect(() => {
-    const { start, end } = quarterPeriod(year, quarter);
-    api.get<{ suggestedAmount: number }>(`/md-ui-filings/suggested-amount?clientId=${clientId}&periodStart=${start}&periodEnd=${end}`)
-      .then((r) => { setSuggestedAmount(r.suggestedAmount); setAmount(r.suggestedAmount.toFixed(2)); })
-      .catch(() => setSuggestedAmount(null));
-  }, [clientId, year, quarter]);
+  const [payingKey, setPayingKey] = useState<string | null>(null);
+  const [payingDate, setPayingDate] = useState(todayStr());
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
-  const period = quarterPeriod(year, quarter);
-  const periodLabel = `Q${quarter} ${year}`;
-  const alreadyFiled = filings.some((f) => f.period_end === period.end);
+  function applyPreset(p: (typeof PERIOD_PRESETS)[number]) {
+    const r = p.range();
+    setPeriodStart(r.start); setPeriodEnd(r.end); setQuarters(null);
+  }
 
-  async function handleMarkFiled() {
-    if (!filedDate) return;
-    setSubmitting(true);
+  async function handleReview() {
+    setReviewing(true);
+    setError(null);
+    try {
+      const res = await api.get<{ quarters: MdUiQuarterReview[] }>(
+        `/md-ui-filings/review?clientId=${encodeURIComponent(clientId)}&periodStart=${periodStart}&periodEnd=${periodEnd}`
+      );
+      setQuarters(res.quarters);
+      const inputs: typeof quarterInputs = {};
+      for (const q of res.quarters) {
+        if (!q.existingFiling) inputs[q.periodEnd] = { amount: (q.suggestedAmount ?? 0).toFixed(2), filedDate: "", paidDate: "", notify: true };
+      }
+      setQuarterInputs((prev) => ({ ...prev, ...inputs }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load this period.");
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  async function handleMarkFiled(q: MdUiQuarterReview) {
+    const input = quarterInputs[q.periodEnd];
+    if (!input?.filedDate) return;
+    setFilingBusy(q.periodEnd);
     try {
       await api.post("/md-ui-filings/mark-filed", {
-        clientId, periodStart: period.start, periodEnd: period.end,
-        filedDate, amount: Number(amount), paidDate: paidDate || undefined,
-        dueDate: mdUiDueDate(year, quarter), notify,
+        clientId, periodStart: q.periodStart, periodEnd: q.periodEnd,
+        filedDate: input.filedDate, amount: Number(input.amount), paidDate: input.paidDate || undefined, notify: input.notify,
       });
-      toast(notify ? "Filed and confirmation sent to the client." : "Filed.");
-      setFiledDate(""); setPaidDate("");
-      load();
+      toast(input.notify ? "Filed and confirmation sent to the client." : "Filed.");
+      handleReview();
+      loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not mark this MD UI filing filed.");
     } finally {
-      setSubmitting(false);
+      setFilingBusy(null);
     }
   }
 
   async function handleRecordPayment(f: MdUiFiling) {
-    const date = recordPaymentDates[f.period_end];
-    if (!date) return;
+    setRowBusy(`${f.period_end}:pay`);
     try {
-      await api.post(`/md-ui-filings/${clientId}/${f.period_end}/record-payment`, { paidDate: date });
+      await api.post(`/md-ui-filings/${clientId}/${f.period_end}/record-payment`, { paidDate: payingDate });
       toast("Payment recorded.");
-      load();
+      setPayingKey(null);
+      handleReview();
+      loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not record this payment.");
+    } finally {
+      setRowBusy(null);
     }
   }
 
-  async function handleUnmark(f: MdUiFiling) {
+  async function handleUndo(f: MdUiFiling) {
     const ok = await confirmDialog({
-      title: "Undo this MD UI filing", message: `Removes the record for ${f.period_start.slice(0, 10)} – ${f.period_end.slice(0, 10)} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
+      title: "Undo this MD UI filing", message: `Removes the record for ${periodLabel(f.period_start)} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
     });
     if (!ok) return;
+    setRowBusy(`${f.period_end}:undo`);
     try {
       await api.post(`/md-ui-filings/${clientId}/${f.period_end}/unmark`, {});
       toast("Undone.");
-      load();
+      handleReview();
+      loadHistory();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not undo this filing.");
+    } finally {
+      setRowBusy(null);
     }
+  }
+
+  /** Shared row — reused for an already-filed quarter inside Review & File AND in the standalone History list below, same pattern as EftpsDepositSection's renderDepositRow. */
+  function renderFilingRow(f: MdUiFiling) {
+    return (
+      <Fragment key={f.period_end}>
+        <tr>
+          <td>{periodLabel(f.period_start)}</td>
+          <td>{fmtDate(f.filed_date)}</td>
+          <td style={{ textAlign: "right" }}>{money(f.amount)}</td>
+          <td>{f.paid_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span> : <span className="muted">Payment pending</span>}</td>
+          <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
+          <td>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {!f.paid_date && (
+                <button className="btn btn-sm" onClick={() => { setPayingKey(f.period_end); setPayingDate(todayStr()); }}>Record Payment</button>
+              )}
+              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${f.period_end}:undo`} onClick={() => handleUndo(f)}>{rowBusy === `${f.period_end}:undo` ? "…" : "Undo"}</button>
+            </div>
+          </td>
+        </tr>
+        {payingKey === f.period_end && (
+          <tr>
+            <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="mdui-pay-date">Payment Date</label>
+                  <input id="mdui-pay-date" type="date" value={payingDate} onChange={(e) => setPayingDate(e.target.value)} />
+                </div>
+                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${f.period_end}:pay`} onClick={() => handleRecordPayment(f)}>
+                  {rowBusy === `${f.period_end}:pay` ? "Saving…" : "Record Payment"}
+                </button>
+                <button className="btn btn-sm" onClick={() => setPayingKey(null)}>Cancel</button>
+              </div>
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
   }
 
   return (
     <div>
-      <ErrorBanner error={error} />
-      <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ marginTop: 0 }}>Mark Filed</h3>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div className="field" style={{ maxWidth: 110 }}>
-            <label>Year</label>
-            <input type="number" value={year} onChange={(e) => setYear(Number(e.target.value) || now.getFullYear())} />
-          </div>
-          <div className="field" style={{ maxWidth: 100 }}>
-            <label>Quarter</label>
-            <select value={quarter} onChange={(e) => setQuarter(Number(e.target.value))}>
-              <option value={1}>Q1</option><option value={2}>Q2</option><option value={3}>Q3</option><option value={4}>Q4</option>
-            </select>
-          </div>
-          <div className="field" style={{ maxWidth: 170 }}>
-            <label>Filed Date</label>
-            <input type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} />
-          </div>
-          <div className="field" style={{ maxWidth: 130 }}>
-            <label>Amount</label>
-            <input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
-          <div className="field" style={{ maxWidth: 170 }}>
-            <label>Payment Date (optional)</label>
-            <input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, marginBottom: 10 }}>
-            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Notify client
-          </label>
-          <button type="button" className="btn btn-primary" disabled={submitting || !filedDate} onClick={handleMarkFiled} style={{ marginBottom: 10 }}>
-            {alreadyFiled ? "Re-file" : "Mark Filed"}
-          </button>
+      <p className="muted" style={{ fontSize: 13, maxWidth: 680, marginBottom: 16 }}>
+        Pick a date range and review — a range spanning more than one quarter shows one row per quarter, same as EFTPS Deposits.
+      </p>
+      {error && <ErrorBanner error={error} />}
+
+      <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>Review & File</h3>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+          {PERIOD_PRESETS.map((p) => (
+            <button key={p.label} type="button" className="btn btn-sm" onClick={() => applyPreset(p)}>{p.label}</button>
+          ))}
         </div>
-        {suggestedAmount !== null && (
-          <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>
-            Suggested amount for {periodLabel} (from recorded payroll): {money(suggestedAmount)}. MD's real Contribution Report may include adjustments this doesn't capture — confirm before filing.
-          </p>
-        )}
-        {alreadyFiled && <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>{periodLabel} has already been filed — this will update the existing record.</p>}
+        <div className="form-grid">
+          <div className="field"><label htmlFor="mdui-period-start">Period Start</label><input id="mdui-period-start" type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setQuarters(null); }} /></div>
+          <div className="field"><label htmlFor="mdui-period-end">Period End</label><input id="mdui-period-end" type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setQuarters(null); }} /></div>
+        </div>
+        <button className="btn btn-primary" onClick={handleReview} disabled={reviewing} style={{ marginTop: 4 }}>
+          {reviewing ? "Loading…" : "Review This Period"}
+        </button>
       </div>
 
-      <h3>History</h3>
-      {loading ? <p className="muted">Loading…</p> : filings.length === 0 ? <p className="muted">No MD UI filings yet.</p> : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      {quarters && (
+        <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Period</th><th>Filed</th><th>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+              <thead><tr><th>Quarter</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
               <tbody>
-                {filings.map((f) => (
-                  <tr key={f.period_end}>
-                    <td>{fmtDate(f.period_start)} – {fmtDate(f.period_end)}</td>
-                    <td>{fmtDate(f.filed_date)}</td>
-                    <td>{money(f.amount)}</td>
-                    <td>
-                      {f.paid_date ? fmtDate(f.paid_date) : (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <input type="date" style={{ padding: "4px 6px", fontSize: 12.5 }}
-                            value={recordPaymentDates[f.period_end] || ""}
-                            onChange={(e) => setRecordPaymentDates((prev) => ({ ...prev, [f.period_end]: e.target.value }))} />
-                          <button type="button" className="btn btn-sm btn-primary" disabled={!recordPaymentDates[f.period_end]} onClick={() => handleRecordPayment(f)}>Record</button>
-                        </div>
+                {quarters.map((q) => {
+                  const isExpanded = expandedKey === q.periodEnd;
+                  const statusLabel = q.existingFiling ? "Filed" : "Not filed";
+                  const totalDisplay = q.existingFiling ? money(q.existingFiling.amount) : money(q.suggestedAmount);
+                  return (
+                    <Fragment key={q.periodEnd}>
+                      <tr onClick={() => setExpandedKey(isExpanded ? null : q.periodEnd)} style={{ cursor: "pointer" }}>
+                        <td>{periodLabel(q.periodStart)}</td>
+                        <td style={{ textAlign: "right" }}>{totalDisplay}</td>
+                        <td>{statusLabel}</td>
+                        <td style={{ textAlign: "right" }}>{isExpanded ? "▲" : "▼"}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={4} style={{ background: "var(--surface-2, #f8fafb)", padding: 16 }}>
+                            {q.existingFiling ? (
+                              <div className="table-scroll">
+                                <table>
+                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+                                  <tbody>{renderFilingRow(q.existingFiling)}</tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
+                                  Suggested amount (from recorded payroll): {money(q.suggestedAmount)}. MD's real Contribution Report may include adjustments this doesn't capture — confirm before filing.
+                                </p>
+                                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                                  <div className="field" style={{ margin: 0, maxWidth: 130 }}>
+                                    <label htmlFor={`mdui-amt-${q.periodEnd}`}>Amount</label>
+                                    <input id={`mdui-amt-${q.periodEnd}`} type="number" step="0.01" min="0"
+                                      value={quarterInputs[q.periodEnd]?.amount ?? ""}
+                                      onChange={(e) => setQuarterInputs((p) => ({ ...p, [q.periodEnd]: { ...p[q.periodEnd], amount: e.target.value } }))} />
+                                  </div>
+                                  <div className="field" style={{ margin: 0, maxWidth: 170 }}>
+                                    <label htmlFor={`mdui-filed-${q.periodEnd}`}>Filed Date</label>
+                                    <input id={`mdui-filed-${q.periodEnd}`} type="date"
+                                      value={quarterInputs[q.periodEnd]?.filedDate ?? ""}
+                                      onChange={(e) => setQuarterInputs((p) => ({ ...p, [q.periodEnd]: { ...p[q.periodEnd], filedDate: e.target.value } }))} />
+                                  </div>
+                                  <div className="field" style={{ margin: 0, maxWidth: 170 }}>
+                                    <label htmlFor={`mdui-paid-${q.periodEnd}`}>Payment Date (optional)</label>
+                                    <input id={`mdui-paid-${q.periodEnd}`} type="date"
+                                      value={quarterInputs[q.periodEnd]?.paidDate ?? ""}
+                                      onChange={(e) => setQuarterInputs((p) => ({ ...p, [q.periodEnd]: { ...p[q.periodEnd], paidDate: e.target.value } }))} />
+                                  </div>
+                                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, marginBottom: 10 }}>
+                                    <input type="checkbox" checked={quarterInputs[q.periodEnd]?.notify ?? true}
+                                      onChange={(e) => setQuarterInputs((p) => ({ ...p, [q.periodEnd]: { ...p[q.periodEnd], notify: e.target.checked } }))} />
+                                    Notify client
+                                  </label>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <button className="btn btn-primary" disabled={filingBusy !== null || !quarterInputs[q.periodEnd]?.filedDate} onClick={() => handleMarkFiled(q)}>
+                                    {filingBusy === q.periodEnd ? "Filing…" : "Mark Filed"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Acknowledged</span> : <span className="muted">Pending</span>}</td>
-                    <td><button type="button" className="btn btn-sm" onClick={() => handleUnmark(f)}>Undo</button></td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
+                {!quarters.length && <tr><td colSpan={4} className="muted" style={{ textAlign: "center", padding: 16 }}>No quarters in this range.</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
+          <span className="muted">to</span>
+          <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
+          {(historyDateFrom || historyDateTo) && (
+            <button type="button" className="ghost-button" onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}>All time</button>
+          )}
+        </div>
+      </div>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+            <tbody>
+              {(history || [])
+                .filter((f) => (!historyDateFrom || f.period_start >= historyDateFrom) && (!historyDateTo || f.period_end <= historyDateTo))
+                .map((f) => renderFilingRow(f))}
+              {history && !history.length && (
+                <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 20 }}>No MD UI filings recorded yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
