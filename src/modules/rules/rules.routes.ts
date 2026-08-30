@@ -350,7 +350,17 @@ async function runRuleBatch(rule: any, opts: RunRuleBatchOpts): Promise<RunRuleB
 
   const batchId = `BATCH-${idSuffix()}`;
   const batchNote = String(opts.notes || "").trim();
-  const taskNotes = `Created by batch ${batchId}${batchNote ? `\nBatch notes: ${batchNote}` : ""}`;
+  // 1120/1120S/1065/Schedule C used to be four separately-named task types
+  // cluttering both the Task Rules list and every client's task list, purely
+  // because each has its own due date and so needs its own rule row — the
+  // owner's own words: "it should be only one Task, and we can mention the
+  // type inside the task." They now share one task_type ("Business Return",
+  // the pre-existing catalog entry in MANAGED_DROPDOWN_DEFAULTS.taskTypes —
+  // not a new string); the specific return type still needs to be visible
+  // somewhere, so it goes in the task's own notes instead of the name.
+  const isBusinessReturnRule = CLIENT_TRIGGER_COLUMNS[String(rule.trigger_column || "").trim()] === "business_return_type";
+  const returnTypeNote = isBusinessReturnRule && rule.trigger_value ? `Return type: ${rule.trigger_value}` : null;
+  const taskNotes = [returnTypeNote, `Created by batch ${batchId}`, batchNote ? `Batch notes: ${batchNote}` : null].filter(Boolean).join("\n");
 
   for (const r of toCreate) {
     const client = matchedClients.find((c) => c.client_id === r.clientId)!;
