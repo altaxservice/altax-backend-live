@@ -276,6 +276,15 @@ app.get("*", (req, res, next) => {
   // app shell instead of the file, which then redirected to a login screen. Confirmed
   // live: a client's SMS attachment link opened a login page instead of downloading.
   if (/^\/documents\/uploads\/[^/]+\/download$/.test(req.path)) return next();
+  // EFTPS deposits reused the SAME path prefix for both the public page
+  // (/public/eftps-deposits/:token) and its API (mounted at
+  // /public/eftps-deposits) — unlike contracts/invoices, which deliberately
+  // use a different plural/singular prefix for exactly this reason — so a
+  // blanket startsWith() exclusion here would shadow the real page route.
+  // Scoped to just the /pdf suffix instead: the "Download PDF" link on that
+  // page is a real binary download via a plain <a href>, which needed the
+  // same carve-out the comment above already explains for contracts/invoices.
+  if (/^\/public\/eftps-deposits\/[^/]+\/pdf$/.test(req.path)) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);

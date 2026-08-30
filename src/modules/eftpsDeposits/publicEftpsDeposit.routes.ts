@@ -40,7 +40,7 @@ publicEftpsDepositRouter.get("/:token", eftpsDepositLimiter, asyncHandler(async 
   res.json({
     deposit: {
       deposit_id: deposit.deposit_id, client_name: client?.client_name || "",
-      period_start: deposit.period_start, period_end: deposit.period_end,
+      period_start: deposit.period_start, period_end: deposit.period_end, due_date: deposit.due_date,
       filing_date: deposit.filing_date, payment_date: deposit.payment_date,
       federal_income_tax_total: deposit.federal_income_tax_total, social_security_total: deposit.social_security_total,
       medicare_total: deposit.medicare_total, total_amount: deposit.total_amount,

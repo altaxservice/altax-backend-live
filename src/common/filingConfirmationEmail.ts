@@ -17,6 +17,7 @@ import crypto from "crypto";
 import { query } from "../config/db";
 import { wrapEmailHtml } from "./emailTemplate";
 import { sendEmail, recordNotificationFailure } from "./notifications";
+import { buildGoogleCalendarUrl, buildAddToCalendarButtonHtml } from "./calendarLinks";
 
 function idSuffix(): string {
   const now = new Date();
@@ -173,6 +174,7 @@ export interface EftpsDepositReportInput {
   periodLabel: string;
   filingDate: string;
   paymentDate: string;
+  dueDate: string;
   federalIncomeTaxTotal: number;
   socialSecurityTotal: number;
   medicareTotal: number;
@@ -189,6 +191,16 @@ export interface EftpsDepositReportInput {
  * payroll tax picture, which is a separate quarterly report.
  */
 function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
+  const dueDateObj = new Date(`${String(input.dueDate).slice(0, 10)}T00:00:00Z`);
+  const nextDay = new Date(dueDateObj.getTime() + 24 * 60 * 60 * 1000);
+  const googleCalendarUrl = Number.isNaN(dueDateObj.getTime()) ? null : buildGoogleCalendarUrl({
+    uid: `eftps-${input.sourceRecordId}`,
+    title: `EFTPS Federal Tax Deposit Due — ${input.client.clientName}`,
+    startISO: dueDateObj.toISOString(),
+    endISO: nextDay.toISOString(),
+    description: `Federal tax deposit of ${money2(input.totalAmount)} due for ${input.periodLabel}. Pay on EFTPS's website.`,
+  });
+
   const employeeRows = input.employees
     .map(
       (e) => `
@@ -210,6 +222,7 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           ${row("Period", "الفترة", esc(input.periodLabel))}
           ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filingDate))}
+          ${row("Due Date", "تاريخ الاستحقاق", fmtDate(input.dueDate))}
           ${row("Payment Date", "تاريخ الدفع", fmtDate(input.paymentDate))}
           ${row("Federal Income Tax", "ضريبة الدخل الفيدرالية", money2(input.federalIncomeTaxTotal))}
           ${row("Social Security", "الضمان الاجتماعي", money2(input.socialSecurityTotal))}
@@ -229,9 +242,10 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
       </tr>
       ${employeeRows}
     </table>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 18px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 4px;">
       <tr><td style="border-radius:6px; background:#0f766e;"><a href="${esc(input.acknowledgeUrl)}" style="display:inline-block; padding:11px 22px; color:#fff; font-size:13.5px; font-weight:600; text-decoration:none;">View & Acknowledge Report</a></td></tr>
     </table>
+    ${googleCalendarUrl ? buildAddToCalendarButtonHtml(googleCalendarUrl, { theme: "green" }).replace('margin-top:10px', 'margin:4px 0 18px; text-align:left') : ""}
     <p style="margin:0; color:#6b7280; font-size:12.5px;">This report covers federal deposit amounts only — state withholding and unemployment insurance are covered separately in your quarterly payroll report. <bdi dir="rtl">يغطي هذا التقرير مبالغ الإيداع الفيدرالي فقط.</bdi></p>`;
 }
 

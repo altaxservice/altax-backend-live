@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError, viewFile, printFile, downloadFile, buildFilename } from "../api/client";
 import { fileToBase64 } from "../utils/file";
 import { FileDropInput } from "./FileDropInput";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
 import { useConfirm } from "./ConfirmProvider";
+import type { Employee } from "../api/types2";
 
 interface EftpsEmployeeBreakdown {
   employeeName: string; federalIncomeTax: number; socialSecurity: number; medicare: number; subtotal: number;
@@ -128,6 +130,25 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   const [importedSnapshots, setImportedSnapshots] = useState<ImportedTaxLiabilityRow[] | null>(null);
   const [importedRowBusy, setImportedRowBusy] = useState<string | null>(null);
   const [importedPaycheckSearch, setImportedPaycheckSearch] = useState("");
+  const [importedPaycheckDateFrom, setImportedPaycheckDateFrom] = useState("");
+  const [importedPaycheckDateTo, setImportedPaycheckDateTo] = useState("");
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
+
+  // Imported paychecks only carry a free-text employee name (no employee_id
+  // — v3_eftps_paycheck_import has no such column) — this client-side name
+  // lookup is how a row can still link to that employee's real profile page,
+  // same data source the Employees tab itself uses (GET /accounting/employees).
+  const [employeeIdByName, setEmployeeIdByName] = useState<Record<string, string>>({});
+  useEffect(() => {
+    api.get<{ employees: Employee[] }>(`/accounting/employees/${encodeURIComponent(clientId)}`)
+      .then((r) => {
+        const map: Record<string, string> = {};
+        for (const e of r.employees) map[e.employee_name] = e.employee_id;
+        setEmployeeIdByName(map);
+      })
+      .catch(() => setEmployeeIdByName({}));
+  }, [clientId]);
 
   function loadImportedData() {
     api.get<{ rows: ImportedPaycheckRow[] }>(`/eftps-deposits/paycheck-import?clientId=${encodeURIComponent(clientId)}`)
@@ -137,10 +158,16 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   }
   useEffect(loadImportedData, [clientId]);
 
-  async function handleDeletePaycheckRow(id: string) {
-    setImportedRowBusy(id);
+  async function handleDeletePaycheckRow(row: ImportedPaycheckRow) {
+    const ok = await confirmDialog({
+      title: "Delete this imported paycheck?",
+      message: `Removes ${row.employee_name}'s ${fmtDate(row.pay_date)} paycheck (check #${row.check_number || "—"}, ${money(row.federal_withheld)} federal) from the imported data used to compute EFTPS deposits. This does not affect any already-filed deposit — only permanently deletes this one raw import row, which cannot be undone (re-import the file if you need it back).`,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    setImportedRowBusy(row.id);
     try {
-      await api.post(`/eftps-deposits/paycheck-import/${id}/delete`, {});
+      await api.post(`/eftps-deposits/paycheck-import/${row.id}/delete`, {});
       loadImportedData();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete this row.");
@@ -169,10 +196,16 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
     }
   }
 
-  async function handleDeleteSnapshotRow(id: string) {
-    setImportedRowBusy(id);
+  async function handleDeleteSnapshotRow(row: ImportedTaxLiabilityRow) {
+    const ok = await confirmDialog({
+      title: "Delete this Tax Liability snapshot?",
+      message: `Removes the ${fmtDate(row.range_start)} – ${fmtDate(row.range_end)} snapshot (941 Total ${money(row.total_941)}), imported by ${row.imported_by}. This is only used as a reconciliation reference for that exact date range — deleting it does not affect any already-filed deposit, but this cannot be undone (re-import the file if you need it back).`,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    setImportedRowBusy(row.id);
     try {
-      await api.post(`/eftps-deposits/tax-liability-import/${id}/delete`, {});
+      await api.post(`/eftps-deposits/tax-liability-import/${row.id}/delete`, {});
       loadImportedData();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete this snapshot.");
@@ -529,9 +562,15 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
             <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>Imported paychecks ({importedPaychecks?.length || 0}) — review and delete any wrong or duplicate rows directly.</p>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input type="text" value={importedPaycheckSearch} onChange={(e) => setImportedPaycheckSearch(e.target.value)}
                 placeholder="Search employee, date, check #…" style={{ padding: "4px 6px", maxWidth: 200 }} />
+              <input type="date" value={importedPaycheckDateFrom} onChange={(e) => setImportedPaycheckDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
+              <span className="muted">to</span>
+              <input type="date" value={importedPaycheckDateTo} onChange={(e) => setImportedPaycheckDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
+              {(importedPaycheckDateFrom || importedPaycheckDateTo) && (
+                <button type="button" className="ghost-button" onClick={() => { setImportedPaycheckDateFrom(""); setImportedPaycheckDateTo(""); }}>All time</button>
+              )}
               {!!importedPaychecks?.length && (
                 <button className="btn btn-sm btn-danger" disabled={importedRowBusy !== null} onClick={handleClearAllPaychecks}>
                   {importedRowBusy === "clear-all-paychecks" ? "Clearing…" : "Clear All"}
@@ -547,19 +586,25 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                   {(importedPaychecks || [])
                     .filter((r) => {
                       const q = importedPaycheckSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      return [r.employee_name, fmtDate(r.pay_date), r.check_number].some((v) => String(v || "").toLowerCase().includes(q));
+                      if (q && !([r.employee_name, fmtDate(r.pay_date), r.check_number].some((v) => String(v || "").toLowerCase().includes(q)))) return false;
+                      if (importedPaycheckDateFrom && r.pay_date < importedPaycheckDateFrom) return false;
+                      if (importedPaycheckDateTo && r.pay_date > importedPaycheckDateTo) return false;
+                      return true;
                     })
                     .map((r) => (
                     <tr key={r.id}>
-                      <td>{r.employee_name}</td>
+                      <td>
+                        {employeeIdByName[r.employee_name]
+                          ? <Link to={`/employees/${employeeIdByName[r.employee_name]}`}>{r.employee_name}</Link>
+                          : r.employee_name}
+                      </td>
                       <td>{fmtDate(r.pay_date)}</td>
                       <td>{r.check_number || "—"}</td>
                       <td style={{ textAlign: "right" }}>{money(r.federal_withheld)}</td>
                       <td style={{ textAlign: "right" }}>{money(r.social_security_withheld)}</td>
                       <td style={{ textAlign: "right" }}>{money(r.medicare_withheld)}</td>
                       <td style={{ textAlign: "right" }}>
-                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeletePaycheckRow(r.id)}>
+                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeletePaycheckRow(r)}>
                           {importedRowBusy === r.id ? "…" : "Delete"}
                         </button>
                       </td>
@@ -587,7 +632,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                       <td style={{ textAlign: "right" }}>{money(r.medicare)}</td>
                       <td style={{ textAlign: "right", fontWeight: 600 }}>{money(r.total_941)}</td>
                       <td style={{ textAlign: "right" }}>
-                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeleteSnapshotRow(r.id)}>
+                        <button className="btn btn-sm btn-danger" disabled={importedRowBusy === r.id} onClick={() => handleDeleteSnapshotRow(r)}>
                           {importedRowBusy === r.id ? "…" : "Delete"}
                         </button>
                       </td>
@@ -741,15 +786,30 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      <h3 style={{ fontSize: 14, margin: "0 0 8px" }}>History</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
+          <span className="muted">to</span>
+          <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
+          {(historyDateFrom || historyDateTo) && (
+            <button type="button" className="ghost-button" onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}>All time</button>
+          )}
+        </div>
+      </div>
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
             <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {(history || []).map((d) => renderDepositRow(d))}
+              {(history || [])
+                .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
+                .map((d) => renderDepositRow(d))}
               {history && !history.length && (
                 <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
+              )}
+              {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
+                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
               )}
             </tbody>
           </table>

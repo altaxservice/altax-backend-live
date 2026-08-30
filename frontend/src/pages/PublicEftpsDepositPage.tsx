@@ -8,7 +8,7 @@ interface PublicEftpsEmployeeLine {
   employee_name: string; federal_income_tax: number; social_security: number; medicare: number; subtotal: number;
 }
 interface PublicEftpsDeposit {
-  deposit_id: string; client_name: string; period_start: string; period_end: string;
+  deposit_id: string; client_name: string; period_start: string; period_end: string; due_date: string;
   filing_date: string; payment_date: string;
   federal_income_tax_total: number; social_security_total: number; medicare_total: number; total_amount: number;
   acknowledged_at: string | null; employees: PublicEftpsEmployeeLine[];
@@ -22,6 +22,23 @@ function fmtDate(v: unknown): string {
 function money(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+}
+function toUtcCompact(iso: string): string {
+  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+/** Matches src/common/calendarLinks.ts's buildGoogleCalendarUrl exactly — kept
+ * as a small standalone copy here since the frontend can't import backend code. */
+function googleCalendarUrl(dueDate: string, clientName: string, totalAmount: number, periodLabel: string): string | null {
+  const start = new Date(`${String(dueDate).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `EFTPS Federal Tax Deposit Due — ${clientName}`,
+    dates: `${toUtcCompact(start.toISOString())}/${toUtcCompact(end.toISOString())}`,
+    details: `Federal tax deposit of ${money(totalAmount)} due for ${periodLabel}. Pay on EFTPS's website.`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 /**
@@ -61,34 +78,52 @@ export function PublicEftpsDepositPage() {
   if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
   if (!deposit) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
 
+  const periodLabel = `${fmtDate(deposit.period_start)} – ${fmtDate(deposit.period_end)}`;
+  const calendarUrl = deposit.due_date ? googleCalendarUrl(deposit.due_date, deposit.client_name, deposit.total_amount, periodLabel) : null;
+
   return (
     <PublicPageShell>
       <div style={pageStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12,
+          borderLeft: "4px solid var(--teal)", paddingLeft: 16, marginBottom: 4,
+        }}>
           <div>
-            <div style={{ fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>{deposit.client_name}</div>
-            <h1 style={{ fontSize: 22, margin: "4px 0 0" }}>Federal Tax Deposit Report</h1>
+            <div style={{ fontSize: 12, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--teal)", fontWeight: 700 }}>{deposit.client_name}</div>
+            <h1 style={{ fontSize: 24, margin: "4px 0 0", fontWeight: 800, letterSpacing: -0.3 }}>Federal Tax Deposit Report</h1>
+            <p className="muted" style={{ fontSize: 13.5, margin: "6px 0 0" }}>Period {periodLabel}</p>
           </div>
           <a className="btn" href={resolveFileUrl(`/public/eftps-deposits/${token}/pdf`)} target="_blank" rel="noopener noreferrer">Download PDF</a>
         </div>
-        <p className="muted" style={{ fontSize: 13, margin: "8px 0 20px" }}>
-          Period {fmtDate(deposit.period_start)} – {fmtDate(deposit.period_end)}
-        </p>
 
-        <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card" style={{ marginTop: 20, marginBottom: 20, overflow: "hidden", padding: 0 }}>
+          <div style={{ background: "var(--surface-2, #f0f7f6)", padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Total Federal Deposit</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(deposit.total_amount)}</div>
+          </div>
           <table style={{ width: "100%" }}>
             <tbody>
-              <tr><td className="muted">Filed Date</td><td style={{ textAlign: "right" }}>{fmtDate(deposit.filing_date)}</td></tr>
-              <tr><td className="muted">Payment Date</td><td style={{ textAlign: "right" }}>{fmtDate(deposit.payment_date)}</td></tr>
-              <tr><td className="muted">Federal Income Tax</td><td style={{ textAlign: "right" }}>{money(deposit.federal_income_tax_total)}</td></tr>
-              <tr><td className="muted">Social Security</td><td style={{ textAlign: "right" }}>{money(deposit.social_security_total)}</td></tr>
-              <tr><td className="muted">Medicare</td><td style={{ textAlign: "right" }}>{money(deposit.medicare_total)}</td></tr>
-              <tr><td style={{ fontWeight: 700 }}>Total Federal Deposit</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(deposit.total_amount)}</td></tr>
+              <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.filing_date)}</td></tr>
+              <tr><td className="muted" style={{ padding: "10px 18px" }}>Due Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.due_date)}</td></tr>
+              <tr><td className="muted" style={{ padding: "10px 18px" }}>Payment Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{deposit.payment_date ? fmtDate(deposit.payment_date) : <span className="muted">Pending</span>}</td></tr>
+              <tr style={{ borderTop: "1px solid var(--line)" }}><td className="muted" style={{ padding: "10px 18px" }}>Federal Income Tax</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.federal_income_tax_total)}</td></tr>
+              <tr><td className="muted" style={{ padding: "10px 18px" }}>Social Security</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.social_security_total)}</td></tr>
+              <tr><td className="muted" style={{ padding: "10px 18px" }}>Medicare</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.medicare_total)}</td></tr>
             </tbody>
           </table>
         </div>
 
-        <h2 style={{ fontSize: 15, margin: "0 0 8px" }}>By Employee</h2>
+        {calendarUrl && (
+          <a href={calendarUrl} target="_blank" rel="noopener noreferrer"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 20, padding: "8px 16px",
+              borderRadius: 8, background: "var(--teal)", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none",
+            }}>
+            📅 Add Due Date to Calendar
+          </a>
+        )}
+
+        <h2 style={{ fontSize: 15, margin: "0 0 8px", fontWeight: 700 }}>By Employee</h2>
         <div className="card" style={{ marginBottom: 20, padding: 0, overflow: "hidden" }}>
           <div className="table-scroll">
             <table>
@@ -113,8 +148,8 @@ export function PublicEftpsDepositPage() {
         </p>
 
         {deposit.acknowledged_at ? (
-          <div className="card" style={{ borderColor: "var(--teal)" }}>
-            <strong>Acknowledged.</strong>
+          <div className="card" style={{ borderColor: "var(--teal)", background: "var(--surface-2, #f0f7f6)" }}>
+            <strong style={{ color: "var(--teal)" }}>✓ Acknowledged</strong>
             <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>You confirmed receipt of this report.</div>
           </div>
         ) : (

@@ -58,6 +58,14 @@ export default defineConfig({
           // still intercepted it and served the cached admin app shell instead of
           // the actual file.
           /^\/documents\/uploads\/[^/]+\/download/,
+          // Added with the EFTPS "not found" bug: unlike contracts/invoices,
+          // EFTPS reuses the SAME path prefix for its public page
+          // (/public/eftps-deposits/:token) and its API (mounted at
+          // /public/eftps-deposits) — so this pattern is scoped to just the
+          // /pdf suffix, not a blanket /^\/public\/eftps-deposits\// like the
+          // two above, which would also swallow the real page route. Mirrors
+          // the identical scoping in src/server.ts's own catch-all.
+          /^\/public\/eftps-deposits\/[^/]+\/pdf(\?.*)?$/,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
         // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct

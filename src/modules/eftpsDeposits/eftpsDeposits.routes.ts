@@ -477,7 +477,7 @@ async function buildSendPayload(deposit: any, req: AuthedRequest) {
   return sendEftpsDepositReport({
     client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
     sourceRecordId: deposit.deposit_id, periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
-    filingDate: deposit.filing_date, paymentDate: deposit.payment_date,
+    filingDate: deposit.filing_date, paymentDate: deposit.payment_date, dueDate: isoDate(deposit.due_date),
     federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
     medicareTotal: Number(deposit.medicare_total), totalAmount: Number(deposit.total_amount),
     employees: lines.map((l: any) => ({ employeeName: l.employee_name, federalIncomeTax: Number(l.federal_income_tax), socialSecurity: Number(l.social_security), medicare: Number(l.medicare), subtotal: Number(l.subtotal) })),
