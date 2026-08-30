@@ -42,7 +42,11 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
   function load() {
     setLoading(true);
     api.get<{ filings: AnnualReportFiling[] }>(`/annual-report-filings?clientId=${clientId}`)
-      .then((r) => setFilings(r.filings))
+      // period_end comes back as a full ISO datetime (Postgres DATE columns
+      // serialize via Date.toJSON()) — normalized to YYYY-MM-DD here, once,
+      // so every downstream use (URL paths, the recordPaymentDates map key)
+      // works with a clean date string.
+      .then((r) => setFilings(r.filings.map((f) => ({ ...f, period_end: f.period_end.slice(0, 10) }))))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load Annual Report filings."))
       .finally(() => setLoading(false));
   }

@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, viewFile, downloadFile } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
 import { useToast } from "./Toast";
 import { useConfirm } from "./ConfirmProvider";
 
-interface MdUiFiling {
-  client_id: string; period_start: string; period_end: string;
-  filed_date: string; paid_date: string | null; amount: number;
+interface Form941Filing {
+  client_id: string; period_start: string; period_end: string; quarter: number;
+  filed_date: string; paid_date: string | null;
+  gross_liability: number; eftps_deposits_applied: number; balance_due: number;
   share_token: string | null; acknowledged_at: string | null;
+}
+interface Form941Preview {
+  employeeCount: number; wages: number; federalWithholding: number;
+  socialSecurityWages: number; medicareWages: number; grossLiability: number;
+  eftpsDepositsApplied: number; balanceDue: number; periodStart: string; periodEnd: string; dueDate: string;
 }
 
 function fmtDate(v: string | null): string {
@@ -19,33 +25,19 @@ function money(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
-function pad2(n: number): string { return String(n).padStart(2, "0"); }
-function quarterPeriod(year: number, quarter: number): { start: string; end: string } {
-  const qStartMonth0 = (quarter - 1) * 3;
-  const qEndMonth0 = qStartMonth0 + 2;
-  const lastDay = new Date(Date.UTC(year, qEndMonth0 + 1, 0)).getUTCDate();
-  return { start: `${year}-${pad2(qStartMonth0 + 1)}-01`, end: `${year}-${pad2(qEndMonth0 + 1)}-${pad2(lastDay)}` };
-}
-/** MD's real, fixed statutory deadline — the 24th of the month after quarter-end, matching TR-009's rule config (due_day=24), same convention as mdFiling.ts's mdDueDateForPeriod being a hardcoded statutory fact. */
-function mdUiDueDate(year: number, quarter: number): string {
-  const qEndMonth0 = quarter * 3 - 1;
-  const dueMonth0 = qEndMonth0 === 11 ? 0 : qEndMonth0 + 1;
-  const dueYear = qEndMonth0 === 11 ? year + 1 : year;
-  return `${dueYear}-${pad2(dueMonth0 + 1)}-24`;
-}
 
-export function MdUiSection({ clientId }: { clientId: string }) {
+export function Form941Section({ clientId }: { clientId: string }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
-  const [filings, setFilings] = useState<MdUiFiling[]>([]);
+  const [filings, setFilings] = useState<Form941Filing[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [quarter, setQuarter] = useState(Math.floor(now.getMonth() / 3) + 1);
+  const [preview, setPreview] = useState<Form941Preview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [filedDate, setFiledDate] = useState("");
-  const [amount, setAmount] = useState("");
-  const [suggestedAmount, setSuggestedAmount] = useState<number | null>(null);
   const [paidDate, setPaidDate] = useState("");
   const [notify, setNotify] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -53,52 +45,48 @@ export function MdUiSection({ clientId }: { clientId: string }) {
 
   function load() {
     setLoading(true);
-    api.get<{ filings: MdUiFiling[] }>(`/md-ui-filings?clientId=${clientId}`)
+    api.get<{ filings: Form941Filing[] }>(`/form941-filings?clientId=${clientId}`)
       // period_end comes back as a full ISO datetime (Postgres DATE columns
       // serialize via Date.toJSON()) — normalized to YYYY-MM-DD here, once,
       // so every downstream use (URL paths, the recordPaymentDates map key,
       // the alreadyFiled equality check) works with a clean date string.
       .then((r) => setFilings(r.filings.map((f) => ({ ...f, period_end: f.period_end.slice(0, 10) }))))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load MD UI filings."))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load Form 941 filings."))
       .finally(() => setLoading(false));
   }
   useEffect(load, [clientId]);
 
   useEffect(() => {
-    const { start, end } = quarterPeriod(year, quarter);
-    api.get<{ suggestedAmount: number }>(`/md-ui-filings/suggested-amount?clientId=${clientId}&periodStart=${start}&periodEnd=${end}`)
-      .then((r) => { setSuggestedAmount(r.suggestedAmount); setAmount(r.suggestedAmount.toFixed(2)); })
-      .catch(() => setSuggestedAmount(null));
+    setPreviewLoading(true);
+    api.get<Form941Preview>(`/form941-filings/preview?clientId=${clientId}&year=${year}&quarter=${quarter}`)
+      .then(setPreview)
+      .catch(() => setPreview(null))
+      .finally(() => setPreviewLoading(false));
   }, [clientId, year, quarter]);
 
-  const period = quarterPeriod(year, quarter);
-  const periodLabel = `Q${quarter} ${year}`;
-  const alreadyFiled = filings.some((f) => f.period_end === period.end);
+  const period = preview ? { start: preview.periodStart, end: preview.periodEnd } : null;
+  const alreadyFiled = period ? filings.some((f) => f.period_end === period.end) : false;
 
   async function handleMarkFiled() {
     if (!filedDate) return;
     setSubmitting(true);
     try {
-      await api.post("/md-ui-filings/mark-filed", {
-        clientId, periodStart: period.start, periodEnd: period.end,
-        filedDate, amount: Number(amount), paidDate: paidDate || undefined,
-        dueDate: mdUiDueDate(year, quarter), notify,
-      });
+      await api.post("/form941-filings/mark-filed", { clientId, year, quarter, filedDate, paidDate: paidDate || undefined, notify });
       toast(notify ? "Filed and confirmation sent to the client." : "Filed.");
       setFiledDate(""); setPaidDate("");
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not mark this MD UI filing filed.");
+      setError(err instanceof ApiError ? err.message : "Could not mark this Form 941 filed.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleRecordPayment(f: MdUiFiling) {
+  async function handleRecordPayment(f: Form941Filing) {
     const date = recordPaymentDates[f.period_end];
     if (!date) return;
     try {
-      await api.post(`/md-ui-filings/${clientId}/${f.period_end}/record-payment`, { paidDate: date });
+      await api.post(`/form941-filings/${clientId}/${f.period_end}/record-payment`, { paidDate: date });
       toast("Payment recorded.");
       load();
     } catch (err) {
@@ -106,13 +94,13 @@ export function MdUiSection({ clientId }: { clientId: string }) {
     }
   }
 
-  async function handleUnmark(f: MdUiFiling) {
+  async function handleUnmark(f: Form941Filing) {
     const ok = await confirmDialog({
-      title: "Undo this MD UI filing", message: `Removes the record for ${f.period_start.slice(0, 10)} – ${f.period_end.slice(0, 10)} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
+      title: "Undo this Form 941 filing", message: `Removes the record for Q${f.quarter} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
     });
     if (!ok) return;
     try {
-      await api.post(`/md-ui-filings/${clientId}/${f.period_end}/unmark`, {});
+      await api.post(`/form941-filings/${clientId}/${f.period_end}/unmark`, {});
       toast("Undone.");
       load();
     } catch (err) {
@@ -124,7 +112,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
     <div>
       <ErrorBanner error={error} />
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ marginTop: 0 }}>Mark Filed</h3>
+        <h3 style={{ marginTop: 0 }}>Review &amp; File</h3>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div className="field" style={{ maxWidth: 110 }}>
             <label>Year</label>
@@ -136,13 +124,27 @@ export function MdUiSection({ clientId }: { clientId: string }) {
               <option value={1}>Q1</option><option value={2}>Q2</option><option value={3}>Q3</option><option value={4}>Q4</option>
             </select>
           </div>
+        </div>
+
+        {previewLoading ? <p className="muted" style={{ marginTop: 12 }}>Loading…</p> : preview && (
+          <div style={{ marginTop: 14 }}>
+            <table style={{ width: "100%", maxWidth: 480 }}>
+              <tbody>
+                <tr><td className="muted" style={{ padding: "4px 0" }}>Employees</td><td style={{ textAlign: "right" }}>{preview.employeeCount}</td></tr>
+                <tr><td className="muted" style={{ padding: "4px 0" }}>Wages</td><td style={{ textAlign: "right" }}>{money(preview.wages)}</td></tr>
+                <tr><td className="muted" style={{ padding: "4px 0" }}>Gross Liability (withholding + SS + Medicare)</td><td style={{ textAlign: "right" }}>{money(preview.grossLiability)}</td></tr>
+                <tr><td className="muted" style={{ padding: "4px 0" }}>EFTPS Deposits Applied</td><td style={{ textAlign: "right" }}>−{money(preview.eftpsDepositsApplied)}</td></tr>
+                <tr style={{ borderTop: "1px solid var(--line)" }}><td style={{ padding: "4px 0", fontWeight: 700 }}>Balance Due</td><td style={{ textAlign: "right", fontWeight: 700 }}>{money(preview.balanceDue)}</td></tr>
+              </tbody>
+            </table>
+            <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>Due {fmtDate(preview.dueDate)}. {alreadyFiled ? "This quarter has already been filed — filing again will update the existing record." : ""}</p>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
           <div className="field" style={{ maxWidth: 170 }}>
             <label>Filed Date</label>
             <input type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} />
-          </div>
-          <div className="field" style={{ maxWidth: 130 }}>
-            <label>Amount</label>
-            <input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
           <div className="field" style={{ maxWidth: 170 }}>
             <label>Payment Date (optional)</label>
@@ -155,26 +157,20 @@ export function MdUiSection({ clientId }: { clientId: string }) {
             {alreadyFiled ? "Re-file" : "Mark Filed"}
           </button>
         </div>
-        {suggestedAmount !== null && (
-          <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>
-            Suggested amount for {periodLabel} (from recorded payroll): {money(suggestedAmount)}. MD's real Contribution Report may include adjustments this doesn't capture — confirm before filing.
-          </p>
-        )}
-        {alreadyFiled && <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>{periodLabel} has already been filed — this will update the existing record.</p>}
       </div>
 
       <h3>History</h3>
-      {loading ? <p className="muted">Loading…</p> : filings.length === 0 ? <p className="muted">No MD UI filings yet.</p> : (
+      {loading ? <p className="muted">Loading…</p> : filings.length === 0 ? <p className="muted">No Form 941 filings yet.</p> : (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Period</th><th>Filed</th><th>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+              <thead><tr><th>Quarter</th><th>Filed</th><th>Balance Due</th><th>Payment</th><th>Client</th><th></th></tr></thead>
               <tbody>
                 {filings.map((f) => (
                   <tr key={f.period_end}>
-                    <td>{fmtDate(f.period_start)} – {fmtDate(f.period_end)}</td>
+                    <td>Q{f.quarter} {f.period_start.slice(0, 4)}</td>
                     <td>{fmtDate(f.filed_date)}</td>
-                    <td>{money(f.amount)}</td>
+                    <td>{money(f.balance_due)}</td>
                     <td>
                       {f.paid_date ? fmtDate(f.paid_date) : (
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -186,7 +182,11 @@ export function MdUiSection({ clientId }: { clientId: string }) {
                       )}
                     </td>
                     <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Acknowledged</span> : <span className="muted">Pending</span>}</td>
-                    <td><button type="button" className="btn btn-sm" onClick={() => handleUnmark(f)}>Undo</button></td>
+                    <td style={{ display: "flex", gap: 6 }}>
+                      <button type="button" className="btn btn-sm" onClick={() => viewFile(`/form941-filings/${clientId}/${f.period_end}/pdf`)}>View</button>
+                      <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/form941-filings/${clientId}/${f.period_end}/pdf`, `941_Q${f.quarter}_${f.period_start.slice(0, 4)}.pdf`)}>PDF</button>
+                      <button type="button" className="btn btn-sm" onClick={() => handleUnmark(f)}>Undo</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

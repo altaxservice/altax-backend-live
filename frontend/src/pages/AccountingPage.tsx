@@ -25,10 +25,11 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 import { EftpsDepositSection } from "../components/EftpsDepositSection";
 import { AnnualReportSection } from "../components/AnnualReportSection";
 import { MdUiSection } from "../components/MdUiSection";
+import { Form941Section } from "../components/Form941Section";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -137,6 +138,7 @@ export function AccountingPage() {
       {tab === "EFTPS Deposits" && clientId && <EftpsDepositSection clientId={clientId} />}
       {tab === "Annual Report" && clientId && <AnnualReportSection clientId={clientId} />}
       {tab === "MD UI" && clientId && <MdUiSection clientId={clientId} />}
+      {tab === "Form 941" && clientId && <Form941Section clientId={clientId} />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} clientState={client?.state} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
       {tab === "GL" && clientId && (

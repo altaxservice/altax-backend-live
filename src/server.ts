@@ -34,6 +34,8 @@ import { annualReportFilingsRouter } from "./modules/annualReport/annualReportFi
 import { publicAnnualReportFilingsRouter } from "./modules/annualReport/publicAnnualReportFilings.routes";
 import { mdUiFilingsRouter } from "./modules/mdUiFilings/mdUiFilings.routes";
 import { publicMdUiFilingsRouter } from "./modules/mdUiFilings/publicMdUiFilings.routes";
+import { form941FilingsRouter } from "./modules/form941/form941Filings.routes";
+import { publicForm941FilingsRouter } from "./modules/form941/publicForm941Filings.routes";
 import { ensureEftpsStaffTasks } from "./modules/eftpsDeposits/eftpsStaffTasks";
 import { salesInputImportRouter } from "./modules/salesInputImport/salesInputImport.routes";
 import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
@@ -292,6 +294,8 @@ app.get("*", (req, res, next) => {
   if (/^\/public\/eftps-deposits\/[^/]+\/pdf$/.test(req.path)) return next();
   // Same carve-out, same reason, for MD Sales Tax's public acknowledge page.
   if (/^\/public\/md-filing\/[^/]+\/pdf$/.test(req.path)) return next();
+  // Same carve-out, same reason, for Form 941's public acknowledge page.
+  if (/^\/public\/form941\/[^/]+\/pdf$/.test(req.path)) return next();
   if (req.path.includes(".") || !req.headers.accept?.includes("text/html")) return next();
   res.sendFile(path.join(frontendDist, "index.html"), (err) => {
     if (err) next(err);
@@ -339,6 +343,8 @@ app.use("/annual-report-filings", annualReportFilingsRouter);
 app.use("/public/annual-report", publicAnnualReportFilingsRouter);
 app.use("/md-ui-filings", mdUiFilingsRouter);
 app.use("/public/md-ui", publicMdUiFilingsRouter);
+app.use("/form941-filings", form941FilingsRouter);
+app.use("/public/form941", publicForm941FilingsRouter);
 app.use("/rules", rulesRouter);
 app.use("/vault", vaultRouter);
 app.use("/firm-portals", firmPortalsRouter);

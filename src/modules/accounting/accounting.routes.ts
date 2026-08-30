@@ -2821,27 +2821,16 @@ accountingRouter.get("/tax-forms/941/:clientId", requireAuth, requireRole("admin
   const client = decryptClientPii(await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
-  const totals = await queryOne<any>(
-    `SELECT
-       COUNT(DISTINCT p.employee) AS employee_count,
-       COALESCE(SUM(p.gross_wages), 0) AS wages,
-       COALESCE(SUM(p.federal_withholding), 0) AS federal_withholding,
-       COALESCE(SUM(p.social_security_wages), 0) AS ss_wages,
-       COALESCE(SUM(p.medicare_wages), 0) AS medicare_wages
-     FROM altax.v3_paychecks p
-     JOIN altax.v3_employees e ON e.employee_name = p.employee AND e.client_id = p.client_id
-     WHERE p.client_id = $1 AND EXTRACT(YEAR FROM p.pay_date) = $2::int AND EXTRACT(QUARTER FROM p.pay_date) = $3::int
-       AND lower(p.status) <> 'void' AND lower(e.worker_type) = 'employee'`,
-    [clientId, year, quarter]
-  );
+  const { computeForm941Quarter } = await import("./form941Data");
+  const totals = await computeForm941Quarter(clientId, Number(year), quarter as 1 | 2 | 3 | 4);
 
   const { generateForm941 } = await import("./form941");
   const pdfBytes = await generateForm941({
     employerEin: client.ein, employerName: client.client_name, employerAddress: client.address, employerState: client.state,
     quarter: quarter as 1 | 2 | 3 | 4,
-    employeeCount: Number(totals.employee_count),
-    wages: Number(totals.wages), federalWithholding: Number(totals.federal_withholding),
-    socialSecurityWages: Number(totals.ss_wages), medicareWages: Number(totals.medicare_wages),
+    employeeCount: totals.employeeCount,
+    wages: totals.wages, federalWithholding: totals.federalWithholding,
+    socialSecurityWages: totals.socialSecurityWages, medicareWages: totals.medicareWages,
     contactName: client.company_contact_name, contactPhone: client.phone,
   });
 
