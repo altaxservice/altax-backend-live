@@ -144,11 +144,16 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   let y = 48;
   const maxWidth = R - L;
 
-  const footer = () => c.text(L, PAGE_H - 28, `${profile.firmName} — Prepared for ${data.businessName} (${data.clientId})`, { size: 7.5, color: MUTED });
+  let pageNum = 1;
+  const footer = () => {
+    c.text(L, PAGE_H - 28, `${profile.firmName} — Prepared for ${data.businessName} (${data.clientId})`, { size: 7.5, color: MUTED });
+    c.text(R, PAGE_H - 28, `Page ${pageNum}`, { size: 7.5, color: MUTED, align: "right" });
+  };
 
   /** Starts a fresh page (continuation header, no logo/price box repeat) and resets y — called whenever the next block wouldn't fit above BOTTOM_MARGIN. */
   const newPage = () => {
     footer();
+    pageNum += 1;
     page = doc.addPage([PAGE_W, PAGE_H]);
     c = new Cursor(page, font, bold, PAGE_H);
     c.rect(0, 0, PAGE_W, 6, TEAL);

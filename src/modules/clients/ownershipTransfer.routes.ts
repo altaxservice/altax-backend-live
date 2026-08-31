@@ -184,6 +184,11 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   // below, same as every other encrypted client column read outside the
   // masked list/detail responses.
   const clientCraRegistrationNumber = client.cra_registration_number ? decryptTolerant(client.cra_registration_number) : null;
+  // ein is encrypted at rest too (same UPDATABLE_FIELDS list) — confirmed live, an
+  // undecrypted read here put raw ciphertext straight into the generated Bill of
+  // Sale/8822-B/CRA update PDFs, overflowing the EIN field with a base64-looking
+  // blob instead of the real 9-digit number.
+  const clientEin = client.ein ? decryptTolerant(client.ein) : null;
 
   const transferId = `XFER-${idSuffix()}`;
   const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
@@ -259,7 +264,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       const form8822bData: Form8822bData = {
         affectsEmploymentReturns: true,
         businessName: client.client_name,
-        ein: client.ein || undefined,
+        ein: clientEin || undefined,
         newResponsiblePartyName: buyerName,
         newResponsiblePartyId: buyerSsnPlaintext || undefined,
         daytimePhone: String(body.buyerPhone || "").trim() || undefined,
@@ -296,7 +301,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       const officer = splitName(buyerName);
       const ownershipType = (client.entity_type && ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type]) || "Limited liability company";
       const craData: CraData = {
-        fein: client.ein || undefined,
+        fein: clientEin || undefined,
         legalFirstName: client.client_name,
         tradeName: client.dba_name || undefined,
         street1: client.street_address,
@@ -661,7 +666,10 @@ async function loadBillOfSaleInputs(clientId: string, transferId: string) {
     data: {
       clientId: client.client_id,
       businessName: client.client_name,
-      ein: client.ein || null,
+      // ein is encrypted at rest — undecrypted here put raw ciphertext into the
+      // generated Bill of Sale PDF, overflowing the field with a base64-looking
+      // blob instead of the real EIN. Same fix as the create-transfer route above.
+      ein: client.ein ? decryptTolerant(client.ein) : null,
       businessAddress: businessAddress || null,
       sellerName: transfer.seller_name,
       sellerTitle: transfer.seller_title,

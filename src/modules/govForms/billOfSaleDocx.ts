@@ -10,7 +10,7 @@
  * and not a fillable-field form.
  */
 import {
-  AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, ShadingType, Table, TableCell,
+  AlignmentType, BorderStyle, Document, Footer, HeadingLevel, Packer, PageNumber, Paragraph, ShadingType, Table, TableCell,
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
 import { getFirmProfile } from "../../common/firmProfile";
@@ -130,15 +130,36 @@ function allocationTable(lines: { category: string; description?: string | null;
   return new Table({ width: { size: ALLOC_COL_WIDTHS.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: ALLOC_COL_WIDTHS, rows });
 }
 
-function notaryBlock(personLabel: string, personName: string, state: string): Paragraph[] {
+const CONTENT_WIDTH_DXA = 10080; // 12240 page width - 1080 left/right margins, matches the Document's own page setup below
+
+function buildFooter(businessName: string): Footer {
+  return new Footer({
+    children: [
+      new Paragraph({
+        tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH_DXA }],
+        border: { top: { style: BorderStyle.SINGLE, size: 4, color: "999999", space: 4 } },
+        children: [
+          new TextRun({ text: `${businessName} — Bill of Sale`, font: FONT, size: 16, color: "6B6B6B" }),
+          new TextRun({ text: "\t", font: FONT, size: 16 }),
+          new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], font: FONT, size: 16, color: "6B6B6B" }),
+        ],
+      }),
+    ],
+  });
+}
+
+/** One acknowledgment covering both signers — both parties appear before the same notary together, not two separate notarizations. */
+function notaryBlock(sellerName: string, buyerName: string, state: string): Paragraph[] {
+  const seller = sellerName || "____________________";
+  const buyer = buyerName || "____________________";
   return [
-    new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: `Acknowledgment — ${personLabel}`, bold: true, font: FONT, size: 21 })] }),
+    new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: "Acknowledgment", bold: true, font: FONT, size: 21 })] }),
     body(`STATE OF ${state.toUpperCase()}`),
     body("CITY/COUNTY OF ______________________, to wit:"),
     body(
       `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
-      `of the State of ${state}, personally appeared ${personName || "____________________"}, known to me (or satisfactorily proven) to be the ` +
-      `person whose name is subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
+      `of the State of ${state}, personally appeared ${seller} and ${buyer}, known to me (or satisfactorily proven) to be the ` +
+      `persons whose names are subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
     ),
     body("WITNESS my hand and Notarial Seal."),
     signatureLine(),
@@ -285,9 +306,8 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData & { entityType
   children.push(labelLine("Printed Name", data.buyerName));
   children.push(dateBlankLine());
 
-  // Notary acknowledgments
-  children.push(...notaryBlock("Seller", kind === "Corp" ? data.sellerName : data.sellerName, state));
-  children.push(...notaryBlock("Buyer", data.buyerName, state));
+  // One notary acknowledgment covering both signers together, not a separate notarization per party.
+  children.push(...notaryBlock(data.sellerName, data.buyerName, state));
 
   const doc = new Document({
     sections: [
@@ -298,6 +318,7 @@ export async function generateBillOfSaleDocx(data: BillOfSaleData & { entityType
             margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
           },
         },
+        footers: { default: buildFooter(data.businessName) },
         children,
       },
     ],

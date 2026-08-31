@@ -18,6 +18,7 @@ import { logAudit } from "../../common/audit";
 import { publicBaseUrl } from "../../common/publicUrl";
 import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
 import { computeForm941Quarter, sumEftpsDepositsInPeriod } from "../accounting/form941Data";
+import { decryptTolerant } from "../../common/encryption";
 
 export const form941FilingsRouter = Router();
 
@@ -210,8 +211,10 @@ form941FilingsRouter.get("/:clientId/:periodEnd/pdf", requireAuth, requireRole("
 
   const clientRow = await queryOne<any>(`SELECT ein, address, state, company_contact_name, phone FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
   const { generateForm941 } = await import("../accounting/form941");
+  // ein is encrypted at rest — undecrypted here put raw ciphertext into the printed
+  // Form 941, overflowing the EIN box (same bug found live on the Bill of Sale).
   const pdfBytes = await generateForm941({
-    employerEin: clientRow?.ein ?? null, employerName: client.clientName, employerAddress: clientRow?.address ?? null, employerState: clientRow?.state ?? null,
+    employerEin: clientRow?.ein ? decryptTolerant(clientRow.ein) : null, employerName: client.clientName, employerAddress: clientRow?.address ?? null, employerState: clientRow?.state ?? null,
     quarter: filing.quarter as 1 | 2 | 3 | 4,
     employeeCount: Number(filing.employee_count), wages: Number(filing.wages),
     federalWithholding: Number(filing.federal_withholding), socialSecurityWages: Number(filing.social_security_wages),

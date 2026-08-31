@@ -12,6 +12,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { rateLimit } from "../../common/rateLimit";
 import { notifyStaffOfObligationConfirmed } from "../../common/obligationNotifications";
+import { decryptTolerant } from "../../common/encryption";
 
 export const publicForm941FilingsRouter = Router();
 
@@ -72,8 +73,10 @@ publicForm941FilingsRouter.get("/:token/pdf", limiter, asyncHandler(async (req: 
   if (!client) return res.status(404).json({ error: "This link is invalid or has expired." });
 
   const { generateForm941 } = await import("../accounting/form941");
+  // ein is encrypted at rest — undecrypted here put raw ciphertext into this
+  // client-facing PDF, no staff review before the client sees it.
   const pdfBytes = await generateForm941({
-    employerEin: client.ein, employerName: client.client_name, employerAddress: client.address, employerState: client.state,
+    employerEin: client.ein ? decryptTolerant(client.ein) : null, employerName: client.client_name, employerAddress: client.address, employerState: client.state,
     quarter: filing.quarter as 1 | 2 | 3 | 4,
     employeeCount: Number(filing.employee_count), wages: Number(filing.wages),
     federalWithholding: Number(filing.federal_withholding), socialSecurityWages: Number(filing.social_security_wages),

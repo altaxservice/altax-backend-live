@@ -19,6 +19,7 @@ import {
   parseDrakeReportDateRange, type DrakeFederalPaycheckDetail, type DrakeTaxLiabilitySummary,
 } from "../payrollImport/parsers";
 import { computeEftpsBreakdown } from "./eftpsReconciliation";
+import { decryptTolerant } from "../../common/encryption";
 
 export const eftpsDepositsRouter = Router();
 
@@ -658,8 +659,10 @@ eftpsDepositsRouter.get("/:depositId/pdf", requireAuth, requireRole("admin", "st
   const client = await queryOne<any>(`SELECT client_id, client_name, ein, address FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
   const lines = await query<any>(`SELECT employee_name, federal_income_tax, social_security, medicare, subtotal FROM altax.v3_eftps_deposit_lines WHERE deposit_id = $1 ORDER BY employee_name`, [deposit.deposit_id]);
 
+  // ein is encrypted at rest — undecrypted here put raw ciphertext into the printed
+  // EFTPS deposit report, overflowing the EIN box (same bug found live on the Bill of Sale).
   const pdfBytes = await generateEftpsDepositPdf({
-    client: { clientName: client?.client_name || "", clientId: deposit.client_id, ein: client?.ein || null, address: client?.address || null },
+    client: { clientName: client?.client_name || "", clientId: deposit.client_id, ein: client?.ein ? decryptTolerant(client.ein) : null, address: client?.address || null },
     periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
     filingDate: deposit.filing_date, paymentDate: deposit.payment_date,
     federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
