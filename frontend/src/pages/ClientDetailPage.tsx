@@ -24,6 +24,7 @@ import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_S
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
 import { statusOptionsForTaskType, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { obligationAccountingTab } from "../utils/obligationTasks";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import type { ClientContract } from "../api/types";
 import { ContractBodyText } from "../components/ContractBodyText";
@@ -1217,6 +1218,11 @@ export function ClientDetailPage() {
                               </button>
                             );
                           })}
+                          {user?.role !== "client" && clientId && obligationAccountingTab(t) && (
+                            <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent(obligationAccountingTab(t)!)}`)}>
+                              Finish in Accounting
+                            </button>
+                          )}
                           <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
                         </div>
                       </td>

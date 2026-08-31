@@ -11,6 +11,7 @@ import { useToast } from "../components/Toast";
 import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { fmtDateOnly as fmtDate, daysUntil, fmtCheckedAt } from "../utils/date";
 import { TASK_STATUSES, statusOptionsForTaskType, isOpenTask, isOverdue, isDueWeek, isWaiting, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { obligationAccountingTab } from "../utils/obligationTasks";
 import { RequestDocumentModal } from "../components/RequestDocumentModal";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -180,6 +181,11 @@ function TaskRows({ tasks, empty, statusEditable = true, showStaleness = false, 
                   </button>
                 );
               })}
+              {user?.role !== "client" && t.client_id && obligationAccountingTab(t) && (
+                <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(t.client_id!)}&tab=${encodeURIComponent(obligationAccountingTab(t)!)}`)}>
+                  Finish in Accounting
+                </button>
+              )}
               <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
             </div>
           </div>
