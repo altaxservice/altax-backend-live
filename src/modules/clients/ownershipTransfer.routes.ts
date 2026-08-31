@@ -174,7 +174,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
 
   const client = await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, dba_name, street_address, city, state, zip_code,
-            payroll_enabled, sales_tax_frequency, assigned_to, secretary_of_state_id, cra_registration_number
+            payroll_enabled, sales_tax_frequency, assigned_to, secretary_of_state_id, cra_registration_number, phone, email
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -285,8 +285,13 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
     }
   }
 
-  // CRA "Change of entity" — same officer-slot convention this app already
-  // uses (one responsible party per client), filled with the buyer.
+  // CRA "Purchased going business" — an ownership transfer is a sale of an
+  // existing operating business to a new owner, which is exactly what this
+  // reason represents on the real form; "Change of entity" is a different
+  // scenario (e.g. an entity-type conversion) and was wrong here — confirmed
+  // live, flagged as a real filing-accuracy bug. Same officer-slot convention
+  // this app already uses (one responsible party per client), filled with
+  // the buyer.
   if (!includeCra) {
     skippedReasons.push("Maryland CRA update was not requested.");
   } else {
@@ -308,7 +313,11 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
         city: client.city,
         state: client.state || "MD",
         zip: client.zip_code,
-        reason: "Change of entity",
+        // Business-level contact (Section A #4 on the real form) — never wired to
+        // anything before, even though the client profile already has both.
+        phone: client.phone || undefined,
+        email: client.email || undefined,
+        reason: "Purchased going business",
         taxTypes,
         ownershipType: ownershipType as CraData["ownershipType"],
         officerFirstName: officer.first,
