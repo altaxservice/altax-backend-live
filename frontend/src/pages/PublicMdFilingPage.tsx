@@ -80,16 +80,20 @@ export function PublicMdFilingPage() {
             <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Tax Due</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(filing.tax_due)}</div>
           </div>
-          <table style={{ width: "100%", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: "55%" }} /><col /></colgroup>
-            <tbody>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(filing.filed_date)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Payment Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</td></tr>
-              {filing.balance_due !== null && (
-                <tr style={{ borderTop: "1px solid var(--line)" }}><td className="muted" style={{ padding: "10px 18px" }}>Balance Due</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(filing.balance_due)}</td></tr>
-              )}
-            </tbody>
-          </table>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Filed Date</span>
+            <span style={{ textAlign: "right" }}>{fmtDate(filing.filed_date)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Payment Date</span>
+            <span style={{ textAlign: "right" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</span>
+          </div>
+          {filing.balance_due !== null && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px", borderTop: "1px solid var(--line)" }}>
+              <span className="muted">Balance Due</span>
+              <span style={{ textAlign: "right" }}>{money(filing.balance_due)}</span>
+            </div>
+          )}
         </div>
 
         {filing.acknowledged_at ? (

@@ -78,15 +78,22 @@ export function PublicForm941Page() {
             <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Balance Due</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(filing.balance_due)}</div>
           </div>
-          <table style={{ width: "100%", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: "60%" }} /><col /></colgroup>
-            <tbody>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(filing.filed_date)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Payment Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</td></tr>
-              <tr style={{ borderTop: "1px solid var(--line)" }}><td className="muted" style={{ padding: "10px 18px" }}>Gross Liability</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(filing.gross_liability)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>EFTPS Deposits Applied</td><td style={{ textAlign: "right", padding: "10px 18px" }}>−{money(filing.eftps_deposits_applied)}</td></tr>
-            </tbody>
-          </table>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Filed Date</span>
+            <span style={{ textAlign: "right" }}>{fmtDate(filing.filed_date)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Payment Date</span>
+            <span style={{ textAlign: "right" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px", borderTop: "1px solid var(--line)" }}>
+            <span className="muted">Gross Liability</span>
+            <span style={{ textAlign: "right" }}>{money(filing.gross_liability)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">EFTPS Deposits Applied</span>
+            <span style={{ textAlign: "right" }}>−{money(filing.eftps_deposits_applied)}</span>
+          </div>
         </div>
 
         {filing.acknowledged_at ? (

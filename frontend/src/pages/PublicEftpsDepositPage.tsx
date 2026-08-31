@@ -101,17 +101,30 @@ export function PublicEftpsDepositPage() {
             <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Total Federal Deposit</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(deposit.total_amount)}</div>
           </div>
-          <table style={{ width: "100%", tableLayout: "fixed" }}>
-            <colgroup><col style={{ width: "55%" }} /><col /></colgroup>
-            <tbody>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.filing_date)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Due Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.due_date)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Payment Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{deposit.payment_date ? fmtDate(deposit.payment_date) : <span className="muted">Pending</span>}</td></tr>
-              <tr style={{ borderTop: "1px solid var(--line)" }}><td className="muted" style={{ padding: "10px 18px" }}>Federal Income Tax</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.federal_income_tax_total)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Social Security</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.social_security_total)}</td></tr>
-              <tr><td className="muted" style={{ padding: "10px 18px" }}>Medicare</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{money(deposit.medicare_total)}</td></tr>
-            </tbody>
-          </table>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Filed Date</span>
+            <span style={{ textAlign: "right" }}>{fmtDate(deposit.filing_date)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Due Date</span>
+            <span style={{ textAlign: "right" }}>{fmtDate(deposit.due_date)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Payment Date</span>
+            <span style={{ textAlign: "right" }}>{deposit.payment_date ? fmtDate(deposit.payment_date) : <span className="muted">Pending</span>}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px", borderTop: "1px solid var(--line)" }}>
+            <span className="muted">Federal Income Tax</span>
+            <span style={{ textAlign: "right" }}>{money(deposit.federal_income_tax_total)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Social Security</span>
+            <span style={{ textAlign: "right" }}>{money(deposit.social_security_total)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Medicare</span>
+            <span style={{ textAlign: "right" }}>{money(deposit.medicare_total)}</span>
+          </div>
         </div>
 
         {calendarUrl && (
