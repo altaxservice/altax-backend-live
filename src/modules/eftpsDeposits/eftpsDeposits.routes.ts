@@ -11,7 +11,7 @@ import { publicBaseUrl } from "../../common/publicUrl";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
 import { sendEftpsDepositReport } from "../../common/filingConfirmationEmail";
 import { closeEftpsStaffTask } from "./eftpsStaffTasks";
-import { closeObligationTask } from "../../common/taskRulesAgentBridge";
+import { closeObligationTask, deriveTaskRulesPeriodLabel } from "../../common/taskRulesAgentBridge";
 import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
@@ -430,7 +430,7 @@ async function computeMonthlyReview(clientId: string, periodStart: string, perio
   const existingRows = await query<any>(
     `SELECT deposit_id, period_start::text AS period_start, period_end::text AS period_end,
             status, filing_date::text AS filing_date, due_date::text AS due_date,
-            payment_date::text AS payment_date, total_amount, reconciliation_status
+            payment_date::text AS payment_date, total_amount, reconciliation_status, acknowledged_at
        FROM altax.v3_eftps_deposits
       WHERE client_id = $1 AND period_start >= $2 AND period_end <= $3`,
     [clientId, rangeStart, rangeEnd]
@@ -556,8 +556,17 @@ eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff
     // match, no due date/period stored on those rows); closeObligationTask handles
     // everything else — manually created tasks and batch-generated ones — matched by
     // keyword + due date instead, since those never carry the sweep's exact naming.
+    // Its period-label match needs deriveTaskRulesPeriodLabel's "August 2026" convention
+    // specifically, NOT the `periodLabel` above (a formatted date range, "Aug 1, 2026 –
+    // Aug 31, 2026", used for the email/audit log) — confirmed live, a manually-created
+    // task's own `period` field read "August 2026" and never matched the date-range
+    // string, so the task silently never closed even though its due date also didn't
+    // match (hand-typed, off from the real statutory date).
     await closeEftpsStaffTask(client.client_id, periodEnd);
-    await closeObligationTask({ clientId: client.client_id, keyword: "eftps", dueDate, periodLabel, filedDate: filingDate, paidDate: null });
+    await closeObligationTask({
+      clientId: client.client_id, keyword: "eftps", dueDate,
+      periodLabel: deriveTaskRulesPeriodLabel(periodStart, "Monthly"), filedDate: filingDate, paidDate: null,
+    });
 
     let emailResult: { sent: boolean } = { sent: false };
     if (notify) {

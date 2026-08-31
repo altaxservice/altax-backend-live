@@ -19,6 +19,7 @@ interface EftpsComputation {
 interface EftpsDepositHistoryRow {
   deposit_id: string; period_start: string; period_end: string; due_date: string;
   filing_date: string | null; payment_date: string | null; total_amount: number; status: string; reconciliation_status: string;
+  acknowledged_at: string | null;
 }
 interface EftpsMonthReview {
   monthKey: string; periodStart: string; periodEnd: string; label: string;
@@ -340,7 +341,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           deposit_id: res.depositId, period_start: month.periodStart, period_end: month.periodEnd,
           due_date: inputs.dueDate, filing_date: inputs.filingDate, payment_date: null,
           total_amount: month.computation!.totalAmount, status: notify ? "Sent" : "Filed",
-          reconciliation_status: month.computation!.reconciliationStatus,
+          reconciliation_status: month.computation!.reconciliationStatus, acknowledged_at: null,
         },
       }) ?? null);
       loadHistory();
@@ -461,6 +462,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(d.due_date)}</td>
           <td>{fmtDate(d.filing_date)}</td>
           <td>{d.payment_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span> : <span className="muted">Pending</span>}</td>
+          <td>{d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
           <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
           <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
           <td>
@@ -480,7 +482,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         </tr>
         {payingDepositId === d.deposit_id && (
           <tr>
-            <td colSpan={7} style={{ background: "var(--surface-2, #f8fafb)" }}>
+            <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0" }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="eftps-pay-date">Payment Date</label>
@@ -694,7 +696,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                             ) : m.existingDeposit ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
                                   <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
                                 </table>
                               </div>
@@ -806,10 +808,10 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                 .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
                 .map((d) => renderDepositRow(d))}
               {history && !history.length && (
-                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
+                <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
               )}
               {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
-                <tr><td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
+                <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
               )}
             </tbody>
           </table>
