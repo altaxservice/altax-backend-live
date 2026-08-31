@@ -53,7 +53,12 @@ const SUBSCRIPTION_TIER_FALLBACK_LABEL: Record<string, string> = {
 
 type FieldKind = "text" | "select" | "multiselect" | "checkbox" | "textarea" | "date";
 /** hidden: called with the live edit form — lets a field disappear based on Client Type or Services Provided, same "show info for the related service" behavior as the Add Client form. */
-interface FieldConfig { key: string; apiKey: string; label: string; kind: FieldKind; options?: string[]; hidden?: (form: Record<string, any>) => boolean; suggestions?: string[]; sensitive?: boolean }
+interface FieldConfig {
+  key: string; apiKey: string; label: string; kind: FieldKind; options?: string[];
+  hidden?: (form: Record<string, any>) => boolean; suggestions?: string[]; sensitive?: boolean;
+  /** For kind:"date" fields whose value is logically bounded (a formation date can't be in the future, can't predate ~1900) — renders as the native input's min/max, which blocks the picker from landing on an out-of-range value. Doesn't by itself stop someone from typing an out-of-range value directly into the year segment (see the dateOutOfRange guard in handleSave), which is the actual bug this fixes: a partially-typed year like "06" silently saved as year 6 AD. */
+  dateMin?: string; dateMaxToday?: boolean;
+}
 
 const hasService = (form: Record<string, any>, key: string) => Array.isArray(form.services) && form.services.includes(key);
 const isBusiness = (form: Record<string, any>) => form.clientType !== "Individual";
@@ -104,7 +109,7 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       { key: "client_type", apiKey: "clientType", label: "Client Type", kind: "select", options: ["Business", "Individual"] },
       { key: "status", apiKey: "status", label: "Active?", kind: "select", options: ["Active", "Inactive", "Archived"] },
       { key: "entity_type", apiKey: "entityType", label: "Entity Type", kind: "select", options: ENTITY_TYPES, hidden: (f) => !showEntityType(f) },
-      { key: "date_of_formation", apiKey: "dateOfFormation", label: "Date of Formation", kind: "date", hidden: (f) => !isBusiness(f) },
+      { key: "date_of_formation", apiKey: "dateOfFormation", label: "Date of Formation", kind: "date", hidden: (f) => !isBusiness(f), dateMin: "1900-01-01", dateMaxToday: true },
       { key: "state", apiKey: "state", label: "State", kind: "select", options: US_STATES },
       // Service Type is NOT editable here — it's auto-derived from the Services
       // Provided checkboxes below (see the "Client Identity" custom-render block
@@ -798,7 +803,20 @@ export function ClientDetailPage() {
               ) : f.kind === "date" ? (
                 <div className="field" key={f.apiKey}>
                   <label htmlFor={f.apiKey}>{f.label}</label>
-                  <input id={f.apiKey} type="date" value={form[f.apiKey] ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }))} />
+                  <input
+                    id={f.apiKey} type="date" value={form[f.apiKey] ?? ""}
+                    min={f.dateMin} max={f.dateMaxToday ? new Date().toISOString().slice(0, 10) : undefined}
+                    onChange={(e) => {
+                      // A native date input's min/max block the picker from landing out of
+                      // range, but typing directly into the year segment can still commit an
+                      // out-of-range value — e.g. a partially-typed year ("06" before the 3rd
+                      // digit lands) briefly reads as year 6 AD, and if that fires onChange it
+                      // saves straight through. validity.valid reflects min/max even for a
+                      // typed value, so reject rather than accept an out-of-range one.
+                      if ((f.dateMin || f.dateMaxToday) && e.target.value && !e.target.validity.valid) return;
+                      setForm((prev) => ({ ...prev, [f.apiKey]: e.target.value }));
+                    }}
+                  />
                 </div>
               ) : (
                 <div className="field" key={f.apiKey}>

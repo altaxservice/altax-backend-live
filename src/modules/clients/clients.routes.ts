@@ -2425,6 +2425,25 @@ clientsRouter.get("/:clientId/task-notes", requireAuth, requireRole("admin", "st
   res.json({ taskNotes: rows });
 }));
 
+/**
+ * A formation date is logically bounded — never in the future, never
+ * meaningfully before ~1900. Server-side backstop for the frontend's own
+ * min/max on that field: a native `<input type="date">` can commit an
+ * out-of-range value if typed directly into the year segment before the
+ * browser's own constraint validation catches it (or via a direct API call,
+ * or an older cached frontend build) — confirmed live, a client's Date of
+ * Formation saved as "0006-08-13" (year 6 AD) this way.
+ */
+function validateDateOfFormation(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const d = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "Date of Formation is not a valid date.";
+  if (d.getUTCFullYear() < 1900) return "Date of Formation's year looks wrong (before 1900) — check the full year was entered.";
+  if (d.getTime() > Date.now()) return "Date of Formation can't be in the future.";
+  return null;
+}
+
 /** Next sequential C-#### id, matching the existing client_id pattern in real data. */
 async function nextClientId(): Promise<string> {
   const row = await queryOne<any>(
@@ -2609,6 +2628,8 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   if (!body.clientName) {
     return res.status(400).json({ error: "clientName is required." });
   }
+  const dateOfFormationError = validateDateOfFormation(body.dateOfFormation);
+  if (dateOfFormationError) return res.status(400).json({ error: dateOfFormationError });
 
   const dupe = await queryOne<any>(
     `SELECT client_id FROM altax.v3_clients WHERE lower(client_name) = lower($1) AND status <> 'Archived'`,
@@ -2787,6 +2808,8 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
   }
 
   const body = req.body || {};
+  const dateOfFormationError = validateDateOfFormation(body.dateOfFormation);
+  if (dateOfFormationError) return res.status(400).json({ error: dateOfFormationError });
 
   const old = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!old) return res.status(404).json({ error: "Client not found." });
