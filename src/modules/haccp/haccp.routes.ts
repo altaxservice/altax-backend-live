@@ -475,8 +475,20 @@ haccpRouter.post("/plans/:planId/delete", requireAuth, requireRole("admin"), asy
 }));
 
 /** Shared input builder for both the PDF and DOCX HACCP-plan generators — one source of truth so they can never drift apart on what data a plan hands to its own document. */
-function toHaccpPdfInput(plan: any): HaccpPdfData {
+/**
+ * `onlyComponent` narrows a rendered document to a single component of a
+ * plan that has more than one — e.g. a plan saved with both "haccp_plan"
+ * and "menu_equipment" combines them into one PDF (Cover → Menu → CCP body
+ * → Equipment), but staff sometimes want to hand an employee just the Menu
+ * & Equipment pages without the legal CCP document. Can only ever narrow to
+ * a component the plan actually has (never fabricates content that was
+ * never selected) — see the `?only=` query param on the /pdf and /docx
+ * routes below.
+ */
+function toHaccpPdfInput(plan: any, onlyComponent?: string): HaccpPdfData {
   const businessType = HACCP_BUSINESS_TYPES.find((t) => t.key === plan.business_type_key);
+  const allComponents: string[] = plan.components || ["haccp_plan", "menu_equipment"];
+  const components = onlyComponent && allComponents.includes(onlyComponent) ? [onlyComponent] : allComponents;
   return {
     planId: plan.plan_id,
     businessName: plan.business_name,
@@ -489,7 +501,7 @@ function toHaccpPdfInput(plan: any): HaccpPdfData {
     menuGroups: groupMenuItems(plan.selected_menu_items || []),
     equipment: (plan.selected_equipment || []).map((e: EquipmentSelection) => ({ label: e.label, quantity: e.quantity })),
     createdAt: plan.created_at,
-    components: plan.components || ["haccp_plan", "menu_equipment"],
+    components,
   };
 }
 
@@ -501,10 +513,11 @@ haccpRouter.get("/plans/:planId/pdf", requireAuth, requireRole("admin", "staff")
   if (!components.includes("haccp_plan") && !components.includes("menu_equipment")) {
     return res.status(400).json({ error: "This plan has no HACCP Plan or Menu & Equipment content to generate." });
   }
+  const only = String(req.query.only || "").trim() || undefined;
 
-  const bytes = await generateHaccpPdf(toHaccpPdfInput(plan));
+  const bytes = await generateHaccpPdf(toHaccpPdfInput(plan, only));
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="HACCP_${plan.plan_id}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="HACCP_${plan.plan_id}${only ? `_${only}` : ""}.pdf"`);
   res.send(Buffer.from(bytes));
 }));
 
@@ -517,10 +530,11 @@ haccpRouter.get("/plans/:planId/docx", requireAuth, requireRole("admin", "staff"
   if (!docxComponents.includes("haccp_plan") && !docxComponents.includes("menu_equipment")) {
     return res.status(400).json({ error: "This plan has no HACCP Plan or Menu & Equipment content to generate." });
   }
+  const only = String(req.query.only || "").trim() || undefined;
 
-  const buffer = await generateHaccpDocx(toHaccpPdfInput(plan));
+  const buffer = await generateHaccpDocx(toHaccpPdfInput(plan, only));
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-  res.setHeader("Content-Disposition", `attachment; filename="HACCP_${plan.plan_id}.docx"`);
+  res.setHeader("Content-Disposition", `attachment; filename="HACCP_${plan.plan_id}${only ? `_${only}` : ""}.docx"`);
   res.send(buffer);
 }));
 

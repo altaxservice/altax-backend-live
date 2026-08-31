@@ -473,11 +473,18 @@ export function HaccpGeneratorPage() {
                       <td className="muted">{new Date(p.updated_at).toLocaleDateString()}</td>
                       <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
-                        {(pc.has("haccp_plan") || pc.has("menu_equipment")) && (
+                        {pc.has("haccp_plan") && (
                           <>
-                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>{pc.has("haccp_plan") ? "HACCP" : "Menu & Equip."}</button>
-                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print</button>
-                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - ${pc.has("haccp_plan") ? "HACCP Plan" : "Menu & Equipment List"} (Editable).docx`)}>Word</button>
+                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
+                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print HACCP</button>
+                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - HACCP Plan (Editable).docx`)}>HACCP Word</button>
+                          </>
+                        )}
+                        {pc.has("menu_equipment") && (
+                          <>
+                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`)}>Menu &amp; Equip.</button>
+                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf?only=menu_equipment`)}>Print Menu &amp; Equip.</button>
+                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx?only=menu_equipment`, `${p.business_name} - Menu & Equipment List (Editable).docx`)}>Menu &amp; Equip. Word</button>
                           </>
                         )}
                         {pc.has("license_application") && (
@@ -901,13 +908,22 @@ export function HaccpGeneratorPage() {
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.planId ? "Save & Regenerate" : "Generate Plan"}</button>
             {savedPlanId && (
               <>
-                {(wantsHaccpPlan || components.has("menu_equipment")) && (
+                {wantsHaccpPlan && (
                   <>
-                    <span className="muted" style={{ fontSize: 12 }}>{wantsHaccpPlan ? "HACCP Plan:" : "Menu & Equipment List:"}</span>
-                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>{wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"}</button>
-                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - ${wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"}.pdf`)}>Download</button>
-                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - ${wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"} (Editable).docx`)}>Download (Word)</button>
+                    <span className="muted" style={{ fontSize: 12 }}>HACCP Plan:</span>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - HACCP Plan.pdf`)}>Download</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - HACCP Plan (Editable).docx`)}>Download (Word)</button>
                     <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf`)}>Print</button>
+                  </>
+                )}
+                {components.has("menu_equipment") && (
+                  <>
+                    <span className="muted" style={{ fontSize: 12 }}>Menu &amp; Equipment List:</span>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf?only=menu_equipment`)}>Menu &amp; Equipment List</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf?only=menu_equipment`, `${downloadBaseName} - Menu & Equipment List.pdf`)}>Download</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx?only=menu_equipment`, `${downloadBaseName} - Menu & Equipment List (Editable).docx`)}>Download (Word)</button>
+                    <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf?only=menu_equipment`)}>Print</button>
                   </>
                 )}
                 {components.has("license_application") && (
