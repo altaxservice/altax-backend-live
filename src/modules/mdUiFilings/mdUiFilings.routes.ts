@@ -17,11 +17,9 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeTaskRulesAgentTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
 
 export const mdUiFilingsRouter = Router();
-
-const TASK_NAME = "MD UI Wages Filing & Payment";
 
 /** A DATE column comes back from SELECT * as a JS Date — String(date) gives "Mon Jun 30 2026...", not an ISO string, so the date must be read off the Date object's own toISOString(), not stringified directly. Same fix already applied elsewhere this session (templates.routes.ts's toIsoDateStr). */
 function toIsoDateStr(v: unknown): string {
@@ -152,7 +150,7 @@ mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff")
   await logAudit("Accounting", "MD_UI_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD UI wage filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
 
-  await closeTaskRulesAgentTask(client.clientId, TASK_NAME, deriveTaskRulesPeriodLabel(periodStart, "Quarterly"));
+  await closeObligationTask({ clientId: client.clientId, keyword: "md ui", dueDate, periodLabel, filedDate, paidDate });
 
   if (notify) {
     const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");

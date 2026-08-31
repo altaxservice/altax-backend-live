@@ -11,6 +11,7 @@ import { publicBaseUrl } from "../../common/publicUrl";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
 import { sendEftpsDepositReport } from "../../common/filingConfirmationEmail";
 import { closeEftpsStaffTask } from "./eftpsStaffTasks";
+import { closeObligationTask } from "../../common/taskRulesAgentBridge";
 import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
@@ -551,7 +552,12 @@ eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff
       [client.client_id, dueDate, `EFTPS Deposit — ${periodLabel}`, filingDate, req.user!.email, computation.totalAmount]
     );
 
+    // closeEftpsStaffTask handles tasks the daily sweep created (exact source_system
+    // match, no due date/period stored on those rows); closeObligationTask handles
+    // everything else — manually created tasks and batch-generated ones — matched by
+    // keyword + due date instead, since those never carry the sweep's exact naming.
     await closeEftpsStaffTask(client.client_id, periodEnd);
+    await closeObligationTask({ clientId: client.client_id, keyword: "eftps", dueDate, periodLabel, filedDate: filingDate, paidDate: null });
 
     let emailResult: { sent: boolean } = { sent: false };
     if (notify) {

@@ -48,3 +48,50 @@ export async function closeTaskRulesAgentTask(clientId: string, taskName: string
     [clientId, taskName, periodLabel]
   );
 }
+
+/**
+ * Closes any open task for this client that represents the given obligation
+ * type and period, however that task was actually created — an exact
+ * task_name/source_system match (closeTaskRulesAgentTask above,
+ * closeEftpsStaffTask) only catches tasks the Task Rules Agent's own batch
+ * generator or daily sweep created. A real task made through "New Work Item"
+ * or a batch with a slightly different label ("EFTPS Deposit" instead of
+ * "EFTPS Deposit Due — August 2026", "MD UI Wages Filing" instead of "MD UI
+ * Wages Filing & Payment") never matched — confirmed live, staff had to
+ * close those by hand after already recording the filing, exactly the
+ * double-step this exists to remove.
+ *
+ * Matches on two independent signals, either one sufficient: a keyword
+ * search across task_name/service_line (same keyword set the frontend's
+ * obligationAccountingTab uses for the "Finish in Accounting" button, so a
+ * task that offers that button is guaranteed to be one this can close),
+ * combined with EITHER the period's real statutory due date (a precise
+ * value every mark-filed route computes the same way) OR the task's own
+ * free-text period label — checked independently rather than the label
+ * only being a fallback for a null due date, because a manually-created
+ * task's due date is sometimes hand-typed and doesn't land on the exact
+ * date the app would compute (confirmed live: a real task's due date was 2
+ * days off the statutory rule), which would otherwise leave it unclosed
+ * even though its period label ("August 2026") was an exact match.
+ */
+export async function closeObligationTask(params: {
+  clientId: string;
+  keyword: string;
+  dueDate: string;
+  periodLabel?: string | null;
+  filedDate: string;
+  paidDate?: string | null;
+}): Promise<void> {
+  await query(
+    `UPDATE altax.v3_tasks
+        SET status = 'Completed', filed_date = $5::date, paid_date = $6::date, updated_at = now()
+      WHERE client_id = $1
+        AND (lower(task_name) LIKE '%' || lower($2) || '%' OR lower(coalesce(service_line, '')) LIKE '%' || lower($2) || '%')
+        AND lower(status) NOT IN ('completed', 'closed', 'archived', 'void')
+        AND (
+          agency_due_date = $3::date
+          OR ($4::text IS NOT NULL AND lower(coalesce(period, '')) = lower($4))
+        )`,
+    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.filedDate, params.paidDate ?? null]
+  );
+}

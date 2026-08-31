@@ -16,18 +16,11 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeTaskRulesAgentTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
 import { computeForm941Quarter, sumEftpsDepositsInPeriod } from "../accounting/form941Data";
 
 export const form941FilingsRouter = Router();
 
-// Matches TR-013's real, already-live task_type ("Form 941 Filing") — confirmed
-// directly against the database rather than assumed; this rule was seeded
-// early (2026-07-08) and has never fired yet (its due dates haven't entered
-// the warning window since creation), which is why it wasn't caught by an
-// earlier repo-wide grep for a 941 task type — the value only exists as a
-// live DB row, not in any SQL migration or the dropdown defaults list.
-const TASK_NAME = "Form 941 Filing";
 /** Below this, a "balance due" reminder would be misleading noise — most on-schedule quarters net to ~$0 after EFTPS deposits. */
 const REMINDER_THRESHOLD = 1;
 
@@ -166,7 +159,10 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
   await logAudit("Accounting", "FORM_941_FILED", client.clientId, "Quarter", "", `${parsed.year} Q${parsed.quarter}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `Form 941 (${parsed.year} Q${parsed.quarter}) marked filed ${filedDate}, balance due ${balanceDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
 
-  await closeTaskRulesAgentTask(client.clientId, TASK_NAME, deriveTaskRulesPeriodLabel(period.start, "Quarterly"));
+  await closeObligationTask({
+    clientId: client.clientId, keyword: "941", dueDate,
+    periodLabel: deriveTaskRulesPeriodLabel(period.start, "Quarterly"), filedDate, paidDate,
+  });
 
   if (notify) {
     const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");

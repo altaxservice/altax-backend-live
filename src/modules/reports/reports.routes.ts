@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeTaskRulesAgentTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
@@ -3037,7 +3037,10 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
   await logAudit("Accounting", "MD_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
     `MD sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
 
-  await closeTaskRulesAgentTask(client.clientId, "Sales Tax Filing & Payment", deriveTaskRulesPeriodLabel(periodStart, client.salesTaxFrequency));
+  await closeObligationTask({
+    clientId: client.clientId, keyword: "sales tax", dueDate,
+    periodLabel: deriveTaskRulesPeriodLabel(periodStart, client.salesTaxFrequency), filedDate, paidDate,
+  });
 
   if (notify) {
     const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
