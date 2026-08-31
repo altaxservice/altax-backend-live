@@ -12,7 +12,7 @@
  *      Forms section with zero new UI (same GET /gov-forms/client/:id the
  *      section already calls, same GET /gov-forms/:filingId/pdf download).
  *   3. Maryland Form CRA (Combined Registration Application), reason
- *      "Change of entity" — same reuse-the-existing-section approach, and
+ *      "Purchased going business" — same reuse-the-existing-section approach, and
  *      existing-number-aware: a client that already has a CRA registration
  *      number on file gets `registrationAction: "update"` prefilled instead
  *      of silently drafting a brand-new-registration form.
@@ -42,6 +42,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { encryptValue, decryptTolerant } from "../../common/encryption";
 import { composeAddress } from "../../common/address";
+import { getFirmProfile } from "../../common/firmProfile";
 import { generateBillOfSalePdf } from "../govForms/billOfSale";
 import { generateBillOfSaleDocx } from "../govForms/billOfSaleDocx";
 import {
@@ -84,6 +85,7 @@ const ENTITY_TYPE_TO_CRA_OWNERSHIP: Record<string, string> = {
   "S-Corp": "Maryland corporation",
   Partnership: "Partnership",
   "Sole Proprietorship": "Sole proprietorship",
+  Individual: "Sole proprietorship",
   Nonprofit: "Nonprofit organization",
 };
 
@@ -174,7 +176,7 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
 
   const client = await queryOne<any>(
     `SELECT client_id, client_name, entity_type, ein, dba_name, street_address, city, state, zip_code,
-            payroll_enabled, sales_tax_frequency, assigned_to, secretary_of_state_id, cra_registration_number, phone, email
+            payroll_enabled, sales_tax_frequency, assigned_to, secretary_of_state_id, cra_registration_number, phone, email, individual_ssn
        FROM altax.v3_clients WHERE client_id = $1`,
     [clientId]
   );
@@ -189,6 +191,9 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
   // Sale/8822-B/CRA update PDFs, overflowing the EIN field with a base64-looking
   // blob instead of the real 9-digit number.
   const clientEin = client.ein ? decryptTolerant(client.ein) : null;
+  // individual_ssn — the filer's own SSN, for a Sole Proprietorship/Individual
+  // client that has no EIN. Same UPDATABLE_FIELDS encrypted list.
+  const clientIndividualSsn = client.individual_ssn ? decryptTolerant(client.individual_ssn) : null;
 
   const transferId = `XFER-${idSuffix()}`;
   const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
@@ -304,9 +309,23 @@ ownershipTransferRouter.post("/:clientId/ownership-transfers", requireAuth, requ
       if (client.sales_tax_frequency && String(client.sales_tax_frequency).trim().toLowerCase() !== "n/a") taxTypes.push("Sales and use tax");
       if (taxTypes.length === 0) taxTypes.push("Employer withholding tax"); // safe default so the form can generate; staff should verify the client's real accounts on file
       const officer = splitName(buyerName);
-      const ownershipType = (client.entity_type && ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type]) || "Limited liability company";
+      // No silent fallback to "Limited liability company" for an entity_type
+      // this map doesn't cover (e.g. unset) — that's the exact same bug class
+      // as the "Change of entity" hardcode above: a guessed value landing on
+      // a real government filing instead of reflecting the client's actual
+      // situation. Fail into skippedReasons like every other CRA precondition
+      // in this block, so staff see it needs a decision instead of getting a
+      // silently wrong filing.
+      if (client.entity_type && !ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type]) {
+        throw new Error(`no CRA ownership-type mapping for entity type "${client.entity_type}"`);
+      }
+      if (!client.entity_type) throw new Error("client has no entity type on file");
+      const ownershipType = ENTITY_TYPE_TO_CRA_OWNERSHIP[client.entity_type];
       const craData: CraData = {
         fein: clientEin || undefined,
+        ssn: clientIndividualSsn || undefined,
+        datEntityId: client.secretary_of_state_id || undefined,
+        preparerName: (await getFirmProfile()).firmName || undefined,
         legalFirstName: client.client_name,
         tradeName: client.dba_name || undefined,
         street1: client.street_address,
@@ -540,7 +559,7 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
   const { clientId, transferId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
-  const existing = await queryOne<any>(`SELECT transfer_id, applied_to_profile_at FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
+  const existing = await queryOne<any>(`SELECT transfer_id, applied_to_profile_at, buyer_ssn FROM altax.v3_ownership_transfers WHERE transfer_id = $1 AND client_id = $2`, [transferId, clientId]);
   if (!existing) return res.status(404).json({ error: "Transfer not found." });
   // Hard Audit finding, 2026-08-27: nothing stopped editing seller/buyer/
   // sale-term fields after apply-new-owner had already reassigned the
@@ -557,7 +576,16 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
   if (!sellerName) return res.status(400).json({ error: "Seller name is required." });
   if (!buyerName) return res.status(400).json({ error: "Buyer name is required." });
 
-  const buyerSsnPlaintext = String(body.buyerSsn || "").trim();
+  const buyerSsnRaw = String(body.buyerSsn || "").trim();
+  // The Edit form never pre-fills this field with the real SSN (typing-only,
+  // by design — see OwnershipTransferSection.tsx) — a blank submission means
+  // "leave the SSN on file unchanged," not "clear it." Also guard against a
+  // masked placeholder ("•••-••-1234", still shown to non-admin staff on the
+  // transfer list) ever getting encrypted and stored as if it were the real
+  // value — that would silently corrupt the stored SSN with an unusable
+  // placeholder string.
+  const buyerSsnIsMasked = buyerSsnRaw.includes("•");
+  const buyerSsnToStore = buyerSsnRaw && !buyerSsnIsMasked ? encryptValue(buyerSsnRaw) : existing.buyer_ssn;
 
   let assetAllocations: AssetAllocationLine[];
   try {
@@ -580,7 +608,7 @@ ownershipTransferRouter.patch("/:clientId/ownership-transfers/:transferId", requ
     [
       transferId, clientId, sellerName, String(body.sellerTitle || "").trim() || null,
       buyerName, String(body.buyerTitle || "").trim() || null,
-      buyerSsnPlaintext ? encryptValue(buyerSsnPlaintext) : null,
+      buyerSsnToStore,
       String(body.buyerEmail || "").trim() || null, String(body.buyerPhone || "").trim() || null,
       String(body.buyerStreetAddress || "").trim() || null, String(body.buyerCity || "").trim() || null,
       String(body.buyerState || "").trim() || null, String(body.buyerZipCode || "").trim() || null,

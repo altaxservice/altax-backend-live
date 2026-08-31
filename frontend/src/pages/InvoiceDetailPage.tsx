@@ -32,6 +32,7 @@ const PAYMENT_FORM_DEFAULTS = {
 export function InvoiceDetailPage() {
   const { invoiceId } = useParams<{ invoiceId: string }>();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const navigate = useNavigate();
   const toast = useToast();
   const confirmDialog = useConfirm();
@@ -227,6 +228,22 @@ export function InvoiceDetailPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!invoiceId) return;
+    const confirmValue = await promptFor({
+      title: "Permanently delete invoice",
+      message: `Invoice ${invoiceId} — this cannot be undone. Type DELETE INVOICE to confirm.`,
+      placeholder: "DELETE INVOICE",
+    });
+    if (confirmValue === null) return;
+    try {
+      await api.post(`/billing/invoices/${invoiceId}/delete`, { confirm: confirmValue });
+      navigate("/billing");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this invoice.");
+    }
+  }
+
   if (error) return <ErrorBanner error={error} />;
   if (!invoice) return <div className="spinner-wrap">Loading…</div>;
 
@@ -276,6 +293,7 @@ export function InvoiceDetailPage() {
               <button className="btn btn-danger" onClick={handleVoid}>Void</button>
             </>
           )}
+          {isAdmin && <button className="btn btn-danger" onClick={handleDelete}>Delete</button>}
         </div>
       </div>
 

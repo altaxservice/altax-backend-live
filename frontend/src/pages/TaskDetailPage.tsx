@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { Task } from "../api/types";
 import type { Communication, PortalUser, WebOptions } from "../api/types2";
@@ -64,8 +64,10 @@ function toDateInput(value: unknown): string {
 export function TaskDetailPage() {
   const promptFor = usePrompt();
   const notify = useNotify();
+  const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { setSelectedClient } = useSelectedClient();
   const { setSelectedTask } = useSelectedTask();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -210,6 +212,22 @@ export function TaskDetailPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!taskId || !task) return;
+    const confirmValue = await promptFor({
+      title: "Permanently delete task",
+      message: `"${task.task_name}" — this cannot be undone. Type DELETE TASK to confirm.`,
+      placeholder: "DELETE TASK",
+    });
+    if (confirmValue === null) return;
+    try {
+      await api.post(`/tasks/${taskId}/delete`, { confirm: confirmValue });
+      navigate("/tasks");
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this task.");
+    }
+  }
+
   if (error) return <ErrorBanner error={error} />;
   if (!task) return <div className="spinner-wrap">Loading…</div>;
 
@@ -249,6 +267,7 @@ export function TaskDetailPage() {
             )}
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
+            {isAdmin && <button className="btn btn-danger" onClick={handleDelete}>Delete</button>}
           </div>
         )}
       </div>

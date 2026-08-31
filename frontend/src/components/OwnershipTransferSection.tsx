@@ -354,7 +354,12 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
     setEditingTransfer(t);
     setEditForm({
       sellerName: t.seller_name || "", sellerTitle: t.seller_title || "",
-      buyerName: t.buyer_name || "", buyerTitle: t.buyer_title || "", buyerSsn: t.buyer_ssn || "",
+      // Never pre-fill the SSN, even for an admin who'd see the real
+      // decrypted value here — SSN is typing-only throughout this wizard so
+      // it's never sitting in an editable field. Left blank means "keep the
+      // SSN already on file"; see the matching PATCH-route guard against a
+      // masked placeholder ever getting saved as if it were the real value.
+      buyerName: t.buyer_name || "", buyerTitle: t.buyer_title || "", buyerSsn: "",
       buyerEmail: t.buyer_email || "", buyerPhone: t.buyer_phone || "",
       buyerStreetAddress: t.buyer_street_address || "", buyerCity: t.buyer_city || "",
       buyerState: t.buyer_state || "", buyerZipCode: t.buyer_zip_code || "",
@@ -646,7 +651,10 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
                   <input id="xfer-buyer-name" required value={form.buyerName} onChange={(e) => setForm((f) => ({ ...f, buyerName: e.target.value }))} />
                 </div>
                 <div className="field"><label htmlFor="xfer-buyer-title">Buyer Title</label><input id="xfer-buyer-title" value={form.buyerTitle} onChange={(e) => setForm((f) => ({ ...f, buyerTitle: e.target.value }))} placeholder="e.g. Member, President" /></div>
-                <div className="field"><label htmlFor="xfer-buyer-ssn">Buyer SSN <span className="muted">(for 8822-B/CRA)</span></label><input id="xfer-buyer-ssn" value={form.buyerSsn} onChange={(e) => setForm((f) => ({ ...f, buyerSsn: e.target.value }))} /></div>
+                <div className="field">
+                  <label htmlFor="xfer-buyer-ssn">Buyer SSN <span className="muted">(for 8822-B/CRA — never auto-filled, for security; always typed fresh)</span></label>
+                  <input id="xfer-buyer-ssn" value={form.buyerSsn} onChange={(e) => setForm((f) => ({ ...f, buyerSsn: e.target.value }))} />
+                </div>
                 <div className="field"><label htmlFor="xfer-buyer-email">Buyer Email</label><input id="xfer-buyer-email" type="email" value={form.buyerEmail} onChange={(e) => setForm((f) => ({ ...f, buyerEmail: e.target.value }))} /></div>
                 <div className="field"><label htmlFor="xfer-buyer-phone">Buyer Phone</label><input id="xfer-buyer-phone" value={form.buyerPhone} onChange={(e) => setForm((f) => ({ ...f, buyerPhone: e.target.value }))} /></div>
               </div>
@@ -1033,7 +1041,10 @@ export function OwnershipTransferSection({ clientId, clientName, sellerNameDefau
           <div className="form-grid-3">
             <div className="field"><label htmlFor="xfer-edit-buyer-name">Buyer Name</label><input id="xfer-edit-buyer-name" required value={editForm.buyerName} onChange={(e) => setEditForm((f) => ({ ...f, buyerName: e.target.value }))} /></div>
             <div className="field"><label htmlFor="xfer-edit-buyer-title">Buyer Title</label><input id="xfer-edit-buyer-title" value={editForm.buyerTitle} onChange={(e) => setEditForm((f) => ({ ...f, buyerTitle: e.target.value }))} /></div>
-            <div className="field"><label htmlFor="xfer-edit-buyer-ssn">Buyer SSN</label><input id="xfer-edit-buyer-ssn" value={editForm.buyerSsn} onChange={(e) => setEditForm((f) => ({ ...f, buyerSsn: e.target.value }))} /></div>
+            <div className="field">
+              <label htmlFor="xfer-edit-buyer-ssn">Buyer SSN <span className="muted">(leave blank to keep the SSN already on file)</span></label>
+              <input id="xfer-edit-buyer-ssn" value={editForm.buyerSsn} onChange={(e) => setEditForm((f) => ({ ...f, buyerSsn: e.target.value }))} placeholder="Type a new SSN only to replace it" />
+            </div>
             <div className="field"><label htmlFor="xfer-edit-buyer-email">Buyer Email</label><input id="xfer-edit-buyer-email" type="email" value={editForm.buyerEmail} onChange={(e) => setEditForm((f) => ({ ...f, buyerEmail: e.target.value }))} /></div>
             <div className="field"><label htmlFor="xfer-edit-buyer-phone">Buyer Phone</label><input id="xfer-edit-buyer-phone" value={editForm.buyerPhone} onChange={(e) => setEditForm((f) => ({ ...f, buyerPhone: e.target.value }))} /></div>
           </div>
