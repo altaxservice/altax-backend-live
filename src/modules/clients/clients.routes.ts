@@ -2485,6 +2485,13 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   individualSsn: { column: "individual_ssn", encrypted: true },
   stateTaxId: { column: "state_tax_id", encrypted: true },
   secretaryOfStateId: { column: "secretary_of_state_id" },
+  // Government reference numbers on a public health/fire permit, not
+  // confidential tax/SSN-class data — feed into generated Health Permit
+  // license/plan-review applications (haccp.routes.ts's
+  // fillPermitNumbersFromClient) so staff enter them once, not on every
+  // renewal. See sql/131_client_use_and_occupancy_fire_dept_permit.sql.
+  useAndOccupancyNumber: { column: "use_and_occupancy_number" },
+  fireDeptPermitNumber: { column: "fire_dept_permit_number" },
   // Maryland's Central Registration Number, issued after a filed CRA is
   // approved — distinct from secretaryOfStateId (assigned at formation) and
   // from stateTaxId. See sql/047_client_cra_registration_number.sql.

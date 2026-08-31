@@ -90,7 +90,7 @@ function buildHeader(businessName: string, addressLine: string): Header {
 }
 
 /** Matches haccpPdf.ts's footer exactly: business name + page number on one line, then the same COMAR/exclusive-use notice below it. */
-function buildFooter(businessName: string, jurisdiction: string): Footer {
+function buildFooter(businessName: string, jurisdiction: string, docTypeLabel: string): Footer {
   const notice = `Prepared in accordance with Maryland COMAR 10.15.03 and ${jurisdiction} Health Department HACCP Guidelines. Prepared exclusively for ${businessName} — not for use by any other business.`;
   return new Footer({
     children: [
@@ -98,7 +98,7 @@ function buildFooter(businessName: string, jurisdiction: string): Footer {
         tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
         border: { top: { style: BorderStyle.SINGLE, size: 4, color: RULE_COLOR, space: 4 } },
         children: [
-          new TextRun({ text: `${businessName} — HACCP Plan`, bold: true, font: FONT, size: 16 }),
+          new TextRun({ text: `${businessName} — ${docTypeLabel}`, bold: true, font: FONT, size: 16 }),
           new TextRun({ text: "\t", font: FONT, size: 16 }),
           new TextRun({ children: ["Page ", PageNumber.CURRENT], font: FONT, size: 16, color: MUTED }),
         ],
@@ -323,10 +323,13 @@ function renderBody(renderedBody: string): (Paragraph | Table)[] {
 export async function generateHaccpDocx(data: HaccpPdfData): Promise<Buffer> {
   const addressLine = formatAddressLine(data);
   const children: (Paragraph | Table)[] = [];
+  const hasHaccpPlan = data.components.includes("haccp_plan") && Boolean(data.renderedBody);
+  const hasMenuEquipment = data.components.includes("menu_equipment");
+  const docTypeLabel = hasHaccpPlan ? "HACCP Plan" : "Menu & Equipment List";
 
   // ---- Cover ----
   children.push(new Paragraph({ spacing: { before: 2400 }, children: [] }));
-  children.push(banner("Hazard Analysis Critical Control Point (HACCP) Plan", {
+  children.push(banner(hasHaccpPlan ? "Hazard Analysis Critical Control Point (HACCP) Plan" : "Menu & Equipment List", {
     centered: true,
     size: 28,
     subtitle: `Prepared in accordance with Maryland COMAR 10.15.03 Food Service Facility Regulations and ${data.jurisdiction} Health Department HACCP Guidelines.`,
@@ -337,18 +340,27 @@ export async function generateHaccpDocx(data: HaccpPdfData): Promise<Buffer> {
   children.push(contactLine("EMAIL", data.email));
   children.push(pageBreak());
 
-  // ---- Menu ----
-  children.push(plainHeading("Menu:"));
-  children.push(menuTable(data.menuGroups));
-  children.push(pageBreak());
+  // ---- Menu, Body, Equipment List — each only when actually requested. A
+  // page break belongs BETWEEN two sections that both exist, not trailing
+  // after one blindly — otherwise skipping the middle section (Body, when
+  // only Menu & Equipment was requested) would leave two consecutive breaks
+  // and a blank page. ----
+  if (hasMenuEquipment) {
+    children.push(plainHeading("Menu:"));
+    children.push(menuTable(data.menuGroups));
+  }
 
-  // ---- Body: A/B/C/D sections, Process sub-headers, CCP tables, training/signature text ----
-  children.push(...renderBody(data.renderedBody));
+  if (hasHaccpPlan) {
+    if (hasMenuEquipment) children.push(pageBreak());
+    children.push(...renderBody(data.renderedBody || ""));
+  }
 
-  // ---- Equipment List (own page, plain bullets — matches the real sample) ----
-  children.push(pageBreak());
-  children.push(plainHeading("Equipment List:"));
-  children.push(...equipmentParagraphs(data.equipment));
+  if (hasMenuEquipment) {
+    // Menu (above) always rendered whenever this block does, so a break always belongs here.
+    children.push(pageBreak());
+    children.push(plainHeading("Equipment List:"));
+    children.push(...equipmentParagraphs(data.equipment));
+  }
 
   const doc = new Document({
     numbering: {
@@ -368,7 +380,7 @@ export async function generateHaccpDocx(data: HaccpPdfData): Promise<Buffer> {
           },
         },
         headers: { default: buildHeader(data.businessName, addressLine) },
-        footers: { default: buildFooter(data.businessName, data.jurisdiction) },
+        footers: { default: buildFooter(data.businessName, data.jurisdiction, docTypeLabel) },
         children,
       },
     ],

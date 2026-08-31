@@ -155,6 +155,18 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
     ],
   },
   {
+    title: "Licenses & Permits",
+    fields: [
+      // Government reference numbers on a public health/fire permit, not tax
+      // IDs — kept in their own section rather than folded into Business Tax
+      // IDs above. Feed into generated Health Permit license/plan-review
+      // applications (haccp.routes.ts) so staff enter them once here instead
+      // of retyping on every renewal.
+      { key: "use_and_occupancy_number", apiKey: "useAndOccupancyNumber", label: "Use and Occupancy Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "fire_dept_permit_number", apiKey: "fireDeptPermitNumber", label: "Fire Department Permit Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+    ],
+  },
+  {
     title: "Owner / Responsible Party",
     fields: [
       { key: "company_contact_name", apiKey: "companyContactName", label: "Owner Name", kind: "text", hidden: (f) => !isBusiness(f) },
@@ -1122,6 +1134,8 @@ export function ClientDetailPage() {
                 {isBusinessClient && <DetailField label="State Tax ID" value={client.state_tax_id as string | null} />}
                 {isBusinessClient && <DetailField label="Secretary of State ID (SDAT)" value={client.secretary_of_state_id as string | null} />}
                 {isBusinessClient && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
+                {isBusinessClient && <DetailField label="Use and Occupancy Number" value={client.use_and_occupancy_number as string | null} />}
+                {isBusinessClient && <DetailField label="Fire Department Permit Number" value={client.fire_dept_permit_number as string | null} />}
                 {isBusinessClient && <DetailField label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
                 {isBusinessClient && (
                   <DetailField label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />

@@ -12,10 +12,18 @@ interface BusinessType { key: string; label: string; riskPriority: "High" | "Mod
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
 interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[] }
+/** Which document(s) a plan wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
+type HaccpPlanComponent = "haccp_plan" | "menu_equipment" | "license_application" | "plan_review";
+const HACCP_PLAN_COMPONENTS: { key: HaccpPlanComponent; label: string; description: string }[] = [
+  { key: "haccp_plan", label: "HACCP Plan", description: "Full food-safety plan with CCP tables — requires a business type." },
+  { key: "menu_equipment", label: "Menu & Equipment List", description: "Standalone checklist, no CCP plan required." },
+  { key: "license_application", label: "License Application", description: "This jurisdiction's food license / permit application." },
+  { key: "plan_review", label: "Plan Review Application", description: "This jurisdiction's plan-review submission form." },
+];
 interface HaccpPlanRow {
   plan_id: string; client_id: string | null; business_name: string; business_type_key: string;
   jurisdiction: string; city: string | null; state: string | null; created_by: string | null;
-  created_at: string; updated_at: string;
+  created_at: string; updated_at: string; components: HaccpPlanComponent[];
 }
 interface EquipmentSelection { key: string; label: string; quantity: number }
 interface CertifiedFoodManager { name: string; idNumber: string; expirationDate: string }
@@ -33,13 +41,13 @@ interface LicenseApplicationData {
   wasteHaulerOption?: "under3" | "contract" | "smallHauler"; smallHaulerLicenseNumber?: string;
   sellsTobacco?: boolean; tobaccoLicenseNumber?: string;
   ownerEntityType?: "Incorporated" | "LLC" | "Other";
-  useAndOccupancyNumber?: string; permitsApplied?: string[]; facilityTypeOverride?: string;
+  useAndOccupancyNumber?: string; fireDeptPermitNumber?: string; permitsApplied?: string[]; facilityTypeOverride?: string;
   county?: CountyPermitData;
 }
 interface HaccpPlanDetail extends HaccpPlanRow {
   street_address: string | null; zip_code: string | null; phone: string | null; email: string | null;
   contact_person: string | null; license_number: string | null; officer_owner_name: string | null;
-  selected_menu_items: string[]; selected_equipment: EquipmentSelection[]; rendered_body: string;
+  selected_menu_items: string[]; selected_equipment: EquipmentSelection[]; rendered_body: string | null;
   license_application_data: LicenseApplicationData | null;
 }
 
@@ -57,7 +65,7 @@ const EMPTY_LICENSE_FORM: LicenseApplicationData = {
   wasteHaulerOption: "under3", smallHaulerLicenseNumber: "",
   sellsTobacco: false, tobaccoLicenseNumber: "",
   ownerEntityType: "LLC",
-  useAndOccupancyNumber: "", permitsApplied: ["retailFood"], facilityTypeOverride: "",
+  useAndOccupancyNumber: "", fireDeptPermitNumber: "", permitsApplied: ["retailFood"], facilityTypeOverride: "",
   county: {
     facilityId: "", cateringServiceProvided: false, cateringId: "", facilityClassification: "",
     numberOfSeats: "", waterService: "Public", sewageDisposal: "Public", majorMenuChanges: false,
@@ -107,12 +115,19 @@ export function HaccpGeneratorPage() {
   const [copyFromPlanId, setCopyFromPlanId] = useState("");
   const [copyingItems, setCopyingItems] = useState(false);
   const [savedItemSearch, setSavedItemSearch] = useState("");
-  // Most requests are just "give me the HACCP food-safety plan" — the
-  // license/permit application section below is a much bigger form (owner
-  // home address, waste hauler, tobacco license, certified food managers,
-  // county-specific fields) that has nothing to do with the plan itself.
-  // Defaults to hiding it so the common case is the short form.
-  const [planMode, setPlanMode] = useState<"haccpOnly" | "full">("haccpOnly");
+  // Which of the 4 buildable documents this plan wants — replaces the old
+  // binary haccpOnly/full toggle, which could only gate the license/plan-
+  // review section and had no way to express "just a Menu & Equipment list,
+  // no CCP plan" (confirmed bug: staff couldn't build a standalone Menu &
+  // Equipment list for a convenience store, since the old flow always
+  // required a resolvable business type/CCP template). Defaults to the two
+  // most common items, matching the old default experience.
+  const [components, setComponents] = useState<Set<HaccpPlanComponent>>(new Set(["haccp_plan", "menu_equipment"]));
+  function toggleComponent(key: HaccpPlanComponent) {
+    setComponents((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  }
+  const wantsHaccpPlan = components.has("haccp_plan");
+  const wantsLicenseOrReview = components.has("license_application") || components.has("plan_review");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedPlanId, setSavedPlanId] = useState<string | null>(null);
@@ -275,13 +290,7 @@ export function HaccpGeneratorPage() {
     setLicenseForm({ ...EMPTY_LICENSE_FORM, ...(plan.license_application_data || {}), county: { ...EMPTY_LICENSE_FORM.county, ...(plan.license_application_data?.county || {}) } });
     setSavedPlanId(plan.plan_id);
     setTab("generate");
-    // Reopening a plan that already has real license-application data means
-    // it was built in the full mode — keep showing that section rather than
-    // silently hiding data staff already entered.
-    setPlanMode(
-      plan.license_number || plan.license_application_data?.tradeName || plan.license_application_data?.ownerHomeStreet
-        ? "full" : "haccpOnly"
-    );
+    setComponents(new Set(plan.components?.length ? plan.components : ["haccp_plan", "menu_equipment"]));
   }
 
   function togglePermit(key: string) {
@@ -319,6 +328,11 @@ export function HaccpGeneratorPage() {
       email: f.email || c.email || "",
       contactPerson: f.contactPerson || c.company_contact_name || "",
     }));
+    setLicenseForm((lf) => ({
+      ...lf,
+      useAndOccupancyNumber: lf.useAndOccupancyNumber || (c.use_and_occupancy_number as string) || "",
+      fireDeptPermitNumber: lf.fireDeptPermitNumber || (c.fire_dept_permit_number as string) || "",
+    }));
   }
 
   // Deep link from the client's "Permits & Compliance" tab: ?planId=... opens
@@ -336,7 +350,9 @@ export function HaccpGeneratorPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!form.businessName.trim() || !form.businessTypeKey) { setError("Business name and business type are required."); return; }
+    if (!form.businessName.trim()) { setError("Business name is required."); return; }
+    if (components.size === 0) { setError("Pick at least one item under \"What do you need?\"."); return; }
+    if (wantsHaccpPlan && !form.businessTypeKey) { setError("Business type is required to generate a HACCP Plan."); return; }
     setSaving(true);
     setError(null);
     const payload = {
@@ -347,6 +363,7 @@ export function HaccpGeneratorPage() {
       clientId: form.clientId || null,
       selectedMenuItems: Array.from(selectedMenu), selectedEquipment,
       licenseApplicationData: licenseForm,
+      components: Array.from(components),
     };
     try {
       if (form.planId) {
@@ -378,7 +395,7 @@ export function HaccpGeneratorPage() {
     setSelectedEquipment([]);
     setSavedPlanId(null);
     setError(null);
-    setPlanMode("haccpOnly");
+    setComponents(new Set(["haccp_plan", "menu_equipment"]));
   }
 
   async function saveToDocuments(planId: string | null = savedPlanId) {
@@ -436,24 +453,45 @@ export function HaccpGeneratorPage() {
           {plans && plans.length > 0 && (
             <div className="table-scroll">
               <table>
-                <thead><tr><th scope="col">Business</th><th scope="col">Type</th><th scope="col">Jurisdiction</th><th scope="col">Linked Client</th><th scope="col">Updated</th><th scope="col"></th></tr></thead>
+                <thead><tr><th scope="col">Business</th><th scope="col">Type</th><th scope="col">Jurisdiction</th><th scope="col">Includes</th><th scope="col">Linked Client</th><th scope="col">Updated</th><th scope="col"></th></tr></thead>
                 <tbody>
-                  {plans.map((p) => (
+                  {plans.map((p) => {
+                    const pc = new Set(p.components?.length ? p.components : ["haccp_plan", "menu_equipment"]);
+                    return (
                     <tr key={p.plan_id}>
                       <td>{p.business_name}</td>
                       <td className="muted">{options?.businessTypes.find((t) => t.key === p.business_type_key)?.label || p.business_type_key}</td>
                       <td className="muted">{p.jurisdiction}</td>
+                      <td>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {HACCP_PLAN_COMPONENTS.filter((c) => pc.has(c.key)).map((c) => (
+                            <span key={c.key} className="quick-tab active" style={{ fontSize: 10.5, padding: "2px 6px" }}>{c.label}</span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="muted">{p.client_id || "—"}</td>
                       <td className="muted">{new Date(p.updated_at).toLocaleDateString()}</td>
                       <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <button className="btn btn-sm" onClick={() => reopenForRenewal(p.plan_id)}>Open / Renew</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>HACCP</button>
-                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print HACCP</button>
-                        <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - HACCP Plan (Editable).docx`)}>HACCP (Word)</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
-                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
-                        <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
-                        <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
+                        {(pc.has("haccp_plan") || pc.has("menu_equipment")) && (
+                          <>
+                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/pdf`)}>{pc.has("haccp_plan") ? "HACCP" : "Menu & Equip."}</button>
+                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/pdf`)}>Print</button>
+                            <button className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${p.plan_id}/docx`, `${p.business_name} - ${pc.has("haccp_plan") ? "HACCP Plan" : "Menu & Equipment List"} (Editable).docx`)}>Word</button>
+                          </>
+                        )}
+                        {pc.has("license_application") && (
+                          <>
+                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Permit App" : "License App"}</button>
+                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/license-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
+                          </>
+                        )}
+                        {pc.has("plan_review") && (
+                          <>
+                            <button className="btn btn-sm" onClick={() => viewFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Review Guide" : "Plan Review App"}</button>
+                            <button className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${p.plan_id}/plan-review-pdf`)}>{p.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
+                          </>
+                        )}
                         {p.client_id && (
                           <button className="btn btn-sm" onClick={() => saveToDocuments(p.plan_id)} disabled={savingToDocuments}>Save to Documents</button>
                         )}
@@ -462,7 +500,8 @@ export function HaccpGeneratorPage() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -480,25 +519,37 @@ export function HaccpGeneratorPage() {
           )}
           {error && <ErrorBanner error={error} />}
 
-          <div className="field" style={{ maxWidth: 420, marginBottom: 16 }}>
-            <label htmlFor="hp-plan-mode">What do you need?</label>
-            <select id="hp-plan-mode" value={planMode} onChange={(e) => setPlanMode(e.target.value as "haccpOnly" | "full")}>
-              <option value="haccpOnly">HACCP Plan only</option>
-              <option value="full">HACCP Plan + License/Permit Application</option>
-            </select>
-            <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-              {planMode === "haccpOnly"
-                ? "Just the food-safety plan — skips the license/permit application fields below entirely."
-                : "Also fills the license/permit application and plan review documents for this jurisdiction."}
-            </div>
+          <div className="form-section-title">What do you need?</div>
+          <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Check everything this business needs — build exactly the package required, nothing more.</p>
+          <div className="hp-component-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 20 }}>
+            {HACCP_PLAN_COMPONENTS.map((c) => {
+              const checked = components.has(c.key);
+              return (
+                <label
+                  key={c.key}
+                  htmlFor={`hp-component-${c.key}`}
+                  className="card"
+                  style={{
+                    display: "flex", gap: 10, alignItems: "flex-start", padding: 12, margin: 0, cursor: "pointer",
+                    borderColor: checked ? "var(--teal)" : undefined, background: checked ? "var(--surface-2, #f0f7f6)" : undefined,
+                  }}
+                >
+                  <input id={`hp-component-${c.key}`} type="checkbox" checked={checked} onChange={() => toggleComponent(c.key)} style={{ marginTop: 2, width: "auto" }} />
+                  <span>
+                    <span style={{ display: "block", fontWeight: 700, fontSize: 13.5 }}>{c.label}</span>
+                    <span className="muted" style={{ fontSize: 11.5 }}>{c.description}</span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
 
           <div className="form-section-title">Business Information</div>
           <div className="form-grid-3">
             <div className="field"><label htmlFor="hp-name">Business Name</label><input id="hp-name" required value={form.businessName} onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))} /></div>
             <div className="field">
-              <label htmlFor="hp-type">Business Type</label>
-              <select id="hp-type" required value={form.businessTypeKey} onChange={(e) => setForm((f) => ({ ...f, businessTypeKey: e.target.value }))}>
+              <label htmlFor="hp-type">Business Type{!wantsHaccpPlan && " (optional — for reference)"}</label>
+              <select id="hp-type" required={wantsHaccpPlan} value={form.businessTypeKey} onChange={(e) => setForm((f) => ({ ...f, businessTypeKey: e.target.value }))}>
                 <option value="">Select…</option>
                 {options?.businessTypes.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
@@ -510,7 +561,7 @@ export function HaccpGeneratorPage() {
               </select>
             </div>
           </div>
-          {businessType && <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>{businessType.description} Risk Priority: {businessType.riskPriority}.</p>}
+          {businessType && wantsHaccpPlan && <p className="muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>{businessType.description} Risk Priority: {businessType.riskPriority}.</p>}
 
           <AddressFields
             idPrefix="hp"
@@ -539,7 +590,14 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={selectAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Select All</button>
             <button type="button" className="btn btn-sm" onClick={clearAllMenu} style={{ textTransform: "none", fontWeight: 400 }}>Clear All</button>
           </div>
-          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.</p>
+          <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            Check every item this business sells or serves — only checked items appear on the printed plan. Not on the list? Type it below and add it.{" "}
+            {wantsHaccpPlan && components.has("menu_equipment")
+              ? "Feeds both the HACCP Plan's Menu/Equipment page and the standalone Menu & Equipment List."
+              : wantsHaccpPlan
+              ? "Feeds the HACCP Plan's Menu/Equipment page."
+              : "This becomes your Menu & Equipment List's own document."}
+          </p>
           {(plans || []).filter((p) => p.plan_id !== form.planId).length > 0 && (
             <div className="field" style={{ maxWidth: 340, marginBottom: 10 }}>
               <label htmlFor="hp-copy-plan">Copy Items From Another Plan (optional)</label>
@@ -681,7 +739,7 @@ export function HaccpGeneratorPage() {
             <button type="button" className="btn btn-sm" onClick={addCustomEquipmentItem}>Add Item</button>
           </div>
 
-          {planMode === "full" && (
+          {wantsLicenseOrReview && (
           <>
           <div className="form-section-title">License &amp; Permit Applications</div>
           <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
@@ -714,8 +772,24 @@ export function HaccpGeneratorPage() {
             <div className="field"><label htmlFor="hp-mailing">Mailing Address (if different)</label><input id="hp-mailing" value={licenseForm.mailingAddress} onChange={(e) => setLicenseForm((f) => ({ ...f, mailingAddress: e.target.value }))} placeholder="Optional" /></div>
             <div className="field"><label htmlFor="hp-facility-type">Facility Type (Plan Review App)</label><input id="hp-facility-type" value={licenseForm.facilityTypeOverride} onChange={(e) => setLicenseForm((f) => ({ ...f, facilityTypeOverride: e.target.value }))} placeholder={businessType?.label || "Defaults to Business Type"} /></div>
           </div>
+          <div className="form-grid-3">
+            <div className="field">
+              <label htmlFor="hp-uo-number">Use and Occupancy Number</label>
+              <input id="hp-uo-number" value={licenseForm.useAndOccupancyNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, useAndOccupancyNumber: e.target.value }))} placeholder="Optional" />
+              {form.clientId && licenseForm.useAndOccupancyNumber && clients.find((c) => c.client_id === form.clientId)?.use_and_occupancy_number === licenseForm.useAndOccupancyNumber && (
+                <div className="muted" style={{ fontSize: 11 }}>From client profile — editable here.</div>
+              )}
+            </div>
+            <div className="field">
+              <label htmlFor="hp-fire-permit">Fire Department Permit Number</label>
+              <input id="hp-fire-permit" value={licenseForm.fireDeptPermitNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, fireDeptPermitNumber: e.target.value }))} placeholder="Optional" />
+              {form.clientId && licenseForm.fireDeptPermitNumber && clients.find((c) => c.client_id === form.clientId)?.fire_dept_permit_number === licenseForm.fireDeptPermitNumber && (
+                <div className="muted" style={{ fontSize: 11 }}>From client profile — editable here.</div>
+              )}
+            </div>
+          </div>
 
-          {form.jurisdiction === "Baltimore City" && (
+          {form.jurisdiction === "Baltimore City" && components.has("plan_review") && (
             <>
               <div className="field" style={{ marginBottom: 12 }}>
                 <label>Waste Hauler Service</label>
@@ -750,7 +824,6 @@ export function HaccpGeneratorPage() {
 
               <div className="field" style={{ marginBottom: 16 }}>
                 <label>Permits Applied For (Plan Review App)</label>
-                <div className="field"><label htmlFor="hp-uo-number" style={{ textTransform: "none", fontSize: 12 }}>Use and Occupancy — Use Number</label><input id="hp-uo-number" value={licenseForm.useAndOccupancyNumber} onChange={(e) => setLicenseForm((f) => ({ ...f, useAndOccupancyNumber: e.target.value }))} placeholder="Optional" style={{ maxWidth: 260 }} /></div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 6 }}>
                   {PERMIT_OPTIONS.map((p) => (
                     <label key={p.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
@@ -828,18 +901,28 @@ export function HaccpGeneratorPage() {
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : form.planId ? "Save & Regenerate" : "Generate Plan"}</button>
             {savedPlanId && (
               <>
-                <span className="muted" style={{ fontSize: 12 }}>{planMode === "full" ? "The whole package:" : "HACCP Plan:"}</span>
-                <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>HACCP Plan</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - HACCP Plan.pdf`)}>Download HACCP</button>
-                <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - HACCP Plan (Editable).docx`)}>Download HACCP (Word)</button>
-                <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf`)}>Print HACCP</button>
-                {planMode === "full" && (
+                {(wantsHaccpPlan || components.has("menu_equipment")) && (
                   <>
+                    <span className="muted" style={{ fontSize: 12 }}>{wantsHaccpPlan ? "HACCP Plan:" : "Menu & Equipment List:"}</span>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/pdf`)}>{wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/pdf`, `${downloadBaseName} - ${wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"}.pdf`)}>Download</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/docx`, `${downloadBaseName} - ${wantsHaccpPlan ? "HACCP Plan" : "Menu & Equipment List"} (Editable).docx`)}>Download (Word)</button>
+                    <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/pdf`)}>Print</button>
+                  </>
+                )}
+                {components.has("license_application") && (
+                  <>
+                    <span className="muted" style={{ fontSize: 12 }}>{form.jurisdiction === "Baltimore County" ? "Permit Application:" : "License Application:"}</span>
                     <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}</button>
-                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
                     <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/license-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Food Service Permit Application" : "Food License Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Permit App" : "Download License App"}</button>
-                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
                     <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/license-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Permit App" : "Print License App"}</button>
+                  </>
+                )}
+                {components.has("plan_review") && (
+                  <>
+                    <span className="muted" style={{ fontSize: 12 }}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide:" : "Plan Review Application:"}</span>
+                    <button type="button" className="btn" onClick={() => viewFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => downloadFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`, `${downloadBaseName} - ${form.jurisdiction === "Baltimore County" ? "Plans Review Guide" : "Plan Review Application"}.pdf`)}>{form.jurisdiction === "Baltimore County" ? "Download Review Guide" : "Download Plan Review App"}</button>
                     <button type="button" className="btn btn-sm" onClick={() => printFile(`/haccp/plans/${savedPlanId}/plan-review-pdf`)}>{form.jurisdiction === "Baltimore County" ? "Print Review Guide" : "Print Plan Review App"}</button>
                   </>
                 )}

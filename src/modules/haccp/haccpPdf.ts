@@ -53,10 +53,12 @@ export interface HaccpPdfData {
   contactPerson?: string | null;
   licenseNumber?: string | null;
   riskPriority: "High" | "Moderate";
-  renderedBody: string;
+  renderedBody: string | null;
   menuGroups: HaccpMenuGroup[];
   equipment: HaccpEquipmentLine[];
   createdAt: string | null;
+  /** Which sections this document actually wants — see haccp.routes.ts's HACCP_PLAN_COMPONENTS. */
+  components: string[];
 }
 
 class Cursor {
@@ -132,9 +134,9 @@ function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont, businessName: s
  * citation/notice line is wrapped rather than a single drawText call — a
  * long business name pushes it well past one line at the small footer size.
  */
-function drawFooter(c: Cursor, font: PDFFont, businessName: string, jurisdiction: string, pageLabel: string) {
+function drawFooter(c: Cursor, font: PDFFont, businessName: string, jurisdiction: string, pageLabel: string, docTypeLabel: string) {
   const maxWidth = PAGE_W - 96;
-  c.text(48, PAGE_H - 40, `${businessName} — HACCP Plan`, { size: 8, bold: true });
+  c.text(48, PAGE_H - 40, `${businessName} — ${docTypeLabel}`, { size: 8, bold: true });
   c.text(PAGE_W - 48, PAGE_H - 40, pageLabel, { size: 8, color: MUTED, align: "right" });
   const notice = `Prepared in accordance with Maryland COMAR 10.15.03 and ${jurisdiction} Health Department HACCP Guidelines. Prepared exclusively for ${businessName} — not for use by any other business.`;
   const lines = wrapText(notice, font, 7, maxWidth);
@@ -148,6 +150,12 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
   const L = 48, R = PAGE_W - 48;
   const maxWidth = R - L;
+  const hasHaccpPlan = data.components.includes("haccp_plan") && Boolean(data.renderedBody);
+  const hasMenuEquipment = data.components.includes("menu_equipment");
+  const docTypeLabel = hasHaccpPlan ? "HACCP Plan" : "Menu & Equipment List";
+  const titleBannerText = hasHaccpPlan
+    ? "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN"
+    : "MENU & EQUIPMENT LIST";
 
   // ---- Cover sheet ----
   // Same rhythm as the Word doc's cover (title banner → business/filing
@@ -158,7 +166,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   let y = 56;
 
   c.rect(L, y, R - L, 64, TEAL_TINT);
-  c.text(PAGE_W / 2, y + 26, "HAZARD ANALYSIS CRITICAL CONTROL POINT (HACCP) PLAN", { size: 15, bold: true, align: "center" });
+  c.text(PAGE_W / 2, y + 26, titleBannerText, { size: 15, bold: true, align: "center" });
   c.text(PAGE_W / 2, y + 46, `Prepared in accordance with Maryland COMAR 10.15.03 and ${data.jurisdiction} Health Department HACCP Guidelines`, { size: 9, color: MUTED, align: "center" });
   y += 64;
   y += 26;
@@ -209,7 +217,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     ["Menu categories covered", String(data.menuGroups.length)],
     ["Menu items on file", String(totalMenuItems)],
     ["Equipment on file", String(data.equipment.length)],
-    ["Critical control processes", "3"],
+    ...(hasHaccpPlan ? ([["Critical control processes", "3"]] as [string, string][]) : []),
   ];
   const colGap = (R - L - 32) / 2;
   stats.forEach(([label, value], i) => {
@@ -239,13 +247,14 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   coverContactLine("PHONE NUMBER", data.phone);
   coverContactLine("EMAIL", data.email);
 
-  drawFooter(c, font, data.businessName, data.jurisdiction, "Page 1");
+  drawFooter(c, font, data.businessName, data.jurisdiction, "Page 1", docTypeLabel);
   let pageNum = 1;
 
-  // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) ----
+  // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) — only when actually requested ----
+  if (hasMenuEquipment) {
   ({ page, c } = newPage(doc, font, bold, data.businessName));
   pageNum += 1;
-  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
   y = 48;
 
   c.rect(L, y, R - L, 40, TEAL_TINT);
@@ -275,7 +284,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   const leftColX = L + 14;
   const rightColX = leftColX + colWidthMenu + colGapMenu;
   for (const group of data.menuGroups) {
-    if (y > PAGE_H - 70) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    if (y > PAGE_H - 70) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
     c.rect(L, y, R - L, 16, TEAL_TINT);
     c.text(L + 8, y + 11, group.category, { size: 9.5, bold: true, color: TEAL });
     y += 24;
@@ -285,7 +294,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       const leftLines = wrapText(leftItem, font, 9, colWidthMenu - 14);
       const rightLines = rightItem ? wrapText(rightItem, font, 9, colWidthMenu - 14) : [];
       const rowLines = Math.max(leftLines.length, rightLines.length || 1);
-      if (y + rowLines * 12 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+      if (y + rowLines * 12 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
       c.checkbox(leftColX, y - 7);
       leftLines.forEach((line, li) => c.text(leftColX + 12, y + li * 12, line, { size: 9 }));
       if (rightItem) {
@@ -296,14 +305,16 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     }
     y += 10;
   }
+  }
 
-  // ---- Body: CCP sections, general handling/training — starts on its own fresh page ----
+  // ---- Body: CCP sections, general handling/training — starts on its own fresh page, only when a HACCP plan was actually requested ----
+  if (hasHaccpPlan) {
   y = 60;
   ({ page, c } = newPage(doc, font, bold, data.businessName));
   pageNum += 1;
-  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
 
-  const paragraphs = data.renderedBody.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const paragraphs = (data.renderedBody || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   for (const para of paragraphs) {
     const rawLines = para.split("\n");
     for (const rawLine of rawLines) {
@@ -311,7 +322,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       const ccpLabelMatch = rawLine.match(CCP_LABEL_RE);
 
       if (isSectionHeader) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
         y += 6;
         c.text(L, y, rawLine, { size: 11.5, bold: true, color: TEAL });
         y += 8;
@@ -324,11 +335,11 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
         const label = ccpLabelMatch[1] + ": ";
         const rest = rawLine.slice(ccpLabelMatch[0].length);
         const labelW = bold.widthOfTextAtSize(pdfSafeText(label), 9.5);
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
         c.text(L, y, label, { size: 9.5, bold: true });
         const wrapped = wrapText(rest, font, 9.5, maxWidth - labelW);
         wrapped.forEach((line, i) => {
-          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
           c.text(i === 0 ? L + labelW : L + 14, y, line, { size: 9.5 });
           y += 13;
         });
@@ -337,21 +348,23 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
 
       const isSubHeader = /^Process \d/i.test(rawLine.trim());
       for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
         c.text(L, y, wrapped, isSubHeader ? { size: 10, bold: true, color: TEAL } : { size: 9.5 });
         y += 13;
       }
     }
     y += 9;
   }
+  }
 
   // ---- Equipment List — true final section, matching the Word doc, always
   // starting on its own fresh page rather than flowing wherever the Body
-  // happened to end. ----
+  // happened to end. Only when Menu & Equipment was actually requested. ----
+  if (hasMenuEquipment) {
   pageNum += 1;
   ({ page, c } = newPage(doc, font, bold, data.businessName));
   y = 56;
-  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`);
+  drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
   c.text(L, y, "EQUIPMENT LIST", { size: 12.5, bold: true, color: TEAL });
   y += 8;
   c.line(L, y, R, y, LINE, 0.75);
@@ -374,7 +387,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     const leftLines = wrapText(leftLabel, font, 9.5, colWidthEquip - 14);
     const rightLines = rightItem ? wrapText(rightLabel, font, 9.5, colWidthEquip - 14) : [];
     const rowLines = Math.max(leftLines.length, rightLines.length || 1);
-    if (y + rowLines * 13 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`); }
+    if (y + rowLines * 13 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
     c.checkbox(leftEquipX, y - 7);
     leftLines.forEach((line, li) => c.text(leftEquipX + 12, y + li * 13, line, { size: 9.5 }));
     if (rightItem) {
@@ -382,6 +395,7 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
       rightLines.forEach((line, li) => c.text(rightEquipX + 12, y + li * 13, line, { size: 9.5 }));
     }
     y += rowLines * 13 + 4;
+  }
   }
 
   return doc.save();

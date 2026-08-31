@@ -87,6 +87,8 @@ export interface LicenseApplicationData {
   tobaccoLicenseNumber?: string;
   ownerEntityType?: "Incorporated" | "LLC" | "Other";
   useAndOccupancyNumber?: string;
+  /** Reference-only — kept alongside the plan's application data for staff visibility in-app; the official jurisdiction forms this module reproduces (Baltimore City/County license and plan-review applications) have no field for it, so it's never drawn onto a PDF. */
+  fireDeptPermitNumber?: string;
   permitsApplied?: string[];
   facilityTypeOverride?: string;
   county?: CountyPermitData;
