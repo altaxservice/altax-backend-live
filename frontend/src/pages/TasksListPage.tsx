@@ -14,6 +14,7 @@ import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { useStickyState } from "../utils/listState";
 import { saveListOrder } from "../utils/listNav";
 import { TASK_STATUSES, statusOptionsForTaskType, DueLabel, TaskFileCell, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { obligationAccountingTab } from "../utils/obligationTasks";
 import { LabelChips, LabelPicker, useEntityLabels } from "../components/Labels";
 import { CreateBatchTasksModal } from "../components/CreateBatchTasksModal";
 import { NewWorkItemModal } from "../components/NewWorkItemModal";
@@ -712,6 +713,11 @@ export function TasksListPage() {
                               </button>
                             );
                           })}
+                          {user?.role !== "client" && t.client_id && obligationAccountingTab(t) && (
+                            <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(t.client_id!)}&tab=${encodeURIComponent(obligationAccountingTab(t)!)}`)}>
+                              Finish in Accounting
+                            </button>
+                          )}
                           <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
                         </div>
                         {t.first_file_url && <TaskFileCell task={t} />}

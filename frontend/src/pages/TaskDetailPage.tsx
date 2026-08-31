@@ -9,6 +9,7 @@ import { BackLink } from "../components/BackLink";
 import { PrevNextNav } from "../components/PrevNextNav";
 import { getAdjacentIds } from "../utils/listNav";
 import { statusOptionsForTaskType } from "../components/TaskCells";
+import { obligationAccountingTab } from "../utils/obligationTasks";
 import { DetailSectionHead, DetailField } from "../components/DetailCard";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
@@ -241,6 +242,11 @@ export function TaskDetailPage() {
               <option value="">Change status…</option>
               {statusOptionsForTaskType(options?.taskStatusesWithType, task.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            {task.client_id && obligationAccountingTab(task) && (
+              <Link className="btn" to={`/accounting?client=${encodeURIComponent(task.client_id)}&tab=${encodeURIComponent(obligationAccountingTab(task)!)}`}>
+                Finish in Accounting
+              </Link>
+            )}
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
           </div>
