@@ -175,7 +175,12 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
     const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${row?.share_token}`;
     await sendFilingConfirmation({
       client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
-      filedDate, amount: balanceDue, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
+      filedDate, amount: balanceDue, amountLabel: "Balance Due", amountLabelAr: "الرصيد المستحق",
+      breakdown: [
+        { label: "Gross Liability", labelAr: "إجمالي الالتزام", valueStr: `$${totals.grossLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        { label: "EFTPS Deposits Applied", labelAr: "الإيداعات المطبقة", valueStr: `−$${eftpsDepositsApplied.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+      ],
+      paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
     // A re-file can change the balance (e.g. a client makes another EFTPS
     // deposit for the quarter between two filings of the same period) — a

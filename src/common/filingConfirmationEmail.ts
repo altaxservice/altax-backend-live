@@ -36,7 +36,14 @@ function fmtDate(v: string | Date | null): string {
   // rather than straight into a "YYYY-MM-DDT..." string.
   const raw = v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
   const d = new Date(`${raw}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) ? "—" : `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  // Matches the public report pages' own date format exactly (PublicMdFilingPage etc.'s
+  // fmtDate) — a client reading "Jul 1, 2026" in the email and clicking through to a page
+  // that also says "Jul 1, 2026" shouldn't have to reconcile two different date styles.
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+/** Formats a period start/end pair the same way every public report page does ("Jul 1 – Jul 31, 2026"), for callers (MD Sales Tax) that build their own periodLabel from raw ISO dates instead of a pre-formatted quarter/year string. */
+export function fmtPeriodRange(start: string, end: string): string {
+  return `${fmtDate(start)} – ${fmtDate(end)}`;
 }
 function money2(n: number): string {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -108,6 +115,12 @@ async function logFilingCommunication(
   );
 }
 
+export interface FilingConfirmationBreakdownRow {
+  label: string;
+  labelAr: string;
+  valueStr: string;
+}
+
 export interface FilingConfirmationInput {
   client: FilingClientInfo;
   sourceRecordId: string; // same key used for the v3_payment_reminders row this filing schedules, if any
@@ -115,6 +128,11 @@ export interface FilingConfirmationInput {
   periodLabel: string | null;
   filedDate: string;
   amount: number;
+  /** Overrides the hero card's label — defaults to "Amount", but a type whose own report page calls this number something more specific ("Tax Due", "Balance Due") should say the same thing here, so the email and the page it links to read as one number, not two. */
+  amountLabel?: string;
+  amountLabelAr?: string;
+  /** Optional line items shown between Period and Filed Date — e.g. Form 941's Gross Liability / EFTPS Deposits Applied, the two numbers that produce the hero's Balance Due. Pre-formatted strings (via money2 or a "−" prefix), same convention the report pages use for a subtracted line. */
+  breakdown?: FilingConfirmationBreakdownRow[];
   paymentDueDate: string;
   paidDate: string | null;
   acknowledgeUrl?: string;
@@ -124,6 +142,8 @@ export interface FilingConfirmationInput {
 /** Body used both as the email HTML and (plain-text-ish) as the v3_communications log entry. */
 function filingConfirmationBody(input: FilingConfirmationInput): string {
   const canAcknowledge = isPubliclyReachable(input.acknowledgeUrl);
+  const amountLabel = input.amountLabel ?? "Amount";
+  const amountLabelAr = input.amountLabelAr ?? "المبلغ";
   return `
     ${bilingualParagraph(
       `This is a confirmation that we filed your <strong>${esc(input.filingType)}</strong>${input.periodLabel ? ` for the period <strong>${esc(input.periodLabel)}</strong>` : ""}.`,
@@ -132,14 +152,17 @@ function filingConfirmationBody(input: FilingConfirmationInput): string {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:10px; overflow:hidden; margin:0 0 18px; border:1px solid #e5e7eb;">
       <tr><td style="background:#0f2d3e; padding:16px 18px;">
         <div style="color:#9fb4bf; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">
-          Amount &nbsp;/&nbsp; <bdi dir="rtl">المبلغ</bdi>
+          ${esc(amountLabel)} &nbsp;/&nbsp; <bdi dir="rtl">${esc(amountLabelAr)}</bdi>
         </div>
         <div style="color:#ffffff; font-size:28px; font-weight:800; margin-top:2px;">${money2(input.amount)}</div>
       </td></tr>
-      <tr><td style="background:#f8fafb; padding:14px 18px;">
+      <tr><td style="background:#f8fafb; padding:14px 18px 4px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           ${row("Filing Type", "نوع الإقرار", esc(input.filingType))}
           ${input.periodLabel ? row("Period", "الفترة", esc(input.periodLabel)) : ""}
+          ${input.breakdown?.length ? `<tr><td colspan="2" style="padding:6px 0 0; border-top:1px solid #e5e7eb;"></td></tr>` : ""}
+          ${(input.breakdown ?? []).map((b) => row(b.label, b.labelAr, esc(b.valueStr))).join("")}
+          <tr><td colspan="2" style="padding:6px 0 0; border-top:1px solid #e5e7eb;"></td></tr>
           ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filedDate))}
           ${input.paidDate ? row("Payment Date", "تاريخ الدفع", fmtDate(input.paidDate)) : row("Payment Due Date", "تاريخ استحقاق الدفع", fmtDate(input.paymentDueDate))}
         </table>

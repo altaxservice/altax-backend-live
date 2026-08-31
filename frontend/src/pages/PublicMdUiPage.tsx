@@ -57,7 +57,12 @@ export function PublicMdUiPage() {
   if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
   if (!filing) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
 
-  const periodLabel = `${fmtDate(filing.period_start)} – ${fmtDate(filing.period_end)}`;
+  // Matches the "Q3 2026" style the Filing Confirmation email uses for this same period,
+  // rather than a date range — the two should read as the same period at a glance.
+  const periodDate = new Date(`${String(filing.period_start).slice(0, 10)}T00:00:00Z`);
+  const periodLabel = Number.isNaN(periodDate.getTime())
+    ? `${fmtDate(filing.period_start)} – ${fmtDate(filing.period_end)}`
+    : `Q${Math.floor(periodDate.getUTCMonth() / 3) + 1} ${periodDate.getUTCFullYear()}`;
 
   return (
     <PublicPageShell>

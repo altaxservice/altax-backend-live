@@ -3041,13 +3041,16 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
 
   if (notify) {
     const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
-    const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+    const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
     const sourceRecordId = `${client.clientId}:${periodEnd}`;
     const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${row?.share_token}`;
+    const hasBalanceDue = result?.balanceDue != null && round2(result.balanceDue) !== taxDue;
     await sendFilingConfirmation({
       client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed) },
-      sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: `${periodStart} – ${periodEnd}`,
-      filedDate, amount: taxDue, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
+      sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: fmtPeriodRange(periodStart, periodEnd),
+      filedDate, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
+      breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${result!.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
+      paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
     if (!paidDate) {
       const { schedulePaymentReminder } = await import("../../common/paymentReminders");
