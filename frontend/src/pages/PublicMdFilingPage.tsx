@@ -80,7 +80,8 @@ export function PublicMdFilingPage() {
             <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Tax Due</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(filing.tax_due)}</div>
           </div>
-          <table style={{ width: "100%" }}>
+          <table style={{ width: "100%", tableLayout: "fixed" }}>
+            <colgroup><col style={{ width: "55%" }} /><col /></colgroup>
             <tbody>
               <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(filing.filed_date)}</td></tr>
               <tr><td className="muted" style={{ padding: "10px 18px" }}>Payment Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</td></tr>

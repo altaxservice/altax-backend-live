@@ -101,7 +101,8 @@ export function PublicEftpsDepositPage() {
             <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>Total Federal Deposit</div>
             <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(deposit.total_amount)}</div>
           </div>
-          <table style={{ width: "100%" }}>
+          <table style={{ width: "100%", tableLayout: "fixed" }}>
+            <colgroup><col style={{ width: "55%" }} /><col /></colgroup>
             <tbody>
               <tr><td className="muted" style={{ padding: "10px 18px" }}>Filed Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.filing_date)}</td></tr>
               <tr><td className="muted" style={{ padding: "10px 18px" }}>Due Date</td><td style={{ textAlign: "right", padding: "10px 18px" }}>{fmtDate(deposit.due_date)}</td></tr>
