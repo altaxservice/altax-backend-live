@@ -84,6 +84,18 @@ export interface BillOfSaleData {
   assetAllocations?: AssetAllocationLine[] | null;
   liabilitiesIncluded?: string | null;
   additionalTerms?: string | null;
+  /** Drives entity-aware language (LLC membership interest / Corp asset sale / generic ownership interest) — same as billOfSaleDocx.ts, so the PDF and Word outputs of the same transfer say the same thing. */
+  entityType?: string | null;
+  state?: string | null;
+}
+
+export type EntityKind = "LLC" | "Corp" | "Generic";
+
+export function entityKindFor(entityType: string | null | undefined): EntityKind {
+  const t = String(entityType || "").trim();
+  if (t === "LLC") return "LLC";
+  if (t === "C-Corp" || t === "S-Corp") return "Corp";
+  return "Generic";
 }
 
 function fmtDate(v: unknown): string {
@@ -175,7 +187,16 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   }
   c.text(textL, y, profile.firmName.toUpperCase(), { size: 14, bold: true, color: TEAL });
   c.text(R, y, "BILL OF SALE", { size: 16, bold: true, align: "right" });
-  y += 26;
+  y += 15;
+  const kind = entityKindFor(data.entityType);
+  const state = data.state || "Maryland";
+  const businessLabel = kind === "LLC"
+    ? `${data.businessName}, a ${state} limited liability company`
+    : kind === "Corp"
+    ? `${data.businessName}, a ${state} corporation`
+    : data.businessName;
+  c.text(R, y, kind === "LLC" ? "(Sale of Business, Including LLC Membership Interest)" : kind === "Corp" ? "(Sale of Business Assets)" : "(Sale of Business Ownership Interest)", { size: 8.5, color: MUTED, align: "right" });
+  y += 11;
   c.line(L, y, R, y, INK, 1.25);
   y += 20;
 
@@ -204,24 +225,49 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     y += 16;
   };
 
-  heading("1. PARTIES");
+  const sellerDesc = kind === "Corp"
+    ? `${data.sellerName}${data.sellerTitle ? `, its ${data.sellerTitle}` : ", its authorized officer"}, on behalf of ${businessLabel} ("Seller")`
+    : `${data.sellerName}${data.sellerTitle ? `, ${data.sellerTitle}` : ""} ("Seller")${kind === "LLC" ? `, owner of ${businessLabel}` : ""}`;
+  const buyerDesc = `${data.buyerName}${data.buyerTitle ? `, ${data.buyerTitle}` : ""}${data.buyerAddress ? `, of ${data.buyerAddress}` : ""} ("Buyer")`;
+  paragraph(`This Bill of Sale is made and entered into as of ${fmtDate(data.effectiveDate)}, by and between:`);
+  paragraph(`SELLER: ${sellerDesc}; and`);
+  paragraph(`BUYER: ${buyerDesc}.`);
+
+  let n = 1;
+  heading(`${n++}. PARTIES AND BUSINESS`);
   paragraph(
-    `This Bill of Sale is made effective as of ${fmtDate(data.effectiveDate)}, by and between ` +
-    `${data.sellerName}${data.sellerTitle ? `, ${data.sellerTitle}` : ""} ("Seller") and ` +
-    `${data.buyerName}${data.buyerTitle ? `, ${data.buyerTitle}` : ""}${data.buyerAddress ? `, of ${data.buyerAddress}` : ""} ("Buyer"), ` +
-    `regarding the ownership interest in ${data.businessName} (the "Business").`
+    `This Bill of Sale concerns the business known as ${data.businessName}` +
+    `${data.businessAddress ? `, operated at ${data.businessAddress}` : ""}${data.ein ? ` (EIN ${data.ein})` : ""} (the "Business").`
   );
 
-  heading("2. SALE OF OWNERSHIP INTEREST");
-  paragraph(
-    `For and in consideration of ${fmtMoney(data.salePrice)}, and other good and valuable consideration, the receipt and ` +
-    `sufficiency of which is hereby acknowledged, Seller does hereby sell, transfer, assign, and convey to Buyer all of ` +
-    `Seller's right, title, and interest in and to the Business, effective as of the date above.`
-  );
+  if (kind === "LLC") {
+    heading(`${n++}. SALE OF MEMBERSHIP INTEREST`);
+    paragraph(
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `Seller does hereby sell, assign, transfer, and convey to Buyer, and Buyer's successors and assigns, all of Seller's right, ` +
+      `title, and interest in and to ${businessLabel}, including one hundred percent (100%) of the membership interest in the ` +
+      `Company, together with all of the assets of the Business described in Section 3 below. Upon execution of this Bill of ` +
+      `Sale, Buyer shall be the sole member of the Company, and Seller withdraws as a member.`
+    );
+  } else if (kind === "Corp") {
+    heading(`${n++}. SALE OF BUSINESS ASSETS`);
+    paragraph(
+      `For and in consideration of ${fmtMoney(data.salePrice)}, the receipt and sufficiency of which is hereby acknowledged, ` +
+      `Seller does hereby sell, transfer, convey, and deliver to Buyer all of Seller's right, title, and interest in and to ` +
+      `${businessLabel}, including the assets described in Section 3 below (collectively, the "Assets").`
+    );
+  } else {
+    heading(`${n++}. SALE OF OWNERSHIP INTEREST`);
+    paragraph(
+      `For and in consideration of ${fmtMoney(data.salePrice)}, and other good and valuable consideration, the receipt and ` +
+      `sufficiency of which is hereby acknowledged, Seller does hereby sell, transfer, assign, and convey to Buyer all of ` +
+      `Seller's right, title, and interest in and to the Business, effective as of the date above.`
+    );
+  }
 
   const allocations = (data.assetAllocations || []).filter((a) => a && a.category && Number.isFinite(a.amount) && a.amount > 0);
 
-  heading("3. ASSETS INCLUDED" + (allocations.length > 0 ? " — ALLOCATION OF PURCHASE PRICE" : ""));
+  heading(`${n++}. ASSETS INCLUDED` + (allocations.length > 0 ? " — ALLOCATION OF PURCHASE PRICE" : ""));
   if (allocations.length > 0) {
     paragraph(
       "The Purchase Price is allocated among the assets of the Business as follows, for purposes of IRC Section 1060 " +
@@ -261,39 +307,76 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
     c.text(colAmt, y, fmtMoney(total), { size: 9.5, bold: true, color: TEAL, align: "right" });
     y += 22;
   } else {
-    paragraph(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described in Section 2.");
+    paragraph(data.assetsIncluded?.trim() || "No specific assets were itemized for this transfer beyond the ownership interest described above; the parties should attach a schedule of included assets if one exists.");
   }
 
-  heading("4. LIABILITIES");
-  paragraph(data.liabilitiesIncluded?.trim() || "No liabilities were itemized as assumed by Buyer as part of this transfer; the parties should confirm the treatment of any outstanding business debts, leases, or obligations separately.");
+  heading(`${n++}. PURCHASE PRICE AND PAYMENT`);
+  paragraph(
+    `The total purchase price for the Assets is ${fmtMoney(data.salePrice)}, payable by Buyer to Seller as agreed between the ` +
+    `parties, the receipt of which Seller acknowledges upon payment in full.`
+  );
 
-  let n = 5;
+  heading(`${n++}. LIABILITIES`);
+  paragraph(data.liabilitiesIncluded?.trim() || "Seller remains solely responsible for, and shall indemnify and hold Buyer harmless from, any debts, obligations, or liabilities of the Seller or of the Business arising prior to the effective date of this Bill of Sale, unless otherwise agreed in writing by the parties.");
+
   if (data.additionalTerms?.trim()) {
     heading(`${n++}. ADDITIONAL CLAUSE(S) / TERMS`);
     paragraph(data.additionalTerms.trim());
   }
 
-  heading(`${n++}. AS-IS; NO WARRANTIES`);
+  heading(`${n++}. SELLER'S WARRANTIES`);
   paragraph(
-    "Except as expressly stated in this Bill of Sale, Seller makes no warranties, express or implied, regarding the Business " +
-    "being transferred, and Buyer accepts the ownership interest in its current condition. Nothing in this document constitutes " +
-    "legal, tax, or accounting advice to either party."
+    `Seller warrants and represents that: (a) Seller is the lawful owner of the ownership interest and the Assets, and has ` +
+    `full right, power, and authority to sell and transfer the same; (b) the ownership interest and the Assets are free and ` +
+    `clear of all liens, security interests, encumbrances, and claims of any kind, except as disclosed to Buyer in writing; ` +
+    `and (c) Seller will warrant and defend title to the ownership interest and the Assets against the lawful claims and ` +
+    `demands of all persons.`
+  );
+
+  heading(`${n++}. CONDITION OF ASSETS`);
+  paragraph(
+    `Except for the warranty of title set forth above, the Assets are sold in their present condition, "AS IS, WHERE IS," ` +
+    `and Seller makes no other warranty, express or implied, including any warranty of merchantability or fitness for a ` +
+    `particular purpose.`
+  );
+
+  heading(`${n++}. FURTHER ASSURANCES`);
+  paragraph(
+    "Each party agrees to execute and deliver any additional documents and to take any further actions reasonably " +
+    "necessary to carry out the intent of this Bill of Sale."
   );
 
   heading(`${n++}. GOVERNING LAW`);
-  paragraph("This Bill of Sale shall be governed by and construed in accordance with the laws of the State of Maryland.");
+  paragraph(`This Bill of Sale shall be governed by and construed in accordance with the laws of the State of ${state}.`);
+
+  heading(`${n++}. BINDING EFFECT`);
+  paragraph(
+    "This Bill of Sale shall be binding upon and shall inure to the benefit of the parties and their respective heirs, " +
+    "successors, and assigns. Nothing in this document constitutes legal, tax, or accounting advice to either party."
+  );
+
+  paragraph("IN WITNESS WHEREOF, the parties have executed this Bill of Sale as of the date first written above.");
 
   // Signature block — keep both parties together, push to a new page rather than split.
   ensureSpace(190);
   y += 12;
   c.line(L, y, R, y, INK, 1);
   y += 22;
-  c.text(L, y, "SELLER", { size: 9, bold: true, color: MUTED });
-  y += 20;
-  c.text(L, y, "Signature: __________________________________", { size: 10 });
-  c.text(R, y, "Date: ______________", { size: 10, align: "right" });
-  y += 22;
-  c.text(L, y, `Print Name: ${data.sellerName}`, { size: 10 });
+  if (kind === "Corp") {
+    c.text(L, y, `SELLER: ${data.businessName}`, { size: 9, bold: true, color: MUTED });
+    y += 20;
+    c.text(L, y, "Signature: __________________________________", { size: 10 });
+    c.text(R, y, "Date: ______________", { size: 10, align: "right" });
+    y += 22;
+    c.text(L, y, `By: ${data.sellerName}, ${data.sellerTitle || "Authorized Officer"}`, { size: 10 });
+  } else {
+    c.text(L, y, "SELLER", { size: 9, bold: true, color: MUTED });
+    y += 20;
+    c.text(L, y, "Signature: __________________________________", { size: 10 });
+    c.text(R, y, "Date: ______________", { size: 10, align: "right" });
+    y += 22;
+    c.text(L, y, `Print Name: ${data.sellerName}`, { size: 10 });
+  }
   y += 36;
   c.text(L, y, "BUYER", { size: 9, bold: true, color: MUTED });
   y += 20;
@@ -301,6 +384,30 @@ export async function generateBillOfSalePdf(data: BillOfSaleData): Promise<Uint8
   c.text(R, y, "Date: ______________", { size: 10, align: "right" });
   y += 22;
   c.text(L, y, `Print Name: ${data.buyerName}`, { size: 10 });
+
+  // One notary acknowledgment covering both signers together, not a separate
+  // notarization per party — same convention as billOfSaleDocx.ts's notaryBlock.
+  ensureSpace(170);
+  y += 30;
+  heading("Acknowledgment");
+  paragraph(`STATE OF ${state.toUpperCase()}`);
+  paragraph("CITY/COUNTY OF ______________________, to wit:");
+  paragraph(
+    `I HEREBY CERTIFY that on this ______ day of ______________, 20____, before me, the undersigned Notary Public ` +
+    `of the State of ${state}, personally appeared ${data.sellerName || "____________________"} and ` +
+    `${data.buyerName || "____________________"}, known to me (or satisfactorily proven) to be the persons whose names are ` +
+    `subscribed to the foregoing Bill of Sale, and acknowledged that they executed the same for the purposes therein contained.`
+  );
+  paragraph("WITNESS my hand and Notarial Seal.");
+  ensureSpace(60);
+  y += 10;
+  c.line(L, y, L + 220, y, INK, 1);
+  y += 16;
+  c.text(L, y, "Notary Public", { size: 10 });
+  y += 22;
+  c.text(L, y, "Printed Name: ____________________________", { size: 10 });
+  y += 20;
+  c.text(L, y, "My Commission Expires: ___________________", { size: 10 });
 
   footer();
 

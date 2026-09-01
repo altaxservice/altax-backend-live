@@ -14,16 +14,9 @@ import {
   TableRow, TabStopPosition, TabStopType, TextRun, WidthType,
 } from "docx";
 import { getFirmProfile } from "../../common/firmProfile";
-import { classForCategory, type BillOfSaleData } from "./billOfSale";
+import { classForCategory, entityKindFor, type BillOfSaleData, type EntityKind } from "./billOfSale";
 
-export type EntityKind = "LLC" | "Corp" | "Generic";
-
-export function entityKindFor(entityType: string | null | undefined): EntityKind {
-  const t = String(entityType || "").trim();
-  if (t === "LLC") return "LLC";
-  if (t === "C-Corp" || t === "S-Corp") return "Corp";
-  return "Generic";
-}
+export type { EntityKind };
 
 function fmtDate(v: unknown): string {
   if (!v) return "________________";
@@ -169,7 +162,7 @@ function notaryBlock(sellerName: string, buyerName: string, state: string): Para
   ];
 }
 
-export async function generateBillOfSaleDocx(data: BillOfSaleData & { entityType?: string | null; state?: string | null }): Promise<Buffer> {
+export async function generateBillOfSaleDocx(data: BillOfSaleData): Promise<Buffer> {
   const profile = await getFirmProfile();
   const kind = entityKindFor(data.entityType);
   const state = data.state || "Maryland";
