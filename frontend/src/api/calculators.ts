@@ -35,4 +35,5 @@ export interface MdFilingResult {
   markedFiledDate: string | null;
   markedPaidDate: string | null;
   acknowledgedAt: string | null;
+  sentAt: string | null;
 }

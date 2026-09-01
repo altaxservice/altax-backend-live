@@ -160,6 +160,7 @@ mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff")
       client, sourceRecordId, filingType: "Maryland Unemployment Insurance", periodLabel,
       filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
+    await query(`UPDATE altax.v3_md_ui_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
     if (!paidDate) {
       const { schedulePaymentReminder } = await import("../../common/paymentReminders");
       await schedulePaymentReminder({
@@ -205,6 +206,46 @@ mdUiFilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, requ
   await cancelPaymentReminder("MdUiFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");
 
   res.json({ ok: true, periodEnd, paidDate });
+}));
+
+/**
+ * Independently (re-)sends the filing-confirmation email for an already-filed
+ * quarter — same standalone action EFTPS already has (POST
+ * /eftps-deposits/:depositId/send), not just a one-time choice bundled into
+ * mark-filed's own `notify` flag.
+ */
+mdUiFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodEnd = req.params.periodEnd;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+  const existing = await queryOne<any>(
+    `SELECT period_start, filed_date, paid_date, amount, share_token FROM altax.v3_md_ui_filings WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
+
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const paidDateStr = existing.paid_date ? new Date(existing.paid_date).toISOString().slice(0, 10) : null;
+  const dueDate = mdUiDueDate(periodEnd);
+  const periodLabel = deriveTaskRulesPeriodLabel(periodStartStr, "Quarterly") || `${periodStartStr} – ${periodEnd}`;
+
+  const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+  const sourceRecordId = `${client.clientId}:${periodEnd}`;
+  const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-ui/${existing.share_token}`;
+  await sendFilingConfirmation({
+    client, sourceRecordId, filingType: "Maryland Unemployment Insurance", periodLabel,
+    filedDate: filedDateStr, amount: Number(existing.amount), paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
+  });
+
+  await query(`UPDATE altax.v3_md_ui_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "MD_UI_SENT", client.clientId, "Period", "", periodEnd,
+    `MD UI wage filing confirmation (period ending ${periodEnd}) sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
 }));
 
 mdUiFilingsRouter.post("/:clientId/:periodEnd/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

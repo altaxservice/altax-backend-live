@@ -8,7 +8,7 @@ interface Form941Filing {
   client_id: string; period_start: string; period_end: string; quarter: number;
   filed_date: string; paid_date: string | null;
   gross_liability: number; eftps_deposits_applied: number; balance_due: number;
-  share_token: string | null; acknowledged_at: string | null;
+  share_token: string | null; acknowledged_at: string | null; sent_at: string | null;
 }
 interface Form941QuarterTotals {
   employeeCount: number; wages: number; federalWithholding: number;
@@ -130,6 +130,21 @@ export function Form941Section({ clientId }: { clientId: string }) {
     }
   }
 
+  /** Independently (re-)sends the filing-confirmation email — same standalone action EFTPS Deposits already has, not just a one-time choice bundled into "Mark Filed." */
+  async function handleSendConfirmation(f: Form941Filing) {
+    setRowBusy(`${f.period_end}:send`);
+    try {
+      await api.post(`/form941-filings/${clientId}/${f.period_end}/send`, {});
+      toast("Filing confirmation sent.");
+      handleReview();
+      loadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send this confirmation.");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
   async function handleUndo(f: Form941Filing) {
     const ok = await confirmDialog({
       title: "Undo this Form 941 filing", message: `Removes the record for Q${f.quarter} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
@@ -161,6 +176,9 @@ export function Form941Section({ clientId }: { clientId: string }) {
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {!f.paid_date && (
                 <button className="btn btn-sm" onClick={() => { setPayingKey(f.period_end); setPayingDate(todayStr()); }}>Record Payment</button>
+              )}
+              {!f.sent_at && (
+                <button className="btn btn-sm" disabled={rowBusy === `${f.period_end}:send`} onClick={() => handleSendConfirmation(f)}>{rowBusy === `${f.period_end}:send` ? "…" : "Send"}</button>
               )}
               <button className="btn btn-sm" onClick={() => viewFile(`/form941-filings/${clientId}/${f.period_end}/pdf`)}>View</button>
               <button className="btn btn-sm" onClick={() => downloadFile(`/form941-filings/${clientId}/${f.period_end}/pdf`, `941_Q${f.quarter}_${f.period_start.slice(0, 4)}.pdf`)}>PDF</button>

@@ -352,6 +352,8 @@ export interface MdFilingPeriodResult extends MdFilingResult {
   markedPaidDate: string | null;
   /** When the client clicked the acknowledge link on the Save & Send confirmation email (v3_md_filing_payments.acknowledged_at) — same client-confirmation signal EFTPS/MD UI/Form 941/Annual Report already surface in their own History tables. Null until acknowledged, or if this period was never sent. */
   acknowledgedAt: string | null;
+  /** When the filing-confirmation email was actually sent — set either at mark-filed time (notify=true) or by the standalone "Send" action, same as EFTPS's status flipping to 'Sent'. Null means never sent. */
+  sentAt: string | null;
 }
 
 export interface MdFilingBreakdown {
@@ -457,7 +459,7 @@ export async function computeMdFilingBreakdown(
   // paid (the Save & Send filing-confirmation feature) — a genuine recorded
   // state, distinct from "no Mark Filed record exists at all" (recordedFilings
   // has no entry for this period). See the filedPendingPayment branch below.
-  recordedFilings?: Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt?: string | null }>,
+  recordedFilings?: Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt?: string | null; sentAt?: string | null }>,
   // When the caller already has a history-aware period grid (see
   // splitIntoMdFilingPeriodsForClient), pass it here instead of letting this
   // function re-derive periods from a single current `frequency` value —
@@ -522,6 +524,7 @@ export async function computeMdFilingBreakdown(
         start: period.start, end: period.end, dueDate: period.dueDate,
         targetFilingDate: mdFilingTargetDate(period.dueDate), filedDate, paidDate: filedDate,
         markedFiledDate: recorded.filedDate, markedPaidDate: null, acknowledgedAt: recorded.acknowledgedAt ?? null,
+        sentAt: recorded.sentAt ?? null,
       });
       continue;
     }
@@ -531,7 +534,7 @@ export async function computeMdFilingBreakdown(
       ...result, start: period.start, end: period.end, dueDate: period.dueDate,
       targetFilingDate: mdFilingTargetDate(period.dueDate), filedDate, paidDate,
       markedFiledDate: recorded?.filedDate ?? null, markedPaidDate: recorded?.paidDate ?? null,
-      acknowledgedAt: recorded?.acknowledgedAt ?? null,
+      acknowledgedAt: recorded?.acknowledgedAt ?? null, sentAt: recorded?.sentAt ?? null,
     });
   }
   const totals = results.reduce(

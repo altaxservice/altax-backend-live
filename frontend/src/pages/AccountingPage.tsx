@@ -552,6 +552,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     }
   }
 
+  /** Independently (re-)sends the filing-confirmation email for an already-filed period — same standalone action EFTPS Deposits already has, not just a one-time choice bundled into "Mark Filed." */
+  async function handleSendMdConfirmation(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/send`, { periodEnd: p.end });
+      setMdFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not send this confirmation.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
   async function handleUnmarkPeriodFiled(p: { end: string }) {
     setMarkingPeriodEnd(p.end);
     try {
@@ -594,9 +607,16 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
         <td onClick={(e) => e.stopPropagation()}>
           {p.markedPaidDate ? (
-            <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
-              {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
-            </button>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {!p.sentAt && (
+                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
+                  {markingPeriodEnd === p.end ? "…" : "Send"}
+                </button>
+              )}
+              <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
+                {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
+              </button>
+            </div>
           ) : p.markedFiledDate ? (
             pickRecordPaymentEnd === p.end ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
@@ -613,9 +633,16 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end} onClick={() => { setPickRecordPaymentEnd(p.end); setPickRecordPaymentDate(p.dueDate); }}>
                   Record Payment
                 </button>
-                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
-                  Undo
-                </button>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {!p.sentAt && (
+                    <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
+                      {markingPeriodEnd === p.end ? "…" : "Send"}
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
+                    Undo
+                  </button>
+                </div>
               </div>
             )
           ) : pickingPeriodEnd === p.end ? (

@@ -1237,14 +1237,14 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
  * computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is exactly
  * the nil/no-data-yet case a "still needs to be filed" flag has to catch.
  */
-export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt: string | null }>> {
-  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null; acknowledged_at: string | null }>(
-    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date, acknowledged_at::text AS acknowledged_at
+export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt: string | null; sentAt: string | null }>> {
+  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null; acknowledged_at: string | null; sent_at: string | null }>(
+    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date, acknowledged_at::text AS acknowledged_at, sent_at::text AS sent_at
        FROM altax.v3_md_filing_payments
       WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
     [clientId, expandedFrom, expandedTo]
   );
-  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date, acknowledgedAt: r.acknowledged_at }]));
+  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date, acknowledgedAt: r.acknowledged_at, sentAt: r.sent_at }]));
 }
 
 /**
@@ -3055,6 +3055,7 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
       breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${result!.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
       paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
+    await query(`UPDATE altax.v3_md_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
     if (!paidDate) {
       const { schedulePaymentReminder } = await import("../../common/paymentReminders");
       await schedulePaymentReminder({
@@ -3123,6 +3124,56 @@ reportsRouter.post("/md-filing/:clientId/record-payment", requireAuth, requireRo
   await cancelPaymentReminder("MdFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");
 
   res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
+}));
+
+/**
+ * Independently (re-)sends the filing-confirmation email for an already-filed
+ * period — same standalone action EFTPS already has (POST
+ * /eftps-deposits/:depositId/send), not just a one-time choice bundled into
+ * mark-filed's own `notify` flag. Lets staff send after the fact (they chose
+ * "Save and Close" instead of "Save and Send" at filing time) or resend if a
+ * client says they never got it — either case previously had no path but
+ * deleting and re-filing the period.
+ */
+reportsRouter.post("/md-filing/:clientId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  const existing = await queryOne<any>(
+    `SELECT period_start, filed_date, paid_date, tax_due, balance_due, share_token FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
+
+  const { mdDueDateForPeriod } = await import("../../common/mdFiling");
+  const dueDate = mdDueDateForPeriod(periodEnd);
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const paidDateStr = existing.paid_date ? new Date(existing.paid_date).toISOString().slice(0, 10) : null;
+  const taxDue = Number(existing.tax_due);
+  const balanceDue = existing.balance_due !== null ? Number(existing.balance_due) : null;
+
+  const clientContact = await queryOne<any>(`SELECT email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
+  const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
+  const sourceRecordId = `${client.clientId}:${periodEnd}`;
+  const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${existing.share_token}`;
+  const hasBalanceDue = balanceDue != null && round2(balanceDue) !== taxDue;
+  await sendFilingConfirmation({
+    client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed) },
+    sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: fmtPeriodRange(periodStartStr, periodEnd),
+    filedDate: filedDateStr, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
+    breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${balanceDue!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
+    paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
+  });
+
+  await query(`UPDATE altax.v3_md_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "MD_FILING_SENT", client.clientId, "Period", "", periodEnd,
+    `MD sales tax filing confirmation (period ending ${periodEnd}) sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
 }));
 
 /** Reverses a mark-paid entry (staff correcting a mistaken date) — the period goes back to being computed live against today, same as before it was ever marked. */

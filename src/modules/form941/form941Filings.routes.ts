@@ -179,6 +179,7 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
       ],
       paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
     });
+    await query(`UPDATE altax.v3_form941_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, period.end]);
     // A re-file can change the balance (e.g. a client makes another EFTPS
     // deposit for the quarter between two filings of the same period) — a
     // reminder scheduled from an earlier, larger balance must be canceled
@@ -261,6 +262,55 @@ form941FilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, r
   await cancelPaymentReminder("Form941Filing", `${client.clientId}:${periodEnd}`, "Payment recorded");
 
   res.json({ ok: true, periodEnd, paidDate });
+}));
+
+/**
+ * Independently (re-)sends the filing-confirmation email for an already-filed
+ * quarter — same standalone action EFTPS already has (POST
+ * /eftps-deposits/:depositId/send), not just a one-time choice bundled into
+ * mark-filed's own `notify` flag.
+ */
+form941FilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodEnd = req.params.periodEnd;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+  const existing = await queryOne<any>(
+    `SELECT quarter, filed_date, paid_date, gross_liability, eftps_deposits_applied, balance_due, share_token FROM altax.v3_form941_filings WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This quarter hasn't been marked filed yet — mark it filed first." });
+
+  const y941 = Number(periodEnd.slice(0, 4));
+  const quarter941 = existing.quarter as 1 | 2 | 3 | 4;
+  const dueDate = form941DueDate(y941, quarter941);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const paidDateStr = existing.paid_date ? new Date(existing.paid_date).toISOString().slice(0, 10) : null;
+  const balanceDue = Number(existing.balance_due);
+  const grossLiability = Number(existing.gross_liability);
+  const eftpsDepositsApplied = Number(existing.eftps_deposits_applied);
+
+  const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+  const sourceRecordId = `${client.clientId}:${periodEnd}`;
+  const periodLabel = `Q${quarter941} ${y941}`;
+  const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${existing.share_token}`;
+  await sendFilingConfirmation({
+    client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
+    filedDate: filedDateStr, amount: balanceDue, amountLabel: "Balance Due", amountLabelAr: "الرصيد المستحق",
+    breakdown: [
+      { label: "Gross Liability", labelAr: "إجمالي الالتزام", valueStr: `$${grossLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+      { label: "EFTPS Deposits Applied", labelAr: "الإيداعات المطبقة", valueStr: `−$${eftpsDepositsApplied.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+    ],
+    paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
+  });
+
+  await query(`UPDATE altax.v3_form941_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "FORM_941_SENT", client.clientId, "Period", "", periodEnd,
+    `Form 941 filing confirmation (period ending ${periodEnd}) sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
 }));
 
 form941FilingsRouter.post("/:clientId/:periodEnd/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
