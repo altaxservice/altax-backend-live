@@ -591,6 +591,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
         <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
+        <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
         <td onClick={(e) => e.stopPropagation()}>
           {p.markedPaidDate ? (
             <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
@@ -881,7 +882,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         <thead>
                           <tr>
                             <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
+                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Client</th><th scope="col">Filed</th>
                           </tr>
                         </thead>
                         <tbody>{mdFiling.periods.map((p) => renderMdPeriodRow(p))}</tbody>

@@ -1237,14 +1237,14 @@ async function loadClientInfo(req: AuthedRequest, clientId: string): Promise<Rep
  * computeMdFilingBreakdown's `if (taxDue <= 0) continue`), which is exactly
  * the nil/no-data-yet case a "still needs to be filed" flag has to catch.
  */
-export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null }>> {
-  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null }>(
-    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date
+export async function loadRecordedMdFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt: string | null }>> {
+  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null; acknowledged_at: string | null }>(
+    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date, acknowledged_at::text AS acknowledged_at
        FROM altax.v3_md_filing_payments
       WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
     [clientId, expandedFrom, expandedTo]
   );
-  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date }]));
+  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date, acknowledgedAt: r.acknowledged_at }]));
 }
 
 /**

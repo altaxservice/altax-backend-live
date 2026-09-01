@@ -34,4 +34,5 @@ export interface MdFilingResult {
   balanceDue: number;
   markedFiledDate: string | null;
   markedPaidDate: string | null;
+  acknowledgedAt: string | null;
 }
