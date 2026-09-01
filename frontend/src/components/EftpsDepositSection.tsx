@@ -802,7 +802,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
