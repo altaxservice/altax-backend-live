@@ -14,7 +14,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask, markObligationTaskPaid } from "../../common/taskRulesAgentBridge";
 
 export const annualReportFilingsRouter = Router();
 
@@ -152,13 +152,24 @@ annualReportFilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAu
   if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
     return res.status(400).json({ error: "periodEnd and paidDate must be YYYY-MM-DD." });
   }
-  const existing = await queryOne<any>(`SELECT paid_date FROM altax.v3_annual_report_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  const existing = await queryOne<any>(`SELECT period_start, paid_date FROM altax.v3_annual_report_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
   if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
   if (existing.paid_date) return res.status(400).json({ error: "This period already has a payment recorded. Use unmark to correct it, then re-record." });
 
   await query(`UPDATE altax.v3_annual_report_filings SET paid_date = $3 WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd, paidDate]);
   await logAudit("Accounting", "ANNUAL_REPORT_PAYMENT_RECORDED", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
     `Payment for MD Annual Report filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  // mark-filed already closed the task with paid_date left null when payment
+  // wasn't yet known — that flipped its status to Completed, which excludes
+  // it from closeObligationTask's own matching query, so this has to fill in
+  // paid_date directly rather than calling that again (same gap found and
+  // fixed on EFTPS/MD Sales Tax/Form 941/MD UI's record-payment routes).
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  await markObligationTaskPaid({
+    clientId: client.clientId, keyword: "annual report", dueDate: annualReportDueDate(periodEnd),
+    periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, "Annual"), paidDate,
+  });
 
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
   await cancelPaymentReminder("AnnualReportFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");

@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask, markObligationTaskPaid } from "../../common/taskRulesAgentBridge";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
@@ -3106,6 +3106,18 @@ reportsRouter.post("/md-filing/:clientId/record-payment", requireAuth, requireRo
   );
   await logAudit("Accounting", "MD_FILING_RECORD_PAYMENT", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
     `Payment for MD sales tax filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  // mark-filed already closed the task with paid_date left null when payment
+  // wasn't yet known — that flipped its status to Completed, which excludes
+  // it from closeObligationTask's own matching query, so this has to fill in
+  // paid_date directly rather than calling that again (same gap as EFTPS's
+  // record-payment, confirmed live: a filed-and-paid period's "Agency Past
+  // Due" flag — computed straight off v3_tasks.paid_date — never cleared).
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  await markObligationTaskPaid({
+    clientId: client.clientId, keyword: "sales tax", dueDate,
+    periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, client.salesTaxFrequency), paidDate,
+  });
 
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
   await cancelPaymentReminder("MdFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");

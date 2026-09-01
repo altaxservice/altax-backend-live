@@ -16,7 +16,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
 import { publicBaseUrl } from "../../common/publicUrl";
-import { deriveTaskRulesPeriodLabel, closeObligationTask } from "../../common/taskRulesAgentBridge";
+import { deriveTaskRulesPeriodLabel, closeObligationTask, markObligationTaskPaid } from "../../common/taskRulesAgentBridge";
 import { computeForm941Quarter, sumEftpsDepositsInPeriod } from "../accounting/form941Data";
 import { decryptTolerant } from "../../common/encryption";
 
@@ -243,6 +243,19 @@ form941FilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, r
   await query(`UPDATE altax.v3_form941_filings SET paid_date = $3 WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd, paidDate]);
   await logAudit("Accounting", "FORM_941_PAYMENT_RECORDED", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
     `Payment for Form 941 filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  // mark-filed already closed the task with paid_date left null when payment
+  // wasn't yet known — that flipped its status to Completed, which excludes
+  // it from closeObligationTask's own matching query, so this has to fill in
+  // paid_date directly rather than calling that again (same gap found and
+  // fixed on EFTPS/MD Sales Tax's record-payment routes).
+  const m941 = Number(periodEnd.slice(5, 7));
+  const y941 = Number(periodEnd.slice(0, 4));
+  const quarter941 = (Math.floor((m941 - 1) / 3) + 1) as 1 | 2 | 3 | 4;
+  await markObligationTaskPaid({
+    clientId: client.clientId, keyword: "941", dueDate: form941DueDate(y941, quarter941),
+    periodLabel: deriveTaskRulesPeriodLabel(quarterPeriod(y941, quarter941).start, "Quarterly"), paidDate,
+  });
 
   const { cancelPaymentReminder } = await import("../../common/paymentReminders");
   await cancelPaymentReminder("Form941Filing", `${client.clientId}:${periodEnd}`, "Payment recorded");

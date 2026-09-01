@@ -11,7 +11,7 @@ import { publicBaseUrl } from "../../common/publicUrl";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
 import { sendEftpsDepositReport } from "../../common/filingConfirmationEmail";
 import { closeEftpsStaffTask } from "./eftpsStaffTasks";
-import { closeObligationTask, deriveTaskRulesPeriodLabel } from "../../common/taskRulesAgentBridge";
+import { closeObligationTask, deriveTaskRulesPeriodLabel, markObligationTaskPaid } from "../../common/taskRulesAgentBridge";
 import { generateEftpsDepositPdf } from "./eftpsDepositPdf";
 import {
   looksLikeDrakeTaxLiabilityByCheckDate, parseDrakeTaxLiabilityByCheckDate,
@@ -609,6 +609,14 @@ eftpsDepositsRouter.post("/:depositId/record-payment", requireAuth, requireRole(
       `UPDATE altax.v3_obligation_completions SET paid_date = $3, completed_at = now() WHERE client_id = $1 AND source = 'EFTPS' AND due_date = $2`,
       [deposit.client_id, deposit.due_date, paymentDate]
     );
+    // mark-filed already closed the task with paid_date left null (payment
+    // wasn't known yet) — that also flipped its status to Completed, which
+    // excludes it from closeObligationTask's own matching query, so this has
+    // to fill in paid_date directly rather than calling that again.
+    await markObligationTaskPaid({
+      clientId: deposit.client_id, keyword: "eftps", dueDate: isoDate(deposit.due_date),
+      periodLabel: deriveTaskRulesPeriodLabel(isoDate(deposit.period_start), "Monthly"), paidDate: paymentDate,
+    });
     await cancelPaymentReminder("ObligationCompletion", `${deposit.client_id}:EFTPS:${isoDate(deposit.due_date)}`, "Payment recorded");
 
     await logAudit("Clients", "EFTPS_DEPOSIT_PAYMENT_RECORDED", deposit.client_id, "payment_date", "", paymentDate,

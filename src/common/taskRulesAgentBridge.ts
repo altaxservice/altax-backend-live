@@ -95,3 +95,45 @@ export async function closeObligationTask(params: {
     [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.filedDate, params.paidDate ?? null]
   );
 }
+
+/**
+ * Fills in paid_date on a task closeObligationTask already completed at
+ * filing time with paidDate still unknown — every "mark filed" route accepts
+ * filing and payment as independent facts (deliberate: staff often file
+ * before payment clears), which means closeObligationTask runs once with
+ * paidDate: null and flips status to 'Completed' — and its own WHERE clause
+ * then excludes that task from ever matching again (status already
+ * 'completed'), so the later "record payment" step in every obligation
+ * module (EFTPS, MD Sales Tax, Form 941, MD UI, Annual Report) was updating
+ * only its own filing table and never reaching the task at all. Confirmed
+ * live: a client's EFTPS deposit was filed and paid in full, yet its
+ * "Agency Past Due" flag never cleared — that flag reads directly off
+ * v3_tasks.paid_date (computeClientFlags, clients.routes.ts), ignoring
+ * status entirely, so a "Completed" task with a still-null paid_date stays
+ * flagged forever. This matches the same task by the same keyword/due-date/
+ * period-label signals, WITHOUT the status exclusion (status was already
+ * set correctly by closeObligationTask and isn't touched again here) —
+ * gated only on paid_date still being null, so it's safe to call
+ * unconditionally every time a payment is recorded.
+ */
+export async function markObligationTaskPaid(params: {
+  clientId: string;
+  keyword: string;
+  dueDate: string;
+  periodLabel?: string | null;
+  paidDate: string;
+}): Promise<void> {
+  await query(
+    `UPDATE altax.v3_tasks
+        SET paid_date = $5::date, updated_at = now()
+      WHERE client_id = $1
+        AND (lower(task_name) LIKE '%' || lower($2) || '%' OR lower(coalesce(service_line, '')) LIKE '%' || lower($2) || '%')
+        AND lower(status) NOT IN ('void')
+        AND paid_date IS NULL
+        AND (
+          agency_due_date = $3::date
+          OR ($4::text IS NOT NULL AND lower(coalesce(period, '')) = lower($4))
+        )`,
+    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.paidDate]
+  );
+}
