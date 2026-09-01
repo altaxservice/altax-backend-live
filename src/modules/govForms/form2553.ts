@@ -112,7 +112,7 @@
  * entirely on pages 1-2 (confirmed: page 3 is Part II, page 4 is Part III +
  * Part IV), only those two pages are extracted into the final document.
  */
-import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { loadTemplate, fillCopy, checkBox, extractFlattenedPages, sanitizePhone } from "../../common/pdfForms";
 
 export interface Form2553Shareholder {
   name: string;
@@ -188,7 +188,7 @@ export async function generateForm2553(data: Form2553Data): Promise<Uint8Array> 
       electionEffectiveDate: data.electionEffectiveDate || "",
       fiscalYearEndMonth: data.taxYearType === "Fiscal Year" ? data.fiscalYearEndMonth || "" : "",
       officerNameTitle: data.officerTitle ? `${data.officerName}, ${data.officerTitle}` : data.officerName,
-      officerPhone: data.officerPhone || "",
+      officerPhone: sanitizePhone(data.officerPhone),
       signHereTitle: data.officerTitle || "",
     }
   );

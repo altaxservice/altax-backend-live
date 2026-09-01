@@ -84,7 +84,7 @@
  *    IRS fills that in, not the applicant).
  */
 import { PDFDocument, PDFCheckBox } from "pdf-lib";
-import { loadTemplate, fillCopy, extractFlattenedPages } from "../../common/pdfForms";
+import { loadTemplate, fillCopy, extractFlattenedPages, sanitizePhone } from "../../common/pdfForms";
 
 export interface Ss4Data {
   legalName: string;
@@ -336,7 +336,7 @@ export async function generateSs4(data: Ss4Data): Promise<Uint8Array> {
       firstWageDate: data.firstWageDate || "",
       principalMerchandise: data.principalMerchandise || "",
       applicantNameTitle: [data.applicantName, data.applicantTitle].filter(Boolean).join(", "),
-      applicantPhone: data.applicantPhone || "",
+      applicantPhone: sanitizePhone(data.applicantPhone),
     }
   );
 

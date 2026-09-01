@@ -38,7 +38,7 @@
  * standing rule of never filling a signature field on any government form,
  * and here the form itself doesn't even offer one to fill.
  */
-import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { loadTemplate, fillCopy, checkBox, extractFlattenedPages, sanitizePhone } from "../../common/pdfForms";
 
 export interface Form8822bData {
   /** Line 1: "If you are a tax-exempt organization... check here" — a standalone box above the numbered list, not itself a numbered line. */
@@ -127,7 +127,7 @@ export async function generateForm8822b(data: Form8822bData): Promise<Uint8Array
       newBusinessLocationForeignPostalCode: data.newBusinessLocationForeignPostalCode || "",
       newResponsiblePartyName: data.newResponsiblePartyName || "",
       newResponsiblePartyId: data.newResponsiblePartyId || "",
-      daytimePhone: data.daytimePhone || "",
+      daytimePhone: sanitizePhone(data.daytimePhone),
       title: data.title || "",
     }
   );

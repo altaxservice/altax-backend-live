@@ -46,7 +46,7 @@
  * "truncate, don't crash" philosophy as setTextSafe's maxLength handling in
  * pdfForms.ts.
  */
-import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { loadTemplate, fillCopy, checkBox, extractFlattenedPages, sanitizePhone } from "../../common/pdfForms";
 
 export const FORM8832_TYPE_OF_ELECTION = [
   "Initial classification by a newly-formed entity",
@@ -183,7 +183,7 @@ export async function generateForm8832(data: Form8832Data): Promise<Uint8Array> 
       foreignCountryOfOrganization: data.foreignCountryOfOrganization || "",
       effectiveDate: data.effectiveDate || "",
       contactNameTitle: data.contactNameTitle || "",
-      contactPhone: data.contactPhone || "",
+      contactPhone: sanitizePhone(data.contactPhone),
       signerTitle: data.signerTitle || "",
       lateReliefSignerTitle: data.lateReliefSignerTitle || "",
     }

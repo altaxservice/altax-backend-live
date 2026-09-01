@@ -43,7 +43,7 @@
  * modeled anywhere in this app, the latter per this app's standing rule of
  * never filling a signature field on any government form.
  */
-import { loadTemplate, fillCopy, checkBox, extractFlattenedPages } from "../../common/pdfForms";
+import { loadTemplate, fillCopy, checkBox, extractFlattenedPages, sanitizePhone } from "../../common/pdfForms";
 
 export const CRA_REASONS = [
   "New Business",
@@ -234,8 +234,8 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
       state: data.state,
       zip: data.zip,
       county: data.county || "",
-      phone: data.phone || "",
-      fax: data.fax || "",
+      phone: sanitizePhone(data.phone),
+      fax: sanitizePhone(data.fax),
       email: data.email || "",
       mailingStreet1: data.mailingStreet1 || "",
       mailingStreet2: data.mailingStreet2 || "",
@@ -256,7 +256,7 @@ export async function generateCra(data: CraData): Promise<Uint8Array> {
       officerCity: data.officerCity || "",
       officerState: data.officerState || "",
       officerZip: data.officerZip || "",
-      officerPhone: data.officerPhone || "",
+      officerPhone: sanitizePhone(data.officerPhone),
       preparerName: data.preparerName || "",
     }
   );

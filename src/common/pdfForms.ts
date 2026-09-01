@@ -18,6 +18,19 @@ export function money2(v: unknown): string {
   return n.toFixed(2);
 }
 
+/**
+ * Phone/fax inputs across the gov-form wizards are plain, unvalidated text —
+ * a stray character typed or pasted in (confirmed live: a "$" landing on a
+ * real filed CRA in place of a digit) rides straight onto the government
+ * form untouched otherwise. Strip to digits at the point of writing the PDF
+ * so this can't happen regardless of which input path the bad character
+ * came from.
+ */
+export function sanitizePhone(v: unknown): string {
+  if (!v) return "";
+  return String(v).replace(/\D/g, "").slice(0, 10);
+}
+
 /** Sets text on a field, silently truncating to the field's max length rather than throwing — official IRS fields cap some boxes (e.g. Box 12 codes) at 2 chars. */
 function setTextSafe(doc: PDFDocument, fieldName: string, value: string) {
   if (!value) return;
