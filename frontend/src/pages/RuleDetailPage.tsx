@@ -17,7 +17,9 @@ const FREQUENCIES = ["One-Time", "Weekly", "Monthly", "Quarterly", "Semiannual",
 function formFromRule(r: TaskRule) {
   return {
     ruleId: r.rule_id, taskType: r.task_type || "", triggerColumn: String(r.trigger_column || ""),
-    triggerValue: String(r.trigger_value || ""), frequency: String(r.frequency || "Monthly"),
+    triggerValue: String(r.trigger_value || ""),
+    triggerColumn2: String(r.trigger_column_2 || ""), triggerValue2: String(r.trigger_value_2 || ""),
+    frequency: String(r.frequency || "Monthly"),
     paymentRequired: Boolean(r.payment_required), requiresFiling: r.requires_filing !== false,
     dueDay: String(r.due_day || ""), dueMonth: String(r.due_month || ""), warningDays: String(r.warning_days || "14,7,3"),
     portalName: String(r.portal_name || ""), portalUrl: String(r.portal_url || ""),
@@ -99,7 +101,8 @@ export function RuleDetailPage() {
         <div className="topbar-eyebrow">{rule.rule_id}</div>
         <h2>{rule.task_type}</h2>
         <p>
-          {rule.trigger_column ? `${rule.trigger_column} = ${rule.trigger_value}` : "Manual selection (no auto-trigger)"} · {rule.frequency}
+          {rule.trigger_column ? `${rule.trigger_column} = ${rule.trigger_value}` : "Manual selection (no auto-trigger)"}
+          {rule.trigger_column && rule.trigger_column_2 ? ` AND ${rule.trigger_column_2} = ${rule.trigger_value_2}` : ""} · {rule.frequency}
           {" · "}<span className={`status-pill ${rule.active ? "status-green" : "status-gray"}`}>{rule.active ? "Active" : "Inactive"}</span>
           {" · "}<span className={`status-pill ${rule.agent_enabled ? "status-green" : "status-gray"}`}>{rule.agent_enabled ? "Agent: Included" : "Agent: Excluded"}</span>
         </p>
@@ -149,6 +152,30 @@ export function RuleDetailPage() {
               </select>
             ) : (
               <input id="rule-trigger-value" value={form.triggerValue} onChange={(e) => setForm((f) => f && ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
+            )}
+          </div>
+        </div>
+
+        <p className="muted" style={{ fontSize: 12, margin: "10px 0 10px" }}>
+          Optional second condition — a client must match BOTH to trigger this rule (e.g. "Payroll? = Yes" AND "PayrollSystem = Drake", so a QBO client with payroll enabled still doesn't match a Drake-only rule).
+        </p>
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor="rule-trigger-column-2">Trigger Column (AND)</label>
+            <select id="rule-trigger-column-2" value={form.triggerColumn2} onChange={(e) => setForm((f) => f && ({ ...f, triggerColumn2: e.target.value }))}>
+              <option value="">None</option>
+              {TRIGGER_COLUMNS.map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="rule-trigger-value-2">Trigger Value (AND)</label>
+            {form.triggerColumn2 === "PayrollSystem" ? (
+              <select id="rule-trigger-value-2" value={form.triggerValue2} onChange={(e) => setForm((f) => f && ({ ...f, triggerValue2: e.target.value }))}>
+                <option value="">Choose…</option>
+                {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            ) : (
+              <input id="rule-trigger-value-2" value={form.triggerValue2} onChange={(e) => setForm((f) => f && ({ ...f, triggerValue2: e.target.value }))} placeholder="e.g. Drake" disabled={!form.triggerColumn2} />
             )}
           </div>
         </div>

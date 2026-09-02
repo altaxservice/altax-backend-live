@@ -114,30 +114,57 @@ mdUiFilingsRouter.get("/suggested-amount", requireAuth, requireRole("admin", "st
   res.json({ suggestedAmount: Number(row?.total) || 0 });
 }));
 
-mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const loaded = await loadClient(req, String(body.clientId || "").trim());
-  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const { client } = loaded;
-
-  const periodStart = String(body.periodStart || "").trim();
-  const periodEnd = String(body.periodEnd || "").trim();
-  const filedDate = String(body.filedDate || "").trim();
-  const paidDateRaw = String(body.paidDate || "").trim();
-  const paidDate = paidDateRaw ? paidDateRaw : null;
-  const amount = Number(body.amount);
-  const notify = body.notify === true;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
-    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(amount) || amount < 0) {
-    return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD; amount must be a non-negative number." });
+/**
+ * QBO clients with no MD UI filing recorded yet for the given period — the
+ * list behind the "Confirm QBO Filed" bulk screen on the Payroll Agent page.
+ * suggestedAmount is the same SUM(v3_paychecks.suta) figure GET /review
+ * already offers for a single client.
+ */
+mdUiFilingsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: Request, res: Response) => {
+  const periodStart = String(req.query.periodStart || "").trim();
+  const periodEnd = String(req.query.periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
   }
+  const clients = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE mdui_enabled = true AND payroll_system = 'QBO' AND status <> 'Archived'
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_md_ui_filings f WHERE f.client_id = altax.v3_clients.client_id AND f.period_end = $1::date)
+      ORDER BY client_name ASC`,
+    [periodEnd]
+  );
+  const rows = [];
+  for (const c of clients) {
+    const suggested = await queryOne<{ total: string }>(
+      `SELECT COALESCE(SUM(suta), 0) AS total FROM altax.v3_paychecks WHERE client_id = $1 AND pay_date::date >= $2::date AND pay_date::date <= $3::date`,
+      [c.client_id, periodStart, periodEnd]
+    );
+    rows.push({ clientId: c.client_id, clientName: c.client_name, suggestedAmount: Number(suggested?.total) || 0 });
+  }
+  res.json({ clients: rows });
+}));
+
+type MarkMdUiFiledResult =
+  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; amount: number }
+  | { ok: false; error: string };
+
+/**
+ * Extracted so both the single-client route and POST /bulk-mark-filed (the
+ * "Confirm QBO Filed" bulk screen on the Payroll Agent page) share one
+ * implementation — same precedent as Form 941's markForm941FiledForClient.
+ */
+async function markMdUiFiledForClient(
+  req: AuthedRequest,
+  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean },
+  periodStart: string, periodEnd: string, filedDate: string, paidDate: string | null, amount: number, notify: boolean
+): Promise<MarkMdUiFiledResult> {
   const dueDate = mdUiDueDate(periodEnd);
 
   const existing = await queryOne<{ period_end: string }>(
     `SELECT period_end FROM altax.v3_md_ui_filings WHERE client_id = $1 AND period_end = $2::date`,
     [client.clientId, periodEnd]
   );
-  if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Undo it first if you need to re-file." });
+  if (existing) return { ok: false, error: "A filing for this period has already been recorded. Undo it first if you need to re-file." };
 
   const periodLabel = deriveTaskRulesPeriodLabel(periodStart, "Quarterly") || `${periodStart} – ${periodEnd}`;
   const shareToken = crypto.randomBytes(24).toString("hex");
@@ -170,7 +197,70 @@ mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff")
     }
   }
 
-  res.json({ ok: true, periodEnd, filedDate, paidDate, amount });
+  return { ok: true, periodEnd, filedDate, paidDate, amount };
+}
+
+mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const amount = Number(body.amount);
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD; amount must be a non-negative number." });
+  }
+
+  const result = await markMdUiFiledForClient(req, client, periodStart, periodEnd, filedDate, paidDate, amount, notify);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json(result);
+}));
+
+/**
+ * Bulk version of /mark-filed for the "Confirm QBO Filed" screen — same
+ * per-item result-array idiom as Form 941's bulk-mark-filed. amount, if not
+ * given for a client, falls back to that client's own suggested amount
+ * (SUM(v3_paychecks.suta) over the period), same figure GET /review already
+ * offers for a single client.
+ */
+mdUiFilingsRouter.post("/bulk-mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientIds: string[] = Array.isArray(body.clientIds) ? body.clientIds.map((v: unknown) => String(v)) : [];
+  if (!clientIds.length) return res.status(400).json({ error: "At least one client is required." });
+
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
+    return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD." });
+  }
+
+  const results: { clientId: string; ok: boolean; error?: string; amount?: number }[] = [];
+  for (const clientId of clientIds) {
+    const loaded = await loadClient(req, clientId);
+    if ("error" in loaded) { results.push({ clientId, ok: false, error: loaded.error }); continue; }
+    const suggested = await queryOne<{ total: string }>(
+      `SELECT COALESCE(SUM(suta), 0) AS total FROM altax.v3_paychecks WHERE client_id = $1 AND pay_date::date >= $2::date AND pay_date::date <= $3::date`,
+      [clientId, periodStart, periodEnd]
+    );
+    const amount = Number(suggested?.total) || 0;
+    const result = await markMdUiFiledForClient(req, loaded.client, periodStart, periodEnd, filedDate, paidDate, amount, notify);
+    results.push(result.ok ? { clientId, ok: true, amount: result.amount } : { clientId, ok: false, error: result.error });
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  res.json({ ok: true, succeeded, failed: results.length - succeeded, results });
 }));
 
 mdUiFilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

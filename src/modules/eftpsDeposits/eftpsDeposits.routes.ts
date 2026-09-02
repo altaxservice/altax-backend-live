@@ -467,6 +467,36 @@ eftpsDepositsRouter.get("/review", requireAuth, requireRole("admin", "staff"), a
   res.json({ ok: true, months });
 }));
 
+/**
+ * QBO clients with no EFTPS deposit recorded yet for the given period — the
+ * list behind the "Confirm QBO Filed" bulk screen on the Payroll Agent page.
+ * Each row's totalAmount is the same live recompute mark-filed itself uses,
+ * so staff see the real number before confirming, not a guess.
+ */
+eftpsDepositsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const periodStart = String(req.query.periodStart || "").trim();
+  const periodEnd = String(req.query.periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
+  }
+  const clients = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE eftps_enabled = true AND payroll_system = 'QBO' AND status <> 'Archived'
+        AND NOT EXISTS (
+          SELECT 1 FROM altax.v3_eftps_deposits d
+           WHERE d.client_id = altax.v3_clients.client_id AND d.period_start = $1 AND d.period_end = $2
+        )
+      ORDER BY client_name ASC`,
+    [periodStart, periodEnd]
+  );
+  const rows = [];
+  for (const c of clients) {
+    const { computation, paycheckCount } = await computeForPeriod(c.client_id, periodStart, periodEnd);
+    rows.push({ clientId: c.client_id, clientName: c.client_name, totalAmount: computation.totalAmount, paycheckCount });
+  }
+  res.json({ clients: rows });
+}));
+
 /* ------------------------------------------------------------------ */
 /* Mark Filed / Record Payment / Send / Undo — separate steps,         */
 /* mirroring the MD Sales Tax filing workflow exactly                  */
@@ -487,20 +517,21 @@ async function buildSendPayload(deposit: any, req: AuthedRequest) {
   });
 }
 
-eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const loaded = await loadClient(req, String(body.clientId || "").trim());
-  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const { client } = loaded;
-
-  try {
-    const periodStart = String(body.periodStart || "").trim();
-    const periodEnd = String(body.periodEnd || "").trim();
-    const dueDate = String(body.dueDate || "").trim();
-    const filingDate = String(body.filingDate || "").trim();
-    const periodLabel = String(body.periodLabel || `${periodStart} to ${periodEnd}`).trim();
-    const notify = body.notify === true;
-
+/**
+ * The actual mark-filed logic, extracted so both the single-client route
+ * below and POST /bulk-mark-filed (the "Confirm QBO Filed" bulk screen on
+ * the Payroll Agent page) share one implementation — same live-recomputed
+ * amounts, same task-closing, same notify/reminder behavior, whether one
+ * client is filed at a time or a whole batch of QBO clients is confirmed at
+ * once. Throws ValidationError on a recoverable problem (already filed, no
+ * imported paychecks) — callers turn that into either a 400 response
+ * (single-client) or one failed row in the batch results (bulk), never
+ * blocking the rest of a batch.
+ */
+async function markEftpsFiledForClient(
+  req: AuthedRequest, client: any,
+  periodStart: string, periodEnd: string, dueDate: string, filingDate: string, periodLabel: string, notify: boolean
+): Promise<{ depositId: string; emailSent: boolean }> {
     if (!periodStart || !periodEnd || !dueDate) throw new ValidationError("Period start, period end, and due date are required.");
     if (!filingDate) throw new ValidationError("Filing date is required.");
 
@@ -587,11 +618,65 @@ eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff
     await logAudit("Clients", "EFTPS_DEPOSIT_FILED", client.client_id, "amount", "", String(computation.totalAmount),
       `EFTPS deposit for ${periodLabel} (${depositId}) filed${notify ? " and sent" : ""} by ${req.user!.email}.`, req.user!.email);
 
-    res.status(201).json({ ok: true, depositId, emailSent: emailResult.sent });
+    return { depositId, emailSent: emailResult.sent };
+}
+
+eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  try {
+    const periodStart = String(body.periodStart || "").trim();
+    const periodEnd = String(body.periodEnd || "").trim();
+    const dueDate = String(body.dueDate || "").trim();
+    const filingDate = String(body.filingDate || "").trim();
+    const periodLabel = String(body.periodLabel || `${periodStart} to ${periodEnd}`).trim();
+    const notify = body.notify === true;
+
+    const result = await markEftpsFiledForClient(req, client, periodStart, periodEnd, dueDate, filingDate, periodLabel, notify);
+    res.status(201).json({ ok: true, ...result });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     throw err;
   }
+}));
+
+/**
+ * Bulk version of /mark-filed for the "Confirm QBO Filed" screen (Payroll
+ * Agent page) — same per-item result-array idiom as Form 941/MD UI's
+ * bulk-mark-filed and tasks.routes.ts's POST /tasks/bulk: one client's
+ * failure (already filed, or no imported paychecks for the period) doesn't
+ * block the rest of the batch — it comes back as that client's own
+ * exception to review, not a fatal error for the whole confirm action.
+ */
+eftpsDepositsRouter.post("/bulk-mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientIds: string[] = Array.isArray(body.clientIds) ? body.clientIds.map((v: unknown) => String(v)) : [];
+  if (!clientIds.length) return res.status(400).json({ error: "At least one client is required." });
+
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const dueDate = String(body.dueDate || "").trim();
+  const filingDate = String(body.filingDate || "").trim();
+  const periodLabel = String(body.periodLabel || `${periodStart} to ${periodEnd}`).trim();
+  const notify = body.notify === true;
+
+  const results: { clientId: string; ok: boolean; error?: string; depositId?: string }[] = [];
+  for (const clientId of clientIds) {
+    const loaded = await loadClient(req, clientId);
+    if ("error" in loaded) { results.push({ clientId, ok: false, error: loaded.error }); continue; }
+    try {
+      const result = await markEftpsFiledForClient(req, loaded.client, periodStart, periodEnd, dueDate, filingDate, periodLabel, notify);
+      results.push({ clientId, ok: true, depositId: result.depositId });
+    } catch (err) {
+      results.push({ clientId, ok: false, error: err instanceof ValidationError ? err.message : (err instanceof Error ? err.message : "Could not confirm this deposit.") });
+    }
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  res.json({ ok: true, succeeded, failed: results.length - succeeded, results });
 }));
 
 eftpsDepositsRouter.post("/:depositId/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

@@ -25,7 +25,7 @@ function idSuffix(): string {
  */
 export async function ensureEftpsStaffTasks(): Promise<{ created: number }> {
   const clients = await query<any>(
-    `SELECT client_id, client_name, assigned_to FROM altax.v3_clients WHERE eftps_enabled = true AND status <> 'Archived'`
+    `SELECT client_id, client_name, assigned_to, payroll_system FROM altax.v3_clients WHERE eftps_enabled = true AND status <> 'Archived'`
   );
   let created = 0;
   const now = new Date();
@@ -50,14 +50,26 @@ export async function ensureEftpsStaffTasks(): Promise<{ created: number }> {
     const [y, m, d] = period.dueDate.split("-").map(Number);
     const staffDueDate = new Date(Date.UTC(y, m - 1, d - 5)).toISOString().slice(0, 10);
 
+    // QBO auto-deposits federal payroll tax itself (confirmed by the firm,
+    // same distinction already applied to "Payroll Processing" via
+    // TR-018/TR-019, and to Form 941/MD UI via TR-013/TR-009/TR-029/TR-030) —
+    // staff only need to confirm it happened, via the EFTPS Deposits page's
+    // bulk QBO-confirm view, not run the Drake import workflow.
+    const isQbo = String(client.payroll_system || "").trim().toUpperCase() === "QBO";
+    const taskName = isQbo
+      ? `EFTPS Deposit — Confirm QBO Filed — ${period.periodLabel}`
+      : `EFTPS Deposit Due — ${period.periodLabel}`;
+    const notes = isQbo
+      ? `Federal payroll tax deposit for ${period.periodLabel}, due ${period.dueDate}. QuickBooks Online auto-deposits this — confirm it went through (EFTPS Deposits page, "Confirm QBO Filed") rather than filing it manually.`
+      : `Federal payroll tax deposit for ${period.periodLabel}, due ${period.dueDate}. Use the EFTPS Deposit workflow (import Drake's Tax Liability and Payroll Wages reports for this period) to process.`;
+
     await query(
       `INSERT INTO altax.v3_tasks
          (task_id, client_id, client_name, task_name, service_line, status, assigned_to, staff_due_date, agency_due_date,
           notes, source_system, source_record_id, created_at, updated_at)
        VALUES ($1,$2,$3,$4,'Payroll & Employment','Not Started',$5,$6,$7,$8,'EftpsDepositTask',$9, now(), now())`,
-      [`T-${idSuffix()}`, client.client_id, client.client_name, `EFTPS Deposit Due — ${period.periodLabel}`,
-        client.assigned_to || null, staffDueDate, period.dueDate,
-        `Federal payroll tax deposit for ${period.periodLabel}, due ${period.dueDate}. Use the EFTPS Deposit workflow (import Drake's Tax Liability and Payroll Wages reports for this period) to process.`,
+      [`T-${idSuffix()}`, client.client_id, client.client_name, taskName,
+        client.assigned_to || null, staffDueDate, period.dueDate, notes,
         sourceRecordId]
     );
     created++;

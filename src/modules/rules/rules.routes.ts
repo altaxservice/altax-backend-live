@@ -224,17 +224,39 @@ export const CLIENT_TRIGGER_COLUMNS: Record<string, string> = {
  * non-empty label matches nobody automatically and must be handled via the explicit
  * `clientIds` selection path instead of guessed at.
  */
-export function clientMatchesRule(client: any, rule: any): boolean {
-  const triggerColumnRaw = String(rule.trigger_column || "").trim();
-  const triggerValue = normalizeText(rule.trigger_value);
-  if (!triggerColumnRaw || !triggerValue || triggerValue === "=") return true;
-
+function matchesSingleCondition(client: any, triggerColumnRaw: string, triggerValueRaw: string): boolean {
   const triggerColumn = CLIENT_TRIGGER_COLUMNS[triggerColumnRaw];
   if (!triggerColumn) return false;
 
+  const triggerValue = normalizeText(triggerValueRaw);
   const actual = normalizeText(client[triggerColumn]);
   if (actual === triggerValue) return true;
   return triggerValue === "yes" && ["yes", "true", "active"].includes(actual);
+}
+
+/**
+ * A rule normally has one trigger_column/trigger_value pair. trigger_column_2/
+ * trigger_value_2 (sql/136_task_rules_second_condition.sql) add an optional
+ * second, AND-combined condition — needed for a rule like "Form 941 Filing"
+ * that must require BOTH its real domain gate (Payroll? = Yes) AND a
+ * payroll-provider split (PayrollSystem = Drake), where simply repointing
+ * trigger_column to PayrollSystem would silently drop the domain gate for
+ * every client whose provider happens to match but who doesn't actually have
+ * that obligation enabled.
+ */
+export function clientMatchesRule(client: any, rule: any): boolean {
+  const triggerColumnRaw = String(rule.trigger_column || "").trim();
+  const triggerValueRaw = String(rule.trigger_value || "").trim();
+  const isEmptyTrigger = !triggerColumnRaw || !normalizeText(triggerValueRaw) || normalizeText(triggerValueRaw) === "=";
+
+  const triggerColumn2Raw = String(rule.trigger_column_2 || "").trim();
+  const triggerValue2Raw = String(rule.trigger_value_2 || "").trim();
+  const hasSecondCondition = triggerColumn2Raw && normalizeText(triggerValue2Raw) && normalizeText(triggerValue2Raw) !== "=";
+
+  const firstMatches = isEmptyTrigger || matchesSingleCondition(client, triggerColumnRaw, triggerValueRaw);
+  if (!firstMatches) return false;
+  if (!hasSecondCondition) return true;
+  return matchesSingleCondition(client, triggerColumn2Raw, triggerValue2Raw);
 }
 
 /**
@@ -252,6 +274,8 @@ rulesRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
     task_type: taskType,
     trigger_column: String(body.triggerColumn || "").trim() || null,
     trigger_value: String(body.triggerValue || "").trim() || null,
+    trigger_column_2: String(body.triggerColumn2 || "").trim() || null,
+    trigger_value_2: String(body.triggerValue2 || "").trim() || null,
     frequency: String(body.frequency || "Monthly").trim(),
     period_type: String(body.periodType || "").trim() || null,
     due_month: String(body.dueMonth || "").trim() || null,

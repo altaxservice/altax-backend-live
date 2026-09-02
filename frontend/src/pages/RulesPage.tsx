@@ -18,7 +18,7 @@ const TRIGGER_COLUMNS = [
 const FREQUENCIES = ["One-Time", "Weekly", "Monthly", "Quarterly", "Semiannual", "Annual"];
 
 const EMPTY_RULE_FORM = {
-  ruleId: "", taskType: "", triggerColumn: "", triggerValue: "", frequency: "Monthly",
+  ruleId: "", taskType: "", triggerColumn: "", triggerValue: "", triggerColumn2: "", triggerValue2: "", frequency: "Monthly",
   paymentRequired: false, requiresFiling: true, dueDay: "", dueMonth: "", warningDays: "14,7,3",
   portalName: "", portalUrl: "", active: true, agentEnabled: true, notes: "",
 };
@@ -178,6 +178,24 @@ export function RulesPage() {
                 <input id="rule-trigger-value" value={form.triggerValue} onChange={(e) => setForm((f) => ({ ...f, triggerValue: e.target.value }))} placeholder="e.g. Monthly" disabled={!form.triggerColumn} />
               )}
             </div>
+            <div className="field">
+              <label htmlFor="rule-trigger-column-2">Trigger Column (AND, optional)</label>
+              <select id="rule-trigger-column-2" value={form.triggerColumn2} onChange={(e) => setForm((f) => ({ ...f, triggerColumn2: e.target.value }))}>
+                <option value="">None</option>
+                {TRIGGER_COLUMNS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="rule-trigger-value-2">Trigger Value (AND)</label>
+              {form.triggerColumn2 === "PayrollSystem" ? (
+                <select id="rule-trigger-value-2" value={form.triggerValue2} onChange={(e) => setForm((f) => ({ ...f, triggerValue2: e.target.value }))}>
+                  <option value="">Choose…</option>
+                  {PAYROLL_PROVIDERS.map((o) => <option key={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input id="rule-trigger-value-2" value={form.triggerValue2} onChange={(e) => setForm((f) => ({ ...f, triggerValue2: e.target.value }))} placeholder="e.g. Drake" disabled={!form.triggerColumn2} />
+              )}
+            </div>
             <div className="field"><label htmlFor="rule-due-day">Due Day</label><input id="rule-due-day" value={form.dueDay} onChange={(e) => setForm((f) => ({ ...f, dueDay: e.target.value }))} placeholder="1–31" /></div>
             {(form.frequency === "Semiannual" || form.frequency === "Annual") && (
               <div className="field">
@@ -233,7 +251,10 @@ export function RulesPage() {
                 <tr key={r.rule_id} onClick={() => navigate(`/rules/${r.rule_id}`)} style={{ cursor: "pointer" }}>
                   <td className="muted">{r.rule_id}</td>
                   <td>{r.task_type}</td>
-                  <td className="muted">{r.trigger_column ? `${r.trigger_column} = ${r.trigger_value}` : "Manual selection"}</td>
+                  <td className="muted">
+                    {r.trigger_column ? `${r.trigger_column} = ${r.trigger_value}` : "Manual selection"}
+                    {r.trigger_column && r.trigger_column_2 ? ` AND ${r.trigger_column_2} = ${r.trigger_value_2}` : ""}
+                  </td>
                   <td className="muted">{r.frequency}</td>
                   <td className="muted">{String(r.portal_name || "—")}</td>
                   <td className="muted">{String(r.warning_days || "—")}</td>

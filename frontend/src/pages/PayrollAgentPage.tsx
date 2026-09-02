@@ -75,6 +75,142 @@ function fmtMoney(v: unknown): string {
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
 
+/** Most recently CLOSED calendar month, e.g. run in September returns August 1–31 — matches ensureEftpsStaffTasks' own "most recently closed period" convention. */
+function lastFullMonth(): { start: string; end: string } {
+  const now = new Date();
+  const y = now.getUTCFullYear(), m = now.getUTCMonth(); // 0-indexed; m-1 is last month
+  const start = new Date(Date.UTC(y, m - 1, 1));
+  const end = new Date(Date.UTC(y, m, 0));
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+/** Most recently closed calendar quarter — same "closed period" convention as lastFullMonth, one quarter granularity. */
+function lastFullQuarter(): { year: number; quarter: 1 | 2 | 3 | 4; start: string; end: string } {
+  const now = new Date();
+  const y = now.getUTCFullYear(), m = now.getUTCMonth(); // 0-indexed
+  const currentQuarter0 = Math.floor(m / 3); // 0-3
+  let quarter0 = currentQuarter0 - 1, year = y;
+  if (quarter0 < 0) { quarter0 = 3; year -= 1; }
+  const startMonth0 = quarter0 * 3;
+  const start = new Date(Date.UTC(year, startMonth0, 1));
+  const end = new Date(Date.UTC(year, startMonth0 + 3, 0));
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  return { year, quarter: (quarter0 + 1) as 1 | 2 | 3 | 4, start: iso(start), end: iso(end) };
+}
+
+interface QboPendingRow { clientId: string; clientName: string; [key: string]: any }
+interface BulkConfirmResult { succeeded: number; failed: number; results: { clientId: string; ok: boolean; error?: string }[] }
+
+/**
+ * One "Confirm QBO Filed" bulk-confirm section — reused for EFTPS Deposits,
+ * Form 941, and MD UI. QBO already filed and paid these for its clients;
+ * staff are confirming a batch happened correctly, not filing anything
+ * themselves. Checked by default (matches the firm's stated preference: one
+ * click confirms the whole list, uncheck an exception before confirming).
+ * Mirrors the Pending Drafts checkbox/select/bulk-approve pattern above.
+ */
+function QboConfirmSection({
+  title, periodLabel, fetchList, amountKey, amountLabel, warnKey, warnLabel, confirmBulk,
+}: {
+  title: string;
+  periodLabel: string;
+  fetchList: () => Promise<{ clients: QboPendingRow[] }>;
+  amountKey: string;
+  amountLabel: string;
+  warnKey?: string;
+  warnLabel?: string;
+  confirmBulk: (clientIds: string[], filedDate: string) => Promise<BulkConfirmResult>;
+}) {
+  const notify = useNotify();
+  const [rows, setRows] = useState<QboPendingRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filedDate, setFiledDate] = useState(new Date().toISOString().slice(0, 10));
+  const [confirming, setConfirming] = useState(false);
+  const [lastErrors, setLastErrors] = useState<{ clientId: string; clientName: string; error: string }[]>([]);
+
+  function load() {
+    setError(null);
+    fetchList()
+      .then((r) => { setRows(r.clients); setSelected(new Set(r.clients.map((c) => c.clientId))); setLastErrors([]); })
+      .catch((err) => setError(err instanceof ApiError ? err.message : `Could not load ${title}.`));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, []);
+
+  function toggle(clientId: string) {
+    setSelected((s) => { const next = new Set(s); next.has(clientId) ? next.delete(clientId) : next.add(clientId); return next; });
+  }
+
+  async function handleConfirmAll() {
+    if (!selected.size) return;
+    setConfirming(true);
+    try {
+      const res = await confirmBulk(Array.from(selected), filedDate);
+      const byId = new Map((rows || []).map((r) => [r.clientId, r.clientName]));
+      setLastErrors(res.results.filter((r) => !r.ok).map((r) => ({ clientId: r.clientId, clientName: byId.get(r.clientId) || r.clientId, error: r.error || "Could not confirm." })));
+      await notify(`${res.succeeded} confirmed${res.failed ? `, ${res.failed} need attention (see below)` : ""}.`);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : `Could not confirm the selected ${title.toLowerCase()}.`);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className="command-panel" style={{ marginBottom: 16 }}>
+      <div className="command-panel-header">
+        <div>
+          <h2 className="command-panel-title">{title} — Confirm QBO Filed</h2>
+          <div className="command-panel-note">{periodLabel} · QuickBooks Online files and pays these itself — confirm each one went through.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label htmlFor={`qbo-filed-date-${title}`} style={{ fontSize: 11 }}>Filing Date</label>
+            <input id={`qbo-filed-date-${title}`} type="date" value={filedDate} onChange={(e) => setFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+          </div>
+          <button type="button" className="btn btn-primary" disabled={confirming || !selected.size} onClick={handleConfirmAll}>
+            {confirming ? "Confirming…" : `Confirm All Selected (${selected.size})`}
+          </button>
+        </div>
+      </div>
+
+      {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
+
+      {!rows ? (
+        <p className="muted" style={{ padding: 16, margin: 0 }}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="muted" style={{ padding: 16, margin: 0 }}>No QBO clients pending for {periodLabel.toLowerCase()} — either already confirmed, or nothing due yet.</p>
+      ) : (
+        <div>
+          {rows.map((r) => {
+            const warn = warnKey && !r[warnKey];
+            return (
+              <div key={r.clientId} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
+                <input type="checkbox" checked={selected.has(r.clientId)} onChange={() => toggle(r.clientId)} aria-label={`Select ${r.clientName}`} />
+                <div style={{ fontWeight: 600 }}>{r.clientName}</div>
+                <div style={{ flex: 1 }} />
+                <div style={{ textAlign: "right" }}>{amountLabel} {fmtMoney(r[amountKey])}</div>
+                {warn && <span className="status-pill status-amber" title={warnLabel}>{warnLabel}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {lastErrors.length > 0 && (
+        <div style={{ padding: 16, borderTop: "1px solid var(--line)" }}>
+          <p className="muted" style={{ fontSize: 12.5, margin: "0 0 8px", color: "var(--red)" }}>These need attention — they weren't confirmed:</p>
+          {lastErrors.map((e) => (
+            <div key={e.clientId} style={{ fontSize: 12.5, marginBottom: 4 }}><strong>{e.clientName}</strong> — {e.error}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DraftPreview {
   gross: number; federalTaxableWages: number; totalDeductions: number; employeeTaxes: number; netPay: number; totalCost: number;
   regularHours: number; regularRate: number;
@@ -284,6 +420,8 @@ export function PayrollAgentPage() {
   }, [drafts]);
 
   const onSchedules = useMemo(() => (schedules || []).filter((s) => s.status === "Active"), [schedules]);
+  const eftpsPeriod = useMemo(() => lastFullMonth(), []);
+  const quarterPeriod = useMemo(() => lastFullQuarter(), []);
   const offSchedules = useMemo(() => (schedules || []).filter((s) => s.status !== "Active"), [schedules]);
 
   if (error) return <ErrorBanner error={error} />;
@@ -396,6 +534,39 @@ export function PayrollAgentPage() {
           </div>
         </div>
       ))}
+
+      <h2 style={{ fontSize: 15, margin: "28px 0 10px" }}>Confirm QBO Filed</h2>
+      <p className="muted" style={{ margin: "0 0 12px", fontSize: 13 }}>
+        For clients on QuickBooks Online, QBO deposits and files these itself — nobody here needs to prepare or file them manually. These lists are just the firm's own record that each one actually went through.
+      </p>
+      <QboConfirmSection
+        title="EFTPS Deposits"
+        periodLabel={`${fmtDateOnly(eftpsPeriod.start)} – ${fmtDateOnly(eftpsPeriod.end)}`}
+        fetchList={() => api.get<{ clients: QboPendingRow[] }>(`/eftps-deposits/qbo-pending?periodStart=${eftpsPeriod.start}&periodEnd=${eftpsPeriod.end}`)}
+        amountKey="totalAmount" amountLabel="Deposit"
+        warnKey="paycheckCount" warnLabel="No imported payroll data"
+        confirmBulk={(clientIds, filedDate) => api.post<BulkConfirmResult>("/eftps-deposits/bulk-mark-filed", {
+          clientIds, periodStart: eftpsPeriod.start, periodEnd: eftpsPeriod.end, dueDate: filedDate, filingDate: filedDate,
+        })}
+      />
+      <QboConfirmSection
+        title="Form 941"
+        periodLabel={`Q${quarterPeriod.quarter} ${quarterPeriod.year}`}
+        fetchList={() => api.get<{ clients: QboPendingRow[] }>(`/form941-filings/qbo-pending?year=${quarterPeriod.year}&quarter=${quarterPeriod.quarter}`)}
+        amountKey="balanceDue" amountLabel="Balance Due"
+        confirmBulk={(clientIds, filedDate) => api.post<BulkConfirmResult>("/form941-filings/bulk-mark-filed", {
+          clientIds, year: quarterPeriod.year, quarter: quarterPeriod.quarter, filedDate,
+        })}
+      />
+      <QboConfirmSection
+        title="MD UI"
+        periodLabel={`Q${quarterPeriod.quarter} ${quarterPeriod.year}`}
+        fetchList={() => api.get<{ clients: QboPendingRow[] }>(`/md-ui-filings/qbo-pending?periodStart=${quarterPeriod.start}&periodEnd=${quarterPeriod.end}`)}
+        amountKey="suggestedAmount" amountLabel="Amount"
+        confirmBulk={(clientIds, filedDate) => api.post<BulkConfirmResult>("/md-ui-filings/bulk-mark-filed", {
+          clientIds, periodStart: quarterPeriod.start, periodEnd: quarterPeriod.end, filedDate,
+        })}
+      />
     </div>
   );
 }

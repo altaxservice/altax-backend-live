@@ -117,32 +117,59 @@ form941FilingsRouter.get("/review", requireAuth, requireRole("admin", "staff"), 
   res.json({ quarters });
 }));
 
-form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const loaded = await loadClient(req, String(body.clientId || "").trim());
-  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
-  const { client } = loaded;
+/**
+ * QBO clients with no Form 941 filing recorded yet for the given quarter —
+ * the list behind the "Confirm QBO Filed" bulk screen on the Payroll Agent
+ * page. Same live recompute as mark-filed itself, shown before confirming.
+ */
+form941FilingsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: Request, res: Response) => {
   const parsed = parseYearQuarter(req);
   if (!parsed) return res.status(400).json({ error: "A valid year and quarter (1-4) are required." });
-
-  const filedDate = String(body.filedDate || "").trim();
-  const paidDateRaw = String(body.paidDate || "").trim();
-  const paidDate = paidDateRaw ? paidDateRaw : null;
-  const notify = body.notify === true;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
-    return res.status(400).json({ error: "filedDate (and paidDate, if provided) must be YYYY-MM-DD." });
-  }
-
   const period = quarterPeriod(parsed.year, parsed.quarter);
-  const dueDate = form941DueDate(parsed.year, parsed.quarter);
+
+  const clients = await query<any>(
+    `SELECT client_id, client_name FROM altax.v3_clients
+      WHERE payroll_enabled = true AND payroll_system = 'QBO' AND status <> 'Archived'
+        AND NOT EXISTS (SELECT 1 FROM altax.v3_form941_filings f WHERE f.client_id = altax.v3_clients.client_id AND f.period_end = $1::date)
+      ORDER BY client_name ASC`,
+    [period.end]
+  );
+  const rows = [];
+  for (const c of clients) {
+    const totals = await computeForm941Quarter(c.client_id, parsed.year, parsed.quarter);
+    const eftpsDepositsApplied = await sumEftpsDepositsInPeriod(c.client_id, period.start, period.end);
+    rows.push({ clientId: c.client_id, clientName: c.client_name, balanceDue: totals.grossLiability - eftpsDepositsApplied, employeeCount: totals.employeeCount });
+  }
+  res.json({ clients: rows });
+}));
+
+type MarkForm941FiledResult =
+  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; balanceDue: number }
+  | { ok: false; error: string };
+
+/**
+ * The actual mark-filed logic, extracted so both the single-client route
+ * below and POST /bulk-mark-filed (used by the "Confirm QBO Filed" bulk
+ * screen on the Payroll Agent page) share one implementation — same
+ * live-recomputed totals, same task-closing, same notify/reminder behavior,
+ * whether one client is filed at a time or a whole batch of QBO clients is
+ * confirmed at once.
+ */
+async function markForm941FiledForClient(
+  req: AuthedRequest,
+  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean },
+  year: number, quarter: 1 | 2 | 3 | 4, filedDate: string, paidDate: string | null, notify: boolean
+): Promise<MarkForm941FiledResult> {
+  const period = quarterPeriod(year, quarter);
+  const dueDate = form941DueDate(year, quarter);
 
   const existing = await queryOne<{ period_end: string }>(
     `SELECT period_end FROM altax.v3_form941_filings WHERE client_id = $1 AND period_end = $2::date`,
     [client.clientId, period.end]
   );
-  if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Undo it first if you need to re-file." });
+  if (existing) return { ok: false, error: "A filing for this period has already been recorded. Undo it first if you need to re-file." };
 
-  const totals = await computeForm941Quarter(client.clientId, parsed.year, parsed.quarter);
+  const totals = await computeForm941Quarter(client.clientId, year, quarter);
   const eftpsDepositsApplied = await sumEftpsDepositsInPeriod(client.clientId, period.start, period.end);
   const balanceDue = totals.grossLiability - eftpsDepositsApplied;
 
@@ -153,12 +180,12 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
         medicare_wages, gross_liability, eftps_deposits_applied, balance_due, filed_date, paid_date, filed_by, share_token)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING share_token`,
-    [client.clientId, period.start, period.end, parsed.quarter, totals.employeeCount, totals.wages, totals.federalWithholding,
+    [client.clientId, period.start, period.end, quarter, totals.employeeCount, totals.wages, totals.federalWithholding,
       totals.socialSecurityWages, totals.medicareWages, totals.grossLiability, eftpsDepositsApplied, balanceDue,
       filedDate, paidDate, req.user!.email, shareToken]
   );
-  await logAudit("Accounting", "FORM_941_FILED", client.clientId, "Quarter", "", `${parsed.year} Q${parsed.quarter}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
-    `Form 941 (${parsed.year} Q${parsed.quarter}) marked filed ${filedDate}, balance due ${balanceDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Accounting", "FORM_941_FILED", client.clientId, "Quarter", "", `${year} Q${quarter}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
+    `Form 941 (${year} Q${quarter}) marked filed ${filedDate}, balance due ${balanceDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
 
   await closeObligationTask({
     clientId: client.clientId, keyword: "941", dueDate,
@@ -168,7 +195,7 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
   if (notify) {
     const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
     const sourceRecordId = `${client.clientId}:${period.end}`;
-    const periodLabel = `Q${parsed.quarter} ${parsed.year}`;
+    const periodLabel = `Q${quarter} ${year}`;
     const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${row?.share_token}`;
     await sendFilingConfirmation({
       client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
@@ -196,7 +223,65 @@ form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staf
     }
   }
 
-  res.json({ ok: true, periodEnd: period.end, filedDate, paidDate, balanceDue });
+  return { ok: true, periodEnd: period.end, filedDate, paidDate, balanceDue };
+}
+
+form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const loaded = await loadClient(req, String(body.clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+  const parsed = parseYearQuarter(req);
+  if (!parsed) return res.status(400).json({ error: "A valid year and quarter (1-4) are required." });
+
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
+    return res.status(400).json({ error: "filedDate (and paidDate, if provided) must be YYYY-MM-DD." });
+  }
+
+  const result = await markForm941FiledForClient(req, client, parsed.year, parsed.quarter, filedDate, paidDate, notify);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  res.json(result);
+}));
+
+/**
+ * Bulk version of /mark-filed for the "Confirm QBO Filed" screen (Payroll
+ * Agent page) — QBO already filed and paid these for its clients; staff are
+ * confirming a batch at once, not filing anything themselves. Same per-item
+ * result-array idiom as tasks.routes.ts's POST /tasks/bulk and
+ * payrollAgent.routes.ts's POST /schedules/bulk: one client's failure (e.g.
+ * no imported payroll data for the quarter) doesn't block the rest of the
+ * batch — it comes back as that client's own exception to review.
+ */
+form941FilingsRouter.post("/bulk-mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientIds: string[] = Array.isArray(body.clientIds) ? body.clientIds.map((v: unknown) => String(v)) : [];
+  if (!clientIds.length) return res.status(400).json({ error: "At least one client is required." });
+
+  const parsed = parseYearQuarter(req);
+  if (!parsed) return res.status(400).json({ error: "A valid year and quarter (1-4) are required." });
+
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
+    return res.status(400).json({ error: "filedDate (and paidDate, if provided) must be YYYY-MM-DD." });
+  }
+
+  const results: { clientId: string; ok: boolean; error?: string; balanceDue?: number }[] = [];
+  for (const clientId of clientIds) {
+    const loaded = await loadClient(req, clientId);
+    if ("error" in loaded) { results.push({ clientId, ok: false, error: loaded.error }); continue; }
+    const result = await markForm941FiledForClient(req, loaded.client, parsed.year, parsed.quarter, filedDate, paidDate, notify);
+    results.push(result.ok ? { clientId, ok: true, balanceDue: result.balanceDue } : { clientId, ok: false, error: result.error });
+  }
+
+  const succeeded = results.filter((r) => r.ok).length;
+  res.json({ ok: true, succeeded, failed: results.length - succeeded, results });
 }));
 
 /** Staff-facing PDF, for viewing/printing from within the app — separate from the public token-gated route (publicForm941Filings.routes.ts), which is the client-facing acknowledge page's own download link. Regenerated from the filing's own stored snapshot, same as the public route. */
