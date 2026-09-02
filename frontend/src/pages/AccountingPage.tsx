@@ -293,6 +293,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [mdFilingError, setMdFilingError] = useState<string | null>(null);
   const [mdFilingReloadKey, setMdFilingReloadKey] = useState(0);
   const [markingPeriodEnd, setMarkingPeriodEnd] = useState<string | null>(null);
+  // Same repetition problem as the Sales list's Categories column — most
+  // periods read "Awaiting client confirmation" down the whole table, in
+  // both the current-period Review table and the persistent History below
+  // it. One shared toggle (both tables reuse renderMdPeriodRow) collapses
+  // or restores it everywhere at once.
+  const [showClientColumn, setShowClientColumn] = useState(true);
   // Per-row filed/paid date entry for the multi-period table — without this,
   // "Mark Filed" on any row recorded the single shared Filing/Payment date
   // fields above the table, so backfilling several historical periods meant
@@ -609,7 +615,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
         <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
-        <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
+        <td>{showClientColumn && (p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
         <td onClick={(e) => e.stopPropagation()}>
           {p.markedPaidDate ? (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -914,7 +920,18 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         <thead>
                           <tr>
                             <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Client</th><th scope="col">Filed</th>
+                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
+                            <th scope="col">
+                              Client{" "}
+                              <button
+                                type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                                onClick={() => setShowClientColumn((v) => !v)}
+                                title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
+                              >
+                                ({showClientColumn ? "Hide" : "View"})
+                              </button>
+                            </th>
+                            <th scope="col">Filed</th>
                           </tr>
                         </thead>
                         <tbody>{mdFiling.periods.map((p) => renderMdPeriodRow(p))}</tbody>
@@ -955,7 +972,18 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                   <thead>
                     <tr>
                       <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                      <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th><th scope="col">Filed</th>
+                      <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
+                      <th scope="col">
+                        Client{" "}
+                        <button
+                          type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                          onClick={() => setShowClientColumn((v) => !v)}
+                          title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
+                        >
+                          ({showClientColumn ? "Hide" : "View"})
+                        </button>
+                      </th>
+                      <th scope="col">Filed</th>
                     </tr>
                   </thead>
                   <tbody>{historyPeriods.map((p) => renderMdPeriodRow(p))}</tbody>
