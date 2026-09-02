@@ -570,6 +570,17 @@ export function ClientDetailPage() {
     return () => clearTimeout(t);
   }, [location.hash, client, tab]);
 
+  // The "N Overdue" badge next to the client name deep-links here — same
+  // scroll-after-async-load pattern as #account-flags above, since
+  // complianceScore/complianceTimeline also load async inside ClientAtAGlance.
+  useEffect(() => {
+    if (location.hash !== "#compliance-score" || !client || tab !== "At a Glance") return;
+    const t = setTimeout(() => {
+      document.getElementById("compliance-score")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [location.hash, client, tab]);
+
   // Lets other pages deep-link straight to a tab, e.g. Task Detail's
   // "All Client Documents" button -> /clients/:id?tab=Documents.
   const tabParam = searchParams.get("tab");
@@ -720,9 +731,19 @@ export function ClientDetailPage() {
           )}
           <StatusBadge status={client.status} />
           {complianceScore && complianceScore.currentlyOverdueCount > 0 && (
-            <span className="status-pill status-red" style={{ marginLeft: 6 }}>
+            <button
+              type="button"
+              className="status-pill status-red"
+              style={{ marginLeft: 6, cursor: "pointer", border: "none" }}
+              title="Jump to the Filing History detail on At a Glance"
+              onClick={() => {
+                setTab("At a Glance");
+                setSearchParams({ tab: "At a Glance" }, { replace: true });
+                navigate(`${location.pathname}?tab=${encodeURIComponent("At a Glance")}#compliance-score`, { replace: true });
+              }}
+            >
               {complianceScore.currentlyOverdueCount} Overdue
-            </span>
+            </button>
           )}
           <LabelChips labels={clientLabelList} onRemove={canEdit ? unassignClientLabel : undefined} />
           {canEdit && (

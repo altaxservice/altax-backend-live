@@ -395,7 +395,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
     <div>
       {headerActions}
       {complianceScore && (
-        <div className="card" style={{ marginBottom: 16 }}>
+        <div id="compliance-score" className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <h2 style={{ fontSize: 15, margin: 0 }}>Compliance Score</h2>
             <span className={`status-pill ${bandPillClass(complianceScore.band)}`}>{complianceScore.band}</span>

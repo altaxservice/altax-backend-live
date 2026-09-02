@@ -52,11 +52,11 @@ export async function ensureEftpsStaffTasks(): Promise<{ created: number }> {
 
     await query(
       `INSERT INTO altax.v3_tasks
-         (task_id, client_id, client_name, task_name, service_line, status, assigned_to, staff_due_date,
+         (task_id, client_id, client_name, task_name, service_line, status, assigned_to, staff_due_date, agency_due_date,
           notes, source_system, source_record_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,'Payroll & Employment','Not Started',$5,$6,$7,'EftpsDepositTask',$8, now(), now())`,
+       VALUES ($1,$2,$3,$4,'Payroll & Employment','Not Started',$5,$6,$7,$8,'EftpsDepositTask',$9, now(), now())`,
       [`T-${idSuffix()}`, client.client_id, client.client_name, `EFTPS Deposit Due — ${period.periodLabel}`,
-        client.assigned_to || null, staffDueDate,
+        client.assigned_to || null, staffDueDate, period.dueDate,
         `Federal payroll tax deposit for ${period.periodLabel}, due ${period.dueDate}. Use the EFTPS Deposit workflow (import Drake's Tax Liability and Payroll Wages reports for this period) to process.`,
         sourceRecordId]
     );
@@ -68,12 +68,16 @@ export async function ensureEftpsStaffTasks(): Promise<{ created: number }> {
 /**
  * Closes the proactive staff task for a period once its EFTPS deposit has been
  * saved — otherwise it keeps reappearing in the daily digest even after staff
- * have already handled it. No-op if no such task exists.
+ * have already handled it. No-op if no such task exists. filedDate is set
+ * here (not just status) so the Compliance Timeline's on-time/late check
+ * (complianceTimeline.ts, computeTaskRuleLanes) has real evidence to compare
+ * against agency_due_date, instead of falling back to its "Completed but no
+ * filed_date on record" benefit-of-the-doubt default.
  */
-export async function closeEftpsStaffTask(clientId: string, periodEnd: string): Promise<void> {
+export async function closeEftpsStaffTask(clientId: string, periodEnd: string, filedDate: string): Promise<void> {
   await query(
-    `UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now()
+    `UPDATE altax.v3_tasks SET status = 'Completed', filed_date = $2::date, updated_at = now()
       WHERE source_system = 'EftpsDepositTask' AND source_record_id = $1 AND status NOT IN ('Completed', 'Closed', 'Archived', 'Void')`,
-    [`${clientId}:${periodEnd}`]
+    [`${clientId}:${periodEnd}`, filedDate]
   );
 }

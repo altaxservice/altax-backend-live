@@ -554,16 +554,16 @@ eftpsDepositsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff
     );
 
     // closeEftpsStaffTask handles tasks the daily sweep created (exact source_system
-    // match, no due date/period stored on those rows); closeObligationTask handles
-    // everything else — manually created tasks and batch-generated ones — matched by
-    // keyword + due date instead, since those never carry the sweep's exact naming.
-    // Its period-label match needs deriveTaskRulesPeriodLabel's "August 2026" convention
-    // specifically, NOT the `periodLabel` above (a formatted date range, "Aug 1, 2026 –
-    // Aug 31, 2026", used for the email/audit log) — confirmed live, a manually-created
-    // task's own `period` field read "August 2026" and never matched the date-range
-    // string, so the task silently never closed even though its due date also didn't
-    // match (hand-typed, off from the real statutory date).
-    await closeEftpsStaffTask(client.client_id, periodEnd);
+    // match); closeObligationTask handles everything else — manually created tasks
+    // and batch-generated ones — matched by keyword + due date instead, since those
+    // never carry the sweep's exact naming. Its period-label match needs
+    // deriveTaskRulesPeriodLabel's "August 2026" convention specifically, NOT the
+    // `periodLabel` above (a formatted date range, "Aug 1, 2026 – Aug 31, 2026", used
+    // for the email/audit log) — confirmed live, a manually-created task's own
+    // `period` field read "August 2026" and never matched the date-range string, so
+    // the task silently never closed even though its due date also didn't match
+    // (hand-typed, off from the real statutory date).
+    await closeEftpsStaffTask(client.client_id, periodEnd, filingDate);
     await closeObligationTask({
       clientId: client.client_id, keyword: "eftps", dueDate,
       periodLabel: deriveTaskRulesPeriodLabel(periodStart, "Monthly"), filedDate: filingDate, paidDate: null,
