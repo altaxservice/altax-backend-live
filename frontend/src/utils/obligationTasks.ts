@@ -13,7 +13,13 @@
  * the others. Checked against both task_name and service_line since either
  * can carry the identifying keyword depending on creation path.
  */
-export function obligationAccountingTab(task: { task_name?: string | null; service_line?: string | null }): string | null {
+export function obligationAccountingTab(task: { task_name?: string | null; service_line?: string | null; status?: string | null }): string | null {
+  // Confirmed live: a task already marked Completed still showed "Finish in
+  // Accounting" — clicking it just lands on the Accounting tab with nothing
+  // left to do, since the obligation is already filed. Once a task is in a
+  // terminal status (same list TaskCells.tsx's isOpenTask uses), there's
+  // nothing left to "finish."
+  if (["completed", "void", "closed", "archived"].includes(String(task.status || "").toLowerCase())) return null;
   const haystack = `${task.task_name || ""} ${task.service_line || ""}`.toLowerCase();
   const KEYWORD_TABS: Array<[string, string]> = [
     ["eftps", "EFTPS Deposits"],

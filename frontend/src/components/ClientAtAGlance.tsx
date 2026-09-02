@@ -45,20 +45,54 @@ const TIMELINE_STATUS_LABEL: Record<TimelinePeriod["status"], string> = {
   onTime: "filed on time", late: "filed late", missing: "missing", notYetDue: "not yet due",
 };
 
-/** One obligation's period-by-period strip — small colored squares, oldest to newest, so a pattern ("always late on X") is visible at a glance instead of inferred from today's status alone. */
-function ComplianceTimelineRow({ lane }: { lane: ComplianceTimelineLane }) {
+/** Small colored-square + label key, shown once above the Filing History rows — the squares alone carry no visible meaning without hovering each one. */
+function ComplianceTimelineLegend() {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130 }}>{lane.obligationType}</span>
-      <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        {lane.periods.map((p) => (
-          <div
-            key={p.periodLabel}
-            title={`${p.periodLabel} — due ${p.dueDate}${p.filedDate ? `, filed ${p.filedDate}` : ""} (${TIMELINE_STATUS_LABEL[p.status]})`}
-            style={{ width: 14, height: 14, borderRadius: 3, background: TIMELINE_STATUS_COLOR[p.status] }}
-          />
-        ))}
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11 }}>
+      {(Object.keys(TIMELINE_STATUS_LABEL) as TimelinePeriod["status"][]).map((s) => (
+        <span key={s} style={{ display: "flex", alignItems: "center", gap: 4 }} className="muted">
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: TIMELINE_STATUS_COLOR[s], display: "inline-block" }} />
+          {TIMELINE_STATUS_LABEL[s]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One obligation's period-by-period strip — small colored squares, oldest to
+ * newest, so a pattern ("always late on X") is visible at a glance instead
+ * of inferred from today's status alone. Confirmed live: staff clicking the
+ * "N Overdue" badge landed here and still couldn't tell which period was
+ * actually the problem — the only identifying text was per-square, inside a
+ * hover-only title attribute. The line below the squares names the flagged
+ * period(s) directly, in plain visible text, so nothing needs to be hovered
+ * to answer "which one."
+ */
+function ComplianceTimelineRow({ lane }: { lane: ComplianceTimelineLane }) {
+  const missing = lane.periods.filter((p) => p.status === "missing");
+  const late = lane.periods.filter((p) => p.status === "late");
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130 }}>{lane.obligationType}</span>
+        <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {lane.periods.map((p) => (
+            <div
+              key={p.periodLabel}
+              title={`${p.periodLabel} — due ${p.dueDate}${p.filedDate ? `, filed ${p.filedDate}` : ""} (${TIMELINE_STATUS_LABEL[p.status]})`}
+              style={{ width: 14, height: 14, borderRadius: 3, background: TIMELINE_STATUS_COLOR[p.status] }}
+            />
+          ))}
+        </div>
       </div>
+      {(missing.length > 0 || late.length > 0) && (
+        <div style={{ fontSize: 11, marginTop: 2, textAlign: "right" }}>
+          {missing.length > 0 && <span style={{ color: "var(--red)" }}>Missing: {missing.map((p) => p.periodLabel).join(", ")}</span>}
+          {missing.length > 0 && late.length > 0 && <span className="muted"> · </span>}
+          {late.length > 0 && <span style={{ color: "var(--amber)" }}>Filed late: {late.map((p) => p.periodLabel).join(", ")}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -414,7 +448,10 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
           </div>
           {complianceTimeline.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-              <div className="metric-label">Filing History — last 12 periods</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div className="metric-label">Filing History — last 12 periods</div>
+                <ComplianceTimelineLegend />
+              </div>
               {complianceTimeline.map((lane) => (
                 <ComplianceTimelineRow key={lane.obligationType} lane={lane} />
               ))}

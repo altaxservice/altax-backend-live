@@ -44,18 +44,28 @@ export function statusOptionsForTaskType(all: { value: string; taskType: string 
 export function isOpenTask(t: Task): boolean {
   return !["completed", "void", "closed", "archived"].includes(String(t.status || "").toLowerCase());
 }
+// A task in a terminal status (Completed/Void/Closed/Archived) can never be
+// meaningfully "overdue"/"due today"/"due this week" — confirmed live, a
+// completed EFTPS task showed a red "Overdue" pill right next to its own
+// "Completed" status, a flat contradiction with no useful meaning ("overdue"
+// implies still-outstanding work). Guarding here fixes every caller at once
+// (DueLabel, DashboardPage's priority lists, TaskCalendarPage's weekly
+// counts) rather than requiring each call site to remember an isOpenTask
+// check of its own.
 export function isOverdue(t: Task): boolean {
+  if (!isOpenTask(t)) return false;
   const d = dueDays(t);
   return d !== null && d < 0;
 }
 export function isDueToday(t: Task): boolean {
-  return dueDays(t) === 0;
+  return isOpenTask(t) && dueDays(t) === 0;
 }
 // UX-017 (hard audit, 2026-08-13): isDueSoon used to be a byte-for-byte
 // duplicate of this under a second name — a future edit to one threshold
 // without the other would have silently desynced "due soon." Consolidated
 // to this single name; every former isDueSoon call site now imports isDueWeek.
 export function isDueWeek(t: Task): boolean {
+  if (!isOpenTask(t)) return false;
   const d = dueDays(t);
   return d !== null && d >= 0 && d <= 7;
 }
@@ -67,8 +77,16 @@ export function dueDays(t: Task): number | null {
   return daysUntil(t.agency_due_date);
 }
 
-/** Mirrors legacy's dueLabel(): a distinct pill for overdue/due-today/due-soon, plain text past 7 days. */
+/**
+ * Mirrors legacy's dueLabel(): a distinct pill for overdue/due-today/due-soon,
+ * plain text past 7 days. Renders nothing once the task is Completed/Void/
+ * Closed/Archived — a "days until due" countdown (or an "Overdue" pill) is
+ * meaningless noise once the work is actually done, and the STATUS column
+ * already says so; the date itself (shown by every caller alongside this)
+ * is still visible.
+ */
 export function DueLabel({ task }: { task: Task }) {
+  if (!isOpenTask(task)) return null;
   const d = dueDays(task);
   if (d === null) return <StatusBadge status="No Due Date" />;
   if (d < 0) return <StatusBadge status="Overdue" />;
