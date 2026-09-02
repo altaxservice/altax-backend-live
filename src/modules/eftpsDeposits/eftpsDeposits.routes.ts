@@ -644,6 +644,52 @@ eftpsDepositsRouter.post("/:depositId/send", requireAuth, requireRole("admin", "
   res.json({ ok: true, sent: result.sent });
 }));
 
+/**
+ * Corrects an already-filed deposit's stored filing date / payment date /
+ * total amount — for when the real number EFTPS actually processed ends up
+ * different from what this app computed from stored paychecks (staff
+ * request, 2026-09-01). Only total_amount is overridden — the per-employee
+ * federal/social-security/medicare breakdown (v3_eftps_deposit_lines) and
+ * the three subtotal columns stay exactly as computed at filing time, an
+ * honest record of what the stored paychecks said then.
+ */
+eftpsDepositsRouter.post("/:depositId/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadDeposit(req, req.params.depositId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { deposit } = loaded;
+
+  const body = req.body || {};
+  const filingDate = String(body.filingDate || "").trim();
+  const paymentDateRaw = String(body.paymentDate || "").trim();
+  const paymentDate = paymentDateRaw ? paymentDateRaw : null;
+  const totalAmount = Number(body.totalAmount);
+  if (!filingDate || (paymentDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) || !Number.isFinite(totalAmount) || totalAmount < 0) {
+    return res.status(400).json({ error: "filingDate is required; paymentDate must be YYYY-MM-DD or empty; totalAmount must be a non-negative number." });
+  }
+
+  await query(
+    `UPDATE altax.v3_eftps_deposits SET filing_date = $2, payment_date = $3, total_amount = $4, updated_at = now() WHERE deposit_id = $1`,
+    [deposit.deposit_id, filingDate, paymentDate, totalAmount]
+  );
+  await logAudit("Clients", "EFTPS_DEPOSIT_EDITED", deposit.client_id, "total_amount", String(deposit.total_amount), String(totalAmount),
+    `EFTPS deposit ${deposit.deposit_id} corrected to filed ${filingDate}${paymentDate ? `, paid ${paymentDate}` : ""}, total $${totalAmount.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  // Payment newly recorded via this edit (wasn't set before) — keep the
+  // linked task's paid_date in sync, same fix as record-payment's own.
+  if (paymentDate && !deposit.payment_date) {
+    await query(
+      `UPDATE altax.v3_obligation_completions SET paid_date = $3, completed_at = now() WHERE client_id = $1 AND source = 'EFTPS' AND due_date = $2`,
+      [deposit.client_id, deposit.due_date, paymentDate]
+    );
+    await markObligationTaskPaid({
+      clientId: deposit.client_id, keyword: "eftps", dueDate: isoDate(deposit.due_date),
+      periodLabel: deriveTaskRulesPeriodLabel(isoDate(deposit.period_start), "Monthly"), paidDate: paymentDate,
+    });
+  }
+
+  res.json({ ok: true, filingDate, paymentDate, totalAmount });
+}));
+
 eftpsDepositsRouter.post("/:depositId/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const loaded = await loadDeposit(req, req.params.depositId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });

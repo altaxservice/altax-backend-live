@@ -3177,6 +3177,60 @@ reportsRouter.post("/md-filing/:clientId/send", requireAuth, requireRole("admin"
 }));
 
 /** Reverses a mark-paid entry (staff correcting a mistaken date) — the period goes back to being computed live against today, same as before it was ever marked. */
+/**
+ * Corrects an already-filed period's stored filed date / paid date / tax
+ * due — for when the real number Maryland actually processed ends up
+ * different from what this app computed from stored sales (staff request,
+ * 2026-09-01). Unlike the other filing types' bottom-line-only override,
+ * MD Sales Tax already has a real recompute function (computeMdFiling) that
+ * derives discount/penalty/interest/balance_due from taxDue + the filed/paid
+ * dates — reusing it here keeps every dependent figure honestly consistent
+ * with the corrected tax due, rather than leaving a stale discount/penalty
+ * computed against the old (wrong) number.
+ */
+reportsRouter.post("/md-filing/:clientId/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "MD") return res.status(400).json({ error: "This client is not MD-based." });
+
+  const body = req.body || {};
+  const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const taxDue = Number(body.taxDue);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(taxDue) || taxDue < 0) {
+    return res.status(400).json({ error: "periodEnd and filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; taxDue must be a non-negative number." });
+  }
+
+  const existing = await queryOne<any>(`SELECT paid_date FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet." });
+
+  const { mdDueDateForPeriod, computeMdFiling } = await import("../../common/mdFiling");
+  const dueDate = mdDueDateForPeriod(periodEnd);
+  const result = paidDate ? await computeMdFiling(taxDue, dueDate, filedDate, paidDate) : null;
+
+  await query(
+    `UPDATE altax.v3_md_filing_payments SET filed_date = $3, paid_date = $4, tax_due = $5, balance_due = $6, on_time = $7
+      WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? taxDue, result?.onTime ?? null]
+  );
+  await logAudit("Accounting", "MD_FILING_EDITED", client.clientId, "Period", "", periodEnd,
+    `MD sales tax filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, tax due $${taxDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  if (paidDate && !existing.paid_date) {
+    const periodStartRow = await queryOne<any>(`SELECT period_start FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+    const periodStartStr = new Date(periodStartRow.period_start).toISOString().slice(0, 10);
+    await markObligationTaskPaid({
+      clientId: client.clientId, keyword: "sales tax", dueDate,
+      periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, client.salesTaxFrequency), paidDate,
+    });
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, taxDue, balanceDue: result?.balanceDue ?? taxDue, onTime: result?.onTime ?? null });
+}));
+
 reportsRouter.post("/md-filing/:clientId/unmark-paid", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const client = await loadClientInfo(req, req.params.clientId);
   if (!client) return res.status(403).json({ error: "You do not have access to this client." });

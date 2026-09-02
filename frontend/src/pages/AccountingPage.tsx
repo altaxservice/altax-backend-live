@@ -309,6 +309,8 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [pickFiledDate, setPickFiledDate] = useState("");
   const [pickPaidDate, setPickPaidDate] = useState("");
   const [pickRecordPaymentEnd, setPickRecordPaymentEnd] = useState<string | null>(null);
+  const [editingPeriodEnd, setEditingPeriodEnd] = useState<string | null>(null);
+  const [editTaxForm, setEditTaxForm] = useState({ filedDate: "", paidDate: "", taxDue: "" });
   const [pickRecordPaymentDate, setPickRecordPaymentDate] = useState("");
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -582,7 +584,33 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       await api.post(`/reports/md-filing/${clientId}/unmark-paid`, { periodEnd: p.end });
       setMdFilingReloadKey((k) => k + 1);
     } catch (err) {
-      await notify(err instanceof ApiError ? err.message : "Could not undo this.");
+      await notify(err instanceof ApiError ? err.message : "Could not delete this.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  function startEditPeriod(p: { end: string; markedFiledDate: string | null; markedPaidDate: string | null; taxDue: number }) {
+    setEditingPeriodEnd(p.end);
+    setEditTaxForm({
+      filedDate: p.markedFiledDate ? p.markedFiledDate.slice(0, 10) : "",
+      paidDate: p.markedPaidDate ? p.markedPaidDate.slice(0, 10) : "",
+      taxDue: String(p.taxDue),
+    });
+  }
+
+  /** Corrects an already-filed period's filed date / paid date / tax due — for when the real number Maryland actually processed ends up different from what this app computed from stored sales. Recomputed server-side (discount/penalty/balance) against the corrected tax due, not just overwritten in isolation. */
+  async function handleSaveEditPeriod(p: { end: string }) {
+    if (!editTaxForm.filedDate || editTaxForm.taxDue === "") return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/edit`, {
+        periodEnd: p.end, filedDate: editTaxForm.filedDate, paidDate: editTaxForm.paidDate || undefined, taxDue: Number(editTaxForm.taxDue),
+      });
+      setEditingPeriodEnd(null);
+      setMdFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this correction.");
     } finally {
       setMarkingPeriodEnd(null);
     }
@@ -617,15 +645,31 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
         <td>{showClientColumn && (p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
         <td onClick={(e) => e.stopPropagation()}>
-          {p.markedPaidDate ? (
+          {editingPeriodEnd === p.end ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
+              <label style={{ fontSize: 11 }} htmlFor={`md-edit-filed-${p.end}`}>Filed Date</label>
+              <input id={`md-edit-filed-${p.end}`} type="date" value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <label style={{ fontSize: 11 }} htmlFor={`md-edit-paid-${p.end}`}>Payment Date (optional)</label>
+              <input id={`md-edit-paid-${p.end}`} type="date" value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <label style={{ fontSize: 11 }} htmlFor={`md-edit-tax-${p.end}`}>Tax Due</label>
+              <input id={`md-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editTaxForm.taxDue} onChange={(e) => setEditTaxForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <div style={{ display: "flex", gap: 4 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !editTaxForm.filedDate || editTaxForm.taxDue === ""} onClick={() => handleSaveEditPeriod(p)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save"}
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => setEditingPeriodEnd(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : p.markedPaidDate ? (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {!p.sentAt && (
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
                   {markingPeriodEnd === p.end ? "…" : "Send"}
                 </button>
               )}
-              <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
-                {markingPeriodEnd === p.end ? "…" : `${fmtDate(p.markedPaidDate)} · Undo`}
+              <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => startEditPeriod(p)}>Edit</button>
+              <button type="button" className="btn btn-sm btn-danger" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
+                {markingPeriodEnd === p.end ? "…" : "Delete"}
               </button>
             </div>
           ) : p.markedFiledDate ? (
@@ -650,8 +694,9 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                       {markingPeriodEnd === p.end ? "…" : "Send"}
                     </button>
                   )}
-                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
-                    Undo
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => startEditPeriod(p)}>Edit</button>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkPeriodFiled(p)}>
+                    Delete
                   </button>
                 </div>
               </div>

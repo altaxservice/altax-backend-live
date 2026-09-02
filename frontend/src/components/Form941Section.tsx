@@ -73,6 +73,9 @@ export function Form941Section({ clientId }: { clientId: string }) {
   const [payingKey, setPayingKey] = useState<string | null>(null);
   const [payingDate, setPayingDate] = useState(todayStr());
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ filedDate: "", paidDate: "", balanceDue: "" });
+  const [showClientColumn, setShowClientColumn] = useState(true);
 
   function applyPreset(p: (typeof PERIOD_PRESETS)[number]) {
     const r = p.range();
@@ -147,17 +150,41 @@ export function Form941Section({ clientId }: { clientId: string }) {
 
   async function handleUndo(f: Form941Filing) {
     const ok = await confirmDialog({
-      title: "Undo this Form 941 filing", message: `Removes the record for Q${f.quarter} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
+      title: "Delete this Form 941 filing", message: `Removes the record for Q${f.quarter} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Delete", danger: true,
     });
     if (!ok) return;
     setRowBusy(`${f.period_end}:undo`);
     try {
       await api.post(`/form941-filings/${clientId}/${f.period_end}/unmark`, {});
-      toast("Undone.");
+      toast("Deleted.");
       handleReview();
       loadHistory();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not undo this filing.");
+      setError(err instanceof ApiError ? err.message : "Could not delete this filing.");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  function startEdit(f: Form941Filing) {
+    setEditingKey(f.period_end);
+    setEditForm({ filedDate: f.filed_date.slice(0, 10), paidDate: f.paid_date ? f.paid_date.slice(0, 10) : "", balanceDue: String(f.balance_due) });
+  }
+
+  /** Corrects an already-filed quarter's filed date / paid date / balance due — for when the real number the IRS actually processed ends up different from what this app computed from stored paychecks. */
+  async function handleSaveEdit(f: Form941Filing) {
+    if (!editForm.filedDate || editForm.balanceDue === "") return;
+    setRowBusy(`${f.period_end}:edit`);
+    try {
+      await api.post(`/form941-filings/${clientId}/${f.period_end}/edit`, {
+        filedDate: editForm.filedDate, paidDate: editForm.paidDate || undefined, balanceDue: Number(editForm.balanceDue),
+      });
+      toast("Filing corrected.");
+      setEditingKey(null);
+      handleReview();
+      loadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this correction.");
     } finally {
       setRowBusy(null);
     }
@@ -171,7 +198,7 @@ export function Form941Section({ clientId }: { clientId: string }) {
           <td>{fmtDate(f.filed_date)}</td>
           <td style={{ textAlign: "right" }}>{money(f.balance_due)}</td>
           <td>{f.paid_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span> : <span className="muted">Payment pending</span>}</td>
-          <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
+          <td>{showClientColumn && (f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
           <td>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {!f.paid_date && (
@@ -182,10 +209,35 @@ export function Form941Section({ clientId }: { clientId: string }) {
               )}
               <button className="btn btn-sm" onClick={() => viewFile(`/form941-filings/${clientId}/${f.period_end}/pdf`)}>View</button>
               <button className="btn btn-sm" onClick={() => downloadFile(`/form941-filings/${clientId}/${f.period_end}/pdf`, `941_Q${f.quarter}_${f.period_start.slice(0, 4)}.pdf`)}>PDF</button>
-              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${f.period_end}:undo`} onClick={() => handleUndo(f)}>{rowBusy === `${f.period_end}:undo` ? "…" : "Undo"}</button>
+              <button className="btn btn-sm" onClick={() => startEdit(f)}>Edit</button>
+              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${f.period_end}:undo`} onClick={() => handleUndo(f)}>{rowBusy === `${f.period_end}:undo` ? "…" : "Delete"}</button>
             </div>
           </td>
         </tr>
+        {editingKey === f.period_end && (
+          <tr>
+            <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="f941-edit-filed">Filed Date</label>
+                  <input id="f941-edit-filed" type="date" value={editForm.filedDate} onChange={(e) => setEditForm((s) => ({ ...s, filedDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="f941-edit-paid">Payment Date <span className="muted">(optional)</span></label>
+                  <input id="f941-edit-paid" type="date" value={editForm.paidDate} onChange={(e) => setEditForm((s) => ({ ...s, paidDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="f941-edit-balance">Balance Due</label>
+                  <input id="f941-edit-balance" type="number" step="0.01" value={editForm.balanceDue} onChange={(e) => setEditForm((s) => ({ ...s, balanceDue: e.target.value }))} style={{ maxWidth: 120 }} />
+                </div>
+                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${f.period_end}:edit` || !editForm.filedDate || editForm.balanceDue === ""} onClick={() => handleSaveEdit(f)}>
+                  {rowBusy === `${f.period_end}:edit` ? "Saving…" : "Save"}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingKey(null)}>Cancel</button>
+              </div>
+            </td>
+          </tr>
+        )}
         {payingKey === f.period_end && (
           <tr>
             <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
@@ -253,7 +305,7 @@ export function Form941Section({ clientId }: { clientId: string }) {
                             {q.existingFiling ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Balance Due</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Balance Due</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
                                   <tbody>{renderFilingRow(q.existingFiling)}</tbody>
                                 </table>
                               </div>
@@ -320,7 +372,7 @@ export function Form941Section({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Balance Due</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Balance Due</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((f) => (!historyDateFrom || f.period_start >= historyDateFrom) && (!historyDateTo || f.period_end <= historyDateTo))

@@ -248,6 +248,56 @@ mdUiFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole("a
   res.json({ ok: true });
 }));
 
+/**
+ * Corrects an already-filed period's stored filed date / paid date / amount
+ * — for when the real number on Maryland's own BEACON portal ends up
+ * different from what was entered here (confirmed live: this happens
+ * routinely, not an edge case). Unlike EFTPS/MD Sales Tax/Form 941, this
+ * amount was never computed from real paycheck/sales data in the first
+ * place — it's always been staff-entered (a live SUM(v3_paychecks.suta) is
+ * only ever offered as a *suggestion*, see GET /suggested-amount) — so
+ * overwriting it here doesn't create the drift-from-real-data risk that
+ * exists for the other filing types.
+ */
+mdUiFilingsRouter.post("/:clientId/:periodEnd/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodEnd = req.params.periodEnd;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+  const body = req.body || {};
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const amount = Number(body.amount);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; amount must be a non-negative number." });
+  }
+
+  const existing = await queryOne<any>(`SELECT period_start, paid_date FROM altax.v3_md_ui_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet." });
+
+  await query(
+    `UPDATE altax.v3_md_ui_filings SET filed_date = $3, paid_date = $4, amount = $5 WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, filedDate, paidDate, amount]
+  );
+  await logAudit("Accounting", "MD_UI_EDITED", client.clientId, "Period", "", periodEnd,
+    `MD UI wage filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, amount $${amount.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  // Payment newly recorded via this edit (wasn't set before) — keep the
+  // linked task's paid_date in sync, same fix as record-payment's own.
+  if (paidDate && !existing.paid_date) {
+    const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+    await markObligationTaskPaid({
+      clientId: client.clientId, keyword: "md ui", dueDate: mdUiDueDate(periodEnd),
+      periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, "Quarterly"), paidDate,
+    });
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, amount });
+}));
+
 mdUiFilingsRouter.post("/:clientId/:periodEnd/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const loaded = await loadClient(req, req.params.clientId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });

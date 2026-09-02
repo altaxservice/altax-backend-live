@@ -313,6 +313,55 @@ form941FilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole
   res.json({ ok: true });
 }));
 
+/**
+ * Corrects an already-filed quarter's stored filed date / paid date /
+ * balance due — for when the real number the IRS actually processed ends
+ * up different from what this app computed from stored paychecks (staff
+ * request, 2026-09-01: overriding the amount directly is worth the
+ * drift-from-real-data risk here, same as EFTPS/MD Sales Tax). Only
+ * balance_due is overridden — gross_liability/wages/eftps_deposits_applied
+ * stay exactly as they were computed at filing time, an honest record of
+ * what the stored paychecks said then, even if the bottom line is now
+ * corrected to match reality.
+ */
+form941FilingsRouter.post("/:clientId/:periodEnd/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodEnd = req.params.periodEnd;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+  const body = req.body || {};
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const balanceDue = Number(body.balanceDue);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(balanceDue)) {
+    return res.status(400).json({ error: "filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; balanceDue must be a number." });
+  }
+
+  const existing = await queryOne<any>(`SELECT quarter, paid_date FROM altax.v3_form941_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  if (!existing) return res.status(400).json({ error: "This quarter hasn't been marked filed yet." });
+
+  await query(
+    `UPDATE altax.v3_form941_filings SET filed_date = $3, paid_date = $4, balance_due = $5 WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, filedDate, paidDate, balanceDue]
+  );
+  await logAudit("Accounting", "FORM_941_EDITED", client.clientId, "Period", "", periodEnd,
+    `Form 941 filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, balance due $${balanceDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  if (paidDate && !existing.paid_date) {
+    const y941 = Number(periodEnd.slice(0, 4));
+    const quarter941 = existing.quarter as 1 | 2 | 3 | 4;
+    await markObligationTaskPaid({
+      clientId: client.clientId, keyword: "941", dueDate: form941DueDate(y941, quarter941),
+      periodLabel: deriveTaskRulesPeriodLabel(quarterPeriod(y941, quarter941).start, "Quarterly"), paidDate,
+    });
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, balanceDue });
+}));
+
 form941FilingsRouter.post("/:clientId/:periodEnd/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const loaded = await loadClient(req, req.params.clientId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });

@@ -217,6 +217,51 @@ annualReportFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requir
   res.json({ ok: true });
 }));
 
+/**
+ * Corrects an already-filed year's stored filed date / paid date / amount —
+ * for when the real number on Maryland's own filing portal ends up
+ * different from what was entered here. This amount was always
+ * staff-entered in the first place (never computed from real transactional
+ * data), so overwriting it doesn't create the drift-from-real-data risk
+ * that exists for EFTPS/MD Sales Tax/Form 941.
+ */
+annualReportFilingsRouter.post("/:clientId/:periodEnd/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const periodEnd = req.params.periodEnd;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+  const body = req.body || {};
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const amount = Number(body.amount);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(filedDate) || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(amount) || amount < 0) {
+    return res.status(400).json({ error: "filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; amount must be a non-negative number." });
+  }
+
+  const existing = await queryOne<any>(`SELECT period_start, paid_date FROM altax.v3_annual_report_filings WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet." });
+
+  await query(
+    `UPDATE altax.v3_annual_report_filings SET filed_date = $3, paid_date = $4, amount = $5 WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, filedDate, paidDate, amount]
+  );
+  await logAudit("Accounting", "ANNUAL_REPORT_EDITED", client.clientId, "Period", "", periodEnd,
+    `MD Annual Report filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, amount $${amount.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  if (paidDate && !existing.paid_date) {
+    const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+    await markObligationTaskPaid({
+      clientId: client.clientId, keyword: "annual report", dueDate: annualReportDueDate(periodEnd),
+      periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, "Annual"), paidDate,
+    });
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, amount });
+}));
+
 annualReportFilingsRouter.post("/:clientId/:periodEnd/unmark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const loaded = await loadClient(req, req.params.clientId);
   if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });

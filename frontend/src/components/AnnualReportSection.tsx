@@ -57,6 +57,9 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
   const [payingKey, setPayingKey] = useState<string | null>(null);
   const [payingDate, setPayingDate] = useState(todayStr());
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [showClientColumn, setShowClientColumn] = useState(true);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ filedDate: "", paidDate: "", amount: "" });
 
   function applyPreset(p: (typeof PERIOD_PRESETS)[number]) {
     const r = p.range();
@@ -134,17 +137,41 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
 
   async function handleUndo(f: AnnualReportFiling) {
     const ok = await confirmDialog({
-      title: "Undo this Annual Report filing", message: `Removes the record for ${f.period_start.slice(0, 4)} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Undo",
+      title: "Delete this Annual Report filing", message: `Removes the record for ${f.period_start.slice(0, 4)} entirely — it can be filed again from scratch afterward.`, confirmLabel: "Delete", danger: true,
     });
     if (!ok) return;
     setRowBusy(`${f.period_end}:undo`);
     try {
       await api.post(`/annual-report-filings/${clientId}/${f.period_end}/unmark`, {});
-      toast("Undone.");
+      toast("Deleted.");
       handleReview();
       loadHistory();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not undo this filing.");
+      setError(err instanceof ApiError ? err.message : "Could not delete this filing.");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  function startEdit(f: AnnualReportFiling) {
+    setEditingKey(f.period_end);
+    setEditForm({ filedDate: f.filed_date.slice(0, 10), paidDate: f.paid_date ? f.paid_date.slice(0, 10) : "", amount: String(f.amount) });
+  }
+
+  /** Corrects an already-filed year's filed date / paid date / amount — for when the real number on Maryland's own filing portal ends up different from what was entered here. */
+  async function handleSaveEdit(f: AnnualReportFiling) {
+    if (!editForm.filedDate || !editForm.amount) return;
+    setRowBusy(`${f.period_end}:edit`);
+    try {
+      await api.post(`/annual-report-filings/${clientId}/${f.period_end}/edit`, {
+        filedDate: editForm.filedDate, paidDate: editForm.paidDate || undefined, amount: Number(editForm.amount),
+      });
+      toast("Filing corrected.");
+      setEditingKey(null);
+      handleReview();
+      loadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this correction.");
     } finally {
       setRowBusy(null);
     }
@@ -158,7 +185,7 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(f.filed_date)}</td>
           <td style={{ textAlign: "right" }}>{money(f.amount)}</td>
           <td>{f.paid_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span> : <span className="muted">Payment pending</span>}</td>
-          <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
+          <td>{showClientColumn && (f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
           <td>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {!f.paid_date && (
@@ -167,10 +194,35 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
               {!f.sent_at && (
                 <button className="btn btn-sm" disabled={rowBusy === `${f.period_end}:send`} onClick={() => handleSendConfirmation(f)}>{rowBusy === `${f.period_end}:send` ? "…" : "Send"}</button>
               )}
-              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${f.period_end}:undo`} onClick={() => handleUndo(f)}>{rowBusy === `${f.period_end}:undo` ? "…" : "Undo"}</button>
+              <button className="btn btn-sm" onClick={() => startEdit(f)}>Edit</button>
+              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${f.period_end}:undo`} onClick={() => handleUndo(f)}>{rowBusy === `${f.period_end}:undo` ? "…" : "Delete"}</button>
             </div>
           </td>
         </tr>
+        {editingKey === f.period_end && (
+          <tr>
+            <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="ar-edit-filed">Filed Date</label>
+                  <input id="ar-edit-filed" type="date" value={editForm.filedDate} onChange={(e) => setEditForm((s) => ({ ...s, filedDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="ar-edit-paid">Payment Date <span className="muted">(optional)</span></label>
+                  <input id="ar-edit-paid" type="date" value={editForm.paidDate} onChange={(e) => setEditForm((s) => ({ ...s, paidDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="ar-edit-amount">Amount</label>
+                  <input id="ar-edit-amount" type="number" step="0.01" min="0" value={editForm.amount} onChange={(e) => setEditForm((s) => ({ ...s, amount: e.target.value }))} style={{ maxWidth: 120 }} />
+                </div>
+                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${f.period_end}:edit` || !editForm.filedDate || !editForm.amount} onClick={() => handleSaveEdit(f)}>
+                  {rowBusy === `${f.period_end}:edit` ? "Saving…" : "Save"}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingKey(null)}>Cancel</button>
+              </div>
+            </td>
+          </tr>
+        )}
         {payingKey === f.period_end && (
           <tr>
             <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
@@ -238,7 +290,7 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
                             {y.existingFiling ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Year</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+                                  <thead><tr><th>Year</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
                                   <tbody>{renderFilingRow(y.existingFiling)}</tbody>
                                 </table>
                               </div>
@@ -302,7 +354,7 @@ export function AnnualReportSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Year</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client</th><th></th></tr></thead>
+            <thead><tr><th>Year</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((f) => (!historyDateFrom || f.period_start >= historyDateFrom) && (!historyDateTo || f.period_end <= historyDateTo))

@@ -219,6 +219,9 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   const [payingDepositId, setPayingDepositId] = useState<string | null>(null);
   const [payingDate, setPayingDate] = useState(todayStr());
   const [rowBusy, setRowBusy] = useState<string | null>(null); // `${depositId}:${action}`
+  const [showClientColumn, setShowClientColumn] = useState(true);
+  const [editingDepositId, setEditingDepositId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ filingDate: "", paymentDate: "", totalAmount: "" });
 
   async function handlePaycheckPreview() {
     if (!paycheckFile) return;
@@ -423,17 +426,47 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   }
 
   async function handleUndo(row: EftpsDepositHistoryRow) {
-    const ok = await confirmDialog({ title: "Undo this EFTPS deposit", message: `Removes the record for ${fmtDate(row.period_start)} – ${fmtDate(row.period_end)} entirely — the period can be filed again from scratch afterward.`, confirmLabel: "Undo" });
+    const ok = await confirmDialog({ title: "Delete this EFTPS deposit", message: `Removes the record for ${fmtDate(row.period_start)} – ${fmtDate(row.period_end)} entirely — the period can be filed again from scratch afterward.`, confirmLabel: "Delete", danger: true });
     if (!ok) return;
     setError(null);
     setRowBusy(`${row.deposit_id}:undo`);
     try {
       await api.post(`/eftps-deposits/${row.deposit_id}/unmark`, {});
-      toast("Undone.");
+      toast("Deleted.");
       patchMonthDeposit(row.deposit_id, null);
       loadHistory();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not undo this deposit.");
+      setError(err instanceof ApiError ? err.message : "Could not delete this deposit.");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  function startEdit(row: EftpsDepositHistoryRow) {
+    setEditingDepositId(row.deposit_id);
+    setEditForm({
+      filingDate: row.filing_date ? row.filing_date.slice(0, 10) : "",
+      paymentDate: row.payment_date ? row.payment_date.slice(0, 10) : "",
+      totalAmount: String(row.total_amount),
+    });
+  }
+
+  /** Corrects an already-filed deposit's filing date / payment date / total amount — for when the real number EFTPS actually processed ends up different from what this app computed from stored paychecks. */
+  async function handleSaveEdit(row: EftpsDepositHistoryRow) {
+    if (!editForm.filingDate || editForm.totalAmount === "") return;
+    setRowBusy(`${row.deposit_id}:edit`);
+    try {
+      await api.post(`/eftps-deposits/${row.deposit_id}/edit`, {
+        filingDate: editForm.filingDate, paymentDate: editForm.paymentDate || undefined, totalAmount: Number(editForm.totalAmount),
+      });
+      toast("Deposit corrected.");
+      setEditingDepositId(null);
+      patchMonthDeposit(row.deposit_id, {
+        filing_date: editForm.filingDate, payment_date: editForm.paymentDate || null, total_amount: Number(editForm.totalAmount),
+      });
+      loadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this correction.");
     } finally {
       setRowBusy(null);
     }
@@ -462,7 +495,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(d.due_date)}</td>
           <td>{fmtDate(d.filing_date)}</td>
           <td>{d.payment_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span> : <span className="muted">Pending</span>}</td>
-          <td>{d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>
+          <td>{showClientColumn && (d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
           <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
           <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
           <td>
@@ -476,10 +509,35 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
               <button className="btn btn-sm" onClick={() => handlePreview(d.deposit_id)}>Preview</button>
               <button className="btn btn-sm" onClick={() => handlePrint(d.deposit_id)}>Print</button>
               <button className="btn btn-sm" onClick={() => handleDownload(d.deposit_id, d)}>Download</button>
-              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${d.deposit_id}:undo`} onClick={() => handleUndo(d)}>{rowBusy === `${d.deposit_id}:undo` ? "…" : "Undo"}</button>
+              <button className="btn btn-sm" onClick={() => startEdit(d)}>Edit</button>
+              <button className="btn btn-sm btn-danger" disabled={rowBusy === `${d.deposit_id}:undo`} onClick={() => handleUndo(d)}>{rowBusy === `${d.deposit_id}:undo` ? "…" : "Delete"}</button>
             </div>
           </td>
         </tr>
+        {editingDepositId === d.deposit_id && (
+          <tr>
+            <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="eftps-edit-filed">Filing Date</label>
+                  <input id="eftps-edit-filed" type="date" value={editForm.filingDate} onChange={(e) => setEditForm((s) => ({ ...s, filingDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="eftps-edit-paid">Payment Date <span className="muted">(optional)</span></label>
+                  <input id="eftps-edit-paid" type="date" value={editForm.paymentDate} onChange={(e) => setEditForm((s) => ({ ...s, paymentDate: e.target.value }))} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="eftps-edit-amount">Total Amount</label>
+                  <input id="eftps-edit-amount" type="number" step="0.01" min="0" value={editForm.totalAmount} onChange={(e) => setEditForm((s) => ({ ...s, totalAmount: e.target.value }))} style={{ maxWidth: 120 }} />
+                </div>
+                <button className="btn btn-primary btn-sm" disabled={rowBusy === `${d.deposit_id}:edit` || !editForm.filingDate || editForm.totalAmount === ""} onClick={() => handleSaveEdit(d)}>
+                  {rowBusy === `${d.deposit_id}:edit` ? "Saving…" : "Save"}
+                </button>
+                <button className="btn btn-sm" onClick={() => setEditingDepositId(null)}>Cancel</button>
+              </div>
+            </td>
+          </tr>
+        )}
         {payingDepositId === d.deposit_id && (
           <tr>
             <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)" }}>
@@ -696,7 +754,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                             ) : m.existingDeposit ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
                                   <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
                                 </table>
                               </div>
@@ -802,7 +860,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
