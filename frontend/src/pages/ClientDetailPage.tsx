@@ -1153,6 +1153,8 @@ export function ClientDetailPage() {
                   <DetailField label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
                   <DetailField label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
                   <DetailField label="Referral Source" value={client.referral_source as string | null} />
+                  {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}
+                  {isBusinessClient && <DetailField label="Health Permit License" value={client.health_permit_license_number as string | null} />}
                 </div>
               </div>
               {String(client.notes || "").trim() && (
