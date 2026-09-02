@@ -308,6 +308,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [search, setSearch] = useState("");
+  // Most clients tax the same handful of categories on every sale, so this
+  // list reads identically on nearly every row — a "Hide"/"View" toggle on
+  // the whole column lets staff collapse that repetition instead of
+  // scanning the same text over and over down the table.
+  const [showCategoriesColumn, setShowCategoriesColumn] = useState(true);
 
   const [refreshing, setRefreshing] = useState(false);
   function load(): Promise<void> {
@@ -1031,7 +1036,22 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            <thead><tr><th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th><th scope="col">Categories</th><th scope="col"></th></tr></thead>
+            <thead>
+              <tr>
+                <th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th>
+                <th scope="col">
+                  Categories{" "}
+                  <button
+                    type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                    onClick={() => setShowCategoriesColumn((v) => !v)}
+                    title={showCategoriesColumn ? "Hide the categories list on every row" : "Show the categories list on every row"}
+                  >
+                    ({showCategoriesColumn ? "Hide" : "View"})
+                  </button>
+                </th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
             <tbody>
               {visibleSales.map((s) => (
                 <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
@@ -1042,7 +1062,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                   <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
                   <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</td>
                   <td className="muted" style={{ fontSize: 12 }}>
-                    <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>
+                    {showCategoriesColumn && <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>}
                     {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
                   </td>
                   <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
