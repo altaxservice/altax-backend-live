@@ -2511,6 +2511,8 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   // renewal. See sql/131_client_use_and_occupancy_fire_dept_permit.sql.
   useAndOccupancyNumber: { column: "use_and_occupancy_number" },
   fireDeptPermitNumber: { column: "fire_dept_permit_number" },
+  tradersLicenseNumber: { column: "traders_license_number" },
+  healthPermitLicenseNumber: { column: "health_permit_license_number" },
   // Maryland's Central Registration Number, issued after a filed CRA is
   // approved — distinct from secretaryOfStateId (assigned at formation) and
   // from stateTaxId. See sql/047_client_cra_registration_number.sql.

@@ -169,6 +169,8 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // of retyping on every renewal.
       { key: "use_and_occupancy_number", apiKey: "useAndOccupancyNumber", label: "Use and Occupancy Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
       { key: "fire_dept_permit_number", apiKey: "fireDeptPermitNumber", label: "Fire Department Permit Number", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "traders_license_number", apiKey: "tradersLicenseNumber", label: "Trader's License", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
+      { key: "health_permit_license_number", apiKey: "healthPermitLicenseNumber", label: "Health Permit License", kind: "text", hidden: (f) => !isBusiness(f), sensitive: true },
     ],
   },
   {
@@ -1179,6 +1181,8 @@ export function ClientDetailPage() {
                 {isBusinessClient && <DetailField label="CRA / Central Registration No." value={client.cra_registration_number as string | null} />}
                 {isBusinessClient && <DetailField label="Use and Occupancy Number" value={client.use_and_occupancy_number as string | null} />}
                 {isBusinessClient && <DetailField label="Fire Department Permit Number" value={client.fire_dept_permit_number as string | null} />}
+                {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}
+                {isBusinessClient && <DetailField label="Health Permit License" value={client.health_permit_license_number as string | null} />}
                 {isBusinessClient && <DetailField label="MD UI Employer ID" value={client.md_ui_employer_id as string | null} />}
                 {isBusinessClient && (
                   <DetailField label="MD UI Tax Rate" value={client.md_ui_tax_rate != null ? `${Number(client.md_ui_tax_rate)}%` : null} />
