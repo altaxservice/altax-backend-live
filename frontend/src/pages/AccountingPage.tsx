@@ -969,11 +969,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                             <th scope="col">
                               Client{" "}
                               <button
-                                type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                                type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
                                 onClick={() => setShowClientColumn((v) => !v)}
                                 title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
                               >
-                                ({showClientColumn ? "Hide" : "View"})
+                                {showClientColumn ? "hide" : "show"}
                               </button>
                             </th>
                             <th scope="col">Filed</th>
@@ -1021,11 +1021,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                       <th scope="col">
                         Client{" "}
                         <button
-                          type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                          type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
                           onClick={() => setShowClientColumn((v) => !v)}
                           title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
                         >
-                          ({showClientColumn ? "Hide" : "View"})
+                          {showClientColumn ? "hide" : "show"}
                         </button>
                       </th>
                       <th scope="col">Filed</th>
@@ -1115,11 +1115,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <th scope="col">
                   Categories{" "}
                   <button
-                    type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }}
+                    type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
                     onClick={() => setShowCategoriesColumn((v) => !v)}
                     title={showCategoriesColumn ? "Hide the categories list on every row" : "Show the categories list on every row"}
                   >
-                    ({showCategoriesColumn ? "Hide" : "View"})
+                    {showCategoriesColumn ? "hide" : "show"}
                   </button>
                 </th>
                 <th scope="col"></th>

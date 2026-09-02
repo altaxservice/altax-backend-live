@@ -306,7 +306,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
                             {q.existingFiling ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
+                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th></th></tr></thead>
                                   <tbody>{renderFilingRow(q.existingFiling)}</tbody>
                                 </table>
                               </div>
@@ -374,7 +374,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th></th></tr></thead>
+            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((f) => (!historyDateFrom || f.period_start >= historyDateFrom) && (!historyDateTo || f.period_end <= historyDateTo))

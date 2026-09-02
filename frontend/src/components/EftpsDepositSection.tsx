@@ -754,7 +754,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                             ) : m.existingDeposit ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
                                   <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
                                 </table>
                               </div>
@@ -860,7 +860,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client{" "}<button type="button" className="ghost-button" style={{ fontSize: 11, fontWeight: 400, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>({showClientColumn ? "Hide" : "View"})</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
