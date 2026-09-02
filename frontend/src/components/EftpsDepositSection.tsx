@@ -616,12 +616,13 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>Imported Data</h3>
-        <button className="btn btn-sm" onClick={() => setShowImportedData((v) => !v)}>
-          {showImportedData ? "Hide" : "Show"} ({(importedPaychecks?.length || 0) + (importedSnapshots?.length || 0)})
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setShowImportedData((v) => !v)}
+        style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", padding: 0, border: "none", background: "none", cursor: "pointer", textDecoration: "underline", color: "inherit", font: "inherit", display: "block" }}
+      >
+        Imported Data ({(importedPaychecks?.length || 0) + (importedSnapshots?.length || 0)})
+      </button>
       {showImportedData && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
@@ -850,12 +851,13 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
-        <button type="button" className="link-button" onClick={() => setShowHistory((v) => !v)}>
-          {showHistory ? "Hide" : `Show (${(history || []).length})`}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setShowHistory((v) => !v)}
+        style={{ fontSize: 14, fontWeight: 700, margin: "0 0 8px", padding: 0, border: "none", background: "none", cursor: "pointer", textDecoration: "underline", color: "inherit", font: "inherit", display: "block" }}
+      >
+        History ({(history || []).length})
+      </button>
       {showHistory && (
         <>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>

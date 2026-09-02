@@ -1297,12 +1297,14 @@ export function ClientDetailPage() {
                       </p>
                     )}
 
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px 0" }}>
-                      <div className="small-label" style={{ margin: 0 }}>Completed ({completedTasks.length})</div>
-                      <button type="button" className="link-button" onClick={() => setShowCompletedTasks((v) => !v)}>
-                        {showCompletedTasks ? "Hide" : `Show (${completedTasks.length})`}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="small-label"
+                      onClick={() => setShowCompletedTasks((v) => !v)}
+                      style={{ margin: 0, padding: "12px 16px 0", border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+                    >
+                      Completed ({completedTasks.length})
+                    </button>
                     {showCompletedTasks && (
                       completedTasks.length === 0 ? (
                         <p className="muted" style={{ padding: "8px 16px 16px", textAlign: "center" }}>No completed tasks.</p>

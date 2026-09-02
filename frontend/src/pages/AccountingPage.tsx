@@ -935,14 +935,15 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             (clients.routes.ts) — this just hadn't caught up to it. */}
         {clientState === "MD" && (
           <div style={{ margin: "0 16px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-              <div className="small-label" style={{ margin: 0 }}>Filing Discount / Late Penalty (Form 202)</div>
-              {mdFiling && mdFiling.periods.length > 0 && (
-                <button type="button" className="link-button" onClick={() => setShowFilingTable((v) => !v)}>
-                  {showFilingTable ? "Hide" : `Show (${mdFiling.periods.length})`}
-                </button>
-              )}
-            </div>
+            <button
+              type="button"
+              className="small-label"
+              disabled={!mdFiling || mdFiling.periods.length === 0}
+              onClick={() => setShowFilingTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: mdFiling && mdFiling.periods.length > 0 ? "pointer" : "default", textDecoration: mdFiling && mdFiling.periods.length > 0 ? "underline" : "none" }}
+            >
+              Filing Discount / Late Penalty (Form 202){mdFiling && mdFiling.periods.length > 0 ? ` (${mdFiling.periods.length})` : ""}
+            </button>
 
             {mdFilingError && <ErrorBanner error={mdFilingError} />}
             {mdFilingLoading && <div className="spinner-wrap">Loading…</div>}
@@ -1017,12 +1018,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             History. */}
         {clientState === "MD" && (
           <div style={{ margin: "0 16px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-              <div className="small-label" style={{ margin: 0 }}>History</div>
-              <button type="button" className="link-button" onClick={() => setShowHistoryTable((v) => !v)}>
-                {showHistoryTable ? "Hide" : `Show (${historyPeriods?.length ?? 0})`}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="small-label"
+              onClick={() => setShowHistoryTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+            >
+              History ({historyPeriods?.length ?? 0})
+            </button>
             {showHistoryTable && (
               historyPeriods === null ? (
                 <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
@@ -1123,12 +1126,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         {/* The list used to show ALL sales while the totals above showed only the
             selected period — so a July period would read "$0.00" over a table of
             June rows. Both now describe the same period. */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 16px 6px" }}>
-          <div className="small-label" style={{ margin: 0 }}>Sale Entries</div>
-          <button type="button" className="link-button" onClick={() => setShowSalesTable((v) => !v)}>
-            {showSalesTable ? "Hide" : `Show (${visibleSales.length})`}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="small-label"
+          onClick={() => setShowSalesTable((v) => !v)}
+          style={{ margin: "0 16px 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+        >
+          Sale Entries ({visibleSales.length})
+        </button>
         {showSalesTable && (
           <>
             <div className="scroll-list">
