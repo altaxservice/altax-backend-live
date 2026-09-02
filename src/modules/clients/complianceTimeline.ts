@@ -130,6 +130,53 @@ async function computeMdSalesTaxLane(clientId: string, clientRow: any, monthsBac
 
 interface ClientTaskRow { taskName: string; dueDate: string; status: string; filedDate: string | null }
 
+/**
+ * Real filing-record evidence for the two TASK_RULE_LANES types that now
+ * have a dedicated filing table (v3_eftps_deposits, v3_md_ui_filings) —
+ * checked in addition to, not instead of, the task-matching below. Confirmed
+ * live: NADIB IBB LLC (C-1080) has a real, filed EFTPS deposit for June 2026
+ * (EFTPS-20260902003519-...), yet the timeline called it "missing" — its
+ * actual task for that period predates this feature's standard naming
+ * ("June Tax Deposit" instead of "EFTPS Deposit Due — June 2026") and never
+ * matched taskLabelsLikelyMatch's keyword-prefix check, even though the real
+ * filing genuinely happened and is recorded. Task-name matching is a
+ * heuristic for obligation types with no dedicated table (MD Withholding);
+ * for EFTPS/MD UI, the filing table itself is the authoritative source and
+ * should never be second-guessed by a task's name.
+ *
+ * Deliberately NOT filtered by the caller's task-matching windowFrom — that
+ * window is computed from statutory DUE dates (windowFrom = earliest due
+ * date across all lanes, minus a few days), not period_end dates, and a
+ * period's period_end always precedes its own due date by two-plus weeks.
+ * Confirmed live: filtering this query by that same windowFrom excluded
+ * NADIB IBB LLC's real June 2026 deposit (period_end 2026-06-30) because
+ * windowFrom had been computed from a *different, later* period's due date
+ * (2026-07-15 minus 5 days = 2026-07-10, after June's period_end) — the
+ * exact false "missing" this function exists to fix, just moved one query
+ * over. A client has at most a couple dozen filings ever for one obligation
+ * type, so fetching all of them (no date filter) is trivial and avoids the
+ * mismatch entirely.
+ */
+async function loadRealFilingEvidence(clientId: string, obligationType: ComplianceObligationType): Promise<Map<string, string | null>> {
+  const evidence = new Map<string, string | null>();
+  if (obligationType === "EFTPS") {
+    const rows = await query<any>(
+      `SELECT period_end::date::text AS period_end, filing_date::date::text AS filing_date FROM altax.v3_eftps_deposits
+        WHERE client_id = $1`,
+      [clientId]
+    );
+    for (const r of rows) evidence.set(r.period_end, r.filing_date);
+  } else if (obligationType === "MD UI") {
+    const rows = await query<any>(
+      `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date FROM altax.v3_md_ui_filings
+        WHERE client_id = $1`,
+      [clientId]
+    );
+    for (const r of rows) evidence.set(r.period_end, r.filed_date);
+  }
+  return evidence;
+}
+
 /** EFTPS / MD Withholding / MD UI lanes — one rules query + one bounded UNION tasks query, independent of monthsBack or rule count. */
 async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack: number, asOf: Date): Promise<ComplianceTimelineLane[]> {
   const allRules = relevantMissingTaskRules(await query<any>(`SELECT * FROM altax.v3_task_rules WHERE active = true`));
@@ -185,23 +232,31 @@ async function computeTaskRuleLanes(clientId: string, clientRow: any, monthsBack
   const lanes: ComplianceTimelineLane[] = [];
   for (const lane of rulePeriodsByLane) {
     const taskType = allRules.find((r: any) => TASK_RULE_LANES.find((l) => l.obligationType === lane.obligationType)!.triggerColumn === CLIENT_TRIGGER_COLUMNS[String(r.trigger_column || "").trim()] && clientMatchesRule(clientRow, r))?.task_type || "";
+    const realEvidence = await loadRealFilingEvidence(clientId, lane.obligationType);
     const periods: TimelinePeriod[] = lane.periods.map((p) => {
-      const candidates = taskRows.filter((r) => taskLabelsLikelyMatch(r.taskName, String(taskType)) && Math.abs(daysBetween(r.dueDate, p.dueDate)) <= MISSING_TASK_MATCH_WINDOW_DAYS);
-      const completed = candidates.filter((r) => r.status.trim().toLowerCase() === "completed");
       let status: TimelineStatus;
       let filedDate: string | null = null;
-      if (completed.length > 0) {
-        const withFiledDate = completed.find((r) => r.filedDate);
-        if (withFiledDate?.filedDate) {
-          filedDate = withFiledDate.filedDate;
-          status = filedDate <= p.dueDate ? "onTime" : "late";
-        } else {
-          status = "onTime"; // Completed, but no filed_date on record (older tasks predate the TAX-005 evidence gate) — benefit of doubt, not evidence of lateness.
-        }
-      } else if (p.dueDate < todayStr) {
-        status = "missing"; // no completed task in the window — covers both "no task at all" and "task exists but still open"
+      if (realEvidence.has(p.periodEnd)) {
+        // The filing table itself is authoritative — never second-guessed by
+        // task-name matching (see loadRealFilingEvidence's doc comment).
+        filedDate = realEvidence.get(p.periodEnd) ?? null;
+        status = filedDate ? (filedDate <= p.dueDate ? "onTime" : "late") : "onTime";
       } else {
-        status = "notYetDue";
+        const candidates = taskRows.filter((r) => taskLabelsLikelyMatch(r.taskName, String(taskType)) && Math.abs(daysBetween(r.dueDate, p.dueDate)) <= MISSING_TASK_MATCH_WINDOW_DAYS);
+        const completed = candidates.filter((r) => r.status.trim().toLowerCase() === "completed");
+        if (completed.length > 0) {
+          const withFiledDate = completed.find((r) => r.filedDate);
+          if (withFiledDate?.filedDate) {
+            filedDate = withFiledDate.filedDate;
+            status = filedDate <= p.dueDate ? "onTime" : "late";
+          } else {
+            status = "onTime"; // Completed, but no filed_date on record (older tasks predate the TAX-005 evidence gate) — benefit of doubt, not evidence of lateness.
+          }
+        } else if (p.dueDate < todayStr) {
+          status = "missing"; // no completed task and no real filing record in the window
+        } else {
+          status = "notYetDue";
+        }
       }
       return { periodLabel: p.periodLabel, dueDate: p.dueDate, status, filedDate };
     });
