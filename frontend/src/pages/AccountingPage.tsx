@@ -643,7 +643,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
         <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
         <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
-        <td>{showClientColumn && (p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
+        {showClientColumn && <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
         <td onClick={(e) => e.stopPropagation()}>
           {editingPeriodEnd === p.end ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
@@ -966,16 +966,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                           <tr>
                             <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
                             <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
-                            <th scope="col">
-                              Client{" "}
-                              <button
-                                type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
-                                onClick={() => setShowClientColumn((v) => !v)}
-                                title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
-                              >
-                                {showClientColumn ? "hide" : "show"}
-                              </button>
-                            </th>
+                            {showClientColumn && <th scope="col">Client</th>}
                             <th scope="col">Filed</th>
                           </tr>
                         </thead>
@@ -1006,7 +997,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             History. */}
         {clientState === "MD" && (
           <div style={{ margin: "0 16px 16px" }}>
-            <div className="small-label" style={{ marginBottom: 6 }}>History</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+              <div className="small-label" style={{ margin: 0 }}>History</div>
+              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+                <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+                Show Client column
+              </label>
+            </div>
             {historyPeriods === null ? (
               <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
             ) : historyPeriods.length === 0 ? (
@@ -1018,16 +1015,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                     <tr>
                       <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
                       <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
-                      <th scope="col">
-                        Client{" "}
-                        <button
-                          type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
-                          onClick={() => setShowClientColumn((v) => !v)}
-                          title={showClientColumn ? "Hide the client-confirmation status on every row" : "Show the client-confirmation status on every row"}
-                        >
-                          {showClientColumn ? "hide" : "show"}
-                        </button>
-                      </th>
+                      {showClientColumn && <th scope="col">Client</th>}
                       <th scope="col">Filed</th>
                     </tr>
                   </thead>

@@ -495,7 +495,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(d.due_date)}</td>
           <td>{fmtDate(d.filing_date)}</td>
           <td>{d.payment_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span> : <span className="muted">Pending</span>}</td>
-          <td>{showClientColumn && (d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
+          {showClientColumn && <td>{d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
           <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
           <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
           <td>
@@ -516,7 +516,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         </tr>
         {editingDepositId === d.deposit_id && (
           <tr>
-            <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)" }}>
+            <td colSpan={showClientColumn ? 8 : 7} style={{ background: "var(--surface-2, #f8fafb)" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="eftps-edit-filed">Filing Date</label>
@@ -540,7 +540,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
         )}
         {payingDepositId === d.deposit_id && (
           <tr>
-            <td colSpan={8} style={{ background: "var(--surface-2, #f8fafb)" }}>
+            <td colSpan={showClientColumn ? 8 : 7} style={{ background: "var(--surface-2, #f8fafb)" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0" }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="eftps-pay-date">Payment Date</label>
@@ -754,7 +754,7 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
                             ) : m.existingDeposit ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                                  <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
                                   <tbody>{renderDepositRow(m.existingDeposit)}</tbody>
                                 </table>
                               </div>
@@ -848,7 +848,11 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+            <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+            Show Client column
+          </label>
           <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
@@ -860,16 +864,16 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
                 .map((d) => renderDepositRow(d))}
               {history && !history.length && (
-                <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
+                <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
               )}
               {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
-                <tr><td colSpan={8} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
+                <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
               )}
             </tbody>
           </table>

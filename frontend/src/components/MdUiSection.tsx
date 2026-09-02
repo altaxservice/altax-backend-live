@@ -201,7 +201,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(f.filed_date)}</td>
           <td style={{ textAlign: "right" }}>{money(f.amount)}</td>
           <td>{f.paid_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span> : <span className="muted">Payment pending</span>}</td>
-          <td>{showClientColumn && (f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>)}</td>
+          {showClientColumn && <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
           <td>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {!f.paid_date && (
@@ -217,7 +217,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
         </tr>
         {editingKey === f.period_end && (
           <tr>
-            <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
+            <td colSpan={showClientColumn ? 6 : 5} style={{ background: "var(--surface-2, #f8fafb)" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0", flexWrap: "wrap" }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="mdui-edit-filed">Filed Date</label>
@@ -241,7 +241,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
         )}
         {payingKey === f.period_end && (
           <tr>
-            <td colSpan={6} style={{ background: "var(--surface-2, #f8fafb)" }}>
+            <td colSpan={showClientColumn ? 6 : 5} style={{ background: "var(--surface-2, #f8fafb)" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "8px 0" }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label htmlFor="mdui-pay-date">Payment Date</label>
@@ -306,7 +306,7 @@ export function MdUiSection({ clientId }: { clientId: string }) {
                             {q.existingFiling ? (
                               <div className="table-scroll">
                                 <table>
-                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th></th></tr></thead>
+                                  <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th>{showClientColumn && <th>Client</th>}<th></th></tr></thead>
                                   <tbody>{renderFilingRow(q.existingFiling)}</tbody>
                                 </table>
                               </div>
@@ -362,7 +362,11 @@ export function MdUiSection({ clientId }: { clientId: string }) {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+            <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+            Show Client column
+          </label>
           <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
           <span className="muted">to</span>
           <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
@@ -374,13 +378,13 @@ export function MdUiSection({ clientId }: { clientId: string }) {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th><th>Client <button type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }} onClick={() => setShowClientColumn((v) => !v)}>{showClientColumn ? "hide" : "show"}</button></th><th></th></tr></thead>
+            <thead><tr><th>Quarter</th><th>Filed</th><th style={{ textAlign: "right" }}>Amount</th><th>Payment</th>{showClientColumn && <th>Client</th>}<th></th></tr></thead>
             <tbody>
               {(history || [])
                 .filter((f) => (!historyDateFrom || f.period_start >= historyDateFrom) && (!historyDateTo || f.period_end <= historyDateTo))
                 .map((f) => renderFilingRow(f))}
               {history && !history.length && (
-                <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 20 }}>No MD UI filings recorded yet.</td></tr>
+                <tr><td colSpan={showClientColumn ? 6 : 5} className="muted" style={{ textAlign: "center", padding: 20 }}>No MD UI filings recorded yet.</td></tr>
               )}
             </tbody>
           </table>
