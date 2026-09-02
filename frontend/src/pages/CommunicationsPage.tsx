@@ -648,19 +648,19 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
         <div className="field">
           <label>Recipients ({selected.size} selected)</label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 150 }}>
+            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelected(new Set()); }} style={{ minWidth: 140, maxWidth: 200 }}>
               <option value="all">Any status</option>
               {[...new Set(clients.map((c) => String(c.status || "")).filter(Boolean))].sort().map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <select value={salesTaxFilter} onChange={(e) => { setSalesTaxFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
-              <option value="all">Any sales tax freq.</option>
+            <select value={salesTaxFilter} onChange={(e) => { setSalesTaxFilter(e.target.value); setSelected(new Set()); }} style={{ minWidth: 190, maxWidth: 240 }}>
+              <option value="all">Any sales tax frequency</option>
               {salesTaxOptions.map((s) => <option key={s} value={s}>Sales tax: {s}</option>)}
             </select>
-            <select value={payrollFilter} onChange={(e) => { setPayrollFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
-              <option value="all">Any payroll freq.</option>
+            <select value={payrollFilter} onChange={(e) => { setPayrollFilter(e.target.value); setSelected(new Set()); }} style={{ minWidth: 190, maxWidth: 240 }}>
+              <option value="all">Any payroll frequency</option>
               {payrollOptions.map((s) => <option key={s} value={s}>Payroll: {s}</option>)}
             </select>
-            <select value={payrollProviderFilter} onChange={(e) => { setPayrollProviderFilter(e.target.value); setSelected(new Set()); }} style={{ maxWidth: 170 }}>
+            <select value={payrollProviderFilter} onChange={(e) => { setPayrollProviderFilter(e.target.value); setSelected(new Set()); }} style={{ minWidth: 190, maxWidth: 240 }}>
               <option value="all">Any payroll provider</option>
               {PAYROLL_PROVIDERS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
