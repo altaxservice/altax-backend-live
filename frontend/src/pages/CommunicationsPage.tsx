@@ -484,7 +484,7 @@ function StaffMessages({ messages, onSent }: { messages: Communication[]; onSent
   );
 }
 
-const BULK_CHANNELS = ["Email"];
+const BULK_CHANNELS = ["Email", "SMS"];
 
 interface BulkResult { clientId: string; clientName: string; channel: string; sent: boolean; skipped?: string; error?: string }
 
@@ -617,7 +617,7 @@ function BulkClientMessage({ clients, onSent }: { clients: Client[]; onSent: () 
   const failedCount = results ? results.length - sentCount - skippedCount : 0;
 
   return (
-    <Panel title="Bulk Client Message" note="Send one message to many clients at once — Email only reaches clients who've opted in.">
+    <Panel title="Bulk Client Message" note="Send one message to many clients at once — each channel only reaches clients who've opted in to it.">
       <form onSubmit={handleSubmit} style={{ padding: "0 16px 16px" }}>
         {error && <ErrorBanner error={error} />}
         {results && (
