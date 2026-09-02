@@ -220,6 +220,10 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
   const [payingDate, setPayingDate] = useState(todayStr());
   const [rowBusy, setRowBusy] = useState<string | null>(null); // `${depositId}:${action}`
   const [showClientColumn, setShowClientColumn] = useState(true);
+  // History used to render fully open all the time. It now starts
+  // collapsed behind a one-click "Show (N)" toggle, same pattern as
+  // EFTPS Deposits' "Imported Data" section.
+  const [showHistory, setShowHistory] = useState(false);
   const [editingDepositId, setEditingDepositId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ filingDate: "", paymentDate: "", totalAmount: "" });
 
@@ -848,37 +852,44 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>History</h3>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
-            <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
-            Show Client column
-          </label>
-          <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
-          <span className="muted">to</span>
-          <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
-          {(historyDateFrom || historyDateTo) && (
-            <button type="button" className="ghost-button" onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}>All time</button>
-          )}
-        </div>
+        <button type="button" className="link-button" onClick={() => setShowHistory((v) => !v)}>
+          {showHistory ? "Hide" : `Show (${(history || []).length})`}
+        </button>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {(history || [])
-                .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
-                .map((d) => renderDepositRow(d))}
-              {history && !history.length && (
-                <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
-              )}
-              {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
-                <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {showHistory && (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+              <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+              Show Client column
+            </label>
+            <input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} style={{ padding: "4px 6px" }} />
+            <span className="muted">to</span>
+            <input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} style={{ padding: "4px 6px" }} />
+            {(historyDateFrom || historyDateTo) && (
+              <button type="button" className="ghost-button" onClick={() => { setHistoryDateFrom(""); setHistoryDateTo(""); }}>All time</button>
+            )}
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>Period</th><th>Due</th><th>Filed</th><th>Paid</th>{showClientColumn && <th>Client</th>}<th style={{ textAlign: "right" }}>Amount</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {(history || [])
+                    .filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo))
+                    .map((d) => renderDepositRow(d))}
+                  {history && !history.length && (
+                    <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No EFTPS deposits recorded yet.</td></tr>
+                  )}
+                  {history && !!history.length && !(history || []).filter((d) => (!historyDateFrom || d.period_start >= historyDateFrom) && (!historyDateTo || d.period_end <= historyDateTo)).length && (
+                    <tr><td colSpan={showClientColumn ? 8 : 7} className="muted" style={{ textAlign: "center", padding: 20 }}>No deposits in this date range.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -299,6 +299,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   // it. One shared toggle (both tables reuse renderMdPeriodRow) collapses
   // or restores it everywhere at once.
   const [showClientColumn, setShowClientColumn] = useState(true);
+  // The Sales tab used to render 3 tables (Review & File, History, Sales
+  // Entries) fully open at once, all the time — a wall of rows before staff
+  // asked for any of it. Each now starts collapsed behind its own one-click
+  // "Show (N)" toggle, same idea as EFTPS Deposits' "Imported Data" section.
+  const [showFilingTable, setShowFilingTable] = useState(false);
+  const [showHistoryTable, setShowHistoryTable] = useState(false);
+  const [showSalesTable, setShowSalesTable] = useState(false);
   // Per-row filed/paid date entry for the multi-period table — without this,
   // "Mark Filed" on any row recorded the single shared Filing/Payment date
   // fields above the table, so backfilling several historical periods meant
@@ -928,7 +935,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
             (clients.routes.ts) — this just hadn't caught up to it. */}
         {clientState === "MD" && (
           <div style={{ margin: "0 16px 16px" }}>
-            <div className="small-label" style={{ marginBottom: 6 }}>Filing Discount / Late Penalty (Form 202)</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+              <div className="small-label" style={{ margin: 0 }}>Filing Discount / Late Penalty (Form 202)</div>
+              {mdFiling && mdFiling.periods.length > 0 && (
+                <button type="button" className="link-button" onClick={() => setShowFilingTable((v) => !v)}>
+                  {showFilingTable ? "Hide" : `Show (${mdFiling.periods.length})`}
+                </button>
+              )}
+            </div>
 
             {mdFilingError && <ErrorBanner error={mdFilingError} />}
             {mdFilingLoading && <div className="spinner-wrap">Loading…</div>}
@@ -958,8 +972,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 )}
 
 
-                {mdFiling && mdFiling.periods.length > 0 && (
+                {showFilingTable && mdFiling && mdFiling.periods.length > 0 && (
                   <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+                        <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+                        Show Client column
+                      </label>
+                    </div>
                     <div className="table-scroll">
                       <table>
                         <thead>
@@ -999,29 +1019,38 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
           <div style={{ margin: "0 16px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
               <div className="small-label" style={{ margin: 0 }}>History</div>
-              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
-                <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
-                Show Client column
-              </label>
+              <button type="button" className="link-button" onClick={() => setShowHistoryTable((v) => !v)}>
+                {showHistoryTable ? "Hide" : `Show (${historyPeriods?.length ?? 0})`}
+              </button>
             </div>
-            {historyPeriods === null ? (
-              <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
-            ) : historyPeriods.length === 0 ? (
-              <p className="muted" style={{ fontSize: 12.5 }}>No MD Sales Tax filings recorded yet.</p>
-            ) : (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                      <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
-                      {showClientColumn && <th scope="col">Client</th>}
-                      <th scope="col">Filed</th>
-                    </tr>
-                  </thead>
-                  <tbody>{historyPeriods.map((p) => renderMdPeriodRow(p))}</tbody>
-                </table>
-              </div>
+            {showHistoryTable && (
+              historyPeriods === null ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+              ) : historyPeriods.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No MD Sales Tax filings recorded yet.</p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+                      <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+                      Show Client column
+                    </label>
+                  </div>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
+                          <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
+                          {showClientColumn && <th scope="col">Client</th>}
+                          <th scope="col">Filed</th>
+                        </tr>
+                      </thead>
+                      <tbody>{historyPeriods.map((p) => renderMdPeriodRow(p))}</tbody>
+                    </table>
+                  </div>
+                </>
+              )
             )}
           </div>
         )}
@@ -1094,56 +1123,66 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         {/* The list used to show ALL sales while the totals above showed only the
             selected period — so a July period would read "$0.00" over a table of
             June rows. Both now describe the same period. */}
-        <div className="scroll-list">
-          <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th>
-                <th scope="col">
-                  Categories{" "}
-                  <button
-                    type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
-                    onClick={() => setShowCategoriesColumn((v) => !v)}
-                    title={showCategoriesColumn ? "Hide the categories list on every row" : "Show the categories list on every row"}
-                  >
-                    {showCategoriesColumn ? "hide" : "show"}
-                  </button>
-                </th>
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleSales.map((s) => (
-                <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
-                  <td>
-                    <div>{fmtDate(s.sale_date)}</div>
-                    {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
-                  </td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
-                  <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>
-                    {showCategoriesColumn && <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>}
-                    {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
-                    <button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button>
-                    {isAdmin && <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(s)}>Delete</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 16px 6px" }}>
+          <div className="small-label" style={{ margin: 0 }}>Sale Entries</div>
+          <button type="button" className="link-button" onClick={() => setShowSalesTable((v) => !v)}>
+            {showSalesTable ? "Hide" : `Show (${visibleSales.length})`}
+          </button>
         </div>
-        {visibleSales.length === 0 && (
-          <p className="muted" style={{ padding: 16, textAlign: "center" }}>
-            {sales.length === 0
-              ? "No sales recorded yet."
-              : q
-              ? "No sales match that search."
-              : `No sales in ${periodLabel}. This client has ${sales.length} sale(s) on other dates — widen the period or pick "All time".`}
-          </p>
+        {showSalesTable && (
+          <>
+            <div className="scroll-list">
+              <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th><th scope="col" style={{ textAlign: "right" }}>Gross</th><th scope="col" style={{ textAlign: "right" }}>Tax Due</th>
+                    <th scope="col">
+                      Categories{" "}
+                      <button
+                        type="button" className="link-button" style={{ fontSize: 10.5, fontWeight: 600, textTransform: "none" }}
+                        onClick={() => setShowCategoriesColumn((v) => !v)}
+                        title={showCategoriesColumn ? "Hide the categories list on every row" : "Show the categories list on every row"}
+                      >
+                        {showCategoriesColumn ? "hide" : "show"}
+                      </button>
+                    </th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleSales.map((s) => (
+                    <tr key={s.sale_id} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => { setViewing(s); setEditing(null); }} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewing(s); setEditing(null); } }}>
+                      <td>
+                        <div>{fmtDate(s.sale_date)}</div>
+                        {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
+                      </td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</td>
+                      <td className="muted" style={{ fontSize: 12 }}>
+                        {showCategoriesColumn && <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>}
+                        {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                        <button type="button" className="btn btn-sm" onClick={() => { startEdit(s); setViewing(null); }}>Edit</button>
+                        {isAdmin && <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteSale(s)}>Delete</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            </div>
+            {visibleSales.length === 0 && (
+              <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+                {sales.length === 0
+                  ? "No sales recorded yet."
+                  : q
+                  ? "No sales match that search."
+                  : `No sales in ${periodLabel}. This client has ${sales.length} sale(s) on other dates — widen the period or pick "All time".`}
+              </p>
+            )}
+          </>
         )}
       </Panel>
     </div>
