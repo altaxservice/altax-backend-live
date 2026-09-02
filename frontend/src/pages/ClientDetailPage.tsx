@@ -23,7 +23,7 @@ import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider"
 import { US_STATES, ENTITY_TYPES, deriveServiceType, INDUSTRY_CATEGORIES, FIRM_SERVICES, FREQ_OPTIONS, PAYROLL_FREQS, PAYROLL_PROVIDERS, RETURN_TYPES, LANGUAGES, CONTACT_PREFS, POA_COVERED_SERVICE_KEYS, POA_RELEASE_SERVICE_KEY, POA_RELEASE_LABEL, REFERRAL_SOURCES } from "../utils/clientOptions";
 import { AddressFields } from "../components/AddressFields";
 import { ActionMenu } from "../components/ActionMenu";
-import { statusOptionsForTaskType, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON } from "../components/TaskCells";
+import { statusOptionsForTaskType, DueLabel, taskActionOptions, TASK_QUICK_ACTIONS, TASK_QUICK_ACTION_ICON, isOpenTask } from "../components/TaskCells";
 import { obligationAccountingTab } from "../utils/obligationTasks";
 import { fmtDateOnly, fmtDateTime } from "../utils/date";
 import type { ClientContract } from "../api/types";
@@ -496,6 +496,10 @@ export function ClientDetailPage() {
     if (!q) return tasks || [];
     return (tasks || []).filter((t) => [t.task_name, t.status, t.assigned_to, t.service_line].some((v) => String(v || "").toLowerCase().includes(q)));
   }, [tasks, taskSearch]);
+
+  const activeTasks = useMemo(() => filteredTasks.filter(isOpenTask), [filteredTasks]);
+  const completedTasks = useMemo(() => filteredTasks.filter((t) => !isOpenTask(t)), [filteredTasks]);
+  const [showCompletedTasks, setShowCompletedTasks] = useState(false);
 
   const filteredComms = useMemo(() => {
     const q = commSearch.trim().toLowerCase();
@@ -1246,46 +1250,74 @@ export function ClientDetailPage() {
                   <button type="button" className="btn btn-sm" onClick={() => navigate(`/tasks?new=1&clientId=${client.client_id}`)}>+ New Task</button>
                 </div>
               </div>
-              <div className="table-scroll">
-              <table>
-                <thead><tr><th scope="col">Task</th><th scope="col">Service</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
-                <tbody>
-                  {filteredTasks.map((t) => (
-                    <tr key={t.task_id}>
-                      <td><Link to={`/tasks/${t.task_id}`}>{t.task_name}</Link></td>
-                      <td className="muted">{t.service_line || "—"}</td>
-                      <td className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>{fmtDateOnly(t.agency_due_date)} <DueLabel task={t} /></td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
-                          {statusOptionsForTaskType(options?.taskStatusesWithType, t.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                          {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => {
-                            const Icon = TASK_QUICK_ACTION_ICON[a.value];
-                            return (
-                              <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleTaskAction(t, a.value)}>
-                                {Icon && <Icon size={13} strokeWidth={2} aria-hidden="true" />}
-                                {a.label}
-                              </button>
-                            );
-                          })}
-                          {user?.role !== "client" && clientId && obligationAccountingTab(t) && (
-                            <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent(obligationAccountingTab(t)!)}`)}>
-                              Finish in Accounting
+              {(() => {
+                const renderTaskRow = (t: Task) => (
+                  <tr key={t.task_id}>
+                    <td><Link to={`/tasks/${t.task_id}`}>{t.task_name}</Link></td>
+                    <td className="muted">{t.service_line || "—"}</td>
+                    <td className="muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>{fmtDateOnly(t.agency_due_date)} <DueLabel task={t} /></td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <select className={`inline-select ${colorClassFor(t.status || "Not Started")}`} value={t.status || "Not Started"} disabled={savingStatusId === t.task_id} onChange={(e) => handleTaskStatusChange(t.task_id, e.target.value)}>
+                        {statusOptionsForTaskType(options?.taskStatusesWithType, t.service_line).map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        {user?.role !== "client" && TASK_QUICK_ACTIONS.map((a) => {
+                          const Icon = TASK_QUICK_ACTION_ICON[a.value];
+                          return (
+                            <button key={a.value} type="button" className="btn btn-sm" onClick={() => handleTaskAction(t, a.value)}>
+                              {Icon && <Icon size={13} strokeWidth={2} aria-hidden="true" />}
+                              {a.label}
                             </button>
-                          )}
-                          <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
+                          );
+                        })}
+                        {user?.role !== "client" && clientId && obligationAccountingTab(t) && (
+                          <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent(obligationAccountingTab(t)!)}`)}>
+                            Finish in Accounting
+                          </button>
+                        )}
+                        <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleTaskAction(t, action)} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+                return (
+                  <>
+                    <div style={{ padding: "10px 16px 0" }} className="small-label">Active ({activeTasks.length})</div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead><tr><th scope="col">Task</th><th scope="col">Service</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+                        <tbody>{activeTasks.map(renderTaskRow)}</tbody>
+                      </table>
+                    </div>
+                    {tasks && activeTasks.length === 0 && (
+                      <p className="muted" style={{ padding: 16, textAlign: "center" }}>
+                        {tasks.length === 0 ? "No tasks for this client yet." : filteredTasks.length === 0 ? `No tasks match "${taskSearch}".` : "No active tasks."}
+                      </p>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px 0" }}>
+                      <div className="small-label" style={{ margin: 0 }}>Completed ({completedTasks.length})</div>
+                      <button type="button" className="link-button" onClick={() => setShowCompletedTasks((v) => !v)}>
+                        {showCompletedTasks ? "Hide" : `Show (${completedTasks.length})`}
+                      </button>
+                    </div>
+                    {showCompletedTasks && (
+                      completedTasks.length === 0 ? (
+                        <p className="muted" style={{ padding: "8px 16px 16px", textAlign: "center" }}>No completed tasks.</p>
+                      ) : (
+                        <div className="table-scroll" style={{ marginBottom: 8 }}>
+                          <table>
+                            <thead><tr><th scope="col">Task</th><th scope="col">Service</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+                            <tbody>{completedTasks.map(renderTaskRow)}</tbody>
+                          </table>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              {tasks && tasks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks for this client yet.</p>}
-              {tasks && tasks.length > 0 && filteredTasks.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No tasks match "{taskSearch}".</p>}
+                      )
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
