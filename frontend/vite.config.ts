@@ -66,6 +66,15 @@ export default defineConfig({
           // two above, which would also swallow the real page route. Mirrors
           // the identical scoping in src/server.ts's own catch-all.
           /^\/public\/eftps-deposits\/[^/]+\/pdf(\?.*)?$/,
+          // Same reused-prefix problem as EFTPS, confirmed live for MD Sales
+          // Tax's public acknowledge page: a client with this PWA's service
+          // worker already registered on their phone got "Download PDF"
+          // intercepted and served the cached app shell instead of the real
+          // file, which (no matching SPA route) fell through to the login
+          // picker instead of the PDF. src/server.ts's own catch-all already
+          // excludes both of these — this was the one place that didn't.
+          /^\/public\/md-filing\/[^/]+\/pdf(\?.*)?$/,
+          /^\/public\/form941\/[^/]+\/pdf(\?.*)?$/,
         ],
         // Workbox's precache route matching defaults to treating "/" as an alias for
         // "/index.html" (directoryIndex, default 'index.html') — that alias is a direct

@@ -32,6 +32,27 @@ function isKnownMarketingPath(pathname: string): boolean {
   return false;
 }
 
+/**
+ * Same failure mode as the marketing paths above, for a different reason: these
+ * are real binary "Download PDF" links (vite.config.ts's navigateFallbackDenylist
+ * has the matching entries) rather than missing marketing routes, but a worker
+ * registered BEFORE a given entry was added still intercepts it until that worker
+ * happens to update on its own — confirmed live for MD Sales Tax's public
+ * acknowledge page (a client's already-stale worker served the login picker
+ * instead of the PDF even though both the denylist and src/server.ts's catch-all
+ * were otherwise correct). Recovering here self-heals on the very next click
+ * instead of waiting on the worker's own update cycle.
+ */
+const KNOWN_PUBLIC_DOWNLOAD_PATTERNS = [
+  /^\/public\/eftps-deposits\/[^/]+\/pdf$/,
+  /^\/public\/md-filing\/[^/]+\/pdf$/,
+  /^\/public\/form941\/[^/]+\/pdf$/,
+];
+
+function isKnownRecoverablePath(pathname: string): boolean {
+  return isKnownMarketingPath(pathname) || KNOWN_PUBLIC_DOWNLOAD_PATTERNS.some((re) => re.test(pathname));
+}
+
 const RECOVERY_FLAG = "altax_sw_recovery_attempted";
 
 export function StaleServiceWorkerRecovery() {
@@ -39,7 +60,7 @@ export function StaleServiceWorkerRecovery() {
 
   useEffect(() => {
     const { pathname, search } = window.location;
-    if (!isKnownMarketingPath(pathname)) return;
+    if (!isKnownRecoverablePath(pathname)) return;
     if (!("serviceWorker" in navigator)) return;
     if (sessionStorage.getItem(RECOVERY_FLAG)) return; // already tried once this session — don't loop
 
