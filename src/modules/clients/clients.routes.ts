@@ -978,12 +978,12 @@ clientsRouter.post("/:clientId/obligations/mark-done", requireAuth, requireRole(
     `${label || source} (due ${dueDate}) marked done by ${req.user!.email}${paidDate ? `, paid ${paidDate}` : ""}.`, req.user!.email);
 
   if (notify && amount !== null) {
-    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     if (clientContact) {
       const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
       const sourceRecordId = `${clientId}:${source}:${dueDate}`;
       await sendFilingConfirmation({
-        client: { clientId, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed) },
+        client: { clientId, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed), phone: clientContact.phone, smsAllowed: Boolean(clientContact.sms_allowed) },
         sourceRecordId, filingType: label || source, periodLabel: null,
         filedDate: completedDate, amount, paymentDueDate: dueDate, paidDate, req,
       });

@@ -97,11 +97,11 @@ noticesRouter.post("/:clientId/notices", requireAuth, requireRole("admin", "staf
   // as Mark Filed, rather than always auto-sending — staff may still be
   // reviewing the notice's details before it's ready to hand to the client.
   if (body.notify === true) {
-    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     if (clientContact) {
       const { sendNoticeReceivedEmail } = await import("../../common/filingConfirmationEmail");
       await sendNoticeReceivedEmail({
-        client: { clientId, clientName: clientContact.client_name, email: clientContact.email ?? null, emailAllowed: Boolean(clientContact.email_allowed) },
+        client: { clientId, clientName: clientContact.client_name, email: clientContact.email ?? null, emailAllowed: Boolean(clientContact.email_allowed), phone: clientContact.phone ?? null, smsAllowed: Boolean(clientContact.sms_allowed) },
         sourceRecordId: noticeId, agency, noticeType, taxPeriod, amount, responseDeadline, req,
       });
     }

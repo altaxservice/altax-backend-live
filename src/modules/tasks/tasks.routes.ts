@@ -578,10 +578,10 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
   const merged = { ...old, ...fields };
   const filedJustSet = Object.prototype.hasOwnProperty.call(fields, "filed_date") && !old.filed_date && fields.filed_date;
   if (req.body?.notifyClient === true && filedJustSet && merged.client_id && merged.payment_amount !== null && merged.payment_amount !== undefined) {
-    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [merged.client_id]);
+    const clientContact = await queryOne<any>(`SELECT client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [merged.client_id]);
     if (clientContact) {
       await sendFilingConfirmation({
-        client: { clientId: merged.client_id, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed) },
+        client: { clientId: merged.client_id, clientName: clientContact.client_name, email: clientContact.email, emailAllowed: Boolean(clientContact.email_allowed), phone: clientContact.phone, smsAllowed: Boolean(clientContact.sms_allowed) },
         sourceRecordId: taskId, filingType: merged.task_name || merged.service_line || "Filing",
         periodLabel: merged.period || null, filedDate: merged.filed_date, amount: Number(merged.payment_amount),
         paymentDueDate: merged.agency_due_date, paidDate: merged.paid_date || null, req,

@@ -16,7 +16,7 @@ import { Request } from "express";
 import crypto from "crypto";
 import { query } from "../config/db";
 import { wrapEmailHtml } from "./emailTemplate";
-import { sendEmail, recordNotificationFailure } from "./notifications";
+import { sendEmail, sendSms, recordNotificationFailure } from "./notifications";
 import { buildGoogleCalendarUrl, buildAddToCalendarButtonHtml } from "./calendarLinks";
 
 function idSuffix(): string {
@@ -101,18 +101,46 @@ export interface FilingClientInfo {
   clientName: string;
   email: string | null;
   emailAllowed: boolean;
+  phone?: string | null;
+  smsAllowed?: boolean;
 }
 
 async function logFilingCommunication(
-  sourceSystem: string, sourceRecordId: string, client: FilingClientInfo, subject: string, bodyText: string, sentTo: string, status: "Sent" | "Failed"
+  sourceSystem: string, sourceRecordId: string, client: FilingClientInfo, subject: string, bodyText: string, sentTo: string, status: "Sent" | "Failed", channel: "Email" | "SMS" = "Email"
 ): Promise<void> {
   await query(
     `INSERT INTO altax.v3_communications
        (communication_id, client_id, client_name, related_task_id, subject, message_english, message_arabic,
         sent_to, sent_by, direction, channel, sent_at, status, source_system, source_record_id, provider_message_id)
-     VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound','Email',now(),$8,$9,$10,NULL)`,
-    [`COM-${idSuffix()}`, client.clientId, client.clientName, subject, bodyText, sentTo, "System", status, sourceSystem, sourceRecordId]
+     VALUES ($1,$2,$3,NULL,$4,$5,'',$6,$7,'Outbound',$8,now(),$9,$10,$11,NULL)`,
+    [`COM-${idSuffix()}`, client.clientId, client.clientName, subject, bodyText, sentTo, "System", channel, status, sourceSystem, sourceRecordId]
   );
+}
+
+/**
+ * SMS companion to the email confirmation — same "we filed this" fact and
+ * amount, condensed to one line, since SMS can't carry the full breakdown
+ * table (see communications.routes.ts's own SMS_INLINE_MAX_CHARS collapse
+ * for the same reasoning). Reuses the same acknowledgeUrl the email button
+ * uses — one link, two channels, no separate short-link system needed.
+ */
+async function sendFilingSms(opts: {
+  client: FilingClientInfo; sourceSystem: string; sourceRecordId: string;
+  filingType: string; periodLabel: string | null; amountLabel: string; amount: number; acknowledgeUrl?: string;
+}): Promise<{ sent: boolean }> {
+  if (!opts.client.smsAllowed || !opts.client.phone) return { sent: false };
+  const period = opts.periodLabel ? ` for ${opts.periodLabel}` : "";
+  const link = isPubliclyReachable(opts.acknowledgeUrl) ? ` View: ${opts.acknowledgeUrl}` : "";
+  const body = `AL TAX SERVICE: Filed your ${opts.filingType}${period}. ${opts.amountLabel}: ${money2(opts.amount)}.${link}`;
+  try {
+    await sendSms({ to: opts.client.phone, body });
+    await logFilingCommunication(opts.sourceSystem, opts.sourceRecordId, opts.client, `Filing Confirmation — ${opts.filingType}`, body, opts.client.phone, "Sent", "SMS");
+    return { sent: true };
+  } catch (err) {
+    await recordNotificationFailure(`${opts.sourceSystem.toLowerCase()}Sms:${opts.sourceRecordId}`, err);
+    await logFilingCommunication(opts.sourceSystem, opts.sourceRecordId, opts.client, `Filing Confirmation — ${opts.filingType}`, body, opts.client.phone, "Failed", "SMS");
+    return { sent: false };
+  }
 }
 
 export interface FilingConfirmationBreakdownRow {
@@ -176,21 +204,27 @@ function filingConfirmationBody(input: FilingConfirmationInput): string {
     )}`;
 }
 
-/** Sends the immediate "we filed this" confirmation. Silent no-op (not a failure) when the client has no email consent on file, matching runClientMdSalesTaxDeadlineNotifications's convention. */
+/** Sends the immediate "we filed this" confirmation over every channel the client is opted into — email (full breakdown) and SMS (one-line summary + the same link) independently, so an SMS-only or email-only client still gets notified instead of silently getting nothing. */
 export async function sendFilingConfirmation(input: FilingConfirmationInput): Promise<{ sent: boolean }> {
-  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
-  const subject = `Filing Confirmation — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
-  const body = filingConfirmationBody(input);
-  try {
-    const html = await wrapEmailHtml(body, input.req);
-    await sendEmail({ to: input.client.email, subject, html });
-    await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
-    return { sent: true };
-  } catch (err) {
-    await recordNotificationFailure(`filingConfirmation:${input.sourceRecordId}`, err);
-    await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
-    return { sent: false };
+  let emailSent = false;
+  if (input.client.emailAllowed && input.client.email) {
+    const subject = `Filing Confirmation — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
+    const body = filingConfirmationBody(input);
+    try {
+      const html = await wrapEmailHtml(body, input.req);
+      await sendEmail({ to: input.client.email, subject, html });
+      await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+      emailSent = true;
+    } catch (err) {
+      await recordNotificationFailure(`filingConfirmation:${input.sourceRecordId}`, err);
+      await logFilingCommunication("FilingConfirmation", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    }
   }
+  const { sent: smsSent } = await sendFilingSms({
+    client: input.client, sourceSystem: "FilingConfirmation", sourceRecordId: input.sourceRecordId,
+    filingType: input.filingType, periodLabel: input.periodLabel, amountLabel: input.amountLabel ?? "Amount", amount: input.amount, acknowledgeUrl: input.acknowledgeUrl,
+  });
+  return { sent: emailSent || smsSent };
 }
 
 export interface PaymentDueReminderInput {
@@ -227,21 +261,37 @@ function paymentDueReminderBody(input: PaymentDueReminderInput): string {
     )}`;
 }
 
-/** Sends the 9AM-ET-day-before payment-due reminder. Same consent gating and logging convention as sendFilingConfirmation. */
+/** Sends the 9AM-ET-day-before payment-due reminder over every channel the client is opted into. Same consent gating and logging convention as sendFilingConfirmation. */
 export async function sendPaymentDueReminder(input: PaymentDueReminderInput): Promise<{ sent: boolean }> {
-  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
-  const subject = `Reminder: Payment Due Soon — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
-  const body = paymentDueReminderBody(input);
-  try {
-    const html = await wrapEmailHtml(body, input.req);
-    await sendEmail({ to: input.client.email, subject, html });
-    await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
-    return { sent: true };
-  } catch (err) {
-    await recordNotificationFailure(`paymentDueReminder:${input.sourceRecordId}`, err);
-    await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
-    return { sent: false };
+  let emailSent = false;
+  if (input.client.emailAllowed && input.client.email) {
+    const subject = `Reminder: Payment Due Soon — ${input.filingType}${input.periodLabel ? ` (${input.periodLabel})` : ""}`;
+    const body = paymentDueReminderBody(input);
+    try {
+      const html = await wrapEmailHtml(body, input.req);
+      await sendEmail({ to: input.client.email, subject, html });
+      await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+      emailSent = true;
+    } catch (err) {
+      await recordNotificationFailure(`paymentDueReminder:${input.sourceRecordId}`, err);
+      await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    }
   }
+  const { sent: smsSent } = await (async () => {
+    if (!input.client.smsAllowed || !input.client.phone) return { sent: false };
+    const period = input.periodLabel ? ` (${input.periodLabel})` : "";
+    const body = `AL TAX SERVICE: Reminder — your payment for ${input.filingType}${period} of ${money2(input.amount)} is due ${fmtDate(input.paymentDueDate)}.`;
+    try {
+      await sendSms({ to: input.client.phone, body });
+      await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, `Reminder: Payment Due Soon — ${input.filingType}`, body, input.client.phone, "Sent", "SMS");
+      return { sent: true };
+    } catch (err) {
+      await recordNotificationFailure(`paymentDueReminderSms:${input.sourceRecordId}`, err);
+      await logFilingCommunication("PaymentDueReminder", input.sourceRecordId, input.client, `Reminder: Payment Due Soon — ${input.filingType}`, body, input.client.phone, "Failed", "SMS");
+      return { sent: false };
+    }
+  })();
+  return { sent: emailSent || smsSent };
 }
 
 export interface EftpsEmployeeLine {
@@ -343,21 +393,27 @@ function eftpsDepositReportBody(input: EftpsDepositReportInput): string {
     )}`;
 }
 
-/** Save & Send for the EFTPS deposit workflow — a real per-employee federal breakdown, not the single-amount shape sendFilingConfirmation uses elsewhere. Same consent gating and logging convention as the rest of this file. */
+/** Save & Send for the EFTPS deposit workflow — a real per-employee federal breakdown, not the single-amount shape sendFilingConfirmation uses elsewhere. Same consent gating and logging convention as the rest of this file, over every channel the client is opted into. */
 export async function sendEftpsDepositReport(input: EftpsDepositReportInput): Promise<{ sent: boolean }> {
-  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
-  const subject = `Federal Tax Deposit Report — ${input.periodLabel}`;
-  const body = eftpsDepositReportBody(input);
-  try {
-    const html = await wrapEmailHtml(body, input.req);
-    await sendEmail({ to: input.client.email, subject, html });
-    await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
-    return { sent: true };
-  } catch (err) {
-    await recordNotificationFailure(`eftpsDepositReport:${input.sourceRecordId}`, err);
-    await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
-    return { sent: false };
+  let emailSent = false;
+  if (input.client.emailAllowed && input.client.email) {
+    const subject = `Federal Tax Deposit Report — ${input.periodLabel}`;
+    const body = eftpsDepositReportBody(input);
+    try {
+      const html = await wrapEmailHtml(body, input.req);
+      await sendEmail({ to: input.client.email, subject, html });
+      await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+      emailSent = true;
+    } catch (err) {
+      await recordNotificationFailure(`eftpsDepositReport:${input.sourceRecordId}`, err);
+      await logFilingCommunication("EftpsDepositReport", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    }
   }
+  const { sent: smsSent } = await sendFilingSms({
+    client: input.client, sourceSystem: "EftpsDepositReport", sourceRecordId: input.sourceRecordId,
+    filingType: "Federal Tax Deposit (EFTPS)", periodLabel: input.periodLabel, amountLabel: "Total Deposit", amount: input.totalAmount, acknowledgeUrl: input.acknowledgeUrl,
+  });
+  return { sent: emailSent || smsSent };
 }
 
 export interface NoticeReceivedInput {
@@ -396,19 +452,35 @@ function noticeReceivedBody(input: NoticeReceivedInput): string {
     )}`;
 }
 
-/** Sends the "we received a notice from the agency" heads-up — opt-in per notice (staff checks "Notify Client" when logging it), same as sendFilingConfirmation's "Save and Send". Silent no-op without email consent. */
+/** Sends the "we received a notice from the agency" heads-up — opt-in per notice (staff checks "Notify Client" when logging it), same as sendFilingConfirmation's "Save and Send". Over every channel the client is opted into. */
 export async function sendNoticeReceivedEmail(input: NoticeReceivedInput): Promise<{ sent: boolean }> {
-  if (!input.client.emailAllowed || !input.client.email) return { sent: false };
-  const subject = `We've Received a Notice From ${input.agency} — ${input.noticeType}`;
-  const body = noticeReceivedBody(input);
-  try {
-    const html = await wrapEmailHtml(body, input.req);
-    await sendEmail({ to: input.client.email, subject, html });
-    await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
-    return { sent: true };
-  } catch (err) {
-    await recordNotificationFailure(`noticeReceived:${input.sourceRecordId}`, err);
-    await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
-    return { sent: false };
+  let emailSent = false;
+  if (input.client.emailAllowed && input.client.email) {
+    const subject = `We've Received a Notice From ${input.agency} — ${input.noticeType}`;
+    const body = noticeReceivedBody(input);
+    try {
+      const html = await wrapEmailHtml(body, input.req);
+      await sendEmail({ to: input.client.email, subject, html });
+      await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Sent");
+      emailSent = true;
+    } catch (err) {
+      await recordNotificationFailure(`noticeReceived:${input.sourceRecordId}`, err);
+      await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, subject, body, input.client.email, "Failed");
+    }
   }
+  const { sent: smsSent } = await (async () => {
+    if (!input.client.smsAllowed || !input.client.phone) return { sent: false };
+    const period = input.taxPeriod ? ` (${input.taxPeriod})` : "";
+    const body = `AL TAX SERVICE: We received a ${input.noticeType} notice from ${input.agency}${period}. We're reviewing it and will reach out if we need anything from you.`;
+    try {
+      await sendSms({ to: input.client.phone, body });
+      await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, `We've Received a Notice From ${input.agency} — ${input.noticeType}`, body, input.client.phone, "Sent", "SMS");
+      return { sent: true };
+    } catch (err) {
+      await recordNotificationFailure(`noticeReceivedSms:${input.sourceRecordId}`, err);
+      await logFilingCommunication("NoticeReceived", input.sourceRecordId, input.client, `We've Received a Notice From ${input.agency} — ${input.noticeType}`, body, input.client.phone, "Failed", "SMS");
+      return { sent: false };
+    }
+  })();
+  return { sent: emailSent || smsSent };
 }

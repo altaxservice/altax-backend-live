@@ -157,10 +157,10 @@ export async function runPaymentDueReminders(actorEmail: string): Promise<{ sent
         canceled++;
         continue;
       }
-      const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [r.client_id]);
+      const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [r.client_id]);
       if (!client) { canceled++; continue; }
       const { sent: wasSent } = await sendPaymentDueReminder({
-        client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
+        client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed), phone: client.phone, smsAllowed: Boolean(client.sms_allowed) },
         sourceRecordId: `PaymentDueReminder:${r.reminder_id}`,
         filingType: r.filing_type,
         periodLabel: r.period_label,

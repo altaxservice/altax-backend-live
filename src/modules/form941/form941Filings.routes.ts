@@ -25,14 +25,14 @@ export const form941FilingsRouter = Router();
 /** Below this, a "balance due" reminder would be misleading noise — most on-schedule quarters net to ~$0 after EFTPS deposits. */
 const REMINDER_THRESHOLD = 1;
 
-type LoadClientResult = { error: string; status: number } | { client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean } };
+type LoadClientResult = { error: string; status: number } | { client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone: string | null; smsAllowed: boolean } };
 
 async function loadClient(req: AuthedRequest, clientId: string): Promise<LoadClientResult> {
   if (!clientId) return { error: "Client is required.", status: 400 };
   if (!(await canAccessClient(req.user!, clientId))) return { error: "You do not have access to this client.", status: 403 };
-  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return { error: "Client not found.", status: 404 };
-  return { client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) } };
+  return { client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed), phone: client.phone, smsAllowed: Boolean(client.sms_allowed) } };
 }
 
 function quarterPeriod(year: number, quarter: number): { start: string; end: string } {

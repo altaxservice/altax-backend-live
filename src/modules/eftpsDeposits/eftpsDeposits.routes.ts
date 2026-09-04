@@ -503,11 +503,11 @@ eftpsDepositsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staff
 /* ------------------------------------------------------------------ */
 
 async function buildSendPayload(deposit: any, req: AuthedRequest) {
-  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [deposit.client_id]);
   const lines = await query<any>(`SELECT employee_name, federal_income_tax, social_security, medicare, subtotal FROM altax.v3_eftps_deposit_lines WHERE deposit_id = $1 ORDER BY employee_name`, [deposit.deposit_id]);
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/eftps-deposits/${deposit.share_token}`;
   return sendEftpsDepositReport({
-    client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed) },
+    client: { clientId: client.client_id, clientName: client.client_name, email: client.email, emailAllowed: Boolean(client.email_allowed), phone: client.phone, smsAllowed: Boolean(client.sms_allowed) },
     sourceRecordId: deposit.deposit_id, periodLabel: fmtPeriodLabel(deposit.period_start, deposit.period_end),
     filingDate: deposit.filing_date, paymentDate: deposit.payment_date, dueDate: isoDate(deposit.due_date),
     federalIncomeTaxTotal: Number(deposit.federal_income_tax_total), socialSecurityTotal: Number(deposit.social_security_total),
