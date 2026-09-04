@@ -633,6 +633,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
    * actual sales entries show below, same in both tables.
    */
   function renderMdPeriodRow(p: NonNullable<typeof mdFiling>["periods"][number]) {
+    // markedPaidDate is when payment is/was scheduled, staff-set at filing time —
+    // often a future date, not proof the money has actually moved yet. Confirmed
+    // live: a period filed today with next month's payment date showed "✓ Filed"
+    // (and the client's own confirmation email said "paid in full") when nothing
+    // had actually been paid.
+    const paidByNow = Boolean(p.markedPaidDate) && p.markedPaidDate!.slice(0, 10) <= new Date().toISOString().slice(0, 10);
     return (
       <tr
         key={`${p.start}-${p.end}`}
@@ -644,11 +650,11 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <td>{fmtDate(p.dueDate)}</td>
         <td className="muted">{fmtDate(p.targetFilingDate)}</td>
         <td>{fmtMoney(p.taxDue)}</td>
-        <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !p.markedPaidDate ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !p.markedPaidDate ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
-          {p.markedPaidDate ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? "Filed — payment pending" : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+        <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !paidByNow ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !paidByNow ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
+          {paidByNow ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? (p.markedPaidDate ? "Filed — payment scheduled" : "Filed — payment pending") : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
         </td>
-        <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
-        <td>{p.markedFiledDate && !p.markedPaidDate ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
+        <td>{p.markedFiledDate && !paidByNow ? "—" : p.onTime ? `− ${fmtMoney(p.discount)}` : fmtMoney(p.penalty)}</td>
+        <td>{p.markedFiledDate && !paidByNow ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
         <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
         {showClientColumn && <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
         <td onClick={(e) => e.stopPropagation()}>

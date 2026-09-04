@@ -201,7 +201,10 @@ export function Form941Section({ clientId }: { clientId: string }) {
           <td>Q{f.quarter} {f.period_start.slice(0, 4)}</td>
           <td>{fmtDate(f.filed_date)}</td>
           <td style={{ textAlign: "right" }}>{money(f.balance_due)}</td>
-          <td>{f.paid_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span> : <span className="muted">Payment pending</span>}</td>
+          <td>{f.paid_date ? (f.paid_date.slice(0, 10) <= new Date().toISOString().slice(0, 10)
+            ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(f.paid_date)}</span>
+            : <span style={{ color: "var(--amber)", fontWeight: 600 }}>Scheduled {fmtDate(f.paid_date)}</span>)
+          : <span className="muted">Payment pending</span>}</td>
           {showClientColumn && <td>{f.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
           <td>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>

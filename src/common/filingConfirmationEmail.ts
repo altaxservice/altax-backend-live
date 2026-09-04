@@ -45,6 +45,19 @@ function fmtDate(v: string | Date | null): string {
 export function fmtPeriodRange(start: string, end: string): string {
   return `${fmtDate(start)} – ${fmtDate(end)}`;
 }
+/**
+ * A paidDate is when payment is/was scheduled — staff can and do set it to a
+ * future date at filing time (e.g. "we'll pay this on the 17th"), which is
+ * NOT the same as the payment having actually happened yet. Confirmed live:
+ * a client who filed today with a payment date two weeks out got told "This
+ * filing is paid in full" — treating any non-null paidDate as "paid" doesn't
+ * distinguish "already paid" from "scheduled but not sent."
+ */
+function isPaidByNow(paidDate: string | Date | null): boolean {
+  if (!paidDate) return false;
+  const raw = paidDate instanceof Date ? paidDate.toISOString().slice(0, 10) : String(paidDate).slice(0, 10);
+  return raw <= new Date().toISOString().slice(0, 10);
+}
 function money2(n: number): string {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -170,6 +183,7 @@ export interface FilingConfirmationInput {
 /** Body used both as the email HTML and (plain-text-ish) as the v3_communications log entry. */
 function filingConfirmationBody(input: FilingConfirmationInput): string {
   const canAcknowledge = isPubliclyReachable(input.acknowledgeUrl);
+  const paidByNow = isPaidByNow(input.paidDate);
   const amountLabel = input.amountLabel ?? "Amount";
   const amountLabelAr = input.amountLabelAr ?? "المبلغ";
   return `
@@ -192,14 +206,20 @@ function filingConfirmationBody(input: FilingConfirmationInput): string {
           ${(input.breakdown ?? []).map((b) => row(b.label, b.labelAr, esc(b.valueStr))).join("")}
           <tr><td colspan="2" style="padding:6px 0 0; border-top:1px solid #e5e7eb;"></td></tr>
           ${row("Filed Date", "تاريخ التقديم", fmtDate(input.filedDate))}
-          ${input.paidDate ? row("Payment Date", "تاريخ الدفع", fmtDate(input.paidDate)) : row("Payment Due Date", "تاريخ استحقاق الدفع", fmtDate(input.paymentDueDate))}
+          ${paidByNow ? row("Payment Date", "تاريخ الدفع", fmtDate(input.paidDate))
+            : input.paidDate ? row("Scheduled Payment Date", "تاريخ الدفع المجدول", fmtDate(input.paidDate))
+            : row("Payment Due Date", "تاريخ استحقاق الدفع", fmtDate(input.paymentDueDate))}
         </table>
       </td></tr>
     </table>
     ${canAcknowledge ? bilingualButtonHtml(input.acknowledgeUrl!, "View & Acknowledge Report", "عرض الإقرار وتأكيد الاستلام") : ""}
     ${bilingualParagraph(
-      input.paidDate ? "This filing is paid in full." : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email.",
-      input.paidDate ? "تم دفع هذا الإقرار بالكامل." : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.",
+      paidByNow ? "This filing is paid in full."
+        : input.paidDate ? `Payment is scheduled for ${fmtDate(input.paidDate)}.`
+        : "We'll send a reminder before the payment due date above. If you have any questions, just reply to this email.",
+      paidByNow ? "تم دفع هذا الإقرار بالكامل."
+        : input.paidDate ? `الدفع مجدول بتاريخ ${fmtDate(input.paidDate)}.`
+        : "سنرسل تذكيراً قبل تاريخ استحقاق الدفع أعلاه. إذا كانت لديكم أي أسئلة، فقط قوموا بالرد على هذا البريد الإلكتروني.",
       { color: "#6b7280", marginBottom: 0 }
     )}`;
 }

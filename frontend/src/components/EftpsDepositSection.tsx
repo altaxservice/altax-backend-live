@@ -498,7 +498,10 @@ export function EftpsDepositSection({ clientId }: { clientId: string }) {
           <td>{fmtDate(d.period_start)} – {fmtDate(d.period_end)}</td>
           <td>{fmtDate(d.due_date)}</td>
           <td>{fmtDate(d.filing_date)}</td>
-          <td>{d.payment_date ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span> : <span className="muted">Pending</span>}</td>
+          <td>{d.payment_date ? (d.payment_date.slice(0, 10) <= new Date().toISOString().slice(0, 10)
+            ? <span style={{ color: "var(--teal)", fontWeight: 600 }}>Paid {fmtDate(d.payment_date)}</span>
+            : <span style={{ color: "var(--amber)", fontWeight: 600 }}>Scheduled {fmtDate(d.payment_date)}</span>)
+          : <span className="muted">Pending</span>}</td>
           {showClientColumn && <td>{d.acknowledged_at ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
           <td style={{ textAlign: "right" }}>{money(d.total_amount)}</td>
           <td>{d.status}{d.reconciliation_status === "Mismatch" ? " (Mismatch)" : ""}</td>
