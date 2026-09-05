@@ -360,6 +360,14 @@ govFormsRouter.post("/employee/:employeeId/send", requireAuth, requireRole("admi
   } catch (err) {
     await recordNotificationFailure(`govForms:portal-send:${filingId}`, err);
   }
+  if (employee.sms_allowed && employee.phone) {
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      await sendSms({ to: employee.phone, body: `AL TAX SERVICE: A ${FORM_LABELS[formType]} is waiting for you to complete and sign in your employee portal.` });
+    } catch (err) {
+      await recordNotificationFailure(`govForms:portal-send-sms:${filingId}`, err);
+    }
+  }
   res.status(201).json({ ok: true, filingId });
 }));
 

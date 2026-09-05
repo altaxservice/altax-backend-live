@@ -274,6 +274,7 @@ export interface Employee {
   employee_name: string;
   email: string | null;
   phone: string | null;
+  sms_allowed?: boolean;
   pay_type: string | null;
   worker_type: string | null;
   form_type: string | null;

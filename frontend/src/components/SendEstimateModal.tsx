@@ -21,6 +21,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
   useFocusTrap(panelRef);
   const toast = useToast();
   const [email, setEmail] = useState(estimate.email || "");
+  const [phone, setPhone] = useState(estimate.phone || "");
   const [subject, setSubject] = useState(`Estimate ${estimate.estimate_number} from AL Tax Service`);
   const [message, setMessage] = useState(
     `Please find your estimate attached for ${estimate.business_name}. Total estimated: $${totals.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
@@ -49,11 +50,11 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
     setError(null);
     setResult(null);
     try {
-      const res = await api.post<{ ok: boolean; error?: string }>(`/estimates/${estimate.estimate_id}/send`, {
-        email, subject, message,
+      const res = await api.post<{ ok: boolean; error?: string; smsError?: string }>(`/estimates/${estimate.estimate_id}/send`, {
+        email, phone, subject, message,
       });
       setResult(res);
-      toast(res.ok ? "Estimate sent." : `Could not send — ${res.error}`);
+      toast(res.ok ? "Estimate sent." : `Could not send — ${res.error || res.smsError}`);
       if (res.ok) onSent();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send this estimate.");
@@ -71,6 +72,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
           <div>
             <div className="field"><label htmlFor="send-estimate-email">Email address</label><input id="send-estimate-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="client@example.com" /></div>
+            <div className="field"><label htmlFor="send-estimate-phone">Phone (optional — sends a short SMS heads-up)</label><input id="send-estimate-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" /></div>
             <div className="field"><label htmlFor="send-estimate-subject">Subject</label><input id="send-estimate-subject" value={subject} onChange={(e) => setSubject(e.target.value)} /></div>
             <div className="field"><label htmlFor="send-estimate-message">Message</label><textarea id="send-estimate-message" rows={5} value={message} onChange={(e) => setMessage(e.target.value)} /></div>
 
@@ -96,7 +98,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={sending || !email.trim()} onClick={handleSend}>{sending ? "Sending…" : "Send Now"}</button>
+          <button className="btn btn-primary" disabled={sending || (!email.trim() && !phone.trim())} onClick={handleSend}>{sending ? "Sending…" : "Send Now"}</button>
         </div>
       </div>
     </div>

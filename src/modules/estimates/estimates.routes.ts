@@ -265,8 +265,9 @@ estimatesRouter.get("/:estimateId/print", requireAuth, requireRole("admin", "sta
  * triggered by approving, converting, or any other step. Mirrors billing's
  * invoice /send route exactly (same PDF-attached-to-a-branded-email pattern,
  * same manual-only philosophy) so staff already familiar with sending an
- * invoice need to learn nothing new here. Email only, matching every other
- * send path in this app — SMS/WhatsApp have no provider configured.
+ * invoice need to learn nothing new here. Email carries the PDF attachment;
+ * an optional phone number gets an independent short SMS heads-up instead
+ * (no attachment, no public share-link page exists for estimates yet).
  */
 estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const est = await queryOne<any>(`SELECT * FROM altax.v3_estimates WHERE estimate_id = $1`, [req.params.estimateId]);
@@ -274,7 +275,8 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
   if (!(await canAccessEstimate(req.user!, est))) return res.status(403).json({ error: "You do not have access to this estimate." });
 
   const to = String(req.body?.email || "").trim();
-  if (!to) return res.status(400).json({ error: "Enter the email address to send to." });
+  const toPhone = String(req.body?.phone || "").trim();
+  if (!to && !toPhone) return res.status(400).json({ error: "Enter an email address or phone number to send to." });
 
   const lines = await loadLines(est.estimate_id);
   const { bytes, totals } = await buildEstimatePdfBytes(est, lines);
@@ -290,28 +292,47 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
   let sent = false;
   let error: string | undefined;
   let providerMessageId: string | null = null;
-  try {
-    const result = await sendEmail({
-      to, subject,
-      html: await wrapEmailHtml(
-        `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
-         <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF. <bdi dir="rtl">التقدير الكامل مرفق بهذه الرسالة بصيغة PDF.</bdi></p>`,
-        req
-      ),
-      attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],
-    });
-    providerMessageId = result.providerMessageId;
-    sent = true;
-  } catch (err: any) {
-    error = err?.message || "Send failed.";
+  if (to) {
+    try {
+      const result = await sendEmail({
+        to, subject,
+        html: await wrapEmailHtml(
+          `<p>${esc(message).replace(/\n/g, "<br/>")}</p>
+           <p style="color:#6b7280; font-size:12.5px; margin-top:18px;">The full estimate is attached to this email as a PDF. <bdi dir="rtl">التقدير الكامل مرفق بهذه الرسالة بصيغة PDF.</bdi></p>`,
+          req
+        ),
+        attachments: [{ filename: `Estimate_${est.estimate_number}.pdf`, content: Buffer.from(bytes) }],
+      });
+      providerMessageId = result.providerMessageId;
+      sent = true;
+    } catch (err: any) {
+      error = err?.message || "Send failed.";
+    }
   }
 
-  if (sent) {
+  // No public share-link page exists for estimates (unlike contracts/invoices),
+  // so there's nothing to link to and no PDF to attach over SMS — just a short
+  // heads-up naming the total, pointing them at their email for the full PDF.
+  let smsSent = false;
+  let smsError: string | undefined;
+  if (toPhone) {
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      await sendSms({ to: toPhone, body: `AL TAX SERVICE: Your estimate for ${est.business_name} is ready — estimated total $${totals.total.toFixed(2)}.${to ? " Check your email for the full PDF." : ""}` });
+      smsSent = true;
+    } catch (err: any) {
+      smsError = err?.message || "Send failed.";
+    }
+  }
+
+  if (sent || smsSent) {
     // Sent moves a Draft/Contacted estimate off the "still being built" bucket;
     // it never downgrades an estimate already Approved or further along.
     if (est.status === "Draft" || est.status === "Contacted") {
       await query(`UPDATE altax.v3_estimates SET status = 'Sent', updated_at = now() WHERE estimate_id = $1`, [est.estimate_id]);
     }
+  }
+  if (sent) {
     await query(
       `INSERT INTO altax.v3_communications
          (communication_id, client_id, client_name, direction, channel, subject, message_english, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
@@ -319,11 +340,20 @@ estimatesRouter.post("/:estimateId/send", requireAuth, requireRole("admin", "sta
       [`COM-${idSuffix()}`, est.client_id, est.business_name, subject, message, to, req.user!.email, est.estimate_id, providerMessageId]
     );
   }
+  if (toPhone) {
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, direction, channel, subject, message_english, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+       VALUES ($1,$2,$3,'Outbound','SMS',$4,$5,$6,$7, now(), $8,'Estimate',$9)`,
+      [`COM-${idSuffix()}`, est.client_id, est.business_name, subject, message, toPhone, req.user!.email, smsSent ? "Sent" : `Failed — ${smsError}`, est.estimate_id]
+    );
+  }
 
-  await logAudit("Tools", "SEND_ESTIMATE", est.estimate_id, "", "", sent ? `Sent to ${to}` : `Failed: ${error}`,
-    `Estimate ${sent ? "sent" : "send attempted"} by ${req.user!.email}.`, req.user!.email);
+  await logAudit("Tools", "SEND_ESTIMATE", est.estimate_id, "", "",
+    [sent ? `Emailed to ${to}` : to ? `Email failed: ${error}` : null, smsSent ? `Texted to ${toPhone}` : toPhone ? `SMS failed: ${smsError}` : null].filter(Boolean).join("; "),
+    `Estimate send attempted by ${req.user!.email}.`, req.user!.email);
 
-  res.json({ ok: sent, error });
+  res.json({ ok: sent || smsSent, error, smsError });
 }));
 
 /**
@@ -718,6 +748,19 @@ estimatesRouter.post("/:estimateId/convert", requireAuth, requireRole("admin", "
       });
     } catch (err) {
       await recordNotificationFailure(`estimates:welcome-email:${est.estimate_id}`, err);
+    }
+  }
+  // Checked against the new client row's own sms_allowed, not just "does
+  // est.phone exist" — conversion is the moment a prospect becomes a real
+  // client, and v3_clients.sms_allowed (default false) is the authoritative
+  // consent flag going forward, same as every other client SMS in this app.
+  const newClient = await queryOne<any>(`SELECT phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (newClient?.sms_allowed && newClient?.phone) {
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      await sendSms({ to: newClient.phone, body: `AL TAX SERVICE: Welcome! ${est.business_name} is now set up as a client with us${invoiceId ? " — your invoice is on its way separately" : ""}. Looking forward to working with you.` });
+    } catch (err) {
+      await recordNotificationFailure(`estimates:welcome-sms:${est.estimate_id}`, err);
     }
   }
 

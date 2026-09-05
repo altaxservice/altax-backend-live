@@ -87,6 +87,7 @@ export function EmployeeDetailPage() {
   // action for an employee now starts.
   const [editing, setEditing] = useState(searchParams.get("edit") === "1");
   const [form, setForm] = useState<Record<string, string>>({});
+  const [smsAllowed, setSmsAllowed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -116,6 +117,7 @@ export function EmployeeDetailPage() {
           defaultGrossWages: String(res.employee.default_gross_wages ?? ""), payFrequency: res.employee.pay_frequency || "",
           serviceCategory: res.employee.service_category || "",
         });
+        setSmsAllowed(Boolean(res.employee.sms_allowed));
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this profile."));
   }
@@ -147,7 +149,7 @@ export function EmployeeDetailPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.post("/accounting/employees", { employeeId: employee.employee_id, clientId: employee.client_id, ...form });
+      await api.post("/accounting/employees", { employeeId: employee.employee_id, clientId: employee.client_id, ...form, smsAllowed });
       setEditing(false);
       load();
     } catch (err) {
@@ -309,6 +311,10 @@ export function EmployeeDetailPage() {
             )}
             <div className="field"><label htmlFor="emp-email">Email</label><input id="emp-email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
             <div className="field"><label htmlFor="emp-phone">Phone</label><input id="emp-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, margin: "4px 0 8px" }}>
+              <input type="checkbox" checked={smsAllowed} onChange={(e) => setSmsAllowed(e.target.checked)} />
+              SMS Enabled
+            </label>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
               <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
@@ -337,6 +343,7 @@ export function EmployeeDetailPage() {
               {isContractor && <DetailField label="Service Category" value={employee.service_category} />}
               <DetailField label="Email" value={employee.email} />
               <DetailField label="Phone" value={employee.phone} />
+              <DetailField label="SMS Enabled" value={employee.sms_allowed ? "Yes" : "No"} />
             </div>
           </div>
         )

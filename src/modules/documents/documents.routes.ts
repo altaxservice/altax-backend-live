@@ -202,9 +202,6 @@ async function notifyPortalFileShared(opts: {
   fileNames: string[]; notes: string | null;
   employeeName?: string | null; portalPath: "client" | "employee";
   cc?: string[]; bcc?: string[];
-  // Only ever populated for the client branch below — v3_employees has no
-  // SMS-consent column yet, so an employee-targeted share stays email-only
-  // until that's added, rather than texting without real opt-in.
   recipientPhone?: string | null; smsAllowed?: boolean;
 }): Promise<void> {
   const forWhom = opts.employeeName ? `${opts.employeeName} (${opts.clientName})` : opts.clientName;
@@ -687,7 +684,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     if (!["admin", "staff"].includes(req.user!.role)) {
       return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to an employee." });
     }
-    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name, email FROM altax.v3_employees WHERE employee_id = $1`, [directEmployeeId]);
+    const employee = await queryOne<any>(`SELECT employee_id, employee_name, client_id, client_name, email, phone, sms_allowed FROM altax.v3_employees WHERE employee_id = $1`, [directEmployeeId]);
     if (!employee) return res.status(404).json({ error: `Employee not found: ${directEmployeeId}` });
     if (!(await canAccessClient(req.user!, employee.client_id))) {
       return res.status(403).json({ error: "You do not have access to this employee." });
@@ -714,6 +711,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         notes: String(body.notes || "").trim() || null,
         employeeName: employee.employee_name, portalPath: "employee",
         cc: notifyCc, bcc: notifyBcc,
+        recipientPhone: employee.phone || null, smsAllowed: Boolean(employee.sms_allowed),
       });
     }
   } else {

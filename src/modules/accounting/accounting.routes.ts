@@ -2122,6 +2122,7 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
     default_gross_wages: money(body.defaultGrossWages), pay_rate: money(body.payRate),
     default_hours: Number(body.defaultHours) || null, pay_frequency: String(body.payFrequency || "").trim() || null,
     service_category: String(body.serviceCategory || "").trim() || null,
+    sms_allowed: Boolean(body.smsAllowed),
   };
 
   // A contractor is always 1099; an employee never is — this used to be free
@@ -2139,7 +2140,7 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
     await query(
       `UPDATE altax.v3_employees SET client_id=$2, client_name=$3, employee_name=$4, email=$5, phone=$6,
          pay_type=$7, worker_type=$8, form_type=$9, status=$10, default_gross_wages=$11, pay_rate=$12,
-         default_hours=$13, pay_frequency=$14, service_category=$15, updated_at = now()
+         default_hours=$13, pay_frequency=$14, service_category=$15, sms_allowed=$16, updated_at = now()
        WHERE employee_id = $1`,
       [employeeId, ...Object.values(fields)]
     );
@@ -2148,9 +2149,9 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
     await query(
       `INSERT INTO altax.v3_employees
          (employee_id, client_id, client_name, employee_name, email, phone, pay_type, worker_type, form_type,
-          status, default_gross_wages, pay_rate, default_hours, pay_frequency, service_category,
+          status, default_gross_wages, pay_rate, default_hours, pay_frequency, service_category, sms_allowed,
           source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'Node Web App',$1)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'Node Web App',$1)`,
       [employeeId, ...Object.values(fields)]
     );
     await logAudit("Employees", "CREATE", employeeId, "", "", employeeName, `Employee created by ${req.user!.email}.`, req.user!.email);
@@ -2181,7 +2182,7 @@ accountingRouter.post("/employees", requireAuth, requireRole("admin", "staff"), 
 accountingRouter.get("/employees/:employeeId/profile", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { employeeId } = req.params;
   const employee = await queryOne<any>(
-    `SELECT employee_id, client_id, client_name, employee_name, email, phone, pay_type, worker_type, form_type,
+    `SELECT employee_id, client_id, client_name, employee_name, email, phone, sms_allowed, pay_type, worker_type, form_type,
             status, default_gross_wages, pay_rate, default_hours, pay_frequency, service_category,
             w9_status, is_1099_eligible, bank_last4, state, created_at, updated_at
        FROM altax.v3_employees WHERE employee_id = $1`,
