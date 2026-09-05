@@ -321,19 +321,20 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
     [contract.contract_id, shareToken]
   );
 
-  const client = await queryOne<any>(`SELECT client_name, email FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
+  const client = await queryOne<any>(`SELECT client_name, email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [contract.client_id]);
   let emailed = false, emailError: string | null = null;
+  let smsed = false;
+  // Always derive from the request's own protocol+host rather than
+  // FRONTEND_BASE_URL/PORTAL_BASE_URL — confirmed live that a real email went
+  // out with a bare "http://localhost:5173" link (from a local dev server's
+  // .env still pointing at itself), completely unreachable from any other
+  // device, including the client's phone. server.ts serves the frontend from
+  // the same origin as this API in every real deployment, so whichever host
+  // actually received this request is always the right one — no environment
+  // variable to misconfigure, nothing that can silently drift from reality.
+  const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+  const link = `${base}/public/contract/${shareToken}`;
   if (client?.email) {
-    // Always derive from the request's own protocol+host rather than
-    // FRONTEND_BASE_URL/PORTAL_BASE_URL — confirmed live that a real email went
-    // out with a bare "http://localhost:5173" link (from a local dev server's
-    // .env still pointing at itself), completely unreachable from any other
-    // device, including the client's phone. server.ts serves the frontend from
-    // the same origin as this API in every real deployment, so whichever host
-    // actually received this request is always the right one — no environment
-    // variable to misconfigure, nothing that can silently drift from reality.
-    const base = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
-    const link = `${base}/public/contract/${shareToken}`;
     // Bulletproof HTML-email button pattern (padding+background+border-radius
     // on the <a> itself) — a plain blue underlined link is easy to miss or
     // mistake for something already visited on a phone; a real-looking button
@@ -387,10 +388,32 @@ contractsRouter.post("/:contractId/send", requireAuth, requireRole("admin", "sta
     );
   }
 
-  await logAudit("Contracts", "SEND", contract.contract_id, "status", contract.status, "Sent",
-    `Contract sent by ${req.user!.email}.${emailed ? " Emailed to client." : ""}`, req.user!.email);
+  if (client?.sms_allowed && client?.phone) {
+    const smsBody = `AL TAX SERVICE: "${contract.title}" is ready for your review and signature: ${link}`;
+    let smsProviderMessageId: string | null = null;
+    let smsStatus = "Sent";
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      const result = await sendSms({ to: client.phone, body: smsBody });
+      smsProviderMessageId = result.providerMessageId;
+      smsed = true;
+    } catch (err) {
+      smsStatus = `Failed — ${err instanceof Error ? err.message : "SMS failed"}`;
+    }
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),$8,'Contract',$1,$9)`,
+      [`COM-${idSuffix()}`, contract.client_id, client.client_name, `${contract.title} — please review and sign`,
+        smsBody, client.phone, req.user!.email, smsStatus, smsProviderMessageId]
+    );
+  }
 
-  res.json({ ok: true, shareToken, emailed, emailError });
+  await logAudit("Contracts", "SEND", contract.contract_id, "status", contract.status, "Sent",
+    `Contract sent by ${req.user!.email}.${emailed ? " Emailed to client." : ""}${smsed ? " Texted to client." : ""}`, req.user!.email);
+
+  res.json({ ok: true, shareToken, emailed, emailError, smsed });
 }));
 
 /**

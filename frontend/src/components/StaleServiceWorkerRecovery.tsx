@@ -47,6 +47,13 @@ const KNOWN_PUBLIC_DOWNLOAD_PATTERNS = [
   /^\/public\/eftps-deposits\/[^/]+\/pdf$/,
   /^\/public\/md-filing\/[^/]+\/pdf$/,
   /^\/public\/form941\/[^/]+\/pdf$/,
+  // Contracts/invoices use a different (plural) prefix than their own SPA
+  // page routes (singular /public/contract, /public/invoice), so a broad
+  // prefix match here can't shadow those — same reasoning as the equally
+  // broad entries already in vite.config.ts's denylist for these two.
+  /^\/public\/contracts\//,
+  /^\/public\/invoices\//,
+  /^\/documents\/uploads\/[^/]+\/download$/,
 ];
 
 function isKnownRecoverablePath(pathname: string): boolean {

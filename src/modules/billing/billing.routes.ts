@@ -587,28 +587,53 @@ export async function sendPaymentReceiptEmail(opts: {
   amount: number; method: string; balanceDue: number; req?: AuthedRequest;
 }): Promise<void> {
   if (!opts.clientId) return;
-  const clientForReceipt = await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [opts.clientId]);
-  if (!clientForReceipt?.email) return;
+  const clientForReceipt = await queryOne<any>(`SELECT email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [opts.clientId]);
+  if (!clientForReceipt) return;
   const subject = `Payment received — Invoice ${opts.invoiceId}`;
-  try {
-    const { sendEmail } = await import("../../common/notifications");
-    await sendEmail({
-      to: clientForReceipt.email, subject,
-      html: await paymentReceiptEmailHtml({
-        invoiceId: opts.invoiceId, paymentDate: opts.paymentDate, amount: opts.amount,
-        method: opts.method, balanceDue: opts.balanceDue, req: opts.req,
-      }),
-    });
-    await query(
-      `INSERT INTO altax.v3_communications
-         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
-       VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
-      [`COM-${idSuffix()}`, opts.clientId, await getClientName(opts.clientId), subject, `Payment of ${money(opts.amount)} received.`, clientForReceipt.email]
-    );
-  } catch (err: any) {
-    await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", opts.paymentId, "", "", err?.message || "Send failed",
-      `Payment receipt email to ${clientForReceipt.email} failed for invoice ${opts.invoiceId}: ${err?.message || "unknown error"}.`, "System");
+  const clientName = await getClientName(opts.clientId);
+  if (clientForReceipt.email) {
+    try {
+      const { sendEmail } = await import("../../common/notifications");
+      await sendEmail({
+        to: clientForReceipt.email, subject,
+        html: await paymentReceiptEmailHtml({
+          invoiceId: opts.invoiceId, paymentDate: opts.paymentDate, amount: opts.amount,
+          method: opts.method, balanceDue: opts.balanceDue, req: opts.req,
+        }),
+      });
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,$2,$3,NULL,'Outbound','email',$4,$5,'',$6,'System',now(),'Saved + Sent','Payment Receipt',$1)`,
+        [`COM-${idSuffix()}`, opts.clientId, clientName, subject, `Payment of ${money(opts.amount)} received.`, clientForReceipt.email]
+      );
+    } catch (err: any) {
+      await logAudit("Billing", "PAYMENT_RECEIPT_EMAIL_FAILED", opts.paymentId, "", "", err?.message || "Send failed",
+        `Payment receipt email to ${clientForReceipt.email} failed for invoice ${opts.invoiceId}: ${err?.message || "unknown error"}.`, "System");
+    }
+  }
+  if (clientForReceipt.sms_allowed && clientForReceipt.phone) {
+    const smsBody = `AL TAX SERVICE: Payment of ${money(opts.amount)} received for Invoice ${opts.invoiceId}.${opts.balanceDue > 0 ? ` Balance due: ${money(opts.balanceDue)}.` : " Paid in full."}`;
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      const result = await sendSms({ to: clientForReceipt.phone, body: smsBody });
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+         VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,'System',now(),'Sent','Payment Receipt',$1,$7)`,
+        [`COM-${idSuffix()}`, opts.clientId, clientName, subject, smsBody, clientForReceipt.phone, result.providerMessageId]
+      );
+    } catch (err: any) {
+      await query(
+        `INSERT INTO altax.v3_communications
+           (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+            message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+         VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,'System',now(),$7,'Payment Receipt',$1)`,
+        [`COM-${idSuffix()}`, opts.clientId, clientName, subject, smsBody, clientForReceipt.phone, `Failed — ${err?.message || "SMS failed"}`]
+      );
+    }
   }
 }
 
@@ -708,8 +733,8 @@ billingRouter.post("/invoices/:invoiceId/send-reminder", requireAuth, requireRol
     return res.status(400).json({ error: `urgency must be "reminder" or "urgent".` });
   }
 
-  const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]);
-  if (!client?.email) return res.status(400).json({ error: "This client has no email address on file." });
+  const client = await queryOne<any>(`SELECT client_id, client_name, email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [invoice.client_id]);
+  if (!client?.email && !(client?.sms_allowed && client?.phone)) return res.status(400).json({ error: "This client has no email address or SMS number on file." });
 
   const { resolveTemplate } = await import("../templates/templates.routes");
   const resolved = await resolveTemplate("Payment Reminder", invoice.client_id, "", "", {
@@ -729,28 +754,54 @@ billingRouter.post("/invoices/:invoiceId/send-reminder", requireAuth, requireRol
   let sent = false;
   let sendError: string | undefined;
   let providerMessageId: string | null = null;
-  try {
-    const result = await sendEmail({ to: client.email, subject, html });
-    providerMessageId = result.providerMessageId;
-    sent = true;
-  } catch (err: any) {
-    sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
+  const sourceRecordId = `PAYREM-MANUAL-${invoice.invoice_id}-${Date.now()}`;
+  if (client.email) {
+    try {
+      const result = await sendEmail({ to: client.email, subject, html });
+      providerMessageId = result.providerMessageId;
+      sent = true;
+    } catch (err: any) {
+      sendError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
+    }
+
+    const status = sent ? "Saved + Sent" : `Saved — ${sendError}`;
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Reminders',$10,$11)`,
+      [`COM-${idSuffix()}`, invoice.client_id, client.client_name || null, subject,
+        resolved.message_english, resolved.message_arabic, client.email, req.user!.email, status, sourceRecordId, providerMessageId]
+    );
   }
 
-  const status = sent ? "Saved + Sent" : `Saved — ${sendError}`;
-  const sourceRecordId = `PAYREM-MANUAL-${invoice.invoice_id}-${Date.now()}`;
-  await query(
-    `INSERT INTO altax.v3_communications
-       (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
-        message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
-     VALUES ($1,$2,$3,NULL,'Outbound','Email',$4,$5,$6,$7,$8,now(),$9,'Reminders',$10,$11)`,
-    [`COM-${idSuffix()}`, invoice.client_id, client.client_name || null, subject,
-      resolved.message_english, resolved.message_arabic, client.email, req.user!.email, status, sourceRecordId, providerMessageId]
-  );
+  let smsSent = false;
+  if (client.sms_allowed && client.phone) {
+    const smsBody = `AL TAX SERVICE: ${urgency === "urgent" ? "URGENT — " : ""}Payment reminder — Invoice ${invoice.invoice_id}, balance due $${Number(invoice.balance_due).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+    let smsError: string | undefined;
+    let smsProviderMessageId: string | null = null;
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      const result = await sendSms({ to: client.phone, body: smsBody });
+      smsProviderMessageId = result.providerMessageId;
+      smsSent = true;
+    } catch (err: any) {
+      smsError = err instanceof NotConfiguredError ? err.message : (err?.message || "Send failed.");
+    }
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),$8,'Reminders',$9,$10)`,
+      [`COM-${idSuffix()}`, invoice.client_id, client.client_name || null, subject, smsBody,
+        client.phone, req.user!.email, smsSent ? "Sent" : `Failed — ${smsError}`, sourceRecordId, smsProviderMessageId]
+    );
+  }
+
   await logAudit("Billing", "SEND_PAYMENT_REMINDER", invoice.invoice_id, "", "", urgency,
     `${urgency === "urgent" ? "Urgent" : "Payment"} reminder sent by ${req.user!.email}.`, req.user!.email);
 
-  if (!sent) return res.status(502).json({ ok: false, error: sendError });
+  if (!sent && !smsSent) return res.status(502).json({ ok: false, error: sendError || "Send failed on every available channel." });
   res.json({ ok: true });
 }));
 
@@ -1740,7 +1791,7 @@ export async function runRecurringBillingSweep(
     let emailSent = false;
     let emailSkippedReason: string | null = null;
     if (schedule.auto_send_invoice) {
-      const client = await queryOne<any>(`SELECT email FROM altax.v3_clients WHERE client_id = $1`, [schedule.client_id]);
+      const client = await queryOne<any>(`SELECT email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [schedule.client_id]);
       if (!client?.email) {
         emailSkippedReason = "Client has no email on file.";
       } else {
@@ -1759,6 +1810,29 @@ export async function runRecurringBillingSweep(
           await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "email: sent (auto)", `Recurring auto-send by schedule ${schedule.recurring_billing_id}.`, actor.email);
         } catch (err: any) {
           emailSkippedReason = err?.message || "Send failed.";
+        }
+      }
+      if (client?.sms_allowed && client?.phone) {
+        const smsBody = `AL TAX SERVICE: New invoice ${invoiceId} — $${amount.toFixed(2)} due ${dueDate}.`;
+        try {
+          const { sendSms } = await import("../../common/notifications");
+          const result = await sendSms({ to: client.phone, body: smsBody });
+          await query(
+            `INSERT INTO altax.v3_communications
+               (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+                message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+             VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),'Sent','Recurring Billing',$8,$9)`,
+            [`COM-${idSuffix()}`, schedule.client_id, schedule.client_name, `Invoice ${invoiceId} from AL Tax Service`, smsBody, client.phone, actor.email, invoiceId, result.providerMessageId]
+          );
+          await logAudit("Billing", "SEND_INVOICE", invoiceId, "", "", "sms: sent (auto)", `Recurring auto-send SMS by schedule ${schedule.recurring_billing_id}.`, actor.email);
+        } catch (err: any) {
+          await query(
+            `INSERT INTO altax.v3_communications
+               (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+                message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id)
+             VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),$8,'Recurring Billing',$9)`,
+            [`COM-${idSuffix()}`, schedule.client_id, schedule.client_name, `Invoice ${invoiceId} from AL Tax Service`, smsBody, client.phone, actor.email, `Failed — ${err?.message || "SMS failed"}`, invoiceId]
+          );
         }
       }
     }

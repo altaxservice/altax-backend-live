@@ -202,6 +202,10 @@ async function notifyPortalFileShared(opts: {
   fileNames: string[]; notes: string | null;
   employeeName?: string | null; portalPath: "client" | "employee";
   cc?: string[]; bcc?: string[];
+  // Only ever populated for the client branch below — v3_employees has no
+  // SMS-consent column yet, so an employee-targeted share stays email-only
+  // until that's added, rather than texting without real opt-in.
+  recipientPhone?: string | null; smsAllowed?: boolean;
 }): Promise<void> {
   const forWhom = opts.employeeName ? `${opts.employeeName} (${opts.clientName})` : opts.clientName;
   const many = opts.fileNames.length > 1;
@@ -260,6 +264,27 @@ async function notifyPortalFileShared(opts: {
     [nextCommunicationId(), opts.clientId, opts.clientName, subject, messageEnglish, messageArabic,
       opts.recipientEmail, opts.req.user!.email, status, providerMessageId]
   );
+
+  if (opts.smsAllowed && opts.recipientPhone) {
+    const smsBody = `AL TAX SERVICE: shared ${many ? `${opts.fileNames.length} files` : `"${opts.fileNames[0]}"`} with ${forWhom}. Sign in to your portal and open Documents to view.`;
+    let smsStatus = "Sent";
+    let smsProviderMessageId: string | null = null;
+    try {
+      const { sendSms } = await import("../../common/notifications");
+      const result = await sendSms({ to: opts.recipientPhone, body: smsBody });
+      smsProviderMessageId = result.providerMessageId;
+    } catch (err: any) {
+      smsStatus = `Failed — ${err?.message || "SMS failed"}`;
+    }
+    await query(
+      `INSERT INTO altax.v3_communications
+         (communication_id, client_id, client_name, related_task_id, direction, channel, subject,
+          message_english, message_arabic, sent_to, sent_by, sent_at, status, source_system, source_record_id, provider_message_id)
+       VALUES ($1,$2,$3,NULL,'Outbound','SMS',$4,$5,'',$6,$7,now(),$8,'Document Share',$1,$9)`,
+      [nextCommunicationId(), opts.clientId, opts.clientName, subject, smsBody,
+        opts.recipientPhone, opts.req.user!.email, smsStatus, smsProviderMessageId]
+    );
+  }
 }
 
 /**
@@ -701,7 +726,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
     if (!["admin", "staff"].includes(req.user!.role)) {
       return res.status(403).json({ error: "Only AL TAX staff can upload a file directly to a client." });
     }
-    const client = await queryOne<any>(`SELECT client_id, client_name, email FROM altax.v3_clients WHERE client_id = $1`, [directClientId]);
+    const client = await queryOne<any>(`SELECT client_id, client_name, email, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [directClientId]);
     if (!client) return res.status(404).json({ error: `Client not found: ${directClientId}` });
     if (!(await canAccessClient(req.user!, client.client_id))) {
       return res.status(403).json({ error: "You do not have access to this client." });
@@ -727,6 +752,7 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         notes: String(body.notes || "").trim() || null,
         portalPath: "client",
         cc: notifyCc, bcc: notifyBcc,
+        recipientPhone: client.phone || null, smsAllowed: Boolean(client.sms_allowed),
       });
     }
   }
