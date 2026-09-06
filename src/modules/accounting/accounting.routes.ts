@@ -231,6 +231,16 @@ accountingRouter.post("/coa", requireAuth, requireRole("admin"), asyncHandler(as
   const accountId = String(body.accountId || "").trim() || `ACCT-${idSuffix()}`;
   const existing = await queryOne<any>(`SELECT account_id, current_balance FROM altax.v3_coa WHERE account_id = $1`, [accountId]);
 
+  // Name collisions were only ever caught by accident (accountId happening to match) —
+  // with no accountId supplied (every "New Account" submit) a fresh ID is always
+  // generated, so `existing` above is always null and this always inserted, even when
+  // an account with the same name already existed. Confirmed live: submitting "Retained
+  // Earnings" again created a second row with a different account_id, no error at all.
+  if (!existing) {
+    const duplicate = await queryOne<any>(`SELECT account_id FROM altax.v3_coa WHERE lower(account_name) = lower($1)`, [accountName]);
+    if (duplicate) return res.status(400).json({ error: `An account named "${accountName}" already exists (${duplicate.account_id}). Edit that one instead of creating a new one.` });
+  }
+
   const fields = {
     account_name: accountName, account_type: String(body.accountType || "Expense").trim(),
     detail_type: String(body.detailType || "").trim() || null,
