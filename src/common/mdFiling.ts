@@ -493,8 +493,22 @@ export async function computeMdFilingBreakdown(
     const recorded = recordedFilings?.get(period.end) ?? null;
     if (!options?.includeZeroTaxPeriods && taxDue <= 0 && periods.length > 1) {
       if (recorded) continue;
-      const daysUntilDue = Math.round((new Date(`${period.dueDate}T00:00:00Z`).getTime() - new Date(`${todayStr}T00:00:00Z`).getTime()) / 86400000);
-      if (daysUntilDue > filingDeadlineDaysThreshold) continue;
+      // "Actionable" was checked only against the DUE DATE (due soon or
+      // overdue) — but a period whose own end date has already passed is
+      // just as actionable regardless of how far off its due date still is
+      // (MD's due dates land ~20 days after period end, well past this
+      // threshold's default 7 days). Confirmed live: a client's $0 August
+      // period (ended 8/31, due 9/18) stayed completely invisible in this
+      // section — computeMdFilingForReport returned null outright, the
+      // whole "Filing Discount / Late Penalty" UI vanished with nothing to
+      // click — for the ~2 weeks between the period ending and its due
+      // date creeping inside the threshold, even though staff could (and
+      // needed to) file it the moment the period ended.
+      const periodAlreadyEnded = period.end <= todayStr;
+      if (!periodAlreadyEnded) {
+        const daysUntilDue = Math.round((new Date(`${period.dueDate}T00:00:00Z`).getTime() - new Date(`${todayStr}T00:00:00Z`).getTime()) / 86400000);
+        if (daysUntilDue > filingDeadlineDaysThreshold) continue;
+      }
     }
     // The sales input row(s) for this period already carry their own Payment
     // Date (set when staff entered/edited that sale) — for a period with no
