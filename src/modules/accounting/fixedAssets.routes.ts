@@ -92,11 +92,15 @@ fixedAssetsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHan
     const purchaseDate = String(body.purchaseDate || "").trim();
     const cost = money(body.cost);
     const salvageValue = money(body.salvageValue || 0);
-    const depreciationMethod = assetClass === "Fixed" && body.depreciationMethod === "MACRS" ? "MACRS" : "Straight-Line";
+    const depreciationMethod = assetClass !== "Fixed" ? "Straight-Line"
+      : body.depreciationMethod === "MACRS" ? "MACRS"
+      : body.depreciationMethod === "Manual" ? "Manual"
+      : "Straight-Line";
     const usefulLifeYears = assetClass === "Fixed" && depreciationMethod === "Straight-Line" ? Number(body.usefulLifeYears) : null;
     const macrsPropertyClass = assetClass === "Fixed" && depreciationMethod === "MACRS" ? body.macrsPropertyClass : null;
     const section179Amount = depreciationMethod === "MACRS" ? money(body.section179Amount || 0) : 0;
     const bonusDepreciationPct = depreciationMethod === "MACRS" ? Number(body.bonusDepreciationPct || 0) : 0;
+    const manualMethodLabel = depreciationMethod === "Manual" ? String(body.manualMethodLabel || "").trim() || null : null;
 
     if (!assetName) throw new ValidationError("Asset name is required.");
     if (!accountName) throw new ValidationError("Account is required.");
@@ -125,11 +129,11 @@ fixedAssetsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHan
         `INSERT INTO altax.v3_fixed_assets
            (asset_id, client_id, asset_name, account_name, asset_class, purchase_date, cost, salvage_value,
             useful_life_years, offset_account, notes, created_by, depreciation_method, macrs_property_class,
-            section_179_amount, bonus_depreciation_pct)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+            section_179_amount, bonus_depreciation_pct, manual_method_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [assetId, client.clientId, assetName, accountName, assetClass, purchaseDate, cost, salvageValue,
           usefulLifeYears, offsetAccount, String(body.notes || "").trim() || null, req.user!.email,
-          depreciationMethod, macrsPropertyClass, section179Amount, bonusDepreciationPct]
+          depreciationMethod, macrsPropertyClass, section179Amount, bonusDepreciationPct, manualMethodLabel]
       );
       await appendGl(client.clientId, client.clientName, {
         entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
@@ -161,7 +165,7 @@ fixedAssetsRouter.post("/:assetId/run-depreciation", requireAuth, requireRole("a
     if (asset.depreciation_method === "MACRS" && !isMacrsPropertyClass(asset.macrs_property_class)) {
       throw new ValidationError("This asset has no MACRS property class set — edit it before running depreciation.");
     }
-    if (asset.depreciation_method !== "MACRS" && !asset.useful_life_years) {
+    if (asset.depreciation_method === "Straight-Line" && !asset.useful_life_years) {
       throw new ValidationError("This asset has no useful life set — edit it before running depreciation.");
     }
 
@@ -179,7 +183,22 @@ fixedAssetsRouter.post("/:assetId/run-depreciation", requireAuth, requireRole("a
 
     let amount: number;
 
-    if (asset.depreciation_method === "MACRS") {
+    if (asset.depreciation_method === "Manual") {
+      // No calculation here at all, by design — this method exists specifically
+      // for depreciation the firm's actual tax software (Drake) already computed
+      // (150% DB, Mid-Quarter, real property, anything beyond the verified
+      // 5-/7-year 200DB/HY path this app can independently reproduce). Staff
+      // types in Drake's own number; this just posts and tracks it like any
+      // other depreciation entry.
+      const entered = money(req.body?.amount);
+      if (!(entered > 0)) throw new ValidationError("Enter the depreciation amount for this year (from your tax software).");
+      const alreadyDepreciated = await accumulatedDepreciation(asset.asset_id);
+      const remainingDepreciable = Math.max(0, Number(asset.cost) - Number(asset.salvage_value) - alreadyDepreciated);
+      if (entered > remainingDepreciable + 0.01) {
+        throw new ValidationError(`That's more than what's left to depreciate on this asset ($${remainingDepreciable.toFixed(2)} remaining).`);
+      }
+      amount = entered;
+    } else if (asset.depreciation_method === "MACRS") {
       // Half-year convention already bakes "half a year" into the Year-1 table
       // percentage itself — unlike straight-line, MACRS does NOT get further
       // prorated by actual months owned. Known gap: a mid-year disposal under

@@ -3383,7 +3383,7 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
   const [form, setForm] = useState({
     assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0",
     depreciationMethod: "Straight-Line", usefulLifeYears: "", macrsPropertyClass: "5-Year",
-    section179Amount: "0", bonusDepreciationPct: "0", offsetAccount: "Cash", notes: "",
+    section179Amount: "0", bonusDepreciationPct: "0", manualMethodLabel: "", offsetAccount: "Cash", notes: "",
   });
 
   function load() {
@@ -3408,13 +3408,14 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
         macrsPropertyClass: form.depreciationMethod === "MACRS" ? form.macrsPropertyClass : undefined,
         section179Amount: form.depreciationMethod === "MACRS" ? Number(form.section179Amount) || 0 : undefined,
         bonusDepreciationPct: form.depreciationMethod === "MACRS" ? Number(form.bonusDepreciationPct) || 0 : undefined,
+        manualMethodLabel: form.depreciationMethod === "Manual" ? form.manualMethodLabel : undefined,
         offsetAccount: form.offsetAccount, notes: form.notes,
       });
       setShowForm(false);
       setForm({
         assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0",
         depreciationMethod: "Straight-Line", usefulLifeYears: "", macrsPropertyClass: "5-Year",
-        section179Amount: "0", bonusDepreciationPct: "0", offsetAccount: "Cash", notes: "",
+        section179Amount: "0", bonusDepreciationPct: "0", manualMethodLabel: "", offsetAccount: "Cash", notes: "",
       });
       load();
     } catch (err) {
@@ -3426,14 +3427,28 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
 
   async function handleRunDepreciation(asset: any) {
     const year = new Date().getFullYear();
-    const ok = await confirmDialog({
-      title: "Run depreciation",
-      message: `Post ${year} depreciation for "${asset.asset_name}"? This is computed from its cost and depreciation method, and can't be undone from here.`,
-    });
-    if (!ok) return;
+    let manualAmount: number | undefined;
+
+    if (asset.depreciation_method === "Manual") {
+      const typed = await promptFor({
+        title: "Record depreciation",
+        message: `Enter the ${year} depreciation amount your tax software (Drake) computed for "${asset.asset_name}".`,
+        placeholder: "0.00",
+      });
+      if (!typed) return;
+      manualAmount = Number(typed);
+      if (!(manualAmount > 0)) { await notify("Enter a valid amount greater than 0."); return; }
+    } else {
+      const ok = await confirmDialog({
+        title: "Run depreciation",
+        message: `Post ${year} depreciation for "${asset.asset_name}"? This is computed from its cost and depreciation method, and can't be undone from here.`,
+      });
+      if (!ok) return;
+    }
+
     setBusy(asset.asset_id);
     try {
-      const res = await api.post<{ amount: number }>(`/accounting/fixed-assets/${asset.asset_id}/run-depreciation`, { year });
+      const res = await api.post<{ amount: number }>(`/accounting/fixed-assets/${asset.asset_id}/run-depreciation`, { year, amount: manualAmount });
       await notify(`Posted $${res.amount.toFixed(2)} of depreciation for ${year}.`);
       load();
     } catch (err) {
@@ -3491,12 +3506,14 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                   <label htmlFor="fa-method">Depreciation Method</label>
                   <select id="fa-method" value={form.depreciationMethod} onChange={(e) => setForm((f) => ({ ...f, depreciationMethod: e.target.value }))}>
                     <option value="Straight-Line">Straight-Line (book)</option>
-                    <option value="MACRS">MACRS — Section 179 / Bonus (tax)</option>
+                    <option value="MACRS">MACRS (200DB HY) — 5 or 7-year property</option>
+                    <option value="Manual">Other — enter amount from Drake each year</option>
                   </select>
                 </div>
-                {form.depreciationMethod === "Straight-Line" ? (
+                {form.depreciationMethod === "Straight-Line" && (
                   <div className="field"><label htmlFor="fa-life">Useful Life (years)</label><input id="fa-life" type="number" step="0.5" min="0.5" required value={form.usefulLifeYears} onChange={(e) => setForm((f) => ({ ...f, usefulLifeYears: e.target.value }))} /></div>
-                ) : (
+                )}
+                {form.depreciationMethod === "MACRS" && (
                   <>
                     <div className="field">
                       <label htmlFor="fa-macrs-class">Property Class</label>
@@ -3518,6 +3535,16 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                     </div>
                   </>
                 )}
+                {form.depreciationMethod === "Manual" && (
+                  <div className="field">
+                    <label htmlFor="fa-manual-label">Method (for your records)</label>
+                    <input id="fa-manual-label" value={form.manualMethodLabel} onChange={(e) => setForm((f) => ({ ...f, manualMethodLabel: e.target.value }))} placeholder="e.g. 150% DB, Mid-Quarter — per Drake" />
+                    <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 0" }}>
+                      For anything beyond straightforward 5-/7-year MACRS — real property, Mid-Quarter, 150% DB — enter the amount
+                      your tax software already computed each year instead of this app trying to recalculate it independently.
+                    </p>
+                  </div>
+                )}
               </>
             )}
             <div className="field"><label htmlFor="fa-offset">Paid From (offsetting account)</label><input id="fa-offset" required value={form.offsetAccount} onChange={(e) => setForm((f) => ({ ...f, offsetAccount: e.target.value }))} placeholder="e.g. Cash" /></div>
@@ -3536,7 +3563,11 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                     <td className="muted">
                       {a.asset_class}
                       {a.asset_class === "Fixed" && (
-                        <div style={{ fontSize: 11 }}>{a.depreciation_method === "MACRS" ? `MACRS ${a.macrs_property_class}, 200 DB/HY` : "Straight-Line"}</div>
+                        <div style={{ fontSize: 11 }}>
+                          {a.depreciation_method === "MACRS" ? `MACRS ${a.macrs_property_class}, 200 DB/HY`
+                            : a.depreciation_method === "Manual" ? (a.manual_method_label || "Manual (per Drake)")
+                            : "Straight-Line"}
+                        </div>
                       )}
                     </td>
                     <td className="muted">{fmtDate(a.purchase_date)}</td>
