@@ -5,6 +5,7 @@ import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { appendGl, money } from "../../common/accountingHelpers";
+import { MACRS_HALF_YEAR_TABLES, isMacrsPropertyClass } from "../../common/macrsTables";
 
 /**
  * Fixed Assets — client-scoped asset purchases with straight-line depreciation.
@@ -91,14 +92,23 @@ fixedAssetsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHan
     const purchaseDate = String(body.purchaseDate || "").trim();
     const cost = money(body.cost);
     const salvageValue = money(body.salvageValue || 0);
-    const usefulLifeYears = assetClass === "Fixed" ? Number(body.usefulLifeYears) : null;
+    const depreciationMethod = assetClass === "Fixed" && body.depreciationMethod === "MACRS" ? "MACRS" : "Straight-Line";
+    const usefulLifeYears = assetClass === "Fixed" && depreciationMethod === "Straight-Line" ? Number(body.usefulLifeYears) : null;
+    const macrsPropertyClass = assetClass === "Fixed" && depreciationMethod === "MACRS" ? body.macrsPropertyClass : null;
+    const section179Amount = depreciationMethod === "MACRS" ? money(body.section179Amount || 0) : 0;
+    const bonusDepreciationPct = depreciationMethod === "MACRS" ? Number(body.bonusDepreciationPct || 0) : 0;
 
     if (!assetName) throw new ValidationError("Asset name is required.");
     if (!accountName) throw new ValidationError("Account is required.");
     if (!offsetAccount) throw new ValidationError("Offsetting account is required.");
     if (!purchaseDate) throw new ValidationError("Purchase date is required.");
     if (!(cost > 0)) throw new ValidationError("Cost must be greater than 0.");
-    if (assetClass === "Fixed" && !(usefulLifeYears! > 0)) throw new ValidationError("Useful life (years) is required for a Fixed asset.");
+    if (assetClass === "Fixed" && depreciationMethod === "Straight-Line" && !(usefulLifeYears! > 0)) throw new ValidationError("Useful life (years) is required for a Fixed asset.");
+    if (assetClass === "Fixed" && depreciationMethod === "MACRS") {
+      if (!isMacrsPropertyClass(macrsPropertyClass)) throw new ValidationError("Property class (5-Year or 7-Year) is required for MACRS.");
+      if (section179Amount < 0 || section179Amount > cost) throw new ValidationError("Section 179 amount must be between 0 and the asset's cost.");
+      if (bonusDepreciationPct < 0 || bonusDepreciationPct > 100) throw new ValidationError("Bonus depreciation % must be between 0 and 100.");
+    }
 
     const coaAccount = await queryOne<any>(`SELECT account_id FROM altax.v3_coa WHERE lower(account_name) = lower($1)`, [accountName]);
     if (!coaAccount) {
@@ -114,10 +124,12 @@ fixedAssetsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHan
       await db.query(
         `INSERT INTO altax.v3_fixed_assets
            (asset_id, client_id, asset_name, account_name, asset_class, purchase_date, cost, salvage_value,
-            useful_life_years, offset_account, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            useful_life_years, offset_account, notes, created_by, depreciation_method, macrs_property_class,
+            section_179_amount, bonus_depreciation_pct)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [assetId, client.clientId, assetName, accountName, assetClass, purchaseDate, cost, salvageValue,
-          usefulLifeYears, offsetAccount, String(body.notes || "").trim() || null, req.user!.email]
+          usefulLifeYears, offsetAccount, String(body.notes || "").trim() || null, req.user!.email,
+          depreciationMethod, macrsPropertyClass, section179Amount, bonusDepreciationPct]
       );
       await appendGl(client.clientId, client.clientName, {
         entryDate: purchaseDate, ref: assetId, description: `Fixed asset purchase — ${assetName}`,
@@ -146,7 +158,12 @@ fixedAssetsRouter.post("/:assetId/run-depreciation", requireAuth, requireRole("a
 
   try {
     if (asset.asset_class !== "Fixed") throw new ValidationError("Current assets don't depreciate.");
-    if (!asset.useful_life_years) throw new ValidationError("This asset has no useful life set — edit it before running depreciation.");
+    if (asset.depreciation_method === "MACRS" && !isMacrsPropertyClass(asset.macrs_property_class)) {
+      throw new ValidationError("This asset has no MACRS property class set — edit it before running depreciation.");
+    }
+    if (asset.depreciation_method !== "MACRS" && !asset.useful_life_years) {
+      throw new ValidationError("This asset has no useful life set — edit it before running depreciation.");
+    }
 
     const year = Number(req.body?.year) || new Date().getFullYear();
     const ref = `${asset.asset_id}:${year}`;
@@ -160,20 +177,42 @@ fixedAssetsRouter.post("/:assetId/run-depreciation", requireAuth, requireRole("a
     if (disposedDate && disposedDate.getUTCFullYear() < year) throw new ValidationError("This asset was disposed before this year — nothing to depreciate.");
     if (purchaseDate.getUTCFullYear() > year) throw new ValidationError("This asset wasn't purchased yet in this year.");
 
-    // Months owned within `year` — prorates the first year (purchased mid-year) and the
-    // disposal year (sold mid-year) instead of always assuming a full 12 months.
-    const yearStart = new Date(Date.UTC(year, 0, 1));
-    const yearEnd = new Date(Date.UTC(year, 11, 31));
-    const periodStart = purchaseDate > yearStart ? purchaseDate : yearStart;
-    const periodEnd = disposedDate && disposedDate < yearEnd ? disposedDate : yearEnd;
-    const monthsOwned = Math.max(0, Math.min(12,
-      (periodEnd.getUTCFullYear() - periodStart.getUTCFullYear()) * 12 + (periodEnd.getUTCMonth() - periodStart.getUTCMonth()) + 1
-    ));
+    let amount: number;
 
-    const annualDepreciation = (Number(asset.cost) - Number(asset.salvage_value)) / Number(asset.useful_life_years);
-    const alreadyDepreciated = await accumulatedDepreciation(asset.asset_id);
-    const remainingDepreciable = Math.max(0, Number(asset.cost) - Number(asset.salvage_value) - alreadyDepreciated);
-    const amount = money(Math.min(remainingDepreciable, annualDepreciation * (monthsOwned / 12)));
+    if (asset.depreciation_method === "MACRS") {
+      // Half-year convention already bakes "half a year" into the Year-1 table
+      // percentage itself — unlike straight-line, MACRS does NOT get further
+      // prorated by actual months owned. Known gap: a mid-year disposal under
+      // MACRS should technically halve that year's table amount (a separate
+      // IRS rule) — not implemented; disposing simply blocks any LATER year
+      // via the check above, same as straight-line.
+      const table = MACRS_HALF_YEAR_TABLES[asset.macrs_property_class as "5-Year" | "7-Year"];
+      const yearIndex = year - purchaseDate.getUTCFullYear() + 1;
+      if (yearIndex < 1 || yearIndex > table.length) throw new ValidationError("This asset is fully depreciated.");
+
+      const section179Amount = Number(asset.section_179_amount) || 0;
+      const bonusPct = Number(asset.bonus_depreciation_pct) || 0;
+      const basisAfter179 = Number(asset.cost) - section179Amount;
+      const bonusAmount = basisAfter179 * (bonusPct / 100);
+      const macrsBasis = basisAfter179 - bonusAmount;
+      const tableAmount = macrsBasis * (table[yearIndex - 1] / 100);
+      amount = money(yearIndex === 1 ? section179Amount + bonusAmount + tableAmount : tableAmount);
+    } else {
+      // Months owned within `year` — prorates the first year (purchased mid-year) and the
+      // disposal year (sold mid-year) instead of always assuming a full 12 months.
+      const yearStart = new Date(Date.UTC(year, 0, 1));
+      const yearEnd = new Date(Date.UTC(year, 11, 31));
+      const periodStart = purchaseDate > yearStart ? purchaseDate : yearStart;
+      const periodEnd = disposedDate && disposedDate < yearEnd ? disposedDate : yearEnd;
+      const monthsOwned = Math.max(0, Math.min(12,
+        (periodEnd.getUTCFullYear() - periodStart.getUTCFullYear()) * 12 + (periodEnd.getUTCMonth() - periodStart.getUTCMonth()) + 1
+      ));
+
+      const annualDepreciation = (Number(asset.cost) - Number(asset.salvage_value)) / Number(asset.useful_life_years);
+      const alreadyDepreciated = await accumulatedDepreciation(asset.asset_id);
+      const remainingDepreciable = Math.max(0, Number(asset.cost) - Number(asset.salvage_value) - alreadyDepreciated);
+      amount = money(Math.min(remainingDepreciable, annualDepreciation * (monthsOwned / 12)));
+    }
 
     if (!(amount > 0)) throw new ValidationError("Nothing left to depreciate — this asset is already at its salvage value.");
 

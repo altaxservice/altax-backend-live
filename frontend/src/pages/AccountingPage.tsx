@@ -3382,7 +3382,8 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [form, setForm] = useState({
     assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0",
-    usefulLifeYears: "", offsetAccount: "Cash", notes: "",
+    depreciationMethod: "Straight-Line", usefulLifeYears: "", macrsPropertyClass: "5-Year",
+    section179Amount: "0", bonusDepreciationPct: "0", offsetAccount: "Cash", notes: "",
   });
 
   function load() {
@@ -3402,11 +3403,19 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
       await api.post("/accounting/fixed-assets", {
         clientId, assetName: form.assetName, accountName: form.accountName, assetClass: form.assetClass,
         purchaseDate: form.purchaseDate, cost: Number(form.cost) || 0, salvageValue: Number(form.salvageValue) || 0,
-        usefulLifeYears: form.usefulLifeYears ? Number(form.usefulLifeYears) : undefined,
+        depreciationMethod: form.depreciationMethod,
+        usefulLifeYears: form.depreciationMethod === "Straight-Line" && form.usefulLifeYears ? Number(form.usefulLifeYears) : undefined,
+        macrsPropertyClass: form.depreciationMethod === "MACRS" ? form.macrsPropertyClass : undefined,
+        section179Amount: form.depreciationMethod === "MACRS" ? Number(form.section179Amount) || 0 : undefined,
+        bonusDepreciationPct: form.depreciationMethod === "MACRS" ? Number(form.bonusDepreciationPct) || 0 : undefined,
         offsetAccount: form.offsetAccount, notes: form.notes,
       });
       setShowForm(false);
-      setForm({ assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0", usefulLifeYears: "", offsetAccount: "Cash", notes: "" });
+      setForm({
+        assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0",
+        depreciationMethod: "Straight-Line", usefulLifeYears: "", macrsPropertyClass: "5-Year",
+        section179Amount: "0", bonusDepreciationPct: "0", offsetAccount: "Cash", notes: "",
+      });
       load();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not save this asset.");
@@ -3419,7 +3428,7 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
     const year = new Date().getFullYear();
     const ok = await confirmDialog({
       title: "Run depreciation",
-      message: `Post ${year} depreciation for "${asset.asset_name}"? This is computed straight-line from its cost, salvage value, and useful life, and can't be undone from here.`,
+      message: `Post ${year} depreciation for "${asset.asset_name}"? This is computed from its cost and depreciation method, and can't be undone from here.`,
     });
     if (!ok) return;
     setBusy(asset.asset_id);
@@ -3478,7 +3487,32 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
             {form.assetClass === "Fixed" && (
               <>
                 <div className="field"><label htmlFor="fa-salvage">Salvage Value</label><input id="fa-salvage" type="number" step="0.01" min="0" value={form.salvageValue} onChange={(e) => setForm((f) => ({ ...f, salvageValue: e.target.value }))} /></div>
-                <div className="field"><label htmlFor="fa-life">Useful Life (years)</label><input id="fa-life" type="number" step="0.5" min="0.5" required value={form.usefulLifeYears} onChange={(e) => setForm((f) => ({ ...f, usefulLifeYears: e.target.value }))} /></div>
+                <div className="field">
+                  <label htmlFor="fa-method">Depreciation Method</label>
+                  <select id="fa-method" value={form.depreciationMethod} onChange={(e) => setForm((f) => ({ ...f, depreciationMethod: e.target.value }))}>
+                    <option value="Straight-Line">Straight-Line (book)</option>
+                    <option value="MACRS">MACRS — Section 179 / Bonus (tax)</option>
+                  </select>
+                </div>
+                {form.depreciationMethod === "Straight-Line" ? (
+                  <div className="field"><label htmlFor="fa-life">Useful Life (years)</label><input id="fa-life" type="number" step="0.5" min="0.5" required value={form.usefulLifeYears} onChange={(e) => setForm((f) => ({ ...f, usefulLifeYears: e.target.value }))} /></div>
+                ) : (
+                  <>
+                    <div className="field">
+                      <label htmlFor="fa-macrs-class">Property Class</label>
+                      <select id="fa-macrs-class" value={form.macrsPropertyClass} onChange={(e) => setForm((f) => ({ ...f, macrsPropertyClass: e.target.value }))}>
+                        <option value="5-Year">5-Year property</option>
+                        <option value="7-Year">7-Year property</option>
+                      </select>
+                    </div>
+                    <div className="field"><label htmlFor="fa-179">Section 179 Amount</label><input id="fa-179" type="number" step="0.01" min="0" value={form.section179Amount} onChange={(e) => setForm((f) => ({ ...f, section179Amount: e.target.value }))} /></div>
+                    <div className="field">
+                      <label htmlFor="fa-bonus">Bonus Depreciation %</label>
+                      <input id="fa-bonus" type="number" step="0.01" min="0" max="100" value={form.bonusDepreciationPct} onChange={(e) => setForm((f) => ({ ...f, bonusDepreciationPct: e.target.value }))} />
+                      <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 0" }}>Check your current tax year's bonus rate — this isn't assumed for you.</p>
+                    </div>
+                  </>
+                )}
               </>
             )}
             <div className="field"><label htmlFor="fa-offset">Paid From (offsetting account)</label><input id="fa-offset" required value={form.offsetAccount} onChange={(e) => setForm((f) => ({ ...f, offsetAccount: e.target.value }))} placeholder="e.g. Cash" /></div>
@@ -3494,7 +3528,12 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                 {assets.map((a) => (
                   <tr key={a.asset_id}>
                     <td>{a.asset_name}<div className="muted" style={{ fontSize: 11 }}>{a.account_name}</div></td>
-                    <td className="muted">{a.asset_class}</td>
+                    <td className="muted">
+                      {a.asset_class}
+                      {a.asset_class === "Fixed" && (
+                        <div style={{ fontSize: 11 }}>{a.depreciation_method === "MACRS" ? `MACRS (${a.macrs_property_class})` : "Straight-Line"}</div>
+                      )}
+                    </td>
                     <td className="muted">{fmtDate(a.purchase_date)}</td>
                     <td style={{ textAlign: "right" }}>{fmtMoney(a.cost)}</td>
                     <td style={{ textAlign: "right" }}>{a.asset_class === "Fixed" ? fmtMoney(a.accumulated_depreciation) : "—"}</td>
