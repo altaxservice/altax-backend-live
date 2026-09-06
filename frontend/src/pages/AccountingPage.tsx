@@ -3504,6 +3504,11 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                         <option value="5-Year">5-Year property</option>
                         <option value="7-Year">7-Year property</option>
                       </select>
+                      {/* Method and Convention aren't chooseable yet — this version only
+                          supports the combination Form 4562 itself uses for 5- and 7-year
+                          property (columns (e) and (f)) — shown here so it's clear what's
+                          actually being computed, not left implicit. */}
+                      <p className="muted" style={{ fontSize: 11.5, margin: "4px 0 0" }}>Method: 200 DB &nbsp;·&nbsp; Convention: HY (half-year)</p>
                     </div>
                     <div className="field"><label htmlFor="fa-179">Section 179 Amount</label><input id="fa-179" type="number" step="0.01" min="0" value={form.section179Amount} onChange={(e) => setForm((f) => ({ ...f, section179Amount: e.target.value }))} /></div>
                     <div className="field">
@@ -3531,7 +3536,7 @@ function FixedAssetsTab({ clientId }: { clientId: string }) {
                     <td className="muted">
                       {a.asset_class}
                       {a.asset_class === "Fixed" && (
-                        <div style={{ fontSize: 11 }}>{a.depreciation_method === "MACRS" ? `MACRS (${a.macrs_property_class})` : "Straight-Line"}</div>
+                        <div style={{ fontSize: 11 }}>{a.depreciation_method === "MACRS" ? `MACRS ${a.macrs_property_class}, 200 DB/HY` : "Straight-Line"}</div>
                       )}
                     </td>
                     <td className="muted">{fmtDate(a.purchase_date)}</td>
