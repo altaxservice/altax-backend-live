@@ -7,6 +7,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { normalizeText } from "../../common/assignment";
 import { sendEmail, recordNotificationFailure } from "../../common/notifications";
 import { escapeHtml } from "../../common/html";
+import { findRealFilingEvidence, closeObligationTask } from "../../common/taskRulesAgentBridge";
 
 /**
  * Task Rules & Batches module — completes Phase 3. Ported from alTaxPortalSaveTaskRule,
@@ -326,9 +327,9 @@ interface RunRuleBatchOpts {
 }
 interface RunRuleBatchOk {
   ok: true;
-  wouldCreate: number; wouldSkip: number;
-  results: { clientId: string; clientName: string; action: "create" | "skip" }[];
-  created?: number; skipped?: number; batchId?: string;
+  wouldCreate: number; wouldSkip: number; wouldHeal?: number;
+  results: { clientId: string; clientName: string; action: "create" | "skip" | "create-completed" | "heal" }[];
+  created?: number; skipped?: number; healed?: number; batchId?: string;
 }
 type RunRuleBatchResult = RunRuleBatchOk | { ok: false; error: string };
 
@@ -354,23 +355,53 @@ async function runRuleBatch(rule: any, opts: RunRuleBatchOpts): Promise<RunRuleB
   );
   if (!matchedClients.length) return { ok: false, error: "No active clients matched this batch." };
 
-  const results: { clientId: string; clientName: string; action: "create" | "skip" }[] = [];
+  // Real filing evidence check, alongside the original v3_tasks-only duplicate
+  // check — the original only ever asked "does a task row already exist,"
+  // never "was this period actually already filed." Confirmed live: a
+  // client's Sales Tax period was marked filed at 5:27 PM, but this batch
+  // didn't create that period's task until 6:23 PM — closeObligationTask had
+  // nothing to close at filing time, and nothing ever revisited that exact
+  // period again, leaving the task stuck at "Not Started" despite being
+  // genuinely filed and paid. Evidence found + an open duplicate → heal it
+  // (update in place) instead of leaving it orphaned. Evidence found + no
+  // duplicate → still create the task (for a complete record), but already
+  // Completed rather than passing through a "Not Started" phase it's
+  // already past. No evidence → today's exact behavior, unchanged.
+  const results: { clientId: string; clientName: string; action: "create" | "skip" | "create-completed" | "heal"; existingTaskId?: string; evidence?: { filedDate: string; paidDate: string | null } }[] = [];
   for (const client of matchedClients) {
-    const duplicate = await queryOne(
-      `SELECT 1 FROM altax.v3_tasks
+    const duplicate = await queryOne<any>(
+      `SELECT task_id FROM altax.v3_tasks
         WHERE client_id = $1 AND lower(task_name) = lower($2) AND lower(coalesce(period,'')) = lower($3)
           AND lower(status) NOT IN ('completed','closed','archived','void')
         LIMIT 1`,
       [client.client_id, taskType, opts.periodLabel]
     );
-    results.push({ clientId: client.client_id, clientName: client.client_name, action: duplicate ? "skip" : "create" });
+    const evidence = await findRealFilingEvidence(client.client_id, taskType, opts.periodLabel);
+
+    if (duplicate && evidence) {
+      results.push({ clientId: client.client_id, clientName: client.client_name, action: "heal", existingTaskId: duplicate.task_id, evidence });
+    } else if (duplicate) {
+      results.push({ clientId: client.client_id, clientName: client.client_name, action: "skip" });
+    } else if (evidence) {
+      results.push({ clientId: client.client_id, clientName: client.client_name, action: "create-completed", evidence });
+    } else {
+      results.push({ clientId: client.client_id, clientName: client.client_name, action: "create" });
+    }
   }
 
-  const toCreate = results.filter((r) => r.action === "create");
-  const skipped = results.length - toCreate.length;
+  const toCreate = results.filter((r) => r.action === "create" || r.action === "create-completed");
+  const toHeal = results.filter((r) => r.action === "heal");
+  const skipped = results.filter((r) => r.action === "skip").length;
 
   if (dryRun) {
-    return { ok: true, wouldCreate: toCreate.length, wouldSkip: skipped, results };
+    return { ok: true, wouldCreate: toCreate.length, wouldSkip: skipped, wouldHeal: toHeal.length, results };
+  }
+
+  for (const r of toHeal) {
+    await closeObligationTask({
+      clientId: r.clientId, keyword: taskType, dueDate: opts.dueDate,
+      periodLabel: opts.periodLabel, filedDate: r.evidence!.filedDate, paidDate: r.evidence!.paidDate,
+    });
   }
 
   const batchId = `BATCH-${idSuffix()}`;
@@ -391,18 +422,26 @@ async function runRuleBatch(rule: any, opts: RunRuleBatchOpts): Promise<RunRuleB
     const client = matchedClients.find((c) => c.client_id === r.clientId)!;
     const taskId = `BT-${idSuffix()}`;
     const finalAssignedTo = String(assignedTo || client.assigned_to || "AL").trim();
+    // "create-completed" means real filing evidence already showed this period done
+    // before this batch got around to creating its task — insert it already reflecting
+    // that instead of a "Not Started" phase it's already past (see the evidence-check
+    // comment above the results loop for the real incident this covers).
+    const status = r.action === "create-completed" ? "Completed" : "Not Started";
+    const filedDate = r.action === "create-completed" ? r.evidence!.filedDate : null;
+    const paidDate = r.action === "create-completed" ? r.evidence!.paidDate : null;
     await query(
       `INSERT INTO altax.v3_tasks
          (task_id, client_id, client_name, service_line, task_name, period, frequency, agency_due_date,
           staff_due_date, status, assigned_to, payment_required, portal_name, portal_url, notes,
-          source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,'Not Started',$9,$10,$11,$12,$13,'Unified Web App Batch',$14)`,
+          source_system, source_record_id, filed_date, paid_date)
+       VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$15,$9,$10,$11,$12,$13,'Unified Web App Batch',$14,$16,$17)`,
       [
         taskId, client.client_id, client.client_name, taskType, opts.periodLabel,
         String(rule.frequency || "").trim() || null, opts.dueDate,
         String(opts.staffDueDate || "").trim() || null, finalAssignedTo,
         Boolean(rule.payment_required), String(rule.portal_name || "").trim() || null,
         String(rule.portal_url || "").trim() || null, taskNotes, batchId,
+        status, filedDate, paidDate,
       ]
     );
   }
@@ -424,7 +463,7 @@ async function runRuleBatch(rule: any, opts: RunRuleBatchOpts): Promise<RunRuleB
   await logAudit("Tasks", "BATCH_CREATE", batchId, "", "", String(toCreate.length),
     `Batch tasks created from rule ${rule.rule_id}.`, opts.actorEmail);
 
-  return { ok: true, wouldCreate: toCreate.length, wouldSkip: skipped, results, created: toCreate.length, skipped, batchId };
+  return { ok: true, wouldCreate: toCreate.length, wouldSkip: skipped, wouldHeal: toHeal.length, results, created: toCreate.length, skipped, healed: toHeal.length, batchId };
 }
 
 /**

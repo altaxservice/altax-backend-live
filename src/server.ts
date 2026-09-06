@@ -37,6 +37,7 @@ import { publicMdUiFilingsRouter } from "./modules/mdUiFilings/publicMdUiFilings
 import { form941FilingsRouter } from "./modules/form941/form941Filings.routes";
 import { publicForm941FilingsRouter } from "./modules/form941/publicForm941Filings.routes";
 import { ensureEftpsStaffTasks } from "./modules/eftpsDeposits/eftpsStaffTasks";
+import { healOrphanedObligationTasks } from "./common/taskRulesAgentBridge";
 import { salesInputImportRouter } from "./modules/salesInputImport/salesInputImport.routes";
 import { rulesRouter, runTaskRulesAgentSweep, isTaskRulesAgentAutoRunEnabled } from "./modules/rules/rules.routes";
 import { vaultRouter } from "./modules/vault/vault.routes";
@@ -591,6 +592,20 @@ console.log("Client compliance deadline reminders scheduled for 6:29AM America/N
 cron.schedule("31 6 * * *", runScheduledJob("EFTPS Staff Task Sweep", () => ensureEftpsStaffTasks()), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("EFTPS staff task sweep scheduled for 6:31AM America/New_York.");
+
+// Orphaned-obligation-task healing sweep — real incident, 2026-09-06: AI
+// TOBACCO CENTER INC and ASILAH INVESTMENT INC's MD Sales Tax tasks stayed
+// "Not Started" for weeks after being genuinely filed and paid, because the
+// Task Rules batch that created them ran ~1hr AFTER the filing was already
+// recorded — closeObligationTask had nothing to close at that moment, and no
+// later batch run ever revisits that exact period again. runRuleBatch now
+// checks real filing evidence at creation time, but this catches anything
+// that was already orphaned before that fix, or slips past it for any other
+// reason. Safe to run daily and unconditionally — a no-op once nothing is
+// actually orphaned.
+cron.schedule("33 6 * * *", runScheduledJob("Orphaned Obligation Task Healing Sweep", () => healOrphanedObligationTasks()), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Orphaned obligation task healing sweep scheduled for 6:33AM America/New_York.");
 
 // Client risk-flag sweep (UX-005) — the "push" counterpart to the At-Risk
 // Clients dashboard panel (UX-001): logs one audit event per client newly
