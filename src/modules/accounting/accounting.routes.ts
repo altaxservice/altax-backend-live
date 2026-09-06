@@ -11,6 +11,7 @@ import { calculateFederalWithholding, calculateMarylandWithholding, calculateVir
 import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning";
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
+import { fixedAssetsRouter } from "./fixedAssets.routes";
 
 /**
  * Accounting module — Phase 7. Tax Rates and Chart of Accounts are pure reference
@@ -48,6 +49,7 @@ import { monthEndRouter } from "./monthEndChecklist";
  */
 export const accountingRouter = Router();
 accountingRouter.use("/month-end", monthEndRouter);
+accountingRouter.use("/fixed-assets", fixedAssetsRouter);
 
 function idSuffix(): string {
   const now = new Date();

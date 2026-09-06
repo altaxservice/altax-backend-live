@@ -27,9 +27,9 @@ import { AnnualReportSection } from "../components/AnnualReportSection";
 import { MdUiSection } from "../components/MdUiSection";
 import { Form941Section } from "../components/Form941Section";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -141,6 +141,7 @@ export function AccountingPage() {
       {tab === "Form 941" && clientId && <Form941Section clientId={clientId} />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} clientState={client?.state} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
+      {tab === "Fixed Assets" && clientId && <FixedAssetsTab clientId={clientId} />}
       {tab === "GL" && clientId && (
         <GlTab clientId={clientId} initialRef={searchParams.get("ref")} initialAccount={searchParams.get("account")} />
       )}
@@ -3356,6 +3357,164 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </div>
         </div>
         {visibleEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{entries.length === 0 ? "No manual entries posted yet." : "No entries match that search."}</p>}
+      </Panel>
+    </div>
+  );
+}
+
+/**
+ * Fixed Assets — client-scoped asset purchases, deliberately separate from
+ * COA's "New Account" form. v3_coa (the COA tab) is firm-wide and only
+ * defines account types shared across every client; an actual purchase
+ * (which client, which date, how much, how long it depreciates) is
+ * per-client data that has nowhere else to live. Built after a real
+ * client's Balance Sheet showed Accumulated Depreciation with no
+ * underlying asset ever recorded.
+ */
+function FixedAssetsTab({ clientId }: { clientId: string }) {
+  const notify = useNotify();
+  const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
+  const [assets, setAssets] = useState<any[] | null>(null);
+  const [accounts, setAccounts] = useState<CoaAccount[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0",
+    usefulLifeYears: "", offsetAccount: "Cash", notes: "",
+  });
+
+  function load() {
+    api.get<{ assets: any[] }>(`/accounting/fixed-assets?clientId=${clientId}`).then((r) => setAssets(r.assets)).catch(() => setAssets([]));
+  }
+  useEffect(load, [clientId]);
+  useEffect(() => {
+    api.get<{ accounts: CoaAccount[] }>("/accounting/coa").then((r) => setAccounts(r.accounts)).catch(() => {});
+  }, []);
+
+  const assetAccounts = accounts.filter((a) => a.account_type === "Asset");
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post("/accounting/fixed-assets", {
+        clientId, assetName: form.assetName, accountName: form.accountName, assetClass: form.assetClass,
+        purchaseDate: form.purchaseDate, cost: Number(form.cost) || 0, salvageValue: Number(form.salvageValue) || 0,
+        usefulLifeYears: form.usefulLifeYears ? Number(form.usefulLifeYears) : undefined,
+        offsetAccount: form.offsetAccount, notes: form.notes,
+      });
+      setShowForm(false);
+      setForm({ assetName: "", accountName: "", assetClass: "Fixed", purchaseDate: "", cost: "", salvageValue: "0", usefulLifeYears: "", offsetAccount: "Cash", notes: "" });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this asset.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRunDepreciation(asset: any) {
+    const year = new Date().getFullYear();
+    const ok = await confirmDialog({
+      title: "Run depreciation",
+      message: `Post ${year} depreciation for "${asset.asset_name}"? This is computed straight-line from its cost, salvage value, and useful life, and can't be undone from here.`,
+    });
+    if (!ok) return;
+    setBusy(asset.asset_id);
+    try {
+      const res = await api.post<{ amount: number }>(`/accounting/fixed-assets/${asset.asset_id}/run-depreciation`, { year });
+      await notify(`Posted $${res.amount.toFixed(2)} of depreciation for ${year}.`);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not run depreciation.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDispose(asset: any) {
+    const typed = await promptFor({
+      title: "Dispose asset", message: `Enter the disposal date for "${asset.asset_name}".`,
+      placeholder: new Date().toISOString().slice(0, 10),
+    });
+    if (!typed) return;
+    setBusy(asset.asset_id);
+    try {
+      await api.post(`/accounting/fixed-assets/${asset.asset_id}/dispose`, { disposedDate: typed });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark this asset disposed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div>
+      <Panel
+        title="Fixed Assets"
+        note="What this client actually bought, when, and for how much — separate from the Chart of Accounts, which only defines account types shared across every client."
+        action={<button type="button" className="btn btn-primary" onClick={() => setShowForm((v) => !v)}>{showForm ? "Cancel" : "+ New Asset"}</button>}
+      >
+        {showForm && (
+          <form onSubmit={handleSave} className="card" style={{ margin: 16, maxWidth: 480 }}>
+            <div className="field"><label htmlFor="fa-name">Asset Name</label><input id="fa-name" required value={form.assetName} onChange={(e) => setForm((f) => ({ ...f, assetName: e.target.value }))} placeholder="e.g. Storefront Sign" /></div>
+            <div className="field">
+              <label htmlFor="fa-account">Account</label>
+              <input id="fa-account" required list="fa-account-list" value={form.accountName} onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))} placeholder="e.g. Equipment (creates it if new)" />
+              <datalist id="fa-account-list">{assetAccounts.map((a) => <option key={a.account_id} value={a.account_name} />)}</datalist>
+            </div>
+            <div className="field">
+              <label htmlFor="fa-class">Asset Class</label>
+              <select id="fa-class" value={form.assetClass} onChange={(e) => setForm((f) => ({ ...f, assetClass: e.target.value }))}>
+                <option value="Fixed">Fixed (depreciates over time)</option>
+                <option value="Current">Current (no depreciation)</option>
+              </select>
+            </div>
+            <div className="field"><label htmlFor="fa-date">Purchase Date</label><input id="fa-date" type="date" required value={form.purchaseDate} onChange={(e) => setForm((f) => ({ ...f, purchaseDate: e.target.value }))} /></div>
+            <div className="field"><label htmlFor="fa-cost">Cost</label><input id="fa-cost" type="number" step="0.01" min="0.01" required value={form.cost} onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))} /></div>
+            {form.assetClass === "Fixed" && (
+              <>
+                <div className="field"><label htmlFor="fa-salvage">Salvage Value</label><input id="fa-salvage" type="number" step="0.01" min="0" value={form.salvageValue} onChange={(e) => setForm((f) => ({ ...f, salvageValue: e.target.value }))} /></div>
+                <div className="field"><label htmlFor="fa-life">Useful Life (years)</label><input id="fa-life" type="number" step="0.5" min="0.5" required value={form.usefulLifeYears} onChange={(e) => setForm((f) => ({ ...f, usefulLifeYears: e.target.value }))} /></div>
+              </>
+            )}
+            <div className="field"><label htmlFor="fa-offset">Paid From (offsetting account)</label><input id="fa-offset" required value={form.offsetAccount} onChange={(e) => setForm((f) => ({ ...f, offsetAccount: e.target.value }))} placeholder="e.g. Cash" /></div>
+            <div className="field"><label htmlFor="fa-notes">Notes</label><textarea id="fa-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+            <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save & Post Purchase"}</button>
+          </form>
+        )}
+        {assets && assets.length > 0 && (
+          <div className="table-scroll" style={{ margin: 16 }}>
+            <table>
+              <thead><tr><th>Asset</th><th>Class</th><th>Purchased</th><th style={{ textAlign: "right" }}>Cost</th><th style={{ textAlign: "right" }}>Accum. Depreciation</th><th style={{ textAlign: "right" }}>Book Value</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {assets.map((a) => (
+                  <tr key={a.asset_id}>
+                    <td>{a.asset_name}<div className="muted" style={{ fontSize: 11 }}>{a.account_name}</div></td>
+                    <td className="muted">{a.asset_class}</td>
+                    <td className="muted">{fmtDate(a.purchase_date)}</td>
+                    <td style={{ textAlign: "right" }}>{fmtMoney(a.cost)}</td>
+                    <td style={{ textAlign: "right" }}>{a.asset_class === "Fixed" ? fmtMoney(a.accumulated_depreciation) : "—"}</td>
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(a.book_value)}</td>
+                    <td>{a.status === "Disposed" ? <span className="muted">Disposed {fmtDate(a.disposed_date)}</span> : <span style={{ color: "var(--teal)" }}>Active</span>}</td>
+                    <td>
+                      {a.status === "Active" && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {a.asset_class === "Fixed" && <button type="button" className="btn btn-sm" disabled={busy === a.asset_id} onClick={() => handleRunDepreciation(a)}>{busy === a.asset_id ? "…" : "Run Depreciation"}</button>}
+                          <button type="button" className="btn btn-sm btn-danger" disabled={busy === a.asset_id} onClick={() => handleDispose(a)}>Dispose</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {assets && assets.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No assets recorded for this client yet.</p>}
       </Panel>
     </div>
   );
