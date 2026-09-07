@@ -939,11 +939,13 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         </div>
         {periodByCategory.length > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
-            <div className="small-label" style={{ marginBottom: 6 }}>Tax Collected by Category (this period)</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <div className="small-label" style={{ marginBottom: 8 }}>Tax Collected by Category (this period)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {periodByCategory.map((c) => (
-                <div key={c.categoryName} className="card" style={{ padding: "6px 10px", fontSize: 12 }}>
-                  <strong>{c.categoryName}</strong> · {fmtMoney(c.taxable)} taxed · <span className="muted">{fmtMoney(c.tax)} tax</span>
+                <div key={c.categoryName} className="card" style={{ padding: "14px 18px", minWidth: 200 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{c.categoryName}</div>
+                  <div style={{ fontSize: 13 }}>{fmtMoney(c.taxable)} taxed</div>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.tax)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">tax</span></div>
                 </div>
               ))}
             </div>
