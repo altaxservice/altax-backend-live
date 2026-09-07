@@ -131,6 +131,9 @@ export function ClientsListPage() {
   const [sortDir, setSortDir] = useStickyState<"asc" | "desc">("clients.sortDir", "asc");
   const [showForm, setShowForm] = useState(searchParams.get("new") === "1" || Boolean(prospectPrefillRef.current));
   const [form, setForm] = useState(() => (prospectPrefillRef.current ? { ...EMPTY_CLIENT_FORM, ...prospectPrefillRef.current } : EMPTY_CLIENT_FORM));
+  // "Copy from an existing client" — see handleCopyFromClient below.
+  const [copySourceQuery, setCopySourceQuery] = useState("");
+  const [copyingFrom, setCopyingFrom] = useState(false);
   const [createPortalNow, setCreatePortalNow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -299,6 +302,61 @@ export function ClientsListPage() {
       setSaveError(err instanceof ApiError ? err.message : "Could not create this client.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /**
+   * "Copy from an existing client" — real owner request: a client who
+   * already has one company on file and is opening another shouldn't have
+   * to retype the same person's name/SSN/contact info a second time. Copies
+   * only facts about the PERSON, never the business: owner name/email/
+   * phone/mailing address, owner SSN, individual SSN (for a sole-prop
+   * client), and language/contact preferences. Deliberately excludes the
+   * business's own email/phone/street address, EIN, entity type, and
+   * everything under Services/Compliance/Payroll — those are genuinely new
+   * for a new company, not something to inherit from a different one.
+   *
+   * Looks the typed name up against the already-loaded `clients` list (same
+   * one this page's table uses) just to find the client_id, then fetches
+   * that ONE client's full record — the list response doesn't carry the
+   * owner's address/email/phone fields, only the New Client form's fuller
+   * single-client GET does. That GET (clients.routes.ts) masks SSN fields
+   * for anyone who isn't admin, so a staff user copying from it would
+   * otherwise silently save a masked string like "***-**-1234" as the new
+   * client's real SSN — skip those two fields entirely for non-admin
+   * instead.
+   */
+  async function handleCopyFromClient() {
+    const match = (clients || []).find((c) => c.client_name.trim().toLowerCase() === copySourceQuery.trim().toLowerCase());
+    if (!match) return;
+    setCopyingFrom(true);
+    try {
+      const { client: source } = await api.get<{ client: Record<string, any> }>(`/clients/${match.client_id}`);
+      const isAdmin = user?.role === "admin";
+      setForm((f) => ({
+        ...f,
+        companyContactName: source.company_contact_name || f.companyContactName,
+        companyContactEmail: source.company_contact_email || f.companyContactEmail,
+        companyContactPhone: source.company_contact_phone || f.companyContactPhone,
+        companyContactStreetAddress: source.company_contact_street_address || f.companyContactStreetAddress,
+        companyContactCity: source.company_contact_city || f.companyContactCity,
+        companyContactState: source.company_contact_state || f.companyContactState,
+        companyContactZipCode: source.company_contact_zip_code || f.companyContactZipCode,
+        preferredLanguage: source.preferred_language || f.preferredLanguage,
+        preferredContact: source.preferred_contact || f.preferredContact,
+        ...(isAdmin ? {
+          companyContactSsn: source.company_contact_ssn || f.companyContactSsn,
+          individualSsn: source.individual_ssn || f.individualSsn,
+        } : {}),
+      }));
+      setCopySourceQuery("");
+      toast(isAdmin
+        ? `Copied contact details from ${match.client_name}.`
+        : `Copied contact details from ${match.client_name} — SSN fields need an admin, those weren't copied.`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not copy details from that client.");
+    } finally {
+      setCopyingFrom(false);
     }
   }
 
@@ -574,6 +632,31 @@ export function ClientsListPage() {
             <DraftRestoreBanner updatedAt={pendingClientDraft.updatedAt} onRestore={restoreClientDraft} onDiscard={() => { clearClientDraft(); dismissClientDraft(); }} />
           )}
           {saveError && <ErrorBanner error={saveError} />}
+
+          {/* Copy from an existing client — for the same real person opening a second
+              company. Only pre-fills the personal/contact fields below (see
+              handleCopyFromClient's own comment for exactly which, and why); every
+              business-specific field (EIN, entity type, sales tax setup, etc.) is left
+              for staff to fill in fresh, since those genuinely differ per company. */}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap", padding: "10px 12px", marginBottom: 16, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8 }}>
+            <div className="field" style={{ flex: "1 1 260px", margin: 0 }}>
+              <label htmlFor="nc-copy-source">Copy contact details from an existing client <span className="muted">(same owner, new company — optional)</span></label>
+              <input
+                id="nc-copy-source" list="nc-copy-source-list" placeholder="Start typing a client name…"
+                value={copySourceQuery} onChange={(e) => setCopySourceQuery(e.target.value)}
+              />
+              <datalist id="nc-copy-source-list">
+                {(clients || []).map((c) => <option key={c.client_id} value={c.client_name} />)}
+              </datalist>
+            </div>
+            <button
+              type="button" className="btn btn-sm"
+              disabled={copyingFrom || !(clients || []).some((c) => c.client_name.trim().toLowerCase() === copySourceQuery.trim().toLowerCase())}
+              onClick={handleCopyFromClient}
+            >
+              {copyingFrom ? "Copying…" : "Copy"}
+            </button>
+          </div>
 
           <div className={`ac-wizard${navCollapsed ? " nav-collapsed" : ""}`}>
             <nav className="ac-wizard-nav" aria-label="Add Client sections">
