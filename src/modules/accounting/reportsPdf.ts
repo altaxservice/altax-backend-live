@@ -101,6 +101,14 @@ class Cursor {
     this.page.drawText(safe, { x: drawX, y: this.top - yFromTop, size, font, color: opts.color ?? INK });
   }
 
+  /** Measures a string at the size/weight it would actually draw at — lets a caller decide layout (e.g. stack vs. side-by-side) before committing to a draw. */
+  widthOf(str: string, opts: { size?: number; bold?: boolean } = {}): number {
+    const size = opts.size ?? 10;
+    const font = opts.bold ? this.bold : this.font;
+    const safe = pdfSafeText(str);
+    return safe ? font.widthOfTextAtSize(safe, size) : 0;
+  }
+
   line(x1: number, y1: number, x2: number, y2: number, color = LINE, thickness = 0.75) {
     this.page.drawLine({ start: { x: x1, y: this.top - y1 }, end: { x: x2, y: this.top - y2 }, thickness, color });
   }
@@ -121,9 +129,24 @@ async function newPage(doc: PDFDocument, font: PDFFont, bold: PDFFont): Promise<
 function drawHeader(c: Cursor, client: ReportClientInfo, reportTitle: string, periodLabel: string, firmName: string): number {
   const L = 48, R = PAGE_W - 48;
   let y = 48;
-  c.text(L, y, client.clientName.toUpperCase(), { size: 16, bold: true, color: TEAL });
-  c.text(R, y, reportTitle, { size: 16, bold: true, align: "right" });
-  y += 16;
+  const nameText = client.clientName.toUpperCase();
+  // Both drawn at 16pt bold anchored from opposite page edges with no
+  // measurement — fine for a short name/title, but a long client name
+  // ("AAA CARRYOUT AND GROCERY LLC") next to a long title ("SALES, TAX &
+  // PAYROLL REPORT") add up to more than the page's usable width and
+  // visually collide in the middle. Confirmed live. Stack the title on its
+  // own line below the name instead of guessing at a smaller size that
+  // might still collide for an even longer name.
+  if (c.widthOf(nameText, { size: 16, bold: true }) + c.widthOf(reportTitle, { size: 16, bold: true }) + 16 > R - L) {
+    c.text(L, y, nameText, { size: 16, bold: true, color: TEAL });
+    y += 18;
+    c.text(L, y, reportTitle, { size: 12, bold: true });
+    y += 14;
+  } else {
+    c.text(L, y, nameText, { size: 16, bold: true, color: TEAL });
+    c.text(R, y, reportTitle, { size: 16, bold: true, align: "right" });
+    y += 16;
+  }
   c.text(L, y, `Client ID: ${client.clientId}${client.ein ? ` · EIN: ${client.ein}` : ""}`, { size: 9, color: MUTED });
   c.text(R, y, periodLabel, { size: 10, color: MUTED, align: "right" });
   y += 12;
@@ -160,9 +183,19 @@ function drawFirmHeader(page: PDFPage, c: Cursor, reportTitle: string, periodLab
     page.drawImage(logo, { x: L, y: PAGE_H - y - logoH + 6, width: logoW, height: logoH });
     textL = L + logoW + 10;
   }
-  c.text(textL, y, profile.firmName.toUpperCase(), { size: 16, bold: true, color: TEAL });
-  c.text(R, y, reportTitle, { size: 16, bold: true, align: "right" });
-  y += 16;
+  const firmNameText = profile.firmName.toUpperCase();
+  // Same overlap risk as drawHeader above (a long firm name + a long title
+  // exceeding the available width) — stack instead of colliding.
+  if (c.widthOf(firmNameText, { size: 16, bold: true }) + c.widthOf(reportTitle, { size: 16, bold: true }) + 16 > R - textL) {
+    c.text(textL, y, firmNameText, { size: 16, bold: true, color: TEAL });
+    y += 18;
+    c.text(textL, y, reportTitle, { size: 12, bold: true });
+    y += 14;
+  } else {
+    c.text(textL, y, firmNameText, { size: 16, bold: true, color: TEAL });
+    c.text(R, y, reportTitle, { size: 16, bold: true, align: "right" });
+    y += 16;
+  }
   for (const line of [profile.addressLine1, profile.addressLine2].filter((l) => l && l.trim())) {
     c.text(textL, y, line, { size: 9, color: MUTED });
     y += 11;
