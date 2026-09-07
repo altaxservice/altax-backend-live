@@ -24,13 +24,16 @@ const TIER_COLOR: Record<string, { fg: string; bg: string }> = {
  * keeps working unchanged), they just don't count toward the subscription.
  */
 export function SubscriptionServicesChecklist({
-  services, onChange, isBusinessClient, clientId,
+  services, onChange, isBusinessClient, clientId, estimatedEmployeeCount, onEstimatedEmployeeCountChange,
 }: {
   services: string[];
   onChange: (services: string[]) => void;
   isBusinessClient: boolean;
   /** Omitted while creating a brand-new client — worker counts default to 0/0, matching a client with no employees on file yet. */
   clientId?: string;
+  /** Staff-entered placeholder headcount for per-employee/per-worker pricing before real employees exist (sql/142) — see the merge note below. */
+  estimatedEmployeeCount?: number | null;
+  onEstimatedEmployeeCountChange?: (n: number | null) => void;
 }) {
   const [catalog, setCatalog] = useState<ServiceCatalogEntry[] | null>(null);
   const [tiers, setTiers] = useState<SubscriptionTier[] | null>(null);
@@ -80,8 +83,17 @@ export function SubscriptionServicesChecklist({
     onChange(checked ? [...services, key] : services.filter((k) => k !== key));
   }
 
+  // Mirrors the backend's own fallback (getClientWorkerCounts,
+  // clients.routes.ts) so this live preview matches what actually gets
+  // saved/contracted: the estimate only stands in while there are genuinely
+  // zero real employees on file yet, and real counts always win once any
+  // exist.
+  const effectiveCounts: ClientWorkerCounts = (counts.employees === 0 && counts.workers === 0 && estimatedEmployeeCount != null)
+    ? { employees: estimatedEmployeeCount, workers: estimatedEmployeeCount }
+    : counts;
+
   const tierKey = computeSubscriptionTier(services);
-  const fee = computeSubscriptionFee(services, catalog, counts);
+  const fee = computeSubscriptionFee(services, catalog, effectiveCounts);
   const tierMeta = tiers.find((t) => t.tier_key === tierKey);
   const color = TIER_COLOR[tierKey] || TIER_COLOR.essentials;
   const anyRecurringChecked = recurring.some((s) => services.includes(s.service_key));
@@ -93,6 +105,23 @@ export function SubscriptionServicesChecklist({
         {!isBusinessClient && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
       </p>
 
+      {onEstimatedEmployeeCountChange && (
+        <div className="field" style={{ maxWidth: 260, marginBottom: 14 }}>
+          <label htmlFor="sc-estimated-employees">Estimated Employees <span className="muted">(for pricing, until real employees are added)</span></label>
+          <input
+            id="sc-estimated-employees" type="number" min={0} step={1}
+            value={estimatedEmployeeCount ?? ""}
+            onChange={(e) => onEstimatedEmployeeCountChange(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
+            placeholder="0" style={{ maxWidth: 120 }}
+          />
+          <p className="muted" style={{ fontSize: 11, margin: "4px 0 0" }}>
+            {counts.employees > 0 || counts.workers > 0
+              ? `Not in use — ${counts.employees} real employee(s) on file already price these services.`
+              : "Real employee counts take over automatically the moment any are added."}
+          </p>
+        </div>
+      )}
+
       <div className="ac-subcard-title" style={{ marginBottom: 8 }}>Recurring Services</div>
       <div className="service-group-grid">
         {groupBy(recurring).map(([group, entries]) => (
@@ -101,7 +130,7 @@ export function SubscriptionServicesChecklist({
             <div className="service-group-items">
               {entries.map((s) => {
                 const unit = s.pricing_unit || "flat";
-                const unitCount = unit === "per_employee" ? counts.employees : unit === "per_worker" ? counts.workers : null;
+                const unitCount = unit === "per_employee" ? effectiveCounts.employees : unit === "per_worker" ? effectiveCounts.workers : null;
                 return (
                   <label key={s.service_key} className={`service-item${services.includes(s.service_key) ? " checked" : ""}`}>
                     <input type="checkbox" checked={services.includes(s.service_key)} onChange={(e) => toggle(s.service_key, e.target.checked)} />

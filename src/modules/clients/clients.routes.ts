@@ -33,6 +33,83 @@ import { resolveAssigneeEmail } from "../reminders/reminders.routes";
 import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDABLE_SOURCES, deadlineReminderStableKey, flagReminderStableKey } from "../../common/complianceReminders";
 
 /**
+ * Maps every checkable v3_service_catalog service_key (sql/104, the granular
+ * "Subscription Fee Schedule" checklist — SubscriptionServicesChecklist.tsx)
+ * to the coarser FIRM_SERVICES key its contract generates under. Several
+ * catalog keys ARE FIRM_SERVICES keys already (bookkeeping, sales_tax, ...)
+ * and map to themselves; others (w2_1099, mdui, eftps, federal_payroll_tax_941,
+ * md_withholding_filing, annual_report, notice_resolution, registered_agent)
+ * are granular addons under a broader category with no FIRM_SERVICES entry
+ * of their own — checking ONLY one of those used to generate no contract at
+ * all (isKnownServiceKey rejected it). client_portal is deliberately
+ * absent — it's a portal-access flag, not a professional service with
+ * contractable scope. Confirmed against the LIVE catalog (production), not
+ * just the original 2026-08-26 seed file — the Fee Schedule admin page lets
+ * staff add/edit rows, and two (federal_payroll_tax_941, md_withholding_filing)
+ * were added after that seed and are otherwise invisible to this mapping.
+ */
+const CONTRACT_KEY_FOR_CATALOG_KEY: Record<string, string> = {
+  payroll: "payroll", w2_1099: "payroll", mdui: "payroll", eftps: "payroll",
+  federal_payroll_tax_941: "payroll", md_withholding_filing: "payroll",
+  sales_tax: "sales_tax", annual_report: "sales_tax", notice_resolution: "sales_tax",
+  formation: "formation", registered_agent: "formation",
+  bookkeeping: "bookkeeping", business_tax_prep: "business_tax_prep", personal_tax_prep: "personal_tax_prep",
+  business_transfer: "business_transfer", permits_licenses: "permits_licenses",
+  snap_retailer_application: "snap_retailer_application", immigration: "immigration",
+  consulting: "consulting",
+  // No dedicated contract category exists for this yet (owner-confirmed,
+  // 2026-09-07) — folds into Consulting's engagement letter rather than
+  // generating nothing, same as before this existed.
+  irs_audit_representation: "consulting",
+};
+
+/**
+ * Real per-service fee breakdown for one contract category, from whichever
+ * of this client's checked services (the FULL current list, not just what
+ * changed this save) roll up under it — real owner request: the fee clause
+ * used to always read "to be agreed separately" even when every checked
+ * service already has a real published rate.
+ *
+ * Deliberately RECURRING items only (role core_pillar/addon) — several
+ * one-time services (formation $450, business_tax_prep $300, etc.) also
+ * carry a real min_fee in the live catalog, but blending a one-time dollar
+ * figure into the same total as a monthly recurring fee would produce a
+ * number that's neither correctly "/mo" nor correctly "one-time," which is
+ * worse on a real signed engagement letter than the existing "to be agreed
+ * separately" default. A one-time-only category (e.g. Business Tax Prep
+ * alone) still falls through to that same unchanged default rather than
+ * risk a misleading combined figure — itemizing one-time fees is a
+ * separate, deliberately out-of-scope enhancement.
+ *
+ * per_employee/per_worker rows multiply by the real (or estimated — see
+ * getClientWorkerCounts) headcount. Returns nulls (unitemized) when nothing
+ * priced-and-recurring is checked, which money() (contracts.routes.ts)
+ * already renders as "to be agreed separately" — the existing, unchanged
+ * default.
+ */
+function buildFeeItemization(
+  contractKey: string, allServiceKeys: string[], catalog: ServiceCatalogEntry[], counts: ClientWorkerCounts
+): { feeAmount: number | null; feeDescription: string | null } {
+  const items = catalog.filter((c) =>
+    allServiceKeys.includes(c.service_key) && CONTRACT_KEY_FOR_CATALOG_KEY[c.service_key] === contractKey
+    && c.min_fee != null && c.role !== "one_time"
+  );
+  if (!items.length) return { feeAmount: null, feeDescription: null };
+  let total = 0;
+  const parts: string[] = [];
+  for (const item of items) {
+    const rate = Number(item.min_fee);
+    const unitCount = item.pricing_unit === "per_employee" ? counts.employees : item.pricing_unit === "per_worker" ? counts.workers : null;
+    const lineTotal = unitCount !== null ? rate * unitCount : rate;
+    total += lineTotal;
+    parts.push(unitCount !== null
+      ? `${item.label} — $${rate.toFixed(2)}/mo × ${unitCount} = $${lineTotal.toFixed(2)}/mo`
+      : `${item.label} — $${rate.toFixed(2)}/mo`);
+  }
+  return { feeAmount: Math.round(total * 100) / 100, feeDescription: parts.join("; ") };
+}
+
+/**
  * Best-effort: called after a client is created/updated with a newly-checked
  * service, so "check a service, save" alone is enough to get a suggested
  * contract without a separate trip to the Contracts section. Never throws —
@@ -49,16 +126,33 @@ import { getComplianceReminderSettings, buildComplianceReminderMessage, REMINDAB
  * authorization later. generateContractForService's own no-op-if-exists
  * check keeps this safe to call on every save that touches a covered
  * service, not just the first one.
+ *
+ * `changedServiceKeys` decides WHICH contract categories get a generation
+ * attempt this save (so an unrelated field edit doesn't re-attempt every
+ * category every time); `allServiceKeys` — the client's full current
+ * services list — decides what gets ITEMIZED into that category's fee
+ * clause, so the contract reflects everything checked so far, not just
+ * what changed in this one save.
  */
-async function autoGenerateContracts(clientId: string, serviceKeys: string[], createdBy: string): Promise<void> {
-  for (const serviceKey of serviceKeys) {
+async function autoGenerateContracts(clientId: string, changedServiceKeys: string[], allServiceKeys: string[], createdBy: string): Promise<void> {
+  const [catalog, counts] = await Promise.all([
+    query<ServiceCatalogEntry>(`SELECT * FROM altax.v3_service_catalog`),
+    getClientWorkerCounts(clientId),
+  ]);
+  const contractKeys = new Set<string>();
+  for (const key of changedServiceKeys) {
+    const mapped = CONTRACT_KEY_FOR_CATALOG_KEY[key] ?? (FIRM_SERVICES.some((s) => s.key === key) ? key : null);
+    if (mapped) contractKeys.add(mapped);
+  }
+  for (const serviceKey of contractKeys) {
     try {
-      await generateContractForService({ clientId, serviceKey, createdBy });
+      const { feeAmount, feeDescription } = buildFeeItemization(serviceKey, allServiceKeys, catalog, counts);
+      await generateContractForService({ clientId, serviceKey, createdBy, feeAmount, feeDescription });
     } catch {
       // best-effort — client save already succeeded, don't surface this as an error
     }
   }
-  if (serviceKeys.some((k) => POA_COVERED_SERVICE_KEYS.includes(k))) {
+  if (changedServiceKeys.some((k) => POA_COVERED_SERVICE_KEYS.includes(k))) {
     try {
       await generateContractForService({ clientId, serviceKey: POA_RELEASE_SERVICE_KEY, createdBy });
     } catch {
@@ -2467,6 +2561,10 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   state: { column: "state" },
   email: { column: "email" },
   phone: { column: "phone" },
+  // Placeholder headcount for per-employee/per-worker service pricing before
+  // real v3_employees rows exist — see getClientWorkerCounts's own comment
+  // and sql/142_estimated_employee_count.sql.
+  estimatedEmployeeCount: { column: "estimated_employee_count", numeric: true },
   assignedTo: { column: "assigned_to" },
   salesTaxFrequency: { column: "sales_tax_frequency" },
   // Explicitly staff-entered "since when has this obligation actually
@@ -2723,9 +2821,13 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
       columns.push("subscription_monthly_fee");
       // A brand-new client has no employees on file yet (they're added
       // separately, after creation) — per-employee/per-worker services
-      // correctly price at $0 here, same as getClientWorkerCounts would
-      // return for a client with zero rows in v3_employees.
-      values.push(computeSubscriptionFee(body.services, catalog, { employees: 0, workers: 0 }));
+      // would otherwise always price at $0 here, same as getClientWorkerCounts
+      // returns for a client with zero rows in v3_employees. estimatedEmployeeCount
+      // (sql/142), when the caller supplied one, stands in for both figures
+      // until real employees exist — same fallback getClientWorkerCounts applies
+      // post-creation, just inlined here since there's no client_id yet to query.
+      const estimatedCount = Number(body.estimatedEmployeeCount) || 0;
+      values.push(computeSubscriptionFee(body.services, catalog, { employees: estimatedCount, workers: estimatedCount }));
       placeholders.push(`$${values.length}`);
     }
   }
@@ -2752,7 +2854,7 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   }
 
   if (Array.isArray(body.services) && body.services.length > 0) {
-    await autoGenerateContracts(clientId, body.services, req.user!.email);
+    await autoGenerateContracts(clientId, body.services, body.services, req.user!.email);
   }
 
   res.status(201).json({ ok: true, clientId });
@@ -2772,17 +2874,34 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
  * saved or recalculated, no special handling needed. The worker record
  * itself is never touched here — this only changes what counts toward
  * price, nothing is deleted or archived.
+ *
+ * When there are genuinely zero real employee rows yet, falls back to the
+ * client's own estimated_employee_count (sql/142) for BOTH figures — a
+ * staff-entered placeholder used to price per-employee/per-worker services
+ * (and itemize them on the auto-generated contract) before real employees
+ * exist in the system. The moment even one real v3_employees row exists,
+ * real counts take over automatically and the estimate is ignored — this is
+ * a bridge to real data, never a standing override that could silently
+ * outlive the real headcount.
  */
 async function getClientWorkerCounts(clientId: string): Promise<ClientWorkerCounts> {
-  const row = await queryOne<any>(
-    `SELECT
-       COUNT(*) FILTER (WHERE lower(COALESCE(worker_type, '')) NOT LIKE '%contractor%')::int AS employees,
-       COUNT(*)::int AS workers
-     FROM altax.v3_employees
-     WHERE client_id = $1 AND lower(COALESCE(status, 'active')) = 'active'`,
-    [clientId]
-  );
-  return { employees: row?.employees || 0, workers: row?.workers || 0 };
+  const [row, clientRow] = await Promise.all([
+    queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE lower(COALESCE(worker_type, '')) NOT LIKE '%contractor%')::int AS employees,
+         COUNT(*)::int AS workers
+       FROM altax.v3_employees
+       WHERE client_id = $1 AND lower(COALESCE(status, 'active')) = 'active'`,
+      [clientId]
+    ),
+    queryOne<any>(`SELECT estimated_employee_count FROM altax.v3_clients WHERE client_id = $1`, [clientId]),
+  ]);
+  const real = { employees: row?.employees || 0, workers: row?.workers || 0 };
+  const estimate = clientRow?.estimated_employee_count;
+  if (real.employees === 0 && real.workers === 0 && estimate !== null && estimate !== undefined) {
+    return { employees: Number(estimate), workers: Number(estimate) };
+  }
+  return real;
 }
 
 /** Powers the live "Estimated Subscription" preview on the client profile edit form before it's saved. */
@@ -2918,7 +3037,7 @@ clientsRouter.patch("/:clientId", requireAuth, requireRole("admin", "staff"), as
     const newServices: string[] = Array.isArray(fields.services) ? fields.services : [];
     const addedServices = newServices.filter((k) => !oldServices.includes(k));
     if (addedServices.length > 0) {
-      await autoGenerateContracts(clientId, addedServices, req.user!.email);
+      await autoGenerateContracts(clientId, addedServices, newServices, req.user!.email);
     }
   }
 

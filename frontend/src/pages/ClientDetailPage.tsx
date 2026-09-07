@@ -460,6 +460,9 @@ export function ClientDetailPage() {
         // checklist instead (see SubscriptionServicesChecklist usage).
         initial.subscriptionFeeIsCustom = Boolean(res.client.subscription_fee_is_custom);
         initial.subscriptionMonthlyFee = res.client.subscription_monthly_fee != null ? String(res.client.subscription_monthly_fee) : "";
+        // Also not in EDIT_SECTIONS — rendered inline inside the services
+        // checklist instead (see SubscriptionServicesChecklist usage).
+        initial.estimatedEmployeeCount = (res.client as any).estimated_employee_count ?? null;
         initial.streetAddress = String(res.client.street_address ?? "");
         initial.city = String(res.client.city ?? "");
         initial.zipCode = String(res.client.zip_code ?? "");
@@ -942,6 +945,8 @@ export function ClientDetailPage() {
                               isBusinessClient={isBusiness(form)}
                               clientId={clientId}
                               onChange={(services) => setForm((prev) => ({ ...prev, services, payrollEnabled: services.includes("payroll") }))}
+                              estimatedEmployeeCount={form.estimatedEmployeeCount ?? null}
+                              onEstimatedEmployeeCountChange={(n) => setForm((prev) => ({ ...prev, estimatedEmployeeCount: n }))}
                             />
                             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginTop: 4, marginBottom: 16 }}>
                               <input

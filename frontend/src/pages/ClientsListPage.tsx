@@ -31,6 +31,7 @@ const EMPTY_CLIENT_FORM = {
   ein: "", stateTaxId: "", secretaryOfStateId: "", craRegistrationNumber: "", companyContactName: "", companyContactTitle: "", companyContactSsn: "",
   companyContactEmail: "", companyContactPhone: "", individualSsn: "", notes: "", referralSource: "",
   companyContactStreetAddress: "", companyContactCity: "", companyContactState: "", companyContactZipCode: "",
+  estimatedEmployeeCount: "",
 };
 
 // Shape accepted from an external entry point that wants to open this page's
@@ -912,6 +913,20 @@ export function ClientsListPage() {
                   Select every service this client is engaged for — the client's profile will suggest the matching contract for each one.
                   {form.clientType === "Individual" && " Showing individual-relevant services only; switch Client Type to Business to see the rest."}
                 </p>
+                {/* Payroll/W-2 1099/MD UI are priced per employee — this form has no live pricing
+                    preview (see SubscriptionServicesChecklist on the client's own Profile page for
+                    that), but capturing a placeholder headcount here means the initial subscription
+                    price is computed correctly from creation instead of always landing at $0 until
+                    real employees are added later. */}
+                <div className="field" style={{ maxWidth: 260, marginBottom: 12 }}>
+                  <label htmlFor="nc-estimated-employees">Estimated Employees <span className="muted">(for per-employee service pricing)</span></label>
+                  <input
+                    id="nc-estimated-employees" type="number" min={0} step={1}
+                    value={form.estimatedEmployeeCount}
+                    onChange={(e) => setForm((f) => ({ ...f, estimatedEmployeeCount: e.target.value }))}
+                    style={{ maxWidth: 120 }}
+                  />
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px", marginBottom: 16 }}>
                   {servicesForClientType(form.clientType).map((s) => (
                     <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
