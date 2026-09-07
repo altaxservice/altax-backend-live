@@ -47,50 +47,33 @@ function slotToUtcIso(y: number, m: number, d: number, hour: number, minute: num
   return new Date(utcMs).toISOString();
 }
 
-/**
- * Real open slots for one calendar date, honoring Calendar Settings (bookable
- * weekdays, hours, the time grid, booking horizon) and already-booked
- * appointments. `durationMinutes` is how long the appointment itself would
- * run (from the chosen Appointment Type) — separate from
- * `settings.slotMinutes`, which is only the spacing between candidate start
- * times on the grid. A candidate slot is offered only if the FULL duration
- * fits before closing time, not just its start. Shared by the availability
- * endpoint and the reschedule flow.
- */
-async function computeAvailableSlots(y: number, mo: number, d: number, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string): Promise<string[]> {
-  const today = new Date();
-  const requested = new Date(Date.UTC(y, mo - 1, d));
-  const daysAhead = Math.floor((requested.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
-  if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return [];
-  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
-  if (!isBookableWeekday(settings, jsDay)) return [];
-
-  const dayStartIso = slotToUtcIso(y, mo, d, 0, 0);
-  const dayEndIso = slotToUtcIso(y, mo, d, 23, 59);
-  const params: any[] = [dayStartIso, dayEndIso];
-  let excludeClause = "";
-  if (excludeAppointmentId) { excludeClause = "AND appointment_id <> $3"; params.push(excludeAppointmentId); }
-  const booked = await query<any>(
-    `SELECT start_time, end_time FROM altax.v3_appointments
-      WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 ${excludeClause}`,
-    params
+/** Active, publicly-bookable admin/staff accounts — the public booking page's staff picker, and the pool "any available" draws from. */
+async function loadBookableStaff(): Promise<{ id: string; name: string }[]> {
+  const rows = await query<any>(
+    `SELECT user_id, name FROM altax.v3_users
+      WHERE coalesce(active, true) AND lower(role) IN ('admin', 'staff') AND bookable_publicly = true
+      ORDER BY name ASC`
   );
-  const bookedRanges = booked.map((b: any) => ({ start: new Date(b.start_time).getTime(), end: new Date(b.end_time).getTime() }));
+  return rows.map((r: any) => ({ id: r.user_id, name: r.name }));
+}
 
+/**
+ * The original single-calendar slot algorithm, unchanged — now operating on
+ * one staff member's own booked ranges instead of the whole firm's. Kept as
+ * its own function so computeAvailableSlots can call it once (a specific
+ * staff member requested) or once per bookable staff member and union the
+ * results ("any available" — a slot counts as open the moment even ONE
+ * person is free, not only when literally nobody in the firm has anything
+ * booked).
+ */
+function computeSlotsForRanges(
+  bookedRanges: { start: number; end: number }[], durationMinutes: number, gapMs: number, earliestBookableMs: number,
+  dayOpenMs: number, dayCloseMs: number, startHour: number, endHour: number, slotMinutes: number,
+  y: number, mo: number, d: number
+): string[] {
   const slots: string[] = [];
-  const nowMs = Date.now();
-  const gapMs = settings.gapMinutes * 60 * 1000;
-  // Minimum advance notice a client must give — separate from gapMs (spacing
-  // between two different appointments). Applied as a floor on top of "now"
-  // rather than a separate check, so every candidate slot below (both the
-  // hourly grid and the gap-boundary slots) automatically respects it.
-  const minLeadMs = settings.minLeadMinutes * 60 * 1000;
-  const earliestBookableMs = nowMs + minLeadMs;
-  const { startHour, endHour } = hoursForDay(settings, jsDay);
-  const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
-  const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
   for (let hour = startHour; hour < endHour; hour++) {
-    for (let minute = 0; minute < 60; minute += settings.slotMinutes) {
+    for (let minute = 0; minute < 60; minute += slotMinutes) {
       const startIso = slotToUtcIso(y, mo, d, hour, minute);
       const startMs = new Date(startIso).getTime();
       const endMs = startMs + durationMinutes * 60 * 1000;
@@ -118,8 +101,75 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
     const startIso = new Date(startMs).toISOString();
     if (!slots.includes(startIso)) slots.push(startIso);
   }
-  slots.sort();
   return slots;
+}
+
+/**
+ * Real open slots for one calendar date, honoring Calendar Settings (bookable
+ * weekdays, hours, the time grid, booking horizon) and already-booked
+ * appointments. `durationMinutes` is how long the appointment itself would
+ * run (from the chosen Appointment Type) — separate from
+ * `settings.slotMinutes`, which is only the spacing between candidate start
+ * times on the grid. A candidate slot is offered only if the FULL duration
+ * fits before closing time, not just its start. Shared by the availability
+ * endpoint and the reschedule flow.
+ *
+ * `assignedTo` scopes availability to one staff member's own calendar; when
+ * omitted ("any available"), a slot is open as soon as at least one bookable
+ * staff member is free then — real incident, 2026-09-07: this used to check
+ * every Scheduled appointment firm-wide with no staff filter at all, so one
+ * person's booking made a time slot look fully unavailable even when every
+ * other staff member was free. An appointment with assigned_to IS NULL
+ * (legacy, or a non-client-facing internal event) never counts against any
+ * specific staff member either way.
+ */
+async function computeAvailableSlots(y: number, mo: number, d: number, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string, assignedTo?: string): Promise<string[]> {
+  const today = new Date();
+  const requested = new Date(Date.UTC(y, mo - 1, d));
+  const daysAhead = Math.floor((requested.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
+  if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return [];
+  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  if (!isBookableWeekday(settings, jsDay)) return [];
+
+  const staffIds = assignedTo ? [assignedTo] : (await loadBookableStaff()).map((s) => s.id);
+  if (!staffIds.length) return [];
+
+  const dayStartIso = slotToUtcIso(y, mo, d, 0, 0);
+  const dayEndIso = slotToUtcIso(y, mo, d, 23, 59);
+  const params: any[] = [dayStartIso, dayEndIso, staffIds];
+  let excludeClause = "";
+  if (excludeAppointmentId) { excludeClause = "AND appointment_id <> $4"; params.push(excludeAppointmentId); }
+  const booked = await query<any>(
+    `SELECT assigned_to, start_time, end_time FROM altax.v3_appointments
+      WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 AND assigned_to = ANY($3::text[]) ${excludeClause}`,
+    params
+  );
+  const rangesByStaff = new Map<string, { start: number; end: number }[]>();
+  for (const id of staffIds) rangesByStaff.set(id, []);
+  for (const b of booked) {
+    const arr = rangesByStaff.get(b.assigned_to);
+    if (arr) arr.push({ start: new Date(b.start_time).getTime(), end: new Date(b.end_time).getTime() });
+  }
+
+  const nowMs = Date.now();
+  const gapMs = settings.gapMinutes * 60 * 1000;
+  // Minimum advance notice a client must give — separate from gapMs (spacing
+  // between two different appointments). Applied as a floor on top of "now"
+  // rather than a separate check, so every candidate slot below (both the
+  // hourly grid and the gap-boundary slots) automatically respects it.
+  const minLeadMs = settings.minLeadMinutes * 60 * 1000;
+  const earliestBookableMs = nowMs + minLeadMs;
+  const { startHour, endHour } = hoursForDay(settings, jsDay);
+  const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
+  const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
+
+  const union = new Set<string>();
+  for (const ranges of rangesByStaff.values()) {
+    for (const iso of computeSlotsForRanges(ranges, durationMinutes, gapMs, earliestBookableMs, dayOpenMs, dayCloseMs, startHour, endHour, settings.slotMinutes, y, mo, d)) {
+      union.add(iso);
+    }
+  }
+  return Array.from(union).sort();
 }
 
 function parseDateParam(raw: unknown): { y: number; mo: number; d: number } | null {
@@ -178,10 +228,10 @@ async function withDayBookingLock<T>(startTime: string, fn: () => Promise<T>): P
  * client actually book that boundary slot instead of having it rejected by
  * this check right after /availability just offered it.
  */
-async function isRealAvailableSlot(startTime: string, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string): Promise<boolean> {
+async function isRealAvailableSlot(startTime: string, settings: AppointmentSettings, durationMinutes: number, excludeAppointmentId?: string, assignedTo?: string): Promise<boolean> {
   const { y, mo, d } = etDateParts(startTime);
   const startMs = new Date(startTime).getTime();
-  const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes, excludeAppointmentId);
+  const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes, excludeAppointmentId, assignedTo);
   return slots.some((s) => new Date(s).getTime() === startMs);
 }
 
@@ -212,6 +262,11 @@ publicAppointmentsRouter.get("/appointment-types", availabilityLimiter, asyncHan
   res.json({ types: await listAppointmentTypes(true) });
 }));
 
+/** Publicly-bookable staff for the /book page's "Who would you like to meet with?" picker — the client can also leave this blank for "any available." */
+publicAppointmentsRouter.get("/staff", availabilityLimiter, asyncHandler(async (_req: Request, res: Response) => {
+  res.json({ staff: await loadBookableStaff() });
+}));
+
 /**
  * Walks forward day by day from `from` (default: today) looking for the first
  * bookable date with at least one open slot, and returns that date's slots
@@ -232,11 +287,12 @@ publicAppointmentsRouter.get("/next-available", availabilityLimiter, asyncHandle
   }
   const now = new Date();
   const from = parseDateParam(req.query.from) || { y: now.getUTCFullYear(), mo: now.getUTCMonth() + 1, d: now.getUTCDate() };
+  const assignedTo = String(req.query.assignedTo || "").trim() || undefined;
 
   let cursor = new Date(Date.UTC(from.y, from.mo - 1, from.d));
   for (let i = 0; i <= settings.maxDaysAhead; i++) {
     const y = cursor.getUTCFullYear(), mo = cursor.getUTCMonth() + 1, d = cursor.getUTCDate();
-    const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes);
+    const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes, undefined, assignedTo);
     if (slots.length) {
       const date = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       return res.json({ date, slots, durationMinutes });
@@ -264,7 +320,8 @@ publicAppointmentsRouter.get("/availability", availabilityLimiter, asyncHandler(
   } else {
     durationMinutes = (await resolveAppointmentDuration(String(req.query.appointmentTypeId || ""), settings.slotMinutes)).durationMinutes;
   }
-  const slots = await computeAvailableSlots(parsed.y, parsed.mo, parsed.d, settings, durationMinutes, excludeAppointmentId);
+  const assignedTo = String(req.query.assignedTo || "").trim() || undefined;
+  const slots = await computeAvailableSlots(parsed.y, parsed.mo, parsed.d, settings, durationMinutes, excludeAppointmentId, assignedTo);
   res.json({ slots, slotMinutes: settings.slotMinutes, durationMinutes });
 }));
 
@@ -310,7 +367,18 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
   const { durationMinutes, appointmentTypeId, appointmentTypeName } = await resolveAppointmentDuration(String(body.appointmentTypeId || ""), settings.slotMinutes);
   const endTime = new Date(startMs + durationMinutes * 60 * 1000).toISOString();
 
-  if (!(await isRealAvailableSlot(startTime, settings, durationMinutes))) {
+  // A specific staff member requested must be a real, currently-bookable one —
+  // not just any active admin/staff account (createAppointment's own check),
+  // since a public visitor should only ever be able to land on someone who's
+  // actually opted into taking client bookings. Blank/omitted means "any
+  // available," resolved to a real free person at booking time below.
+  const requestedAssignedTo = String(body.assignedTo || "").trim() || undefined;
+  const bookableStaff = await loadBookableStaff();
+  if (requestedAssignedTo && !bookableStaff.some((s) => s.id === requestedAssignedTo)) {
+    return res.status(400).json({ error: "That staff member isn't available for booking — please pick another." });
+  }
+
+  if (!(await isRealAvailableSlot(startTime, settings, durationMinutes, undefined, requestedAssignedTo))) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
@@ -329,15 +397,19 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       const gapMs = settings.gapMinutes * 60 * 1000;
       const paddedStart = new Date(startMs - gapMs).toISOString();
       const paddedEnd = new Date(startMs + durationMinutes * 60 * 1000 + gapMs).toISOString();
-      const clash = await query<any>(
-        `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 LIMIT 1`,
-        [paddedStart, paddedEnd]
+      const candidateStaffIds = requestedAssignedTo ? [requestedAssignedTo] : bookableStaff.map((s) => s.id);
+      const clashes = await query<any>(
+        `SELECT DISTINCT assigned_to FROM altax.v3_appointments
+          WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 AND assigned_to = ANY($3::text[])`,
+        [paddedStart, paddedEnd, candidateStaffIds]
       );
-      if (clash.length) throw new ValidationError("That time slot was just booked by someone else — please pick another.");
+      const busyStaffIds = new Set(clashes.map((c: any) => c.assigned_to));
+      const finalAssignedTo = candidateStaffIds.find((id) => !busyStaffIds.has(id));
+      if (!finalAssignedTo) throw new ValidationError("That time slot was just booked by someone else — please pick another.");
       const created = await createAppointment({
         title: appointmentTypeName || "Consultation", contactName: name, contactEmail: email, contactPhone: phone,
         startTime, endTime, notes: reason || undefined, notifyClient: true,
-        appointmentTypeId, appointmentTypeName,
+        appointmentTypeId, appointmentTypeName, assignedTo: finalAssignedTo,
         createdBy: "Public Booking Form", req,
       });
       return created.appointmentId;
@@ -558,7 +630,14 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
   const existingDurationMinutes = Math.round((new Date(appt.end_time).getTime() - new Date(appt.start_time).getTime()) / 60000);
   const endTime = new Date(startMs + existingDurationMinutes * 60 * 1000).toISOString();
 
-  if (!(await isRealAvailableSlot(startTime, settings, existingDurationMinutes, appt.appointment_id))) {
+  // A client rescheduling doesn't get to change who they see — availability
+  // is checked against just that one person's calendar (or, for an old
+  // appointment that was never assigned anyone, against whether at least one
+  // bookable staff member is free, same "any available" fallback /book uses;
+  // it stays unassigned either way, this is just about not falsely blocking
+  // the slot against the whole firm).
+  const rescheduleAssignedTo: string | undefined = appt.assigned_to || undefined;
+  if (!(await isRealAvailableSlot(startTime, settings, existingDurationMinutes, appt.appointment_id, rescheduleAssignedTo))) {
     return res.status(400).json({ error: "That time is outside our booking hours — please pick an available slot." });
   }
 
@@ -569,11 +648,15 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
       const gapMs = settings.gapMinutes * 60 * 1000;
       const paddedStart = new Date(startMs - gapMs).toISOString();
       const paddedEnd = new Date(startMs + existingDurationMinutes * 60 * 1000 + gapMs).toISOString();
-      const clash = await query<any>(
-        `SELECT 1 FROM altax.v3_appointments WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 LIMIT 1`,
-        [appt.appointment_id, paddedStart, paddedEnd]
+      const candidateStaffIds = rescheduleAssignedTo ? [rescheduleAssignedTo] : (await loadBookableStaff()).map((s) => s.id);
+      const clashes = await query<any>(
+        `SELECT DISTINCT assigned_to FROM altax.v3_appointments
+          WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 AND assigned_to = ANY($4::text[])`,
+        [appt.appointment_id, paddedStart, paddedEnd, candidateStaffIds]
       );
-      if (clash.length) throw new Error("__clash__");
+      const busyStaffIds = new Set(clashes.map((c: any) => c.assigned_to));
+      const stillFree = candidateStaffIds.some((id) => !busyStaffIds.has(id));
+      if (!stillFree) throw new Error("__clash__");
       // Both reminder trackers reset — the new time needs its own fresh 24h-before
       // confirmation ask and lead-time reminders, not whatever had already fired
       // for the old slot.

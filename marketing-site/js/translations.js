@@ -400,6 +400,8 @@ const TRANSLATIONS = {
   "book.hoursNote": { en: "Appointments are available Monday–Friday, 9:00 AM – 5:00 PM Eastern.", ar: "المواعيد متاحة من الاثنين إلى الجمعة، من الساعة 9:00 صباحًا حتى 5:00 مساءً بتوقيت شرق أمريكا." },
   "book.formHeading": { en: "Schedule your free consultation", ar: "حدد موعد استشارتك المجانية" },
   "book.typeLabel": { en: "What kind of appointment?", ar: "ما نوع الموعد؟" },
+  "book.staffLabel": { en: "Who would you like to meet with?", ar: "من تود أن تقابل؟" },
+  "book.anyAvailable": { en: "Any available", ar: "أي موظف متاح" },
   "book.dateLabel": { en: "Date", ar: "التاريخ" },
   "book.timeLabel": { en: "Available Times (Eastern)", ar: "الأوقات المتاحة (بتوقيت شرق أمريكا)" },
   "book.pickDate": { en: "Pick a date to see open times.", ar: "اختر تاريخًا لعرض الأوقات المتاحة." },

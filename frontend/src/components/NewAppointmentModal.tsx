@@ -6,6 +6,7 @@ import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { useSmsStatus } from "../hooks/useSmsStatus";
+import { useConfirm } from "./ConfirmProvider";
 
 function addMinutes(hhmm: string, minutes: number): string {
   const [h, m] = hhmm.split(":").map(Number);
@@ -50,6 +51,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
   const { smsConfigured } = useSmsStatus();
+  const confirmDialog = useConfirm();
   const isEditing = !!appointment;
   const today = defaultDate || new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState(() => appointment ? {
@@ -104,6 +106,29 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
     const startTime = new Date(`${form.date}T${form.startTime}`).toISOString();
     const endTime = new Date(`${form.date}T${form.endTime}`).toISOString();
     if (new Date(endTime) < new Date(startTime)) return setError("End time can't be before start time.");
+
+    // Non-blocking double-booking warning — this screen has no other
+    // conflict checking at all, unlike the public booking page. A staff
+    // member can still proceed for a legitimate reason (a quick call
+    // squeezed in), so this asks rather than refuses.
+    if (form.assignedTo) {
+      try {
+        const params = new URLSearchParams({ assignedTo: form.assignedTo, startTime, endTime });
+        if (isEditing) params.set("excludeAppointmentId", appointment!.appointment_id);
+        const check = await api.get<{ conflict: boolean; conflictingTitle: string | null }>(`/appointments/staff-conflict?${params.toString()}`);
+        if (check.conflict) {
+          const ok = await confirmDialog({
+            title: "Double-booking?",
+            message: `${form.assignedTo} already has "${check.conflictingTitle || "an appointment"}" around this time. Book anyway?`,
+            confirmLabel: "Book Anyway",
+          });
+          if (!ok) return;
+        }
+      } catch {
+        // Best-effort — never block a save over the warning check itself failing.
+      }
+    }
+
     setSaving(true);
     setError(null);
     const selectedType = types.find((t) => t.appointmentTypeId === form.appointmentTypeId);

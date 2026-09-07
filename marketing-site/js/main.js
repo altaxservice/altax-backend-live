@@ -267,7 +267,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookSubmitLabel = bookSubmitBtn ? bookSubmitBtn.querySelector('span') : null;
     const typeFieldEl = document.getElementById('book-type-field');
     const typeSelectEl = document.getElementById('book-type');
+    const staffFieldEl = document.getElementById('book-staff-field');
+    const staffSelectEl = document.getElementById('book-staff');
     let selectedSlot = null;
+
+    // Who the visitor wants to meet with — "Any available" (the default,
+    // empty value) checks every bookable staff member's calendar and lets
+    // the slot count as open the moment even one of them is free, instead of
+    // the old behavior where one person's appointment made a time slot look
+    // fully booked firm-wide. The picker only shows when there's a real
+    // choice (2+ bookable staff), same visibility rule the type picker uses.
+    fetch('/public/appointments/staff').then((r) => r.json()).then((data) => {
+      const staff = data.staff || [];
+      if (staffSelectEl) {
+        staffSelectEl.innerHTML = '';
+        const anyOpt = document.createElement('option');
+        anyOpt.value = '';
+        anyOpt.textContent = t('book.anyAvailable') || 'Any available';
+        staffSelectEl.appendChild(anyOpt);
+        staff.forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name;
+          staffSelectEl.appendChild(opt);
+        });
+      }
+      if (staffFieldEl) staffFieldEl.style.display = staff.length > 1 ? 'block' : 'none';
+      if (staffSelectEl) staffSelectEl.addEventListener('change', loadSlots);
+    }).catch(() => {});
 
     // Appointment Types — which duration a visitor is booking (e.g. a short
     // "Quick Question" vs. a longer "Full Consultation"). The picker only
@@ -418,6 +445,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         let url = '/public/appointments/next-available?from=' + encodeURIComponent(fromDateStr);
         if (typeSelectEl && typeSelectEl.value) url += '&appointmentTypeId=' + encodeURIComponent(typeSelectEl.value);
+        if (staffSelectEl && staffSelectEl.value) url += '&assignedTo=' + encodeURIComponent(staffSelectEl.value);
         const res = await fetch(url);
         const data = await res.json();
         if (data.date) {
@@ -439,6 +467,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         let url = '/public/appointments/availability?date=' + encodeURIComponent(bookDateInput.value);
         if (typeSelectEl && typeSelectEl.value) url += '&appointmentTypeId=' + encodeURIComponent(typeSelectEl.value);
+        if (staffSelectEl && staffSelectEl.value) url += '&assignedTo=' + encodeURIComponent(staffSelectEl.value);
         const res = await fetch(url);
         const data = await res.json();
         renderSlots(data.slots || []);
@@ -475,6 +504,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reason: document.getElementById('book-reason').value.trim(),
         startTime: selectedSlot,
         appointmentTypeId: typeSelectEl ? typeSelectEl.value : undefined,
+        assignedTo: staffSelectEl ? staffSelectEl.value : undefined,
         website: document.getElementById('book-website').value, // honeypot
       };
       if (!payload.email && !payload.phone) {

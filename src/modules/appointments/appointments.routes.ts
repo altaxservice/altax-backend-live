@@ -1063,6 +1063,46 @@ appointmentsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHan
   res.json({ appointments: visible.map((r: any) => ({ ...r, client_name: r.linked_client_name || r.contact_name })) });
 }));
 
+/**
+ * A non-blocking double-booking check for the internal "+ New Appointment"
+ * screen — staff can currently save any assignedTo/time combination with zero
+ * warning, unlike the public booking page (which has real conflict-checking,
+ * just never scoped to a specific staff member before this same fix). This
+ * doesn't reuse the public /availability grid (that's date-driven, "which
+ * times are open"); this answers one point-in-time question directly, padded
+ * by the same gap Calendar Settings already defines. Read-only — the caller
+ * decides whether to warn and let staff override, never blocks the save
+ * itself.
+ */
+appointmentsRouter.get("/staff-conflict", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const assignedTo = String(req.query.assignedTo || "").trim();
+  const startTime = String(req.query.startTime || "").trim();
+  const endTime = String(req.query.endTime || "").trim();
+  const excludeAppointmentId = String(req.query.excludeAppointmentId || "").trim() || undefined;
+  if (!assignedTo || !startTime || !endTime) {
+    return res.status(400).json({ error: "assignedTo, startTime, and endTime are required." });
+  }
+  const startMs = new Date(startTime).getTime();
+  const endMs = new Date(endTime).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return res.status(400).json({ error: "startTime/endTime must be valid dates." });
+  }
+  const settings = await getAppointmentSettings();
+  const gapMs = settings.gapMinutes * 60 * 1000;
+  const paddedStart = new Date(startMs - gapMs).toISOString();
+  const paddedEnd = new Date(endMs + gapMs).toISOString();
+  const params: any[] = [assignedTo, paddedStart, paddedEnd];
+  let excludeClause = "";
+  if (excludeAppointmentId) { excludeClause = "AND appointment_id <> $4"; params.push(excludeAppointmentId); }
+  const conflict = await queryOne<any>(
+    `SELECT title FROM altax.v3_appointments
+      WHERE status = 'Scheduled' AND assigned_to = $1 AND start_time < $3 AND end_time > $2 ${excludeClause}
+      LIMIT 1`,
+    params
+  );
+  res.json({ conflict: Boolean(conflict), conflictingTitle: conflict?.title || null });
+}));
+
 appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   try {
