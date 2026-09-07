@@ -445,27 +445,39 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   // visibility was re-opening each sale's Edit form one at a time; this answers
   // "how much did we collect in Vape tax this quarter" without that.
   //
-  // Seeded from every active taxable category for the client's state (the
-  // same list CategoryLinesEditor's dropdown uses), not just whichever
-  // categories happened to have a sale this period — real request from a
-  // vape shop owner: the cards were reordering (and disappearing/reappearing)
-  // period to period because they were sorted "biggest tax collected first"
-  // and only existed when nonzero, instead of staying in the state's own
-  // filing-form line order (MD: General 6% -> Tobacco Pipes 12% -> ESD/Vaping
-  // >5mL 20% -> Vaping Liquid <=5mL 60%, exactly display_order 1-4 on
-  // v3_sales_tax_categories) with all of them always present, matching the
-  // actual MD Tax Connect return the owner files against. display_order 999
-  // (Non-Taxable Sales) is excluded — it isn't a real tax-due filing line.
+  // Seeded from every category this CLIENT has ever actually used (any sale,
+  // any period — not just categories with activity in the currently-selected
+  // period), rather than either extreme that's been tried before: a vape shop
+  // owner complained the cards used to reorder and disappear/reappear period
+  // to period when they only existed for categories with nonzero activity
+  // THAT period; a general-goods store owner then complained the fix (every
+  // active category for the client's state, always) papered every client
+  // with Tobacco Pipes/ESD/Vaping cards permanently stuck at $0 even though
+  // they've never once sold those things. "Ever used by this client" is
+  // stable in both directions — once true it doesn't flip back to false next
+  // period (fixing the vape shop's complaint), and a category this client
+  // has genuinely never touched never shows at all (fixing this one). Sorted
+  // in the state's own filing-form line order (MD: General 6% -> Tobacco
+  // Pipes 12% -> ESD/Vaping >5mL 20% -> Vaping Liquid <=5mL 60% -> Non-Taxable
+  // last) via display_order on v3_sales_tax_categories, matching the actual
+  // MD Tax Connect return the owner files against.
+  const usedCategoryIds = (() => {
+    const ids = new Set<string>();
+    for (const s of sales) {
+      for (const l of s.lines || []) ids.add(l.category_id);
+    }
+    return ids;
+  })();
   const periodByCategory = (() => {
-    const map = new Map<string, { categoryName: string; taxable: number; tax: number; displayOrder: number }>();
+    const map = new Map<string, { categoryName: string; taxable: number; tax: number; displayOrder: number; nonTaxable: boolean }>();
     for (const c of categories) {
-      if (c.display_order >= 999) continue;
-      map.set(c.category_id, { categoryName: c.category_name, taxable: 0, tax: 0, displayOrder: c.display_order });
+      if (!usedCategoryIds.has(c.category_id)) continue;
+      map.set(c.category_id, { categoryName: c.category_name, taxable: 0, tax: 0, displayOrder: c.display_order, nonTaxable: c.display_order >= 999 });
     }
     for (const s of salesInPeriod) {
       for (const l of s.lines || []) {
         const key = l.category_id;
-        const row = map.get(key) || { categoryName: l.category_name, taxable: 0, tax: 0, displayOrder: 998 };
+        const row = map.get(key) || { categoryName: l.category_name, taxable: 0, tax: 0, displayOrder: 998, nonTaxable: false };
         row.taxable += Number(l.taxable_amount || 0);
         row.tax += Number(l.tax_amount || 0);
         map.set(key, row);
@@ -940,12 +952,26 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         {periodByCategory.length > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 8 }}>Tax Collected by Category (this period)</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
               {periodByCategory.map((c) => (
-                <div key={c.categoryName} className="card" style={{ padding: "14px 18px", minWidth: 200 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{c.categoryName}</div>
-                  <div style={{ fontSize: 13 }}>{fmtMoney(c.taxable)} taxed</div>
-                  <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.tax)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">tax</span></div>
+                <div
+                  key={c.categoryName}
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: 10,
+                    background: c.nonTaxable ? "#EEF5F0" : "#FFF6EA",
+                    border: `1px solid ${c.nonTaxable ? "#CCE1D2" : "#F0DCB8"}`,
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{c.categoryName}</div>
+                  {c.nonTaxable ? (
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.taxable)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">exempt</span></div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12 }} className="muted">{fmtMoney(c.taxable)} taxed</div>
+                      <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.tax)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">tax</span></div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
