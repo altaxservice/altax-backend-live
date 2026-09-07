@@ -112,6 +112,14 @@ export function NotesPage() {
     }
   }
 
+  /** Opens the New Note form pre-filled from an existing note's text/category/remind date — for the same reminder that applies to several clients (e.g. "collect signed engagement letter"), so it doesn't have to be retyped. Client is deliberately left blank rather than copied — this is FOR a different client, picking the same one back would just be a no-op duplicate. */
+  function startDuplicate(n: StaffNote) {
+    setForm({ body: n.body, clientId: "", category: n.category || "", remindAt: n.remindAt ? n.remindAt.slice(0, 10) : "", visibility: "firm" });
+    setSaveError(null);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function toggleSelected(noteId: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -260,6 +268,7 @@ export function NotesPage() {
                         {n.status === "Open"
                           ? <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Done")}>Mark Done</button>
                           : <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Open")}>Reopen</button>}
+                        <button type="button" className="btn btn-sm" title="Reuse this note's text for a different client" onClick={() => startDuplicate(n)}>Duplicate</button>
                         <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteOne(n.noteId)}>Delete</button>
                       </td>
                     </tr>
