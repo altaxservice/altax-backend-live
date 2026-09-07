@@ -444,18 +444,34 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   // Per-category rollup for the period — previously the only category-level
   // visibility was re-opening each sale's Edit form one at a time; this answers
   // "how much did we collect in Vape tax this quarter" without that.
+  //
+  // Seeded from every active taxable category for the client's state (the
+  // same list CategoryLinesEditor's dropdown uses), not just whichever
+  // categories happened to have a sale this period — real request from a
+  // vape shop owner: the cards were reordering (and disappearing/reappearing)
+  // period to period because they were sorted "biggest tax collected first"
+  // and only existed when nonzero, instead of staying in the state's own
+  // filing-form line order (MD: General 6% -> Tobacco Pipes 12% -> ESD/Vaping
+  // >5mL 20% -> Vaping Liquid <=5mL 60%, exactly display_order 1-4 on
+  // v3_sales_tax_categories) with all of them always present, matching the
+  // actual MD Tax Connect return the owner files against. display_order 999
+  // (Non-Taxable Sales) is excluded — it isn't a real tax-due filing line.
   const periodByCategory = (() => {
-    const map = new Map<string, { categoryName: string; taxable: number; tax: number }>();
+    const map = new Map<string, { categoryName: string; taxable: number; tax: number; displayOrder: number }>();
+    for (const c of categories) {
+      if (c.display_order >= 999) continue;
+      map.set(c.category_id, { categoryName: c.category_name, taxable: 0, tax: 0, displayOrder: c.display_order });
+    }
     for (const s of salesInPeriod) {
       for (const l of s.lines || []) {
         const key = l.category_id;
-        const row = map.get(key) || { categoryName: l.category_name, taxable: 0, tax: 0 };
+        const row = map.get(key) || { categoryName: l.category_name, taxable: 0, tax: 0, displayOrder: 998 };
         row.taxable += Number(l.taxable_amount || 0);
         row.tax += Number(l.tax_amount || 0);
         map.set(key, row);
       }
     }
-    return Array.from(map.values()).sort((a, b) => b.tax - a.tax);
+    return Array.from(map.values()).sort((a, b) => a.displayOrder - b.displayOrder);
   })();
 
   // Maryland only — Form 202's timely-discount/late-penalty math (Lines
