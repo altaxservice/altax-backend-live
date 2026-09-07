@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { APP_NAME } from "../../common/branding";
 import { clientMatchesRule, isActiveFlag } from "../rules/rules.routes";
 import { canAccessClient } from "../../common/assignment";
+import { deriveTaskRulesPeriodLabel } from "../../common/taskRulesAgentBridge";
 
 export const templatesRouter = Router();
 
@@ -213,7 +214,7 @@ function projectRuleDueDate(rule: any, periodEnd: Date): Date | null {
  * the FULL client row (every trigger column `clientMatchesRule` might check), not the
  * client_id/name/email/phone slice `resolveTemplate` normally fetches.
  */
-async function computeImportantDates(client: any, periodEnd: Date): Promise<{ label: string; date: Date }[]> {
+async function computeImportantDates(client: any, periodEnd: Date): Promise<{ label: string; date: Date; periodLabel: string | null }[]> {
   const rules = await query<any>(`SELECT * FROM altax.v3_task_rules WHERE frequency <> 'Once'`);
   // Two rules can legitimately share a task_type — e.g. TR-005 ("Payroll Processing",
   // triggers on a specific Payroll Frequency) and TR-005A (same task_type, triggers on
@@ -223,7 +224,7 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
   // rather than showing the same line twice; two rules with the same label but a
   // genuinely different projected date both stay, since that's real information.
   const seen = new Set<string>();
-  const dates: { label: string; date: Date }[] = [];
+  const dates: { label: string; date: Date; periodLabel: string | null }[] = [];
   for (const rule of rules) {
     if (!isActiveFlag(rule.active)) continue;
     if (!clientMatchesRule(client, rule)) continue;
@@ -233,7 +234,21 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
     const key = `${label}|${due.toISOString().slice(0, 10)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    dates.push({ label, date: due });
+    // Which period this due date is actually FOR, not just when it's due —
+    // real owner complaint: "Sales Tax Filing & Payment due date: 10/20/2026"
+    // alone doesn't say whether that's for August, September, or some other
+    // period. Every projectRuleDueDate branch computes the due date FROM
+    // periodEnd's own month/quarter/year (e.g. Monthly's "Next Month" is
+    // periodEnd's month + 1, Quarterly's "Quarter End + 1" is the quarter
+    // CONTAINING periodEnd), so the obligation period is always periodEnd's
+    // own month/quarter/year for that rule's frequency — reusing the exact
+    // label format (deriveTaskRulesPeriodLabel) real Sales Tax/Form 941/etc.
+    // tasks already use ("September 2026", "Q3 2026", "2026"), so a staff or
+    // client reader sees the same period language everywhere. Null for
+    // Semiannual (no active rule uses it today) — that line just omits the
+    // parenthetical rather than showing something wrong.
+    const periodLabel = deriveTaskRulesPeriodLabel(periodEnd.toISOString().slice(0, 10), rule.frequency);
+    dates.push({ label, date: due, periodLabel });
   }
   dates.sort((a, b) => a.date.getTime() - b.date.getTime());
   return dates;
@@ -270,7 +285,7 @@ interface PeriodFigures {
   medicareEr: number;
   stateTax: number;
   suta: number;
-  importantDates: { label: string; date: Date }[];
+  importantDates: { label: string; date: Date; periodLabel: string | null }[];
   mdFiling: (import("../../common/mdFiling").MdFilingResult & { dueDate: string; filedDate: string; paidDate: string; sourced: "filed" | "estimated" }) | null;
   /** Real EFTPS federal deposits recorded for periods inside the requested range. Omitted (null) rather than estimated when nothing's been deposited yet — there's no honest "live estimate" of a federal deposit that hasn't happened. */
   eftps: { federalIncomeTax: number; socialSecurity: number; medicare: number; total: number; periodsFiled: number } | null;
@@ -322,7 +337,7 @@ async function fetchPeriodFigures(clientId: string, periodStart: string, periodE
   }
 
   const periodEndDate = new Date(periodEnd);
-  let importantDates: { label: string; date: Date }[] = [];
+  let importantDates: { label: string; date: Date; periodLabel: string | null }[] = [];
   const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!Number.isNaN(periodEndDate.getTime())) {
     importantDates = client ? await computeImportantDates(client, periodEndDate) : [];
@@ -545,7 +560,7 @@ export async function computeClientPeriodSummary(clientId: string, periodStart: 
 
   if (f.importantDates.length) {
     lines.push("", "IMPORTANT DATES");
-    for (const { label, date } of f.importantDates) lines.push(`${label} due date: ${fmtDate(date)}`);
+    for (const { label, date, periodLabel } of f.importantDates) lines.push(`${label} due date${periodLabel ? ` (for ${periodLabel})` : ""}: ${fmtDate(date)}`);
   }
 
   return lines.join("\n");
@@ -672,7 +687,10 @@ export async function computeClientPeriodSummaryTable(clientId: string, periodSt
   if (f.importantDates.length) {
     sections.push({
       title: "Important Dates", titleAr: "تواريخ مهمة",
-      rows: f.importantDates.map(({ label, date }) => row(`${label} due date`, `${label} — تاريخ الاستحقاق`, fmtDate(date))),
+      rows: f.importantDates.map(({ label, date, periodLabel }) => {
+        const suffix = periodLabel ? ` (for ${periodLabel})` : "";
+        return row(`${label} due date${suffix}`, `${label} — تاريخ الاستحقاق${suffix}`, fmtDate(date));
+      }),
     });
   }
 
