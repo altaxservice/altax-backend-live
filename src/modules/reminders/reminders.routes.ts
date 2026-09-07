@@ -201,8 +201,9 @@ function groupOverdueTasks(tasks: any[], nowTime: number): { name: string; items
 function buildFirmDigestHtml(opts: {
   asOf: Date; openTaskCount: number; unbalancedClients: any[]; upcomingAppointments: any[];
   statusCounts: Map<string, number>; overdueTasks: any[]; dueSoonTasks: any[]; daysAhead: number; nowTime: number;
+  openFirmNotesCount: number; overdueFirmNotesCount: number;
 }): string {
-  const { asOf, openTaskCount, unbalancedClients, upcomingAppointments, statusCounts, overdueTasks, dueSoonTasks, daysAhead, nowTime } = opts;
+  const { asOf, openTaskCount, unbalancedClients, upcomingAppointments, statusCounts, overdueTasks, dueSoonTasks, daysAhead, nowTime, openFirmNotesCount, overdueFirmNotesCount } = opts;
   const esc = escapeHtml;
   const sectionTitle = (label: string) => `<h3 style="margin:26px 0 10px; font-size:13px; letter-spacing:0.04em; text-transform:uppercase; color:#5b6b63;">${esc(label)}</h3>`;
 
@@ -253,6 +254,11 @@ function buildFirmDigestHtml(opts: {
 
     ${sectionTitle(`Upcoming Appointments — next 48 hours (${upcomingAppointments.length})`)}
     ${appointmentsHtml}
+
+    ${sectionTitle(`Open Firm Notes (${openFirmNotesCount})`)}
+    <p style="margin:0; font-size:13px; color:#5b5b57;">${openFirmNotesCount
+      ? `${openFirmNotesCount} open note${openFirmNotesCount === 1 ? "" : "s"} on the shared Notes page${overdueFirmNotesCount ? `, <span style="color:#a83a3a; font-weight:600;">${overdueFirmNotesCount} overdue</span>` : ""}.`
+      : "None."}</p>
 
     ${sectionTitle("Tasks by Status")}
     ${statusTableHtml}
@@ -484,6 +490,21 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   };
   const appointmentsSection = `\nUPCOMING APPOINTMENTS — next 48 hours (${upcomingAppointments.length})\n${upcomingAppointments.length ? upcomingAppointments.map(fmtApptLine).join("\n") : "None scheduled."}`;
 
+  // --- Firm Notes: a gentle daily nudge for the shared follow-up notebook
+  // (staffNotes.routes.ts) — reuses this digest that's already assembled and
+  // sent every morning rather than a new cron. Team-visible notes only
+  // (visibility='firm') — this digest is the SAME for every admin recipient
+  // (built once outside the per-admin loop below), so it can't safely
+  // include admin-only notes without leaking them to... other admins, who
+  // are in fact allowed to see them; kept to 'firm' anyway for simplicity,
+  // since admin-only notes are for the Notes page itself, not a firm-wide
+  // status broadcast.
+  const openFirmNotes = await query<any>(
+    `SELECT note_id, remind_at FROM altax.v3_staff_notes WHERE status = 'Open' AND visibility = 'firm'`
+  );
+  const overdueFirmNotesCount = openFirmNotes.filter((n) => n.remind_at && new Date(n.remind_at).getTime() < nowTime).length;
+  const notesSection = `\nOPEN FIRM NOTES (${openFirmNotes.length})${overdueFirmNotesCount ? ` — ${overdueFirmNotesCount} overdue` : ""}\n${openFirmNotes.length ? "See the Notes page for details." : "None."}`;
+
   // Same content for every admin recipient — built once outside the loop below.
   // bodyEnglish (plain text) is still what's stored in v3_communications for the
   // Activity Timeline/search; bodyHtml (real headings + grouped overdue list,
@@ -495,6 +516,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
     `Firm-wide status as of ${fmtDate(asOf)}: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}.`,
     booksHealthSection,
     appointmentsSection,
+    notesSection,
     `\nTASKS BY STATUS\n${statusBreakdown || "None"}`,
     `\nOVERDUE (${overdueTasks.length})\n${overdueTasks.length ? overdueTasks.map(fmtTaskLine).join("\n") : "None."}`,
     `\nDUE WITHIN ${daysAhead} DAY${daysAhead === 1 ? "" : "S"} (${dueSoonTasks.length})\n${dueSoonTasks.length ? dueSoonTasks.map(fmtTaskLine).join("\n") : "None."}`,
@@ -502,6 +524,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   const bodyHtml = buildFirmDigestHtml({
     asOf, openTaskCount: openTasks.length, unbalancedClients, upcomingAppointments,
     statusCounts, overdueTasks, dueSoonTasks, daysAhead, nowTime,
+    openFirmNotesCount: openFirmNotes.length, overdueFirmNotesCount,
   });
   const subject = unbalancedClients.length
     ? `Firm daily digest — ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, books out of balance for ${unbalancedClients.length} client${unbalancedClients.length === 1 ? "" : "s"}`

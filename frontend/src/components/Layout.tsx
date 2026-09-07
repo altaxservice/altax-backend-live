@@ -4,9 +4,10 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote,
   type LucideProps,
 } from "lucide-react";
+import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { CreateModal } from "./CreateModal";
 import { Header } from "./Header";
@@ -59,6 +60,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/dashboard", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard },
   { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users },
   { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks },
+  { to: "/notes", label: "Notes", roles: ["admin", "staff"], group: "Work", icon: StickyNote },
   { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar },
   { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock },
   { to: "/rules", label: "Task Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow },
@@ -102,6 +104,7 @@ const TITLES: Record<string, string> = {
   "/dashboard": "Command Center",
   "/clients": "Clients",
   "/tasks": "Tasks",
+  "/notes": "Notes",
   "/calendar": "Calendar",
   "/time-tracking": "Time Tracking",
   "/billing": "Billing",
@@ -202,6 +205,14 @@ export function Layout() {
   }, []);
   const sidebarRailActive = sidebarCollapsed && isDesktopWidth;
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  // Notes sidebar badge — refetched whenever the route changes so leaving the
+  // Notes page after reading/resolving things (or another tab's action)
+  // updates the count without a manual refresh or a dedicated poll.
+  const [openNotesCount, setOpenNotesCount] = useState(0);
+  useEffect(() => {
+    if (!user || !["admin", "staff"].includes(user.role)) return;
+    api.get<{ count: number }>("/staff-notes/unread-count").then((r) => setOpenNotesCount(r.count)).catch(() => {});
+  }, [user, location.pathname]);
   // Client/employee only ever see ~4-5 items — group headers would add more
   // clutter than they remove there. Admin (15) and staff (11) are exactly the
   // case grouping helps, so the threshold gates on role instead of a magic count.
@@ -278,6 +289,16 @@ export function Layout() {
                 >
                   <item.icon size={17} strokeWidth={2} aria-hidden="true" />
                   {!sidebarRailActive && <span>{label}</span>}
+                  {item.to === "/notes" && openNotesCount > 0 && (
+                    <span
+                      style={{
+                        marginLeft: sidebarRailActive ? 0 : "auto", fontSize: 11, fontWeight: 700,
+                        background: "var(--red)", color: "#fff", borderRadius: 999, padding: "1px 6px", lineHeight: 1.5,
+                      }}
+                    >
+                      {openNotesCount}
+                    </span>
+                  )}
                 </NavLink>
               </Fragment>
             );

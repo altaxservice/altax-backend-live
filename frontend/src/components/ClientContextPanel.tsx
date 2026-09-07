@@ -88,6 +88,17 @@ export function ClientContextPanel() {
   const [firmNoteText, setFirmNoteText] = useState("");
   const [savingFirmNote, setSavingFirmNote] = useState(false);
   const [firmNoteError, setFirmNoteError] = useState<string | null>(null);
+  // A third, deliberately different kind of note from the two above — those
+  // write to this client's permanent activity-log history (never resolved,
+  // never reviewed centrally). This one creates a resolvable follow-up in
+  // the shared Notes notebook (staffNotes.routes.ts /notes page) — "come
+  // back and invoice them," not "here's what happened."
+  const [showAddFollowUp, setShowAddFollowUp] = useState(false);
+  const [followUpText, setFollowUpText] = useState("");
+  const [followUpCategory, setFollowUpCategory] = useState("");
+  const [followUpRemindAt, setFollowUpRemindAt] = useState("");
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [showFlagHistory, setShowFlagHistory] = useState(false);
   const [flagHistory, setFlagHistory] = useState<ClientFlag[] | null>(null);
   // Handle sits on the panel's LEFT edge, panel is flush against the right
@@ -247,6 +258,29 @@ export function ClientContextPanel() {
       setFirmNoteError(err instanceof ApiError ? err.message : "Could not add this note.");
     } finally {
       setSavingFirmNote(false);
+    }
+  }
+
+  async function handleAddFollowUp(e: FormEvent) {
+    e.preventDefault();
+    if (!clientId) return;
+    const body = followUpText.trim();
+    if (!body) { setFollowUpError("Enter a note."); return; }
+    setFollowUpError(null);
+    setSavingFollowUp(true);
+    try {
+      await api.post("/staff-notes", {
+        body, clientId, category: followUpCategory.trim() || undefined, remindAt: followUpRemindAt || undefined,
+      });
+      setShowAddFollowUp(false);
+      setFollowUpText("");
+      setFollowUpCategory("");
+      setFollowUpRemindAt("");
+      toast("Follow-up note added — see it on the Notes page.");
+    } catch (err) {
+      setFollowUpError(err instanceof ApiError ? err.message : "Could not add this note.");
+    } finally {
+      setSavingFollowUp(false);
     }
   }
 
@@ -478,10 +512,11 @@ export function ClientContextPanel() {
             )}
           </div>
 
-          {!showAddFlag && !showAddNote && !showAddFirmNote ? (
+          {!showAddFlag && !showAddNote && !showAddFirmNote && !showAddFollowUp ? (
             <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddNote(true); setNoteError(null); }}>+ Client Note</button>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddFirmNote(true); setFirmNoteError(null); }}>+ Firm Note</button>
+              <button type="button" className="btn btn-sm" onClick={() => { setShowAddFollowUp(true); setFollowUpError(null); }}>+ Follow-Up Note</button>
               <button type="button" className="btn btn-sm" onClick={() => { setShowAddFlag(true); setFlagError(null); }}>+ Flag</button>
               {flags && flags.length > 0 && (
                 <button type="button" className="btn btn-sm" onClick={() => setShowNotifyModal(true)}>
@@ -525,6 +560,29 @@ export function ClientContextPanel() {
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingFirmNote}>{savingFirmNote ? "Saving…" : "Save Note"}</button>
                 <button type="button" className="btn btn-sm" onClick={() => { setShowAddFirmNote(false); setFirmNoteError(null); setFirmNoteText(""); }}>Cancel</button>
+              </div>
+            </form>
+          ) : showAddFollowUp ? (
+            <form onSubmit={handleAddFollowUp} style={{ marginBottom: 12, border: "1px solid var(--line)", borderRadius: 8, padding: 10, display: "grid", gap: 6 }}>
+              <div className="muted" style={{ fontSize: 11, fontWeight: 600 }}>
+                Follow-up for {client.client_name} — goes on the shared Notes page, not this client's history
+              </div>
+              {followUpError && <div className="error-banner" role="alert" style={{ fontSize: 11.5, padding: "6px 8px" }}>{followUpError}</div>}
+              <textarea
+                placeholder="e.g. Missing a W-9 — chase before month-end. Come back and invoice for the extra filing."
+                value={followUpText}
+                onChange={(e) => setFollowUpText(e.target.value)}
+                rows={3}
+                autoFocus
+                style={{ fontSize: 12.5, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input placeholder="Category (optional)" value={followUpCategory} onChange={(e) => setFollowUpCategory(e.target.value)} style={{ fontSize: 12.5, flex: 1 }} />
+                <input type="date" title="Remind me on (optional)" value={followUpRemindAt} onChange={(e) => setFollowUpRemindAt(e.target.value)} style={{ fontSize: 12.5 }} />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={savingFollowUp}>{savingFollowUp ? "Saving…" : "Save Note"}</button>
+                <button type="button" className="btn btn-sm" onClick={() => { setShowAddFollowUp(false); setFollowUpError(null); setFollowUpText(""); }}>Cancel</button>
               </div>
             </form>
           ) : (
