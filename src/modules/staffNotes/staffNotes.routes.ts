@@ -67,13 +67,21 @@ staffNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   });
 }));
 
-staffNotesRouter.get("/unread-count", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+/**
+ * The sidebar badge count — deliberately every OPEN note, not just unread
+ * ones. Real owner confusion, live: 2 open notes on screen, badge showing
+ * "1" — the badge was counting unread only, so a note someone had merely
+ * clicked into (marking it read) dropped off the count even though it was
+ * still completely unresolved. For a follow-up notebook the number that
+ * matters is "how many things still need doing," not "have I glanced at
+ * this yet" — read/unread stays as a per-row visual cue in the list (the
+ * bold text + dot), it just no longer drives the badge.
+ */
+staffNotesRouter.get("/open-count", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const isAdmin = req.user!.role === "admin";
   const row = await queryOne<any>(
     `SELECT COUNT(*)::int AS count FROM altax.v3_staff_notes n
-      WHERE n.status = 'Open' ${isAdmin ? "" : "AND n.visibility = 'firm'"}
-        AND NOT EXISTS (SELECT 1 FROM altax.v3_activity_reads r WHERE r.entity_type = 'staff_note' AND r.entity_id = n.note_id AND r.reader_email = $1)`,
-    [req.user!.email]
+      WHERE n.status = 'Open' ${isAdmin ? "" : "AND n.visibility = 'firm'"}`
   );
   res.json({ count: row?.count || 0 });
 }));
@@ -104,6 +112,45 @@ staffNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHand
   );
   await logAudit("Notes", "CREATE_STAFF_NOTE", noteId, "", "", "", `Note added by ${req.user!.email}.`, req.user!.email);
   res.status(201).json({ ok: true, noteId });
+}));
+
+/**
+ * Edits an existing note's text/client/category/remind date — real owner
+ * report, live: notes weren't editable at all, only deletable. Author or
+ * admin only, same permission shape as delete (a shared notebook still
+ * shouldn't let anyone rewrite anyone else's entry). Visibility is NOT
+ * editable here — flipping a note between Team/Admin Only after the fact
+ * is a bigger decision than a typo fix; delete and recreate it if it
+ * genuinely needs to change tiers.
+ */
+staffNotesRouter.post("/:noteId/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
+  const { noteId } = req.params;
+  const note = await queryOne<any>(`SELECT * FROM altax.v3_staff_notes WHERE note_id = $1`, [noteId]);
+  if (!note) return res.status(404).json({ error: "Note not found." });
+  if (note.visibility === "admin" && !isAdmin) return res.status(403).json({ error: "You do not have access to this note." });
+  if (note.author_email.toLowerCase() !== req.user!.email.toLowerCase() && !isAdmin) {
+    return res.status(403).json({ error: "Only the author or an admin can edit this note." });
+  }
+
+  const body = String(req.body?.body || "").trim();
+  if (!body) return res.status(400).json({ error: "Note text is required." });
+  const clientId = String(req.body?.clientId || "").trim() || null;
+  const category = String(req.body?.category || "").trim() || null;
+  const remindAtRaw = String(req.body?.remindAt || "").trim();
+  const remindAt = /^\d{4}-\d{2}-\d{2}$/.test(remindAtRaw) ? remindAtRaw : null;
+
+  if (clientId) {
+    const client = await queryOne<any>(`SELECT client_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+    if (!client) return res.status(400).json({ error: "Client not found." });
+  }
+
+  await query(
+    `UPDATE altax.v3_staff_notes SET body = $2, client_id = $3, category = $4, remind_at = $5, updated_at = now() WHERE note_id = $1`,
+    [noteId, body, clientId, category, remindAt]
+  );
+  await logAudit("Notes", "EDIT_STAFF_NOTE", noteId, "", "", "", `Note edited by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
 }));
 
 staffNotesRouter.post("/:noteId/status", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

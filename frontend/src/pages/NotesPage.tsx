@@ -50,6 +50,11 @@ export function NotesPage() {
   const [form, setForm] = useState({ body: "", clientId: "", category: "", remindAt: "", visibility: "firm" as "firm" | "admin" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Set while the open form is editing an existing note in place rather than
+  // creating a new one — same form, same fields, just a different submit
+  // target. Real owner report, live: notes weren't editable at all, only
+  // deletable — a typo or an updated date meant delete-and-retype.
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   function load() {
     const params = new URLSearchParams({ status: statusFilter });
@@ -64,19 +69,32 @@ export function NotesPage() {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, clientFilter, mineOnly, search]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
 
+  function closeForm() {
+    setForm({ body: "", clientId: "", category: "", remindAt: "", visibility: "firm" });
+    setShowForm(false);
+    setEditingNoteId(null);
+    setSaveError(null);
+  }
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     if (!form.body.trim()) { setSaveError("Note text is required."); return; }
     setSaving(true);
     setSaveError(null);
     try {
-      await api.post("/staff-notes", {
-        body: form.body.trim(), clientId: form.clientId || undefined,
-        category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
-        visibility: isAdmin ? form.visibility : undefined,
-      });
-      setForm({ body: "", clientId: "", category: "", remindAt: "", visibility: "firm" });
-      setShowForm(false);
+      if (editingNoteId) {
+        await api.post(`/staff-notes/${editingNoteId}/edit`, {
+          body: form.body.trim(), clientId: form.clientId || undefined,
+          category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
+        });
+      } else {
+        await api.post("/staff-notes", {
+          body: form.body.trim(), clientId: form.clientId || undefined,
+          category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
+          visibility: isAdmin ? form.visibility : undefined,
+        });
+      }
+      closeForm();
       load();
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : "Could not save this note.");
@@ -115,6 +133,16 @@ export function NotesPage() {
   /** Opens the New Note form pre-filled from an existing note's text/category/remind date — for the same reminder that applies to several clients (e.g. "collect signed engagement letter"), so it doesn't have to be retyped. Client is deliberately left blank rather than copied — this is FOR a different client, picking the same one back would just be a no-op duplicate. */
   function startDuplicate(n: StaffNote) {
     setForm({ body: n.body, clientId: "", category: n.category || "", remindAt: n.remindAt ? n.remindAt.slice(0, 10) : "", visibility: "firm" });
+    setEditingNoteId(null);
+    setSaveError(null);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Opens the form editing this note in place — same fields pre-filled, including its current client, unlike Duplicate which blanks the client on purpose. Author or admin only; the backend enforces this too. */
+  function startEdit(n: StaffNote) {
+    setForm({ body: n.body, clientId: n.clientId || "", category: n.category || "", remindAt: n.remindAt ? n.remindAt.slice(0, 10) : "", visibility: n.visibility });
+    setEditingNoteId(n.noteId);
     setSaveError(null);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -175,13 +203,14 @@ export function NotesPage() {
             Created by me
           </label>
           <input placeholder="Search notes…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
-          <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => setShowForm((v) => !v)}>
+          <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => (showForm ? closeForm() : setShowForm(true))}>
             {showForm ? "Cancel" : "+ New Note"}
           </button>
         </div>
 
         {showForm && (
           <form onSubmit={handleCreate} style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{editingNoteId ? "Edit Note" : "New Note"}</div>
             {saveError && <ErrorBanner error={saveError} />}
             <div className="field">
               <label htmlFor="note-body">Note</label>
@@ -216,7 +245,7 @@ export function NotesPage() {
                 </div>
               )}
             </div>
-            <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : "Save Note"}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : editingNoteId ? "Save Changes" : "Save Note"}</button>
           </form>
         )}
 
@@ -251,8 +280,16 @@ export function NotesPage() {
               <tbody>
                 {notes.map((n) => {
                   const overdue = n.status === "Open" && n.remindAt && new Date(n.remindAt) <= new Date();
+                  const canEdit = isAdmin || n.authorEmail.toLowerCase() === (user?.email || "").toLowerCase();
+                  function openRow() {
+                    if (n.unread) markRead(n.noteId);
+                    if (canEdit) startEdit(n);
+                  }
                   return (
-                    <tr key={n.noteId} style={{ opacity: n.status === "Done" ? 0.6 : 1 }} onClick={() => n.unread && markRead(n.noteId)}>
+                    <tr
+                      key={n.noteId} style={{ opacity: n.status === "Done" ? 0.6 : 1, cursor: canEdit ? "pointer" : "default" }}
+                      onClick={openRow} title={canEdit ? "Click to view / edit" : undefined}
+                    >
                       <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(n.noteId)} onChange={() => toggleSelected(n.noteId)} /></td>
                       <td style={{ maxWidth: 360, fontWeight: n.unread ? 700 : 400 }}>
                         {n.unread && <span style={{ color: "var(--teal)" }}>● </span>}
@@ -268,8 +305,9 @@ export function NotesPage() {
                         {n.status === "Open"
                           ? <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Done")}>Mark Done</button>
                           : <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Open")}>Reopen</button>}
+                        {canEdit && <button type="button" className="btn btn-sm" onClick={() => startEdit(n)}>Edit</button>}
                         <button type="button" className="btn btn-sm" title="Reuse this note's text for a different client" onClick={() => startDuplicate(n)}>Duplicate</button>
-                        <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteOne(n.noteId)}>Delete</button>
+                        {canEdit && <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteOne(n.noteId)}>Delete</button>}
                       </td>
                     </tr>
                   );

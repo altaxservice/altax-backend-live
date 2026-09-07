@@ -211,7 +211,7 @@ export function Layout() {
   const [openNotesCount, setOpenNotesCount] = useState(0);
   useEffect(() => {
     if (!user || !["admin", "staff"].includes(user.role)) return;
-    api.get<{ count: number }>("/staff-notes/unread-count").then((r) => setOpenNotesCount(r.count)).catch(() => {});
+    api.get<{ count: number }>("/staff-notes/open-count").then((r) => setOpenNotesCount(r.count)).catch(() => {});
   }, [user, location.pathname]);
   // Client/employee only ever see ~4-5 items — group headers would add more
   // clutter than they remove there. Admin (15) and staff (11) are exactly the
