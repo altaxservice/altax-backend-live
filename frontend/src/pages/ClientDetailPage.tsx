@@ -1126,6 +1126,7 @@ export function ClientDetailPage() {
                   <DetailField label="Entity Type" value={client.entity_type} />
                   <DetailField label="Date of Formation" value={client.date_of_formation ? fmtDateOnly(client.date_of_formation) : null} />
                   <DetailField label="State" value={client.state} />
+                  <DetailField label="Industry" value={client.industry_category as string | null} />
                   <DetailField label="Service Type" value={client.service_type} />
                   <DetailField
                     label="Services Provided"
