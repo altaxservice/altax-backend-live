@@ -461,10 +461,27 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   // Pipes 12% -> ESD/Vaping >5mL 20% -> Vaping Liquid <=5mL 60% -> Non-Taxable
   // last) via display_order on v3_sales_tax_categories, matching the actual
   // MD Tax Connect return the owner files against.
+  // A sale's gross total (Line 3: "taxable AND non-taxable direct sales")
+  // that exceeds what its own category lines add up to is non-taxable
+  // revenue by elimination, whether or not it was ever entered as its own
+  // CAT-NON-TAXABLE line — real gap found live: an imported sale carried
+  // $40,195 gross with only a $12,058.50 General Sales line, the remaining
+  // $28,136.50 never tagged at all (Excel imports commonly carry a gross
+  // total and one taxable subtotal, nothing else). That's genuine
+  // non-taxable revenue and belongs in this rollup even though no one
+  // opened Add Sale to tag it, so it's computed here rather than requiring
+  // a data-entry step.
+  const NON_TAXABLE_CATEGORY_ID = "CAT-NON-TAXABLE";
+  function impliedNonTaxable(s: { gross_sales: unknown; lines?: { taxable_amount: unknown }[] }): number {
+    const lineTotal = (s.lines || []).reduce((sum, l) => sum + Number(l.taxable_amount || 0), 0);
+    const gap = Number(s.gross_sales || 0) - lineTotal;
+    return gap > 0.01 ? Math.round(gap * 100) / 100 : 0;
+  }
   const usedCategoryIds = (() => {
     const ids = new Set<string>();
     for (const s of sales) {
       for (const l of s.lines || []) ids.add(l.category_id);
+      if (impliedNonTaxable(s) > 0) ids.add(NON_TAXABLE_CATEGORY_ID);
     }
     return ids;
   })();
@@ -481,6 +498,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         row.taxable += Number(l.taxable_amount || 0);
         row.tax += Number(l.tax_amount || 0);
         map.set(key, row);
+      }
+      const gap = impliedNonTaxable(s);
+      if (gap > 0) {
+        const row = map.get(NON_TAXABLE_CATEGORY_ID) || { categoryName: "Non-Taxable Sales (SNAP/EBT, exempt items)", taxable: 0, tax: 0, displayOrder: 999, nonTaxable: true };
+        row.taxable += gap;
+        map.set(NON_TAXABLE_CATEGORY_ID, row);
       }
     }
     return Array.from(map.values()).sort((a, b) => a.displayOrder - b.displayOrder);
@@ -944,7 +967,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <div style={{ margin: "10px 16px 0" }}>
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search date, amount, category, notes…" style={{ maxWidth: 260 }} />
         </div>
-        <div className="metric-grid" style={{ margin: 16 }}>
+        <div className="metric-grid metric-grid-3" style={{ margin: 16 }}>
           <div className="metric"><div className="metric-label">Rows This Period</div><div className="metric-value">{salesInPeriod.length}</div></div>
           <div className="metric"><div className="metric-label">Period Sales</div><div className="metric-value">{fmtMoney(periodSales)}</div></div>
           <div className="metric"><div className="metric-label">Period Tax</div><div className="metric-value">{fmtMoney(periodTax)}</div></div>
@@ -952,24 +975,33 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         {periodByCategory.length > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
             <div className="small-label" style={{ marginBottom: 8 }}>Tax Collected by Category (this period)</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
               {periodByCategory.map((c) => (
                 <div
                   key={c.categoryName}
                   style={{
-                    padding: "12px 16px",
+                    padding: "14px 16px",
                     borderRadius: 10,
                     background: c.nonTaxable ? "#EEF5F0" : "#FFF6EA",
                     border: `1px solid ${c.nonTaxable ? "#CCE1D2" : "#F0DCB8"}`,
                   }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{c.categoryName}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{c.categoryName}</div>
                   {c.nonTaxable ? (
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.taxable)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">exempt</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }} className="muted">Exempt Amount</span>
+                      <span style={{ fontSize: 21, fontWeight: 800, color: "var(--green)" }}>{fmtMoney(c.taxable)}</span>
+                    </div>
                   ) : (
                     <>
-                      <div style={{ fontSize: 12 }} className="muted">{fmtMoney(c.taxable)} taxed</div>
-                      <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtMoney(c.tax)} <span style={{ fontSize: 12, fontWeight: 500 }} className="muted">tax</span></div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }} className="muted">Taxable</span>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: "var(--blue)" }}>{fmtMoney(c.taxable)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }} className="muted">Tax Due</span>
+                        <span style={{ fontSize: 21, fontWeight: 800 }}>{fmtMoney(c.tax)}</span>
+                      </div>
                     </>
                   )}
                 </div>
