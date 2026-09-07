@@ -70,43 +70,73 @@ const CONTRACT_KEY_FOR_CATALOG_KEY: Record<string, string> = {
  * used to always read "to be agreed separately" even when every checked
  * service already has a real published rate.
  *
- * Deliberately RECURRING items only (role core_pillar/addon) — several
- * one-time services (formation $450, business_tax_prep $300, etc.) also
- * carry a real min_fee in the live catalog, but blending a one-time dollar
- * figure into the same total as a monthly recurring fee would produce a
- * number that's neither correctly "/mo" nor correctly "one-time," which is
- * worse on a real signed engagement letter than the existing "to be agreed
- * separately" default. A one-time-only category (e.g. Business Tax Prep
- * alone) still falls through to that same unchanged default rather than
- * risk a misleading combined figure — itemizing one-time fees is a
- * separate, deliberately out-of-scope enhancement.
+ * Recurring (core_pillar/addon) and one-time priced items are handled
+ * separately rather than blended into one sum — several one-time services
+ * (formation $450, business_tax_prep $300, etc.) carry a real min_fee in
+ * the live catalog too, but adding a one-time dollar figure straight into a
+ * monthly recurring total would produce a number that's neither correctly
+ * "/mo" nor correctly "one-time," worse than the "to be agreed separately"
+ * default on a real signed document:
+ *   - Only recurring items checked (the common case: Payroll, Sales Tax,
+ *     ...): feeAmount is their monthly sum, each part labeled "/mo" — same
+ *     as before.
+ *   - Only one-time items checked (e.g. Business Formation alone, or
+ *     Consulting + IRS/State Audit Representation together, both one-time):
+ *     feeAmount is their one-time sum — safe to add, same billing nature —
+ *     each part explicitly labeled "(one-time)" so it can never read as
+ *     monthly.
+ *   - Both in the same category (only real case today: Registered Agent
+ *     $50/mo alongside Business Formation $450 one-time, both under
+ *     "formation"): feeAmount stays the recurring total ONLY — the
+ *     headline dollar figure a reader's eye goes to must be the ongoing
+ *     commitment — with the one-time item(s) called out by name and price
+ *     in a trailing clause instead of folded into that number.
  *
  * per_employee/per_worker rows multiply by the real (or estimated — see
- * getClientWorkerCounts) headcount. Returns nulls (unitemized) when nothing
- * priced-and-recurring is checked, which money() (contracts.routes.ts)
- * already renders as "to be agreed separately" — the existing, unchanged
- * default.
+ * getClientWorkerCounts) headcount. Returns nulls (unitemized) only when
+ * nothing checked in this category has a real min_fee at all, which
+ * money() (contracts.routes.ts) renders as "to be agreed separately" — the
+ * existing, unchanged default for a category with no published rate yet.
  */
 function buildFeeItemization(
   contractKey: string, allServiceKeys: string[], catalog: ServiceCatalogEntry[], counts: ClientWorkerCounts
 ): { feeAmount: number | null; feeDescription: string | null } {
-  const items = catalog.filter((c) =>
-    allServiceKeys.includes(c.service_key) && CONTRACT_KEY_FOR_CATALOG_KEY[c.service_key] === contractKey
-    && c.min_fee != null && c.role !== "one_time"
+  const priced = catalog.filter((c) =>
+    allServiceKeys.includes(c.service_key) && CONTRACT_KEY_FOR_CATALOG_KEY[c.service_key] === contractKey && c.min_fee != null
   );
-  if (!items.length) return { feeAmount: null, feeDescription: null };
-  let total = 0;
-  const parts: string[] = [];
-  for (const item of items) {
+  if (!priced.length) return { feeAmount: null, feeDescription: null };
+
+  function lineTotal(item: ServiceCatalogEntry): number {
     const rate = Number(item.min_fee);
     const unitCount = item.pricing_unit === "per_employee" ? counts.employees : item.pricing_unit === "per_worker" ? counts.workers : null;
-    const lineTotal = unitCount !== null ? rate * unitCount : rate;
-    total += lineTotal;
-    parts.push(unitCount !== null
-      ? `${item.label} — $${rate.toFixed(2)}/mo × ${unitCount} = $${lineTotal.toFixed(2)}/mo`
-      : `${item.label} — $${rate.toFixed(2)}/mo`);
+    return unitCount !== null ? rate * unitCount : rate;
   }
-  return { feeAmount: Math.round(total * 100) / 100, feeDescription: parts.join("; ") };
+  function describeRecurring(item: ServiceCatalogEntry): string {
+    const rate = Number(item.min_fee);
+    const unitCount = item.pricing_unit === "per_employee" ? counts.employees : item.pricing_unit === "per_worker" ? counts.workers : null;
+    return unitCount !== null
+      ? `${item.label} — $${rate.toFixed(2)}/mo × ${unitCount} = $${lineTotal(item).toFixed(2)}/mo`
+      : `${item.label} — $${rate.toFixed(2)}/mo`;
+  }
+  function describeOneTime(item: ServiceCatalogEntry): string {
+    return `${item.label} — $${Number(item.min_fee).toFixed(2)} (one-time)`;
+  }
+
+  const recurring = priced.filter((c) => c.role !== "one_time");
+  const oneTime = priced.filter((c) => c.role === "one_time");
+
+  if (recurring.length > 0) {
+    const total = recurring.reduce((sum, item) => sum + lineTotal(item), 0);
+    const parts = recurring.map(describeRecurring);
+    if (oneTime.length > 0) {
+      const oneTimeTotal = oneTime.reduce((sum, item) => sum + lineTotal(item), 0);
+      parts.push(`plus a one-time $${oneTimeTotal.toFixed(2)} for ${oneTime.map((i) => i.label).join(" and ")}`);
+    }
+    return { feeAmount: Math.round(total * 100) / 100, feeDescription: parts.join("; ") };
+  }
+
+  const total = oneTime.reduce((sum, item) => sum + lineTotal(item), 0);
+  return { feeAmount: Math.round(total * 100) / 100, feeDescription: oneTime.map(describeOneTime).join("; ") };
 }
 
 /**
