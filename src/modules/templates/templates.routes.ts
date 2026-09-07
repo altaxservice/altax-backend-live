@@ -247,7 +247,22 @@ async function computeImportantDates(client: any, periodEnd: Date): Promise<{ la
     // client reader sees the same period language everywhere. Null for
     // Semiannual (no active rule uses it today) — that line just omits the
     // parenthetical rather than showing something wrong.
-    const periodLabel = deriveTaskRulesPeriodLabel(periodEnd.toISOString().slice(0, 10), rule.frequency);
+    //
+    // One real exception: Maryland's Annual Report (SDAT Form 1, TR-007/
+    // TR-008) isn't a report ON the prior year like the other fixed-month
+    // Annual rules here (Business Return/W-2/1099/Withholding Reconciliation
+    // all genuinely report the YEAR BEFORE their due date) — it's a current-
+    // year good-standing filing, referred to by the year it's DUE in (the
+    // "2027 Annual Report" is due 4/15/2027, not a report on 2026).
+    // deriveTaskRulesPeriodLabel would otherwise label it periodEnd's year
+    // (one year too early) purely because it happens to share the same
+    // "due next year" date math as the genuinely prior-year rules. Confirmed
+    // live: was showing "MD Annual Report Filing & Payment due date (for
+    // 2026): 4/15/2027" — the report SDAT actually expects by that date is
+    // the 2027 one.
+    const periodLabel = /^MD Annual Report/.test(label)
+      ? String(due.getUTCFullYear())
+      : deriveTaskRulesPeriodLabel(periodEnd.toISOString().slice(0, 10), rule.frequency);
     dates.push({ label, date: due, periodLabel });
   }
   dates.sort((a, b) => a.date.getTime() - b.date.getTime());
