@@ -7,6 +7,7 @@ import { normalizePortalRole } from "../auth/auth.service";
 import { asyncHandler } from "../../common/asyncHandler";
 import { createPasswordHashFields } from "../auth/password";
 import { normalizeText, isAssignedToUser, getUserAliases } from "../../common/assignment";
+import { getStaffSchedule, saveStaffSchedule } from "../../common/staffSchedules";
 
 export const usersRouter = Router();
 
@@ -615,6 +616,34 @@ usersRouter.post("/:userId/preparer-info", requireAuth, requireRole("admin"), as
   const cafNumber = String(req.body?.cafNumber || "").trim() || null;
   await query(`UPDATE altax.v3_users SET ptin = $2, caf_number = $3, updated_at = now() WHERE user_id = $1`, [userId, ptin, cafNumber]);
   await logAudit("Staff", "EDIT_PREPARER_INFO", userId, "", "", "", `PTIN/CAF number updated by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
+/** This person's working-hours overrides for appointment booking (v3_staff_schedules, sql/144) — see staffSchedules.ts. Always returns a schedule object (all-null "use firm default" when nothing's been saved yet), never 404s for a valid user with no overrides. */
+usersRouter.get("/:userId/schedule", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+  res.json({ schedule: await getStaffSchedule(userId) });
+}));
+
+usersRouter.post("/:userId/schedule", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+
+  const body = req.body?.schedule || {};
+  const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+  const schedule = {
+    bookableWeekdays: Object.fromEntries(days.map((k) => [k, body.bookableWeekdays?.[k] ?? null])) as Record<typeof days[number], boolean | null>,
+    dayHours: Object.fromEntries(days.map((k) => [k, {
+      startHour: body.dayHours?.[k]?.startHour ?? null,
+      endHour: body.dayHours?.[k]?.endHour ?? null,
+    }])) as Record<typeof days[number], { startHour: number | null; endHour: number | null }>,
+  };
+  await saveStaffSchedule(userId, schedule, req.user!.email);
+  await logAudit("Staff", "EDIT_SCHEDULE", userId, "", "", "", `Appointment-booking schedule updated by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true });
 }));

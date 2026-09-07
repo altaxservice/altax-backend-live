@@ -19,7 +19,8 @@ import { sendEmail, NotConfiguredError } from "../../common/notifications";
 import { sendPushToUsers } from "../../common/webPush";
 import { logAudit } from "../../common/audit";
 import { createAppointment, notifyAppointment, notifyStaffOfAppointmentChange } from "../appointments/appointments.routes";
-import { getAppointmentSettings, isBookableWeekday, hoursForDay, type AppointmentSettings } from "../../common/appointmentSettings";
+import { getAppointmentSettings, type AppointmentSettings } from "../../common/appointmentSettings";
+import { loadStaffSchedules, isStaffBookableWeekday, hoursForStaffDay, type StaffSchedule } from "../../common/staffSchedules";
 import { listAppointmentTypes, resolveAppointmentDuration } from "../../common/appointmentTypes";
 import { escapeHtml } from "../../common/html";
 import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
@@ -129,10 +130,15 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   const daysAhead = Math.floor((requested.getTime() - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 86400000);
   if (daysAhead < 0 || daysAhead > settings.maxDaysAhead) return [];
   const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
-  if (!isBookableWeekday(settings, jsDay)) return [];
+  // No firm-wide weekday gate here — whether a given weekday is bookable is
+  // now a per-staff question (see the loop below), not one shared flag. The
+  // old `if (!isBookableWeekday(...)) return [];` used to make a day the
+  // firm generally closes unavailable for EVERY staff member even if an
+  // individual override opened it back up for them specifically.
 
   const staffIds = assignedTo ? [assignedTo] : (await loadBookableStaff()).map((s) => s.id);
   if (!staffIds.length) return [];
+  const staffSchedules = await loadStaffSchedules(staffIds);
 
   const dayStartIso = slotToUtcIso(y, mo, d, 0, 0);
   const dayEndIso = slotToUtcIso(y, mo, d, 23, 59);
@@ -159,12 +165,15 @@ async function computeAvailableSlots(y: number, mo: number, d: number, settings:
   // hourly grid and the gap-boundary slots) automatically respects it.
   const minLeadMs = settings.minLeadMinutes * 60 * 1000;
   const earliestBookableMs = nowMs + minLeadMs;
-  const { startHour, endHour } = hoursForDay(settings, jsDay);
-  const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
-  const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
 
   const union = new Set<string>();
-  for (const ranges of rangesByStaff.values()) {
+  for (const staffId of staffIds) {
+    const schedule = staffSchedules.get(staffId);
+    if (!isStaffBookableWeekday(settings, schedule, jsDay)) continue;
+    const { startHour, endHour } = hoursForStaffDay(settings, schedule, jsDay);
+    const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
+    const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
+    const ranges = rangesByStaff.get(staffId) || [];
     for (const iso of computeSlotsForRanges(ranges, durationMinutes, gapMs, earliestBookableMs, dayOpenMs, dayCloseMs, startHour, endHour, settings.slotMinutes, y, mo, d)) {
       union.add(iso);
     }
@@ -233,6 +242,27 @@ async function isRealAvailableSlot(startTime: string, settings: AppointmentSetti
   const startMs = new Date(startTime).getTime();
   const slots = await computeAvailableSlots(y, mo, d, settings, durationMinutes, excludeAppointmentId, assignedTo);
   return slots.some((s) => new Date(s).getTime() === startMs);
+}
+
+/**
+ * Whether ONE staff member is actually scheduled to work the full span of a
+ * specific instant (not "do they have a conflicting appointment," which
+ * hasBusyStaffIds-style checks already cover elsewhere — this is "are they
+ * even open for business then at all"). Needed by /book's "any available"
+ * resolution: picking a candidate purely because they have nothing booked
+ * at 6 PM is wrong for someone who never works past 5 PM — they'd obviously
+ * have no conflicting appointment at an hour they never take one.
+ */
+function isStaffScheduledAt(settings: AppointmentSettings, schedule: StaffSchedule | undefined, startTime: string, endTime: string): boolean {
+  const { y, mo, d } = etDateParts(startTime);
+  const jsDay = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+  if (!isStaffBookableWeekday(settings, schedule, jsDay)) return false;
+  const { startHour, endHour } = hoursForStaffDay(settings, schedule, jsDay);
+  const dayOpenMs = new Date(slotToUtcIso(y, mo, d, startHour, 0)).getTime();
+  const dayCloseMs = new Date(slotToUtcIso(y, mo, d, endHour, 0)).getTime();
+  const startMs = new Date(startTime).getTime();
+  const endMs = new Date(endTime).getTime();
+  return startMs >= dayOpenMs && endMs <= dayCloseMs;
 }
 
 /**
@@ -397,12 +427,20 @@ publicAppointmentsRouter.post("/book", bookLimiter, asyncHandler(async (req: Req
       const gapMs = settings.gapMinutes * 60 * 1000;
       const paddedStart = new Date(startMs - gapMs).toISOString();
       const paddedEnd = new Date(startMs + durationMinutes * 60 * 1000 + gapMs).toISOString();
-      const candidateStaffIds = requestedAssignedTo ? [requestedAssignedTo] : bookableStaff.map((s) => s.id);
-      const clashes = await query<any>(
-        `SELECT DISTINCT assigned_to FROM altax.v3_appointments
-          WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 AND assigned_to = ANY($3::text[])`,
-        [paddedStart, paddedEnd, candidateStaffIds]
-      );
+      const allCandidateIds = requestedAssignedTo ? [requestedAssignedTo] : bookableStaff.map((s) => s.id);
+      const staffSchedules = await loadStaffSchedules(allCandidateIds);
+      // Scheduled-to-work filter BEFORE the busy check — someone who never
+      // works this hour obviously has no conflicting appointment then
+      // either, so a busy-only check would wrongly treat "never booked
+      // because never open" the same as "genuinely free right now."
+      const candidateStaffIds = allCandidateIds.filter((id) => isStaffScheduledAt(settings, staffSchedules.get(id), startTime, endTime));
+      const clashes = candidateStaffIds.length
+        ? await query<any>(
+            `SELECT DISTINCT assigned_to FROM altax.v3_appointments
+              WHERE status = 'Scheduled' AND start_time < $2 AND end_time > $1 AND assigned_to = ANY($3::text[])`,
+            [paddedStart, paddedEnd, candidateStaffIds]
+          )
+        : [];
       const busyStaffIds = new Set(clashes.map((c: any) => c.assigned_to));
       const finalAssignedTo = candidateStaffIds.find((id) => !busyStaffIds.has(id));
       if (!finalAssignedTo) throw new ValidationError("That time slot was just booked by someone else — please pick another.");
@@ -648,12 +686,16 @@ publicAppointmentsRouter.post("/manage/:token/reschedule", manageLimiter, asyncH
       const gapMs = settings.gapMinutes * 60 * 1000;
       const paddedStart = new Date(startMs - gapMs).toISOString();
       const paddedEnd = new Date(startMs + existingDurationMinutes * 60 * 1000 + gapMs).toISOString();
-      const candidateStaffIds = rescheduleAssignedTo ? [rescheduleAssignedTo] : (await loadBookableStaff()).map((s) => s.id);
-      const clashes = await query<any>(
-        `SELECT DISTINCT assigned_to FROM altax.v3_appointments
-          WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 AND assigned_to = ANY($4::text[])`,
-        [appt.appointment_id, paddedStart, paddedEnd, candidateStaffIds]
-      );
+      const allCandidateIds = rescheduleAssignedTo ? [rescheduleAssignedTo] : (await loadBookableStaff()).map((s) => s.id);
+      const staffSchedules = await loadStaffSchedules(allCandidateIds);
+      const candidateStaffIds = allCandidateIds.filter((id) => isStaffScheduledAt(settings, staffSchedules.get(id), startTime, endTime));
+      const clashes = candidateStaffIds.length
+        ? await query<any>(
+            `SELECT DISTINCT assigned_to FROM altax.v3_appointments
+              WHERE status = 'Scheduled' AND appointment_id <> $1 AND start_time < $3 AND end_time > $2 AND assigned_to = ANY($4::text[])`,
+            [appt.appointment_id, paddedStart, paddedEnd, candidateStaffIds]
+          )
+        : [];
       const busyStaffIds = new Set(clashes.map((c: any) => c.assigned_to));
       const stillFree = candidateStaffIds.some((id) => !busyStaffIds.has(id));
       if (!stillFree) throw new Error("__clash__");
