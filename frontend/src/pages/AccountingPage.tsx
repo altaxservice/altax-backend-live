@@ -1279,13 +1279,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
 
 interface SalesInputPreviewRow {
   rowNumber: number; saleDate: string; rawDate: string; grossSales: number;
-  taxable6: number; special12: number; vape20: number; rate60: number;
   adjustments: number; paymentDate: string | null; notes: string;
   categoryLines: { categoryId: string; taxableAmount: number }[];
   unmappedCategories: string[]; totalTaxDue: number; action: "create" | "duplicate";
 }
 interface SalesInputPreviewResponse {
   ok: boolean; rows: SalesInputPreviewRow[]; skipped: { rowNumber: number; reason: string }[]; sheetName: string;
+  /** True when the file's header had no recognizable "N%" rate columns at all — every row below will import as fully non-taxable regardless of Gross Sales. */
+  noRateColumnsFound: boolean;
 }
 interface SalesInputCommitResult { index: number; saleDate: string; ok: boolean; saleId?: string; totalTaxDue?: number; error?: string }
 
@@ -1382,6 +1383,11 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
               Found <strong>{preview.rows.length}</strong> row{preview.rows.length === 1 ? "" : "s"} on the {preview.sheetName} tab.
               {preview.skipped.length > 0 && ` ${preview.skipped.length} row(s) couldn't be read and were skipped.`}
             </p>
+            {preview.noRateColumnsFound && (
+              <div style={{ marginBottom: 12 }}>
+                <ErrorBanner error="No tax-rate columns were recognized in this file (expected something like &quot;6%&quot;, &quot;8%&quot;, or &quot;10%&quot; in a column header) — every row below will import as fully non-taxable. If that's not right, check the file's column headers before importing." />
+              </div>
+            )}
             {preview.skipped.length > 0 && (
               <ul className="muted" style={{ fontSize: 11.5, margin: "0 0 12px", paddingLeft: 18 }}>
                 {preview.skipped.map((s) => <li key={s.rowNumber}>Row {s.rowNumber}: {s.reason}</li>)}

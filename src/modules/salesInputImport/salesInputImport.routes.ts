@@ -73,25 +73,18 @@ async function loadCategoryRateMap(state: string | null | undefined): Promise<Ma
   return map;
 }
 
-const CATEGORY_COLUMNS: { key: keyof Pick<ParsedSalesInputRow, "taxable6" | "special12" | "vape20" | "rate60">; pct: number; label: string }[] = [
-  { key: "taxable6", pct: 6, label: "Taxable @ 6%" },
-  { key: "special12", pct: 12, label: "Special @ 12%" },
-  { key: "vape20", pct: 20, label: "Vape @ 20%" },
-  { key: "rate60", pct: 60, label: "60% Rate Sales" },
-];
-
+/** Each detected rate column (salesInputParser.ts's findRateColumns — driven by whatever "N%" labels are actually in the header, not a fixed MD list) is matched against this client's own state's configured categories by percentage. */
 function buildCategoryLines(row: ParsedSalesInputRow, rateMap: Map<number, { category_id: string; category_name: string }>): { lines: SalesCategoryLineInput[]; unmapped: string[] } {
   const lines: SalesCategoryLineInput[] = [];
   const unmapped: string[] = [];
-  for (const col of CATEGORY_COLUMNS) {
-    const amount = row[col.key];
-    if (!amount) continue;
+  for (const col of row.categoryAmounts) {
+    if (!col.amount) continue;
     const category = rateMap.get(col.pct);
     if (!category) {
       unmapped.push(col.label);
       continue;
     }
-    lines.push({ categoryId: category.category_id, taxableAmount: amount });
+    lines.push({ categoryId: category.category_id, taxableAmount: col.amount });
   }
   return { lines, unmapped };
 }
@@ -152,14 +145,21 @@ salesInputImportRouter.post("/preview", requireAuth, requireRole("admin", "staff
     }
     previewRows.push({
       rowNumber: row.rowNumber, saleDate: row.saleDate, rawDate: row.rawDate, grossSales: row.grossSales,
-      taxable6: row.taxable6, special12: row.special12, vape20: row.vape20, rate60: row.rate60,
       adjustments: row.adjustments, paymentDate: row.paymentDate, notes: row.notes,
       categoryLines: lines, unmappedCategories: unmapped, totalTaxDue: Math.round(totalTaxDue * 100) / 100,
       action: existingDates.has(row.saleDate) ? "duplicate" : "create",
     });
   }
 
-  res.json({ ok: true, rows: previewRows, skipped: parsed.skipped, sheetName: SALES_INPUT_SHEET_NAME });
+  res.json({
+    ok: true, rows: previewRows, skipped: parsed.skipped, sheetName: SALES_INPUT_SHEET_NAME,
+    // True when the header had zero "N%" rate columns at all — every row above will then
+    // import with an empty categoryLines regardless of Gross Sales, silently landing as
+    // fully non-taxable. Confirmed live, 2026-09-07: a DC client's file used "8%"/"10%"
+    // headers that this importer didn't yet recognize (it only knew Maryland's 4 names),
+    // and nothing here told staff the categories hadn't come through.
+    noRateColumnsFound: !parsed.hasRateColumns,
+  });
 }));
 
 /**
