@@ -120,6 +120,7 @@ export function taskActionOptions(role: string | undefined): ActionMenuOption[] 
   const options: ActionMenuOption[] = [
     { value: "task-history", label: "Review Notes / Messages" },
     { value: "edit-task", label: "Edit Task" },
+    { value: "duplicate-task", label: "Duplicate Task" },
     { value: "task-file", label: "Files" },
     { value: "void-task", label: "Void Task" },
     { value: "request-doc", label: "Document Request" },

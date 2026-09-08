@@ -25,7 +25,11 @@ const OTHER = "Other";
  * faked; see project_polish_backlog memory. "Month(s)" has no backend field either — a
  * request selecting multiple months fans out to one request per client per month.
  */
-export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, initialTaskType, initialTaskName, initialDueDate, onClose, onDone }: {
+export function NewWorkItemModal({
+  initialClientId, initialTaskId, initialMode, initialTaskType, initialTaskName, initialDueDate,
+  initialPeriod, initialAssignedTo, initialPriority, initialPaymentRequired, initialPortalName, initialPortalUrl, initialNotes,
+  onClose, onDone,
+}: {
   initialClientId?: string; initialTaskId?: string; initialMode?: Mode;
   // Pre-fills the Task form — used by ClientAtAGlance's "Create Task" action on a
   // Missing Compliance Task gap, so the task it creates actually satisfies that
@@ -33,6 +37,14 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   // see taskLabelsLikelyMatch in complianceGapFlags.ts) rather than just looking
   // similar to it.
   initialTaskType?: string; initialTaskName?: string; initialDueDate?: string;
+  // The rest of the Task form's pre-fillable fields — added for Tasks' "Duplicate
+  // Task" row action, which reuses this same create form rather than a separate
+  // duplicate-specific one (same pattern as Notes' "Duplicate"). Deliberately no
+  // initialStaffDueDate/initialFrequency/initialPaymentAmount — this form has never
+  // collected those three at all (no state, no field, not in the POST body), so a
+  // duplicate can't carry them over any more than a normal new task can.
+  initialPeriod?: string; initialAssignedTo?: string; initialPriority?: string;
+  initialPaymentRequired?: boolean; initialPortalName?: string; initialPortalUrl?: string; initialNotes?: string;
   onClose: () => void; onDone: () => void;
 }) {
   useEscapeToClose(onClose);
@@ -61,25 +73,25 @@ export function NewWorkItemModal({ initialClientId, initialTaskId, initialMode, 
   const [taskType, setTaskType] = useState(initialTaskType || "Custom");
   const [taskName, setTaskName] = useState(initialTaskName || "");
   const [dueDate, setDueDate] = useState(initialDueDate || "");
-  const [assignedTo, setAssignedTo] = useState("");
-  const [period, setPeriod] = useState("");
-  const [paymentRequired, setPaymentRequired] = useState(false);
+  const [assignedTo, setAssignedTo] = useState(initialAssignedTo || "");
+  const [period, setPeriod] = useState(initialPeriod || "");
+  const [paymentRequired, setPaymentRequired] = useState(initialPaymentRequired || false);
   // POST /tasks already accepted these (and falls back to the matching Task
   // Rule's portal when blank) — the form just never exposed them, so a
   // one-off task could never carry the filing portal it has to be done on.
-  const [portalName, setPortalName] = useState("");
-  const [portalUrl, setPortalUrl] = useState("");
+  const [portalName, setPortalName] = useState(initialPortalName || "");
+  const [portalUrl, setPortalUrl] = useState(initialPortalUrl || "");
 
   const [requestType, setRequestType] = useState("Document Request");
   const [requestedItem, setRequestedItem] = useState("");
   const [requestedItemOther, setRequestedItemOther] = useState("");
   const [months, setMonths] = useState<string[]>([]);
-  const [priority, setPriority] = useState("Normal");
+  const [priority, setPriority] = useState(initialPriority || "Normal");
 
   const [file, setFile] = useState<File | null>(null);
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentLink, setAttachmentLink] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(initialNotes || "");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

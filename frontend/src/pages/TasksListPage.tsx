@@ -109,6 +109,11 @@ export function TasksListPage() {
   const batchEmptyPanelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(batchEmptyPanelRef, showBatchModal && rules.length === 0);
   const [requestDocTask, setRequestDocTask] = useState<Task | null>(null);
+  // "Duplicate Task" row action (mirrors Notes' "Duplicate") — reopens the New
+  // Work Item form pre-filled from this task's fields, client deliberately
+  // blank, for reusing the same recurring/compliance task on a different
+  // client or company instead of retyping it.
+  const [duplicateFromTask, setDuplicateFromTask] = useState<Task | null>(null);
   const [showNewWorkItem, setShowNewWorkItem] = useState(searchParams.get("new") === "1");
   const newWorkItemClientId = searchParams.get("clientId") || undefined;
   // Same ?clientId= param doubles as a list filter — the Client panel's "Open
@@ -415,6 +420,7 @@ export function TasksListPage() {
     if (action === "edit-task") return navigate(`/tasks/${task.task_id}?open=edit`);
     if (action === "task-file") return navigate(`/tasks/${task.task_id}?open=files`);
     if (action === "request-doc") return setRequestDocTask(task);
+    if (action === "duplicate-task") return setDuplicateFromTask(task);
     if (action === "void-task") {
       const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
       if (reason === null) return;
@@ -757,6 +763,23 @@ export function TasksListPage() {
         <NewWorkItemModal
           initialClientId={newWorkItemClientId}
           onClose={() => { setShowNewWorkItem(false); setSearchParams({}); }}
+          onDone={() => reloadCurrentView()}
+        />
+      )}
+
+      {duplicateFromTask && (
+        <NewWorkItemModal
+          initialTaskType={duplicateFromTask.service_line || undefined}
+          initialTaskName={duplicateFromTask.task_name}
+          initialDueDate={duplicateFromTask.agency_due_date ? duplicateFromTask.agency_due_date.slice(0, 10) : undefined}
+          initialPeriod={duplicateFromTask.period || undefined}
+          initialAssignedTo={duplicateFromTask.assigned_to || undefined}
+          initialPriority={duplicateFromTask.priority || undefined}
+          initialPaymentRequired={duplicateFromTask.payment_required}
+          initialPortalName={duplicateFromTask.portal_name || undefined}
+          initialPortalUrl={duplicateFromTask.portal_url || undefined}
+          initialNotes={duplicateFromTask.notes || undefined}
+          onClose={() => setDuplicateFromTask(null)}
           onDone={() => reloadCurrentView()}
         />
       )}
