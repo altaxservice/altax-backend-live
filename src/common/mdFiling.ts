@@ -474,13 +474,19 @@ export async function computeMdFilingBreakdown(
   // a future $0 period, as a not-yet-due square) so a client's filing
   // history isn't silently missing entries. Opt-in, default false, so every
   // existing report/PDF/CSV caller is byte-identical.
-  options?: { includeZeroTaxPeriods?: boolean }
+  options?: { includeZeroTaxPeriods?: boolean; excludedPeriodEnds?: string[] }
 ): Promise<MdFilingBreakdown> {
   const { periods, frequencyUsed } = periodsOverride ?? splitIntoMdFilingPeriods(from, to, frequency);
   const { filingDeadlineDaysThreshold } = await getDashboardAlertSettings();
   const todayStr = new Date().toISOString().slice(0, 10);
   const results: MdFilingPeriodResult[] = [];
   for (const period of periods) {
+    // Staff can permanently exclude a period that was never filed and never
+    // will be (e.g. the client genuinely had no obligation that month) via
+    // POST /reports/md-filing/:clientId/exclude-period — see
+    // v3_md_filing_period_exclusions. A period already filed can't be
+    // excluded (that route rejects it), so this never hides a real filing.
+    if (options?.excludedPeriodEnds?.includes(period.end)) continue;
     const salesInPeriod = sales.filter((s) => {
       const d = isoDateOnly(s.saleDate);
       return d !== null && d >= period.start && d <= period.end;

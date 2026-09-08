@@ -306,6 +306,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   // "Show (N)" toggle, same idea as EFTPS Deposits' "Imported Data" section.
   const [showFilingTable, setShowFilingTable] = useState(false);
   const [showHistoryTable, setShowHistoryTable] = useState(false);
+  const [showExcludedTable, setShowExcludedTable] = useState(false);
   const [showSalesTable, setShowSalesTable] = useState(false);
   // Per-row filed/paid date entry for the multi-period table — without this,
   // "Mark Filed" on any row recorded the single shared Filing/Payment date
@@ -579,6 +580,20 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       .catch(() => setHistoryPeriods([]));
   }, [clientId, clientState, mdFilingReloadKey]);
 
+  // Periods staff permanently excluded (see handleExcludePeriod) — never
+  // filed and never will be, so they don't come back from /md-filing at
+  // all; this is its own small endpoint + reload key rather than piggy-
+  // backing on mdFilingReloadKey, since excluding/restoring a period is a
+  // separate action from anything that changes sales/filing data.
+  const [excludedReloadKey, setExcludedReloadKey] = useState(0);
+  const [excludedPeriods, setExcludedPeriods] = useState<{ start: string; end: string; reason: string | null; excludedBy: string | null; excludedAt: string }[] | null>(null);
+  useEffect(() => {
+    if (clientState !== "MD") { setExcludedPeriods(null); return; }
+    api.get<{ excluded: typeof excludedPeriods }>(`/reports/md-filing/${clientId}/excluded-periods`)
+      .then((r) => setExcludedPeriods(r.excluded || []))
+      .catch(() => setExcludedPeriods([]));
+  }, [clientId, clientState, excludedReloadKey]);
+
   /**
    * Records a period as actually filed — paidDate is now OPTIONAL (filing and
    * paying are separate events; see reports.routes.ts's mark-filed doc
@@ -653,6 +668,45 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       setMdFilingReloadKey((k) => k + 1);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not delete this.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  /**
+   * Permanently excludes a never-filed period (e.g. the client genuinely had
+   * no obligation that month) so it stops showing up in this table at all.
+   * Reversible from the "Excluded" list below, so a typed OK/Cancel confirm
+   * is enough — unlike a real filing delete, nothing is actually lost.
+   */
+  async function handleExcludePeriod(p: { start: string; end: string }) {
+    const reason = await promptFor({
+      title: "Exclude this period?",
+      message: `${fmtDate(p.start)} through ${fmtDate(p.end)} will stop appearing in Filing Discount / Late Penalty — use this when there was no actual filing obligation that period. You can restore it later from the "Excluded" list below. Optionally, say why:`,
+      placeholder: "Reason (optional)",
+      required: false,
+    });
+    if (reason === null) return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/exclude-period`, { periodStart: p.start, periodEnd: p.end, reason: reason || undefined });
+      setMdFilingReloadKey((k) => k + 1);
+      setExcludedReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not exclude this period.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleRestorePeriod(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/md-filing/${clientId}/restore-period`, { periodEnd: p.end });
+      setMdFilingReloadKey((k) => k + 1);
+      setExcludedReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not restore this period.");
     } finally {
       setMarkingPeriodEnd(null);
     }
@@ -790,15 +844,26 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
               <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
             </div>
           ) : (
-            <button
-              type="button"
-              className="btn btn-sm"
-              disabled={markingPeriodEnd === p.end}
-              onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(""); }}
-              title="Enter this period's actual filed date (and payment date, if already paid)"
-            >
-              Mark Filed
-            </button>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={markingPeriodEnd === p.end}
+                onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(""); }}
+                title="Enter this period's actual filed date (and payment date, if already paid)"
+              >
+                Mark Filed
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                disabled={markingPeriodEnd === p.end}
+                onClick={() => handleExcludePeriod(p)}
+                title="This period was never filed and never will be (no actual obligation) — exclude it from this table. Restorable from the Excluded list below."
+              >
+                {markingPeriodEnd === p.end ? "…" : "Delete"}
+              </button>
+            </div>
           )}
         </td>
       </tr>
@@ -1148,6 +1213,56 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                     </table>
                   </div>
                 </>
+              )
+            )}
+          </div>
+        )}
+        {/* Periods staff marked "no filing obligation" (handleExcludePeriod)
+            — never filed, permanently hidden from Review & File and
+            History above, but kept here so a mistaken exclusion can be
+            undone with Restore. */}
+        {clientState === "MD" && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <button
+              type="button"
+              className="small-label"
+              onClick={() => setShowExcludedTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+            >
+              Excluded ({excludedPeriods?.length ?? 0})
+            </button>
+            {showExcludedTable && (
+              excludedPeriods === null ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+              ) : excludedPeriods.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No periods excluded.</p>
+              ) : (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Period</th>
+                        <th scope="col">Reason</th>
+                        <th scope="col">Excluded</th>
+                        <th scope="col"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {excludedPeriods.map((p) => (
+                        <tr key={p.end}>
+                          <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
+                          <td className="muted">{p.reason || "—"}</td>
+                          <td className="muted">{fmtDate(p.excludedAt)}{p.excludedBy ? ` by ${p.excludedBy}` : ""}</td>
+                          <td>
+                            <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleRestorePeriod(p)}>
+                              {markingPeriodEnd === p.end ? "…" : "Restore"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )
             )}
           </div>

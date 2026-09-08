@@ -1295,6 +1295,16 @@ export async function loadSalesTaxFrequencyHistoryBatch(clientIds: string[]): Pr
   return map;
 }
 
+/** Periods staff have permanently marked "no filing obligation" — see POST .../exclude-period. */
+export async function loadExcludedMdFilingPeriods(clientId: string, expandedFrom: string, expandedTo: string): Promise<string[]> {
+  const rows = await query<{ period_end: string }>(
+    `SELECT period_end::date::text AS period_end FROM altax.v3_md_filing_period_exclusions
+      WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
+    [clientId, expandedFrom, expandedTo]
+  );
+  return rows.map((r) => r.period_end);
+}
+
 export async function computeMdFilingForReport(
   client: ReportClientInfo,
   from: string,
@@ -1311,14 +1321,15 @@ export async function computeMdFilingForReport(
   if (periods.length === 0) return null;
   const expandedFrom = periods[0].start;
   const expandedTo = periods[periods.length - 1].end;
-  const [sales, recordedFilings] = await Promise.all([
+  const [sales, recordedFilings, excludedPeriodEnds] = await Promise.all([
     loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo),
     loadRecordedMdFilingPayments(client.clientId, expandedFrom, expandedTo),
+    loadExcludedMdFilingPeriods(client.clientId, expandedFrom, expandedTo),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
-  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult, options);
+  const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult, { ...options, excludedPeriodEnds });
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, filedDate, paidDate };
 }
@@ -3242,6 +3253,69 @@ reportsRouter.post("/md-filing/:clientId/unmark-paid", requireAuth, requireRole(
   await logAudit("Accounting", "MD_FILING_UNMARK_PAID", client.clientId, "Period", "", periodEnd,
     `MD sales tax filing (period ending ${periodEnd}) un-marked by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
+}));
+
+/**
+ * Permanently excludes a never-filed period from the Filing Discount/Late
+ * Penalty table (e.g. the client genuinely had no obligation that period) —
+ * distinct from unmark-paid above, which reverts an already-filed period
+ * back to being computed live. Rejects a period that's already been filed,
+ * since that has a real filing record to correct or delete instead.
+ */
+reportsRouter.post("/md-filing/:clientId/exclude-period", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodStart = String((req.body || {}).periodStart || "").trim();
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  const reason = String((req.body || {}).reason || "").trim() || null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
+  }
+
+  const existing = await queryOne<{ period_end: string }>(
+    `SELECT period_end FROM altax.v3_md_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (existing) return res.status(400).json({ error: "This period has already been filed — delete that filing first if you need to exclude it instead." });
+
+  await query(
+    `INSERT INTO altax.v3_md_filing_period_exclusions (client_id, period_start, period_end, reason, excluded_by)
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (client_id, period_end) DO NOTHING`,
+    [client.clientId, periodStart, periodEnd, reason, req.user!.email]
+  );
+  await logAudit("Accounting", "MD_FILING_PERIOD_EXCLUDED", client.clientId, "Period", "", periodEnd,
+    `MD sales tax period ${periodStart} - ${periodEnd} permanently excluded (no filing obligation)${reason ? `: ${reason}` : ""}, by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** Undoes exclude-period above — the period goes back to appearing (and being actionable) in the Filing Discount table. */
+reportsRouter.post("/md-filing/:clientId/restore-period", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  await query(`DELETE FROM altax.v3_md_filing_period_exclusions WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "MD_FILING_PERIOD_RESTORED", client.clientId, "Period", "", periodEnd,
+    `MD sales tax period ending ${periodEnd} restored (exclusion removed) by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** Lists every period staff have excluded for this client, for the "Excluded" review/restore list in Accounting → Sales & Tax. */
+reportsRouter.get("/md-filing/:clientId/excluded-periods", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const rows = await query<{ period_start: string; period_end: string; reason: string | null; excluded_by: string | null; excluded_at: string }>(
+    `SELECT period_start::date::text AS period_start, period_end::date::text AS period_end, reason, excluded_by, excluded_at::text AS excluded_at
+       FROM altax.v3_md_filing_period_exclusions WHERE client_id = $1 ORDER BY period_end DESC`,
+    [client.clientId]
+  );
+  res.json({
+    excluded: rows.map((r) => ({ start: r.period_start, end: r.period_end, reason: r.reason, excludedBy: r.excluded_by, excludedAt: r.excluded_at })),
+  });
 }));
 
 reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
