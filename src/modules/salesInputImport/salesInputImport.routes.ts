@@ -7,7 +7,7 @@ import { logAudit } from "../../common/audit";
 import { readWorkbookSheetByName } from "../../common/xlsxReader";
 import { scanFileForMalware } from "../../common/malwareScan";
 import { parseSalesInputSheet, SALES_INPUT_SHEET_NAME, type ParsedSalesInputRow } from "./salesInputParser";
-import { createSalesInputRecord, computeCategoryLinesTax, type SalesCategoryLineInput } from "../accounting/accounting.routes";
+import { createSalesInputRecord, computeCategoryLinesTax, deleteSalesInputRecord, type SalesCategoryLineInput } from "../accounting/accounting.routes";
 
 /**
  * Imports a client's own "Sales_Input" tab (one row per day: gross sales + the MD 6%/
@@ -20,6 +20,13 @@ import { createSalesInputRecord, computeCategoryLinesTax, type SalesCategoryLine
  * hand-typed row can never compute different tax or GL numbers.
  */
 export const salesInputImportRouter = Router();
+
+function idSuffix(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${ts}-${Math.floor(100 + Math.random() * 900)}`;
+}
 
 /** Same cap as every other base64-in-JSON upload in this app (documents.routes.ts's MAX_UPLOAD_BYTES). */
 const MAX_IMPORT_BYTES = 8 * 1024 * 1024;
@@ -186,6 +193,14 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
   const existing = await query<any>(`SELECT sale_date::date::text AS sale_date FROM altax.v3_sales_input WHERE client_id = $1`, [client.client_id]);
   const existingDates = new Set(existing.map((r: any) => r.sale_date));
 
+  // One ID for the whole commit, not per row — tags every row this request
+  // creates so the entire import can be reversed in one action later (see
+  // POST /batches/:batchId/undo below) instead of hunting down each row
+  // individually. Real incident that motivated this: a whole other
+  // company's data got imported by mistake, and undoing it meant finding
+  // every affected row by timestamp and deleting each one by hand.
+  const importBatchId = `SIBATCH-${idSuffix()}`;
+
   const results: any[] = [];
   for (const { row, index } of sorted) {
     const saleDate = String(row.saleDate || "").trim();
@@ -203,6 +218,7 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
         saleDate, grossSales: row.grossSales, adjustments: row.adjustments,
         paymentDate: row.paymentDate, notes: row.notes, categoryLines,
       }, req.user!.email, "Sales Input Import");
+      await query(`UPDATE altax.v3_sales_input SET import_batch_id = $2 WHERE sale_id = $1`, [result.saleId, importBatchId]);
       results.push({ index, saleDate, ok: true, saleId: result.saleId, totalTaxDue: result.totalTaxDue });
       existingDates.add(saleDate);
     } catch (err) {
@@ -223,5 +239,62 @@ salesInputImportRouter.post("/commit", requireAuth, requireRole("admin", "staff"
   const succeeded = results.filter((r) => r.ok).length;
   await logAudit("Accounting", "IMPORT_SALES_INPUT", client.client_id, "", "", `${succeeded}/${rows.length}`,
     `Sales Input import: ${succeeded}/${rows.length} rows by ${req.user!.email}.`, req.user!.email);
-  res.status(succeeded > 0 ? 201 : 400).json({ ok: succeeded > 0, succeeded, failed: rows.length - succeeded, results });
+  res.status(succeeded > 0 ? 201 : 400).json({
+    ok: succeeded > 0, succeeded, failed: rows.length - succeeded, results,
+    batchId: succeeded > 0 ? importBatchId : null,
+  });
+}));
+
+/** Recent import batches for one client — most recent first, capped at 10 — so "Undo this import" can be found later, not just right after committing. */
+salesInputImportRouter.get("/batches/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const loaded = await loadClient(req, req.params.clientId);
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const rows = await query<any>(
+    `SELECT import_batch_id, MIN(created_at) AS imported_at, COUNT(*)::int AS row_count, SUM(gross_sales) AS total_gross
+       FROM altax.v3_sales_input
+      WHERE client_id = $1 AND import_batch_id IS NOT NULL
+      GROUP BY import_batch_id
+      ORDER BY MIN(created_at) DESC
+      LIMIT 10`,
+    [client.client_id]
+  );
+  res.json({
+    batches: rows.map((r) => ({ batchId: r.import_batch_id, importedAt: r.imported_at, rowCount: r.row_count, totalGross: Number(r.total_gross || 0) })),
+  });
+}));
+
+/**
+ * Reverses an entire import in one action — every v3_sales_input row tagged
+ * with this batch ID, for this client, via the same deleteSalesInputRecord
+ * helper the single-sale delete route uses (accounting.routes.ts), so a
+ * one-at-a-time delete and a whole-batch undo can never reverse the ledger
+ * differently. Scoped to what the import itself created — a separate "Mark
+ * Filed" action a staff member took afterward isn't touched here; auto-
+ * guessing which filed periods "belong" to a given import by time-proximity
+ * would risk deleting a real, unrelated filing. Admin-only, same weight as
+ * the single-sale delete this reuses.
+ */
+salesInputImportRouter.post("/batches/:batchId/undo", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { batchId } = req.params;
+  const loaded = await loadClient(req, String((req.body || {}).clientId || "").trim());
+  if ("error" in loaded) return res.status(loaded.status).json({ error: loaded.error });
+  const { client } = loaded;
+
+  const rows = await query<any>(
+    `SELECT sale_id FROM altax.v3_sales_input WHERE import_batch_id = $1 AND client_id = $2`,
+    [batchId, client.client_id]
+  );
+  if (!rows.length) return res.status(404).json({ error: "This import batch has nothing left to undo — it may have already been reversed." });
+
+  let glLinesRemoved = 0;
+  for (const row of rows) {
+    const removed = await deleteSalesInputRecord(row.sale_id);
+    glLinesRemoved += removed.glLinesRemoved;
+  }
+
+  await logAudit("Accounting", "UNDO_SALES_IMPORT", batchId, "", "", `${rows.length}`,
+    `Undid import batch ${batchId}: ${rows.length} sale(s) removed by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true, rowsRemoved: rows.length, glLinesRemoved });
 }));

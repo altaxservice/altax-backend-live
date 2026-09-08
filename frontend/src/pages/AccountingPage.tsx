@@ -1297,15 +1297,51 @@ interface SalesInputCommitResult { index: number; saleDate: string; ok: boolean;
  * layout). Hits /sales-input-import/*, not /import/*.
  */
 function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: string; onClose: () => void; onImported: () => void }) {
+  const confirmDialog = useConfirm();
+  const notify = useNotify();
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<SalesInputPreviewResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [results, setResults] = useState<SalesInputCommitResult[] | null>(null);
+  // Set from a successful commit — powers the "Undo this import" button right
+  // there in the results view, the common case (catch the mistake right
+  // away). Real incident: a whole other company's data got imported by
+  // mistake and had to be undone row by row after the fact.
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [recentBatches, setRecentBatches] = useState<{ batchId: string; importedAt: string; rowCount: number; totalGross: number }[] | null>(null);
+
+  function loadRecentBatches() {
+    api.get<{ batches: typeof recentBatches }>(`/sales-input-import/batches/${clientId}`)
+      .then((r) => setRecentBatches(r.batches)).catch(() => setRecentBatches([]));
+  }
+  useEffect(() => { loadRecentBatches(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   function reset() {
-    setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set());
+    setFile(null); setPreview(null); setResults(null); setError(null); setSelected(new Set()); setBatchId(null);
+  }
+
+  async function handleUndo(targetBatchId: string) {
+    const ok = await confirmDialog({
+      title: "Undo this import?",
+      message: "This removes every sale this import created for this client — its category lines and General Ledger postings included. This cannot be undone. It does not touch any period you've separately marked Filed.",
+      confirmLabel: "Undo Import", danger: true,
+    });
+    if (!ok) return;
+    setUndoing(true);
+    try {
+      const res = await api.post<{ rowsRemoved: number }>(`/sales-input-import/batches/${targetBatchId}/undo`, { clientId });
+      await notify(`Undone — ${res.rowsRemoved} row(s) removed.`);
+      if (targetBatchId === batchId) reset();
+      loadRecentBatches();
+      onImported();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not undo this import.");
+    } finally {
+      setUndoing(false);
+    }
   }
 
   async function handlePreview() {
@@ -1336,8 +1372,10 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
     setBusy(true); setError(null);
     try {
       const rows = preview.rows.filter((_, i) => selected.has(i));
-      const res = await api.post<{ results: SalesInputCommitResult[] }>("/sales-input-import/commit", { clientId, rows });
+      const res = await api.post<{ results: SalesInputCommitResult[]; batchId: string | null }>("/sales-input-import/commit", { clientId, rows });
       setResults(res.results);
+      setBatchId(res.batchId);
+      loadRecentBatches();
       onImported();
     } catch (err) {
       const rowResults = err instanceof ApiError && err.body && typeof err.body === "object" ? (err.body as any).results : undefined;
@@ -1463,8 +1501,36 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                 </tbody>
               </table>
             </div>
-            <button type="button" className="btn btn-primary" onClick={reset}>Import Another File</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="btn btn-primary" onClick={reset}>Import Another File</button>
+              {batchId && succeededCount > 0 && (
+                <button type="button" className="btn btn-danger" disabled={undoing} onClick={() => handleUndo(batchId)}>
+                  {undoing ? "Undoing…" : "Undo This Import"}
+                </button>
+              )}
+            </div>
           </>
+        )}
+
+        {!results && recentBatches && recentBatches.length > 0 && (
+          <details style={{ marginTop: 16 }}>
+            <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>Recent Imports for This Client</summary>
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th scope="col">Imported</th><th scope="col" style={{ textAlign: "right" }}>Rows</th><th scope="col" style={{ textAlign: "right" }}>Total Gross</th><th scope="col"></th></tr></thead>
+                <tbody>
+                  {recentBatches.map((b) => (
+                    <tr key={b.batchId}>
+                      <td>{new Date(b.importedAt).toLocaleString()}</td>
+                      <td style={{ textAlign: "right" }}>{b.rowCount}</td>
+                      <td style={{ textAlign: "right" }}>{fmtMoney(b.totalGross)}</td>
+                      <td><button type="button" className="btn btn-sm btn-danger" disabled={undoing} onClick={() => handleUndo(b.batchId)}>Undo</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         )}
       </div>
     </Panel>

@@ -789,13 +789,31 @@ accountingRouter.patch("/sales/:saleId", requireAuth, requireRole("admin", "staf
 }));
 
 /**
+ * Reverses one sales record's GL postings and removes it — shared by the
+ * single-sale delete route below and the bulk "undo this import" route
+ * (salesInputImport.routes.ts), so a one-at-a-time delete and a whole-batch
+ * undo can never reverse the ledger differently. Deleting the row alone
+ * would leave its three GL postings behind and silently overstate revenue
+ * and sales tax payable forever, so the ledger lines keyed to this sale's
+ * ref are removed in the same breath — the same reversal the edit route
+ * above already performs before re-posting.
+ */
+export async function deleteSalesInputRecord(saleId: string): Promise<{ glLinesRemoved: number }> {
+  const removedGl = await withTransaction(async (db) => {
+    const removed = await db.query<any>(
+      `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
+      [saleId]
+    );
+    await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
+    await db.query(`DELETE FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
+    return removed;
+  });
+  return { glLinesRemoved: removedGl.length };
+}
+
+/**
  * Delete one sales record. Admin-only and typed-confirmation gated, because it
  * removes money that has already been posted to the ledger.
- *
- * Deleting the row alone would leave its three GL postings behind and silently
- * overstate revenue and sales tax payable forever, so the ledger lines keyed to
- * this sale's ref are removed in the same breath — the same reversal the edit
- * path above already performs before re-posting.
  */
 accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { saleId } = req.params;
@@ -808,20 +826,12 @@ accountingRouter.post("/sales/:saleId/delete", requireAuth, requireRole("admin")
     return res.status(400).json({ error: "Type DELETE to confirm removing this sales record." });
   }
 
-  const removedGl = await withTransaction(async (db) => {
-    const removed = await db.query<any>(
-      `DELETE FROM altax.v3_gl_entries WHERE ref = $1 AND source = 'Sales Input' RETURNING gl_entry_id`,
-      [saleId]
-    );
-    await db.query(`DELETE FROM altax.v3_sales_input_lines WHERE sale_id = $1`, [saleId]);
-    await db.query(`DELETE FROM altax.v3_sales_input WHERE sale_id = $1`, [saleId]);
-    return removed;
-  });
+  const { glLinesRemoved } = await deleteSalesInputRecord(saleId);
 
   await logAudit("Accounting", "DELETE_SALES_INPUT", saleId, "TotalTaxDue", String(existing.total_tax_due ?? ""), "",
-    `Sales input deleted by ${req.user!.email}; ${removedGl.length} GL line(s) reversed.`, req.user!.email);
+    `Sales input deleted by ${req.user!.email}; ${glLinesRemoved} GL line(s) reversed.`, req.user!.email);
 
-  res.json({ ok: true, saleId, glLinesRemoved: removedGl.length });
+  res.json({ ok: true, saleId, glLinesRemoved });
 }));
 
 /**
