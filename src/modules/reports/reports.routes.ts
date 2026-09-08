@@ -1015,8 +1015,8 @@ export async function computeFirmHealthScore(from: string, to: string): Promise<
     computeFirmInsights(from, to),
     queryOne<any>(
       `SELECT
-         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived')) AS open_count,
-         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived') AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE) AS overdue_count
+         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false) AS open_count,
+         COUNT(*) FILTER (WHERE lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE) AS overdue_count
        FROM altax.v3_tasks`
     ),
   ]);
@@ -1454,13 +1454,21 @@ export interface ManagementException {
  * As-of-today only (no from/to) — this reports current risk, not a period.
  */
 export async function computeManagementExceptions(): Promise<ManagementException[]> {
-  const [arAging, mdMissed, overdueTaskRow, verificationRows, overdueInvoiceRow, noticesOverdueRows, noticesDueSoonRows, overdueReturnsRows] = await Promise.all([
+  const [arAging, mdMissed, overdueTaskRow, staleParkedRow, verificationRows, overdueInvoiceRow, noticesOverdueRows, noticesDueSoonRows, overdueReturnsRows] = await Promise.all([
     computeArAging(),
     computeFirmWideMdSalesTaxMissedFilings(),
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
-        WHERE lower(status) NOT IN ('completed','void','closed','archived')
+        WHERE lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false
           AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE`
+    ),
+    // Parking a task hides it from Active/Overdue on purpose — but "hidden"
+    // must never mean "forgotten forever." Anything still parked after 30
+    // days surfaces back here so it gets a second look, same as every other
+    // exception on this page.
+    queryOne<any>(
+      `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
+        WHERE is_parked = true AND parked_at IS NOT NULL AND parked_at::date <= CURRENT_DATE - INTERVAL '30 days'`
     ),
     // Was COUNT(*)-only — every row here now carries client_id too, so the
     // exception can link straight to the worst offender's own record instead
@@ -1534,6 +1542,10 @@ export async function computeManagementExceptions(): Promise<ManagementException
   const overdueTasks = Number(overdueTaskRow?.count || 0);
   if (overdueTasks > 0) {
     items.push({ severity: "critical", label: "Overdue tasks", count: overdueTasks, detail: `${overdueTasks} task(s) past their agency due date.`, link: "/tasks?tab=Overdue" });
+  }
+  const staleParked = Number(staleParkedRow?.count || 0);
+  if (staleParked > 0) {
+    items.push({ severity: "warning", label: "Tasks parked 30+ days", count: staleParked, detail: `${staleParked} parked task(s) haven't been revisited in over a month.`, link: "/tasks?tab=Parked" });
   }
   const overdueInvoiceCount = Number(overdueInvoiceRow?.count || 0);
   if (overdueInvoiceCount > 0) {

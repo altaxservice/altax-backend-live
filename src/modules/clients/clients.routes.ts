@@ -534,17 +534,19 @@ async function computeClientOpsSummary(clientId: string, viewerAliases?: string[
   const [openTasks, overdueTasks, taskStatusBreakdown, openRequests, invoiceBalance, employees, documents, myOpenTasks] = await Promise.all([
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
-        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`,
+        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false`,
       [clientId]
     ),
     // UX-009: the panel's "Open Tasks" count answers "how much work", but not
     // "how much of it is late" — a staff member had to click through to Tasks
     // to find that out. Same overdue definition (agency_due_date::date <
     // CURRENT_DATE) as the compliance-flag queries below and the frontend's
-    // own isOverdue()/dueDays() in TaskCells.tsx.
+    // own isOverdue()/dueDays() in TaskCells.tsx. Excludes parked tasks, same
+    // as the Tasks page itself — a parked task is a deliberate "not now", not
+    // something that should still read as overdue on this panel.
     queryOne<any>(
       `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
-        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false
           AND agency_due_date IS NOT NULL AND agency_due_date::date < CURRENT_DATE`,
       [clientId]
     ),
@@ -553,7 +555,7 @@ async function computeClientOpsSummary(clientId: string, viewerAliases?: string[
     // instead of a single opaque number.
     query<any>(
       `SELECT status, COUNT(*)::int AS count FROM altax.v3_tasks
-        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+        WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false
         GROUP BY status ORDER BY count DESC`,
       [clientId]
     ),
@@ -591,7 +593,7 @@ async function computeClientOpsSummary(clientId: string, viewerAliases?: string[
     viewerAliases && viewerAliases.length
       ? queryOne<any>(
           `SELECT COUNT(*)::int AS count FROM altax.v3_tasks
-            WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')
+            WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false
               AND lower(assigned_to) = ANY($2::text[])`,
           [clientId, viewerAliases]
         )

@@ -300,7 +300,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   const dueTasks = await query<any>(
     `SELECT * FROM altax.v3_tasks
       WHERE assigned_to IS NOT NULL AND assigned_to <> ''
-        AND lower(status) <> ALL($1::text[])
+        AND lower(status) <> ALL($1::text[]) AND is_parked = false
         AND COALESCE(staff_due_date, agency_due_date) IS NOT NULL
         AND COALESCE(staff_due_date, agency_due_date) <= $2
       ORDER BY COALESCE(staff_due_date, agency_due_date) ASC`,
@@ -430,7 +430,7 @@ export async function runReminders(actorEmail: string, daysAhead = 3, req?: Requ
   // task or per status change, same "one report a day" rule as the staff digest.
   let firmSent = 0, firmSkipped = 0, firmFailed = 0;
   const openTasks = await query<any>(
-    `SELECT * FROM altax.v3_tasks WHERE lower(status) <> ALL($1::text[]) ORDER BY COALESCE(staff_due_date, agency_due_date) ASC NULLS LAST`,
+    `SELECT * FROM altax.v3_tasks WHERE lower(status) <> ALL($1::text[]) AND is_parked = false ORDER BY COALESCE(staff_due_date, agency_due_date) ASC NULLS LAST`,
     [CLOSED_TASK_STATUSES]
   );
   const statusCounts = new Map<string, number>();

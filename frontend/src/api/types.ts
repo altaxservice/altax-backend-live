@@ -140,6 +140,10 @@ export interface Task {
   file_count?: number;
   first_file_name?: string | null;
   first_file_url?: string | null;
+  is_parked?: boolean;
+  parked_reason?: string | null;
+  parked_by?: string | null;
+  parked_at?: string | null;
   [key: string]: unknown;
 }
 

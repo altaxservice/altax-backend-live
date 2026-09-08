@@ -24,12 +24,14 @@ import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider"
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 
-const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active", "Completed", "Archived", "All History"] as const;
+const QUICK_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "Parked", "All Active", "Completed", "Archived", "All History"] as const;
 // Grouped into "live" (what's actually open right now) vs "history" (completed/
 // archived/everything) purely for a visual divider in the quick-tab row — same
 // underlying QUICK_TABS list and behavior, just clustered so the row reads as two
-// short groups instead of nine flat, equally-weighted pills.
-const LIVE_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "All Active"] as const;
+// short groups instead of nine flat, equally-weighted pills. Parked sits in the
+// live group (server-paginated, like the others) but is deliberately excluded
+// from every OTHER live tab — see NOT_PARKED_SQL in tasks.routes.ts.
+const LIVE_TABS = ["Active", "Overdue", "Due Today", "Due Week", "Waiting", "Parked", "All Active"] as const;
 const HISTORY_TABS = ["Completed", "Archived", "All History"] as const;
 type QuickTab = typeof QUICK_TABS[number];
 type SortKey = "client_name" | "service_line" | "task_name" | "agency_due_date" | "assigned_to";
@@ -44,7 +46,7 @@ const PAGE_SIZE = 50;
 const isLiveTab = (t: QuickTab): boolean => (LIVE_TABS as readonly string[]).includes(t);
 
 interface TaskSummary {
-  openCount: number; overdueCount: number; dueTodayCount: number; waitingCount: number;
+  openCount: number; overdueCount: number; dueTodayCount: number; waitingCount: number; parkedCount: number;
   taskGroupCount: number; topTaskGroup: { name: string; count: number } | null;
   staffLoadCount: number; topStaff: { name: string; count: number } | null;
 }
@@ -316,9 +318,10 @@ export function TasksListPage() {
     setSelected((prev) => (prev.size === visibleRows.length ? new Set() : new Set(visibleRows.map((t) => t.task_id))));
   }
 
-  async function handleBulk(action: "complete" | "void" | "delete") {
+  async function handleBulk(action: "complete" | "void" | "delete" | "park" | "unpark") {
     if (selected.size === 0) return;
     let confirmValue: string | undefined;
+    let reason: string | undefined;
     if (action === "delete") {
       const typed = await promptFor({
         title: "Permanently delete tasks",
@@ -327,6 +330,20 @@ export function TasksListPage() {
       });
       if (typed === null) return;
       confirmValue = typed;
+    } else if (action === "park") {
+      // One shared reason across the whole selection — this is the sweep tool
+      // for clearing a backlog of stuck tasks out of Active in one pass
+      // (e.g. today's 91 overdue), not a per-task decision each time.
+      const typed = await promptFor({
+        title: "Park selected tasks",
+        message: `${selected.size} selected task(s) will be hidden from Active/Overdue without changing their status. Why are these parked?`,
+        placeholder: "e.g. Waiting on client documents",
+      });
+      if (typed === null || !typed.trim()) return;
+      reason = typed;
+    } else if (action === "unpark") {
+      const ok = await confirmDialog({ title: "Unpark tasks", message: `Move ${selected.size} selected task(s) back to Active?` });
+      if (!ok) return;
     } else {
       const ok = await confirmDialog({ title: action === "complete" ? "Complete tasks" : "Void tasks", message: `${action === "complete" ? "Complete" : "Void"} ${selected.size} selected task(s)?` });
       if (!ok) return;
@@ -334,7 +351,7 @@ export function TasksListPage() {
     setBulkBusy(true);
     try {
       const res = await api.post<{ succeeded: number; failed: string[]; evidenceMissing: { taskId: string; reason: string }[] }>(
-        "/tasks/bulk", { taskIds: Array.from(selected), action, confirm: confirmValue }
+        "/tasks/bulk", { taskIds: Array.from(selected), action, confirm: confirmValue, reason }
       );
       const parts: string[] = [];
       if (res.failed.length) parts.push(`${res.failed.length} could not be updated (no access or not found)`);
@@ -344,7 +361,7 @@ export function TasksListPage() {
       // to prove the work actually happened.
       if (res.evidenceMissing.length) parts.push(`${res.evidenceMissing.length} skipped — missing completion evidence (open each task and fill in the filed/paid date and confirmation number)`);
       if (parts.length) await notify(`${res.succeeded} updated. ${parts.join("; ")}.`);
-      else toast(`${res.succeeded} task(s) ${action === "delete" ? "deleted" : "updated"}.`);
+      else toast(`${res.succeeded} task(s) ${action === "delete" ? "deleted" : action === "park" ? "parked" : action === "unpark" ? "unparked" : "updated"}.`);
       setSelected(new Set());
       reloadCurrentView();
     } catch (err) {
@@ -432,6 +449,30 @@ export function TasksListPage() {
         await notify(err instanceof ApiError ? err.message : "Could not void this task.");
       }
     }
+    if (action === "park-task") {
+      const reason = await promptFor({
+        title: "Park task",
+        message: "This hides it from Active/Overdue without changing its status — use it when you can't act on this right now (e.g. waiting on info). Why?",
+        placeholder: "e.g. Waiting on client's EIN letter",
+      });
+      if (reason === null || !reason.trim()) return;
+      try {
+        await api.post(`/tasks/${task.task_id}/park`, { reason });
+        toast("Task parked.");
+        reloadCurrentView();
+      } catch (err) {
+        await notify(err instanceof ApiError ? err.message : "Could not park this task.");
+      }
+    }
+    if (action === "unpark-task") {
+      try {
+        await api.post(`/tasks/${task.task_id}/unpark`, {});
+        toast("Task unparked.");
+        reloadCurrentView();
+      } catch (err) {
+        await notify(err instanceof ApiError ? err.message : "Could not unpark this task.");
+      }
+    }
     if (action === "delete-task") {
       const confirmValue = await promptFor({
         title: "Permanently delete task",
@@ -480,6 +521,7 @@ export function TasksListPage() {
   const overdueAll = summary?.overdueCount ?? 0;
   const dueTodayAll = summary?.dueTodayCount ?? 0;
   const waitingAll = summary?.waitingCount ?? 0;
+  const parkedAll = summary?.parkedCount ?? 0;
   const openTasksCount = summary?.openCount ?? 0;
 
   const tableTitle = user?.role === "admin" ? "Master Task Pipeline" : "My Task Pipeline";
@@ -525,8 +567,18 @@ export function TasksListPage() {
           {!isArchivedView && selected.size > 0 && (
             <>
               <span className="muted" style={{ fontSize: 12, fontWeight: 700 }}>{selected.size} selected</span>
-              <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("complete")}>Mark Complete</button>
-              <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("void")}>Void</button>
+              {quickTab === "Parked" ? (
+                <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("unpark")}>Unpark</button>
+              ) : (
+                <>
+                  <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("complete")}>Mark Complete</button>
+                  {/* The sweep tool for today's backlog — select everything stuck in
+                      Overdue/Active and clear it out in one pass instead of opening
+                      each task. See handleBulk's "park" branch for the shared-reason prompt. */}
+                  <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("park")}>Park</button>
+                  <button type="button" className="ghost-button" disabled={bulkBusy} onClick={() => handleBulk("void")}>Void</button>
+                </>
+              )}
               {user?.role === "admin" && (
                 <button type="button" className="danger-button" disabled={bulkBusy} onClick={() => handleBulk("delete")}>Delete</button>
               )}
@@ -585,6 +637,16 @@ export function TasksListPage() {
             <div className="metric-label">Waiting</div>
             <div className="metric-value">{waitingAll}</div>
             <div className="metric-note">client/docs/pending</div>
+          </button>
+          {/* Always visible, not just reachable by clicking through — a task
+              being parked must never mean it silently drops off the radar
+              (owner's own words: "we have to make sure we never forget about
+              those tasks"). Anything parked 30+ days also resurfaces on Fix
+              Center (computeManagementExceptions). */}
+          <button type="button" className="metric metric-clickable" onClick={() => goToTab("Parked")}>
+            <div className="metric-label">Parked</div>
+            <div className="metric-value">{parkedAll}</div>
+            <div className="metric-note">not forgotten — just not now</div>
           </button>
         </div>
       )}
@@ -670,6 +732,11 @@ export function TasksListPage() {
                       {t.priority && t.priority !== "Normal" && (
                         <div style={{ marginTop: 2 }}><StatusBadge status={t.priority} /></div>
                       )}
+                      {t.is_parked && (
+                        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                          Parked{t.parked_at ? ` ${fmtDateOnly(t.parked_at)}` : ""}{t.parked_by ? ` by ${t.parked_by}` : ""}: {t.parked_reason || "—"}
+                        </div>
+                      )}
                       <LabelChips labels={taskLabels[t.task_id] || []} onRemove={canManage ? (labelId) => unassignLabel(t.task_id, labelId) : undefined} />
                       {canManage && (
                         <LabelPicker
@@ -724,7 +791,7 @@ export function TasksListPage() {
                               Finish in Accounting
                             </button>
                           )}
-                          <ActionMenu options={taskActionOptions(user?.role)} onSelect={(action) => handleAction(t, action)} />
+                          <ActionMenu options={taskActionOptions(user?.role, t.is_parked)} onSelect={(action) => handleAction(t, action)} />
                         </div>
                         {t.first_file_url && <TaskFileCell task={t} />}
                       </>

@@ -200,13 +200,21 @@ const TASK_FILE_COLUMNS = `
  * whether the count came from the client-side filter or this SQL condition.
  */
 const OPEN_STATUS_SQL = `lower(t.status) NOT IN ('completed','void','closed','archived')`;
+// A parked task keeps its real status untouched (see sql/148_task_parking.sql)
+// but is deliberately hidden from every "what do I need to act on" view —
+// Park is a one-click "I can't do anything with this right now" decision,
+// separate from picking a status. It only ever surfaces again via the
+// dedicated "Parked" tab below, or Fix Center once it's been parked a while
+// (see computeManagementExceptions) — never silently dropped.
+const NOT_PARKED_SQL = `t.is_parked = false`;
 const LIVE_TAB_CONDITIONS: Record<string, string> = {
-  "Active": OPEN_STATUS_SQL,
-  "All Active": OPEN_STATUS_SQL,
-  "Overdue": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE`,
-  "Due Today": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date = CURRENT_DATE`,
-  "Due Week": `${OPEN_STATUS_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`,
-  "Waiting": `${OPEN_STATUS_SQL} AND lower(t.status) IN ('waiting docs', 'waiting on client', 'pending')`,
+  "Active": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL}`,
+  "All Active": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL}`,
+  "Overdue": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date < CURRENT_DATE`,
+  "Due Today": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date = CURRENT_DATE`,
+  "Due Week": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL} AND t.agency_due_date IS NOT NULL AND t.agency_due_date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`,
+  "Waiting": `${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL} AND lower(t.status) IN ('waiting docs', 'waiting on client', 'pending')`,
+  "Parked": `t.is_parked = true`,
 };
 const TASK_SORT_COLUMNS: Record<string, string> = {
   client_name: "t.client_name", task_name: "t.task_name", agency_due_date: "t.agency_due_date", assigned_to: "t.assigned_to",
@@ -272,26 +280,27 @@ async function buildTaskFilterSql(req: AuthedRequest): Promise<{ where: string; 
  */
 tasksRouter.get("/summary", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const scope = await taskRoleScopeSql(req);
-  if (!scope) return res.json({ openCount: 0, overdueCount: 0, dueTodayCount: 0, waitingCount: 0, taskGroupCount: 0, topTaskGroup: null, staffLoadCount: 0, topStaff: null });
+  if (!scope) return res.json({ openCount: 0, overdueCount: 0, dueTodayCount: 0, waitingCount: 0, parkedCount: 0, taskGroupCount: 0, topTaskGroup: null, staffLoadCount: 0, topStaff: null });
 
   const [counts] = await query<any>(
     `SELECT
-       COUNT(*) FILTER (WHERE ${OPEN_STATUS_SQL}) AS open_count,
+       COUNT(*) FILTER (WHERE ${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL}) AS open_count,
        COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Overdue"]}) AS overdue_count,
        COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Due Today"]}) AS due_today_count,
-       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Waiting"]}) AS waiting_count
+       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Waiting"]}) AS waiting_count,
+       COUNT(*) FILTER (WHERE ${LIVE_TAB_CONDITIONS["Parked"]}) AS parked_count
      FROM altax.v3_tasks t WHERE ${scope.sql}`,
     scope.params
   );
   const taskGroups = await query<any>(
     `SELECT COALESCE(NULLIF(t.task_name, ''), NULLIF(t.service_line, ''), 'Task') AS name, COUNT(*)::int AS count
-       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL}
+       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL}
       GROUP BY 1 ORDER BY 2 DESC`,
     scope.params
   );
   const staffLoad = await query<any>(
     `SELECT COALESCE(NULLIF(t.assigned_to, ''), 'Unassigned') AS name, COUNT(*)::int AS count
-       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL}
+       FROM altax.v3_tasks t WHERE ${scope.sql} AND ${OPEN_STATUS_SQL} AND ${NOT_PARKED_SQL}
       GROUP BY 1 ORDER BY 2 DESC`,
     scope.params
   );
@@ -299,6 +308,7 @@ tasksRouter.get("/summary", requireAuth, asyncHandler(async (req: AuthedRequest,
   res.json({
     openCount: Number(counts.open_count), overdueCount: Number(counts.overdue_count),
     dueTodayCount: Number(counts.due_today_count), waitingCount: Number(counts.waiting_count),
+    parkedCount: Number(counts.parked_count),
     taskGroupCount: taskGroups.length, topTaskGroup: taskGroups[0] || null,
     staffLoadCount: staffLoad.length, topStaff: staffLoad[0] || null,
   });
@@ -721,8 +731,10 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
   const body = req.body || {};
   const taskIds: string[] = Array.isArray(body.taskIds) ? body.taskIds.map((id: unknown) => String(id).trim()).filter(Boolean) : [];
   const action = String(body.action || "").trim().toLowerCase();
+  const reason = String(body.reason || "").trim();
   if (!taskIds.length) return res.status(400).json({ error: "No tasks selected." });
-  if (!["complete", "void", "delete"].includes(action)) return res.status(400).json({ error: "Unsupported bulk action." });
+  if (!["complete", "void", "delete", "park", "unpark"].includes(action)) return res.status(400).json({ error: "Unsupported bulk action." });
+  if (action === "park" && !reason) return res.status(400).json({ error: "A reason is required to park tasks." });
 
   if (action === "delete") {
     if (req.user!.role !== "admin") return res.status(403).json({ error: "Only admin can permanently delete tasks." });
@@ -756,6 +768,18 @@ tasksRouter.post("/bulk", requireAuth, requireRole("admin", "staff"), asyncHandl
       await query(`UPDATE altax.v3_tasks SET status = 'Void', notes = $2, updated_at = now(), updated_by = $3 WHERE task_id = $1`, [taskId, newNotes, req.user!.email]);
       await logAudit("Tasks", "VOID", taskId, "Status", task.status || "", "Void",
         `Task bulk-voided by ${req.user!.email}.`, req.user!.email);
+    } else if (action === "park") {
+      await query(
+        `UPDATE altax.v3_tasks SET is_parked = true, parked_reason = $2, parked_by = $3, parked_at = now() WHERE task_id = $1`,
+        [taskId, reason, req.user!.email]
+      );
+      await logAudit("Tasks", "PARK", taskId, "Parked", "false", "true", `Task bulk-parked by ${req.user!.email}: ${reason}`, req.user!.email);
+    } else if (action === "unpark") {
+      await query(
+        `UPDATE altax.v3_tasks SET is_parked = false, parked_reason = NULL, parked_by = NULL, parked_at = NULL WHERE task_id = $1`,
+        [taskId]
+      );
+      await logAudit("Tasks", "UNPARK", taskId, "Parked", "true", "false", `Task bulk-unparked by ${req.user!.email}.`, req.user!.email);
     } else {
       await query(`DELETE FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
       await logAudit("Tasks", "DELETE", taskId, "TaskName", task.task_name || "", "",
@@ -787,6 +811,48 @@ tasksRouter.post("/:taskId/void", requireAuth, requireRole("admin", "staff"), as
   await logAudit("Tasks", "VOID", taskId, "Status", old.status || "", "Void", `Task voided by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, taskId, status: "Void" });
+}));
+
+/**
+ * Parks a task — hides it from Active/Overdue/Due Today/Due Week/Waiting
+ * without changing its status, for a task that's genuinely stuck (waiting
+ * on info, blocked on a third party) so it stops cluttering "what do I need
+ * to act on today." A required reason, since this is a deliberate decision
+ * to defer, not a status pick. See NOT_PARKED_SQL above and the "Parked" tab.
+ */
+tasksRouter.post("/:taskId/park", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { taskId } = req.params;
+  const reason = String((req.body || {}).reason || "").trim();
+  if (!reason) return res.status(400).json({ error: "A reason is required to park a task." });
+
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+  if (!old) return res.status(404).json({ error: "Task not found." });
+  if (!(await canAccessTask(req.user!, old))) return res.status(403).json({ error: "You do not have access to this task." });
+
+  await query(
+    `UPDATE altax.v3_tasks SET is_parked = true, parked_reason = $2, parked_by = $3, parked_at = now() WHERE task_id = $1`,
+    [taskId, reason, req.user!.email]
+  );
+  await logAudit("Tasks", "PARK", taskId, "Parked", "false", "true", `Task parked by ${req.user!.email}: ${reason}`, req.user!.email);
+
+  res.json({ ok: true, taskId, isParked: true });
+}));
+
+/** Undoes park above — the task goes right back to whatever status it already had. */
+tasksRouter.post("/:taskId/unpark", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { taskId } = req.params;
+
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+  if (!old) return res.status(404).json({ error: "Task not found." });
+  if (!(await canAccessTask(req.user!, old))) return res.status(403).json({ error: "You do not have access to this task." });
+
+  await query(
+    `UPDATE altax.v3_tasks SET is_parked = false, parked_reason = NULL, parked_by = NULL, parked_at = NULL WHERE task_id = $1`,
+    [taskId]
+  );
+  await logAudit("Tasks", "UNPARK", taskId, "Parked", "true", "false", `Task unparked by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, taskId, isParked: false });
 }));
 
 /**

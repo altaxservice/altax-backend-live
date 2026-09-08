@@ -42,6 +42,7 @@ export function statusOptionsForTaskType(all: { value: string; taskType: string 
 }
 
 export function isOpenTask(t: Task): boolean {
+  if (t.is_parked) return false;
   return !["completed", "void", "closed", "archived"].includes(String(t.status || "").toLowerCase());
 }
 // A task in a terminal status (Completed/Void/Closed/Archived) can never be
@@ -115,13 +116,14 @@ export function TaskFileCell({ task }: { task: Task }) {
   );
 }
 
-export function taskActionOptions(role: string | undefined): ActionMenuOption[] {
+export function taskActionOptions(role: string | undefined, isParked?: boolean): ActionMenuOption[] {
   if (role === "client") return [{ value: "task-file", label: "Files" }, { value: "request-doc", label: "New Request" }];
   const options: ActionMenuOption[] = [
     { value: "task-history", label: "Review Notes / Messages" },
     { value: "edit-task", label: "Edit Task" },
     { value: "duplicate-task", label: "Duplicate Task" },
     { value: "task-file", label: "Files" },
+    isParked ? { value: "unpark-task", label: "Unpark Task" } : { value: "park-task", label: "Park Task" },
     { value: "void-task", label: "Void Task" },
     { value: "request-doc", label: "Document Request" },
   ];

@@ -89,7 +89,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
       `SELECT employee_id, employee_name, client_id, client_name FROM altax.v3_employees`
     ),
     query<{ client_id: string | null; assigned_to: string | null; agency_due_date: string | null }>(
-      `SELECT client_id, assigned_to, agency_due_date FROM altax.v3_tasks WHERE lower(status) NOT IN ('completed','void','closed','archived')`
+      `SELECT client_id, assigned_to, agency_due_date FROM altax.v3_tasks WHERE lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false`
     ),
   ]);
   const clientNameById = new Map(clients.map((c) => [c.client_id, c.client_name]));
