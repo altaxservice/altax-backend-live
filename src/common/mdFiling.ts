@@ -481,17 +481,22 @@ export async function computeMdFilingBreakdown(
   const todayStr = new Date().toISOString().slice(0, 10);
   const results: MdFilingPeriodResult[] = [];
   for (const period of periods) {
-    // Staff can permanently exclude a period that was never filed and never
-    // will be (e.g. the client genuinely had no obligation that month) via
-    // POST /reports/md-filing/:clientId/exclude-period — see
-    // v3_md_filing_period_exclusions. A period already filed can't be
-    // excluded (that route rejects it), so this never hides a real filing.
-    if (options?.excludedPeriodEnds?.includes(period.end)) continue;
     const salesInPeriod = sales.filter((s) => {
       const d = isoDateOnly(s.saleDate);
       return d !== null && d >= period.start && d <= period.end;
     });
     const taxDue = round2(salesInPeriod.reduce((sum, s) => sum + Number(s.totalTaxDue || 0), 0));
+    // Staff can permanently exclude a period that was never filed and never
+    // will be (e.g. the client genuinely had no obligation that month) via
+    // POST /reports/md-filing/:clientId/exclude-period — see
+    // v3_md_filing_period_exclusions. Real incident: a period excluded while
+    // genuinely $0 later had real sales entered/imported for it, and the
+    // exclusion kept hiding that real tax due forever with no visible
+    // warning. Checked AFTER computing taxDue, and only honored while the
+    // period is still actually $0 — a period with real tax due always wins
+    // over a stale exclusion. computeMdFilingForReport auto-clears the
+    // now-stale exclusion row when this happens.
+    if (taxDue <= 0 && options?.excludedPeriodEnds?.includes(period.end)) continue;
     // A period staff has explicitly marked filed uses those REAL filed/paid dates
     // instead of filedDateStr/paidDateStr (normally "today") — so its on-time/late
     // status and penalty/interest freeze at the actual filing event rather than

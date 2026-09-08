@@ -1330,6 +1330,21 @@ export async function computeMdFilingForReport(
   const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
   const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
   const breakdown = await computeMdFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult, { ...options, excludedPeriodEnds });
+  if (excludedPeriodEnds.length > 0) {
+    // A period excluded while genuinely $0 can later get real sales entered/
+    // imported for it — computeMdFilingBreakdown always lets a period with
+    // real tax due win over a stale exclusion (see its own comment), so any
+    // excluded period that made it into the results here has real money on
+    // it now. Auto-clear its exclusion row so "Excluded" stops claiming
+    // "no obligation" for a period that very much has one, instead of
+    // requiring someone to notice and click Restore manually.
+    const revived = breakdown.periods.filter((p) => excludedPeriodEnds.includes(p.end));
+    for (const p of revived) {
+      await query(`DELETE FROM altax.v3_md_filing_period_exclusions WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, p.end]);
+      await logAudit("Accounting", "MD_FILING_PERIOD_AUTO_RESTORED", client.clientId, "Period", "", p.end,
+        `MD sales tax period ending ${p.end} auto-restored: real tax due ($${p.taxDue.toFixed(2)}) found after it was excluded as having no obligation.`, "system");
+    }
+  }
   if (breakdown.periods.length === 0) return null;
   return { ...breakdown, filedDate, paidDate };
 }
