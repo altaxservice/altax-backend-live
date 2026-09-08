@@ -325,13 +325,34 @@ export function splitIntoMdFilingPeriodsForClient(
   const sorted = [...history].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
   const periods: MdFilingPeriod[] = [];
   let frequencyUsed: MdFilingFrequency | null = null;
+  // A period already in progress when the frequency changes is never split
+  // mid-period — splitIntoMdFilingPeriods always emits a period's TRUE full
+  // calendar end regardless of where segTo cuts off, so it completes in full
+  // under the OLD frequency (matches how a frequency change actually works:
+  // the new schedule starts with the next full period, not retroactively
+  // inside one already underway). Real incident: without tracking that, the
+  // NEXT segment started generating from its own effective_from with no
+  // memory of what the previous segment already covered — e.g. Quarterly
+  // through Sep 7 emits a full Jul-Sep quarter (it already started), then
+  // Monthly effective Sep 8 generated ANOTHER period for September too,
+  // producing a duplicate/overlapping row and making the whole range look
+  // like it was still stuck on the old frequency. cursorFloor makes each
+  // segment skip past whatever the previous one already emitted.
+  let cursorFloor: string | null = null;
   for (const row of sorted) {
-    const segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
+    let segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
+    if (cursorFloor && cursorFloor > segFrom) segFrom = cursorFloor;
     const segTo = (row.effectiveTo && row.effectiveTo < to) ? row.effectiveTo : to;
     if (segFrom > segTo) continue;
     const seg = splitIntoMdFilingPeriods(segFrom, segTo, row.frequency);
     periods.push(...seg.periods);
     if (seg.frequencyUsed) frequencyUsed = seg.frequencyUsed;
+    if (seg.periods.length > 0) {
+      const lastEnd = seg.periods[seg.periods.length - 1].end;
+      const nextDay = new Date(`${lastEnd}T00:00:00Z`);
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      cursorFloor = nextDay.toISOString().slice(0, 10);
+    }
   }
   return { periods, frequencyUsed };
 }
