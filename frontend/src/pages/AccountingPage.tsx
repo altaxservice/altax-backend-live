@@ -335,10 +335,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     return api.get<{ sales: any[] }>(`/accounting/sales/${clientId}`).then((r) => setSales(r.sales)).catch(() => {});
   }
   useEffect(() => { load(); }, [clientId]);
+  // Real incident, live: staff imported real sales for a client and the
+  // Filing Discount/Late Penalty table kept showing every period at $0 —
+  // the underlying tax was computed correctly the whole time (confirmed
+  // directly against the API), but neither this Refresh button nor a
+  // completed import ever bumped mdFilingReloadKey, the one thing that
+  // actually re-fetches that table's data (it's on a separate fetch,
+  // debounced off the date pickers — see the useEffect that reads it).
+  // load() alone only refreshes the raw Sale Entries list below.
   async function handleRefresh() {
     setRefreshing(true);
     try {
       await load();
+      setMdFilingReloadKey((k) => k + 1);
     } finally {
       setRefreshing(false);
     }
@@ -820,6 +829,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       setLines([{ ...EMPTY_SALES_LINE }]);
       setImportedFromCalculator(false);
       load();
+      setMdFilingReloadKey((k) => k + 1);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save sales input.");
     } finally {
@@ -844,6 +854,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       setViewing(null);
       setEditing(null);
       load();
+      setMdFilingReloadKey((k) => k + 1);
       await notify(`Sale deleted. ${res.glLinesRemoved} general-ledger line(s) reversed.`);
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not delete this sale.");
@@ -875,6 +886,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       });
       setEditing(null);
       load();
+      setMdFilingReloadKey((k) => k + 1);
     } catch (err) {
       setEditError(err instanceof ApiError ? err.message : "Could not save changes.");
     } finally {
@@ -888,7 +900,7 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <SalesInputImportPanel
           clientId={clientId}
           onClose={() => setShowImport(false)}
-          onImported={load}
+          onImported={() => { load(); setMdFilingReloadKey((k) => k + 1); }}
         />
       )}
       {showCreate && (
