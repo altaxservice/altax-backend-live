@@ -587,7 +587,7 @@ async function resolveStaffRecipients(appt: any): Promise<Map<string, { email: s
  * appointments system. `rows` values are expected to already be
  * escaped/formatted by the caller — this only lays them out.
  */
-function buildStaffApptNoticeHtml(opts: { color: string; label: string; title: string; who: string; rows: { label: string; value: string }[]; calendarButtonHtml?: string }): string {
+function buildStaffApptNoticeHtml(opts: { color: string; label: string; title: string; who: string; rows: { label: string; value: string }[]; calendarButtonHtml?: string; viewInAppUrl?: string }): string {
   return `
     <div style="max-width:480px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
       <div style="background:${opts.color};color:#ffffff;padding:16px 20px;border-radius:10px 10px 0 0;">
@@ -596,9 +596,10 @@ function buildStaffApptNoticeHtml(opts: { color: string; label: string; title: s
       </div>
       <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 10px 10px;padding:18px 20px;font-size:14px;">
         <table style="width:100%;border-collapse:collapse;font-size:14px;">
-          ${opts.rows.map((r) => `<tr><td style="padding:5px 0;color:#666;width:80px;">${escapeHtml(r.label)}</td><td style="padding:5px 0;font-weight:700;">${r.value}</td></tr>`).join("")}
+          ${opts.rows.map((r) => `<tr><td style="padding:5px 0;color:#666;width:80px;vertical-align:top;">${escapeHtml(r.label)}</td><td style="padding:5px 0;font-weight:700;">${r.value}</td></tr>`).join("")}
         </table>
         ${opts.calendarButtonHtml || ""}
+        ${opts.viewInAppUrl ? `<div style="margin-top:14px;"><a href="${opts.viewInAppUrl}" style="display:inline-block;padding:9px 16px;background:#1f2937;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;font-size:13px;">View in Calendar</a></div>` : ""}
       </div>
     </div>`;
 }
@@ -677,20 +678,39 @@ export async function notifyStaffOfAppointmentChange(
         ? `Moved from ${fmtDate(new Date(previousStartTime))} ${fmtTime(new Date(previousStartTime))} to ${fmtDate(newStart)} ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`
         : `New time: ${fmtDate(newStart)} at ${fmtTime(newStart)}${appt.location ? ` · ${appt.location}` : ""}.`;
   const label = kind === "Cancelled" ? "Client cancelled" : kind === "Confirmed" ? "Client confirmed" : "Appointment rescheduled";
-  const subject = `${label}: ${appt.title || "Appointment"} with ${who}`;
+  // Real feedback: a client with several appointments on file (e.g. recurring
+  // EBT/sales-tax work) produces several near-identical "Client confirmed:
+  // <same title> with <same client>" emails — the date/time is the only thing
+  // that actually distinguishes them, so it belongs in the subject line
+  // itself, not just buried in the body.
+  const subject = `${label}: ${appt.title || "Appointment"} with ${who} — ${fmtDate(newStart)} ${fmtTime(newStart)}`;
   // Only Rescheduled has anything to add to a calendar — a cancellation
   // removes the appointment and a confirmation doesn't change anything
   // already on staff's calendar, so neither has new info to (re-)invite to.
   const calendarInput = kind === "Rescheduled"
     ? { uid: appt.appointment_id, title: appt.title || "Appointment", startISO: appt.start_time, endISO: appt.end_time, location: appt.location || undefined }
     : null;
+  // Real feedback: this notice used to only show a date/time and the
+  // assigned staff name — not enough to act on without opening the app, and
+  // not enough to tell apart two appointments for the same client. Adding
+  // the service type, client contact info, and any notes the client left,
+  // plus a direct link into Calendar (appointmentId deep-link, see
+  // TaskCalendarPage.tsx) so staff land on the exact right appointment
+  // instead of hunting for it among several.
+  const contactBits = [appt.contact_phone, appt.contact_email].filter(Boolean);
+  const base = publicBaseUrl(req);
+  const viewInAppUrl = base ? `${base}/calendar?appointmentId=${encodeURIComponent(appt.appointment_id)}` : undefined;
   const html = buildStaffApptNoticeHtml({
     color: kind === "Cancelled" ? "#7a1f1f" : kind === "Confirmed" ? "#0f5132" : "#1f2937", label, title: appt.title || "Appointment", who,
     rows: [
       { label: "Details", value: escapeHtml(detailLine) },
+      ...(appt.appointment_type_name && appt.appointment_type_name !== appt.title ? [{ label: "Service", value: escapeHtml(appt.appointment_type_name) }] : []),
       ...(appt.assigned_to ? [{ label: "Assigned", value: escapeHtml(appt.assigned_to) }] : []),
+      ...(contactBits.length ? [{ label: "Contact", value: contactBits.map(escapeHtml).join(" · ") }] : []),
+      ...(appt.notes ? [{ label: "Notes", value: escapeHtml(String(appt.notes)) }] : []),
     ],
     calendarButtonHtml: calendarInput ? buildAddToCalendarButtonHtml(buildGoogleCalendarUrl(calendarInput), { theme: "green" }) : "",
+    viewInAppUrl,
   });
   const smsBody = `AL TAX SERVICE: ${label} — ${appt.title || "Appointment"} with ${who}. ${detailLine}`;
 
@@ -1101,6 +1121,36 @@ appointmentsRouter.get("/staff-conflict", requireAuth, requireRole("admin", "sta
     params
   );
   res.json({ conflict: Boolean(conflict), conflictingTitle: conflict?.title || null });
+}));
+
+/**
+ * Single-appointment fetch, for the "View in Calendar" deep link in staff
+ * notification emails (notifyStaffOfAppointmentChange) — TaskCalendarPage's
+ * own GET / only loads the currently-viewed month, so a linked appointment
+ * in a different month wouldn't otherwise be found without this. Registered
+ * after the fixed-string routes above (staff-conflict, mine) so :appointmentId
+ * doesn't shadow them.
+ */
+appointmentsRouter.get("/:appointmentId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const row = await queryOne<any>(
+    `SELECT a.*, c.client_name AS linked_client_name FROM altax.v3_appointments a
+       LEFT JOIN altax.v3_clients c ON c.client_id = a.client_id
+      WHERE a.appointment_id = $1`,
+    [req.params.appointmentId]
+  );
+  if (!row) return res.status(404).json({ error: "Appointment not found." });
+
+  let visible = row;
+  if (req.user!.role !== "admin") {
+    const aliases = await getUserAliases(req.user!.email);
+    const hasClientAccess = row.client_id && (await queryOne<any>(
+      `SELECT 1 FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id = $2 LIMIT 1`,
+      [Array.from(aliases), row.client_id]
+    ));
+    if (!isAssignedToUser(row.assigned_to, aliases) && !hasClientAccess) visible = redactAppointmentForViewer(row);
+  }
+
+  res.json({ appointment: { ...visible, client_name: visible.linked_client_name || visible.contact_name } });
 }));
 
 appointmentsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {

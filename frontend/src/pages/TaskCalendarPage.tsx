@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Clock, CalendarPlus } from "lucide-react";
 import { api, ApiError } from "../api/client";
 import type { Task, Appointment, Client } from "../api/types";
@@ -273,6 +273,7 @@ function LiveAppointmentClock() {
 
 export function TaskCalendarPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const { user } = useAuth();
@@ -287,6 +288,30 @@ export function TaskCalendarPage() {
   const [showNewAppt, setShowNewAppt] = useState(false);
   const [editingAppt, setEditingAppt] = useState<Appointment | null>(null);
   const [hoveredApptId, setHoveredApptId] = useState<string | null>(null);
+
+  // "View in Calendar" links in staff notification emails (a client
+  // confirming/cancelling/rescheduling) point here with ?appointmentId=X —
+  // real feedback: staff with several appointments on file for the same
+  // client couldn't tell which one an email was actually about. Fetched
+  // directly by id (not from the month-scoped `appointments` list, which
+  // may not even cover the right month yet) so this opens straight to the
+  // right appointment regardless of which month the calendar happens to be
+  // showing when the link is clicked.
+  useEffect(() => {
+    const id = searchParams.get("appointmentId");
+    if (!id) return;
+    api.get<{ appointment: Appointment }>(`/appointments/${encodeURIComponent(id)}`)
+      .then((r) => {
+        setCursor(() => { const d = new Date(r.appointment.start_time); d.setDate(1); return d; });
+        setEditingAppt(r.appointment);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load that appointment."))
+      .finally(() => {
+        searchParams.delete("appointmentId");
+        setSearchParams(searchParams, { replace: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     api.get<{ tasks: Task[] }>("/tasks")
