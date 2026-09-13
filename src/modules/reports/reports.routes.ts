@@ -2291,7 +2291,15 @@ export async function computeClientDashboard(clientId: string) {
     computeClientCogs(clientId, from, to),
     queryOne<any>(`SELECT COUNT(*)::int AS count FROM altax.v3_tasks WHERE client_id = $1 AND lower(status) NOT IN ('completed','void','closed','archived')`, [clientId]),
     loadPayrollForPeriod(clientId, from, to),
-    computeMdFilingForReport(reportClient, from, to),
+    // includeZeroTaxPeriods: true — real bug, live: the default mode silently
+    // drops any period with taxDue <= 0, EVEN a genuinely filed/on-time one
+    // (computeMdFilingBreakdown's own `if (recorded) continue`), so a client
+    // whose sales happened to be $0 (or never entered) in this window always
+    // showed "Compliance: Not applicable" here regardless of real filing
+    // behavior — the health score silently discarded evidence the client WAS
+    // filing on time. computeClientComplianceTimeline already opts into this
+    // same flag for exactly this reason; this call just never matched it.
+    computeMdFilingForReport(reportClient, from, to, undefined, undefined, { includeZeroTaxPeriods: true }),
   ]);
 
   const openTasks = openTasksRow?.count || 0;

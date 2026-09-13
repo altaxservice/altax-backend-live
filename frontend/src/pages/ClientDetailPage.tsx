@@ -571,10 +571,16 @@ export function ClientDetailPage() {
   // Account Flags already lives on the default "At a Glance" tab, so this just
   // scrolls to it once flags have loaded (flags fetch async inside
   // ClientAtAGlance, hence the short delay rather than scrolling immediately).
+  // Real bug, live: "instant" here used to be "smooth" — the animated scroll
+  // silently never moved the page at all in some real-world conditions
+  // (confirmed: a backgrounded/inactive tab is enough to make Chrome's own
+  // smooth-scroll compositor animation never actually run), so clicking the
+  // "N Overdue" badge below looked like it did nothing. An instant jump has
+  // no animation to get skipped — it just works, every time.
   useEffect(() => {
     if (location.hash !== "#account-flags" || !client || tab !== "At a Glance") return;
     const t = setTimeout(() => {
-      document.getElementById("account-flags")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("account-flags")?.scrollIntoView({ behavior: "instant", block: "start" });
     }, 400);
     return () => clearTimeout(t);
   }, [location.hash, client, tab]);
@@ -585,7 +591,7 @@ export function ClientDetailPage() {
   useEffect(() => {
     if (location.hash !== "#compliance-score" || !client || tab !== "At a Glance") return;
     const t = setTimeout(() => {
-      document.getElementById("compliance-score")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("compliance-score")?.scrollIntoView({ behavior: "instant", block: "start" });
     }, 400);
     return () => clearTimeout(t);
   }, [location.hash, client, tab]);
