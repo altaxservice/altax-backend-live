@@ -482,7 +482,7 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                 return owedToUs.length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {owedToUs.map((f) => (
-                      <span key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ width: "fit-content" }}>{flagLabel(f)}</span>
+                      <span key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ width: "fit-content", maxWidth: "100%", whiteSpace: "normal", overflowWrap: "anywhere" }}>{flagLabel(f)}</span>
                     ))}
                   </div>
                 ) : <span className="muted" style={{ fontSize: 12.5 }}>None</span>;
@@ -497,12 +497,12 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                     {owedToAgencies.map((f) => {
                       const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : f.linkUrl;
                       return (
-                        <span key={f.linkTaskId || `${f.flagType}-${f.note}`} style={{ display: "inline-flex", alignItems: "center", width: "fit-content" }}>
+                        <span key={f.linkTaskId || `${f.flagType}-${f.note}`} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, width: "100%" }}>
                           <button
                             type="button"
                             onClick={() => target && navigate(target)}
                             className={`status-pill status-${f.color}`}
-                            style={{ width: "fit-content", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
+                            style={{ width: "fit-content", maxWidth: "100%", whiteSpace: "normal", overflowWrap: "anywhere", textAlign: "left", border: "none", cursor: target ? "pointer" : "default", textDecoration: target ? "underline" : "none" }}
                           >
                             {flagLabel(f)}
                           </button>
@@ -526,16 +526,16 @@ export function ClientAtAGlance({ clientId, summary, flags, complianceScore, com
                     {other.map((f) => {
                       const target = f.linkTaskId ? `/tasks/${f.linkTaskId}` : undefined;
                       return (
-                        <div key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ flexDirection: "column", alignItems: "flex-start", width: "fit-content", maxWidth: "100%" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center" }}>
+                        <div key={f.flagId || f.flagType} className={`status-pill status-${f.color}`} style={{ flexDirection: "column", alignItems: "flex-start", width: "fit-content", maxWidth: "100%", whiteSpace: "normal" }}>
+                          <span style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
                             {target ? (
-                              <button type="button" onClick={() => navigate(target)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", padding: 0, textDecoration: "underline" }}>
+                              <button type="button" onClick={() => navigate(target)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", font: "inherit", padding: 0, textDecoration: "underline", textAlign: "left", overflowWrap: "anywhere" }}>
                                 {flagLabel(f)}
                               </button>
-                            ) : flagLabel(f)}
+                            ) : <span style={{ overflowWrap: "anywhere" }}>{flagLabel(f)}</span>}
                             {renderSendFlagControl(f)}
                           </span>
-                          {f.details && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 2, fontSize: 11 }}>{f.details}</div>}
+                          {f.details && <div style={{ fontWeight: 400, opacity: 0.85, marginTop: 2, fontSize: 11, overflowWrap: "anywhere" }}>{f.details}</div>}
                         </div>
                       );
                     })}
