@@ -142,6 +142,11 @@ export function TasksListPage() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (labelFilter !== "all") params.set("label", labelFilter);
     if (search.trim()) params.set("search", search.trim());
+    // Real gap found live: the From/To inputs rendered and updated their own
+    // state, but nothing ever read `period` here — changing the date range
+    // visibly did nothing to the table.
+    if (period.start) params.set("from", period.start);
+    if (period.end) params.set("to", period.end);
     params.set("sortBy", sortKey);
     params.set("sortDir", sortDir);
     return params;
@@ -190,14 +195,14 @@ export function TasksListPage() {
   useEffect(() => {
     loadPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, sortKey, sortDir, page]);
+  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, sortKey, sortDir, page]);
 
   // A filter/sort change should always land back on page 1 — but changing
   // `page` itself obviously shouldn't re-trigger this reset.
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, sortKey, sortDir]);
+  }, [quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, sortKey, sortDir]);
 
   // Debounced separately from the effect above — typing shouldn't fire a
   // request per keystroke. Skips the mount-time firing (the effects above
@@ -271,6 +276,12 @@ export function TasksListPage() {
     if (serviceFilter !== "all") rows = rows.filter((t) => t.service_line === serviceFilter);
     if (statusFilter !== "all") rows = rows.filter((t) => String(t.status || "").toLowerCase() === statusFilter.toLowerCase());
     if (labelFilter !== "all") rows = rows.filter((t) => (taskLabels[t.task_id] || []).some((l) => l.name === labelFilter));
+    // Same From/To gap as the live tabs (liveQueryParams/buildTaskFilterSql) —
+    // a task with no due date can't fall inside a chosen range, so it's
+    // excluded once either bound is set. ISO date strings compare correctly
+    // lexicographically, same pattern DocumentsListPage/TimeTrackingPage use.
+    if (period.start) rows = rows.filter((t) => t.agency_due_date && String(t.agency_due_date).slice(0, 10) >= period.start);
+    if (period.end) rows = rows.filter((t) => t.agency_due_date && String(t.agency_due_date).slice(0, 10) <= period.end);
 
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter((t) => [t.task_name, t.client_name, t.assigned_to, t.service_line].some((v) => String(v || "").toLowerCase().includes(q)));
@@ -286,7 +297,7 @@ export function TasksListPage() {
       rows = [...rows].sort((a, b) => new Date(String(b.archived_at || b.agency_due_date || 0)).getTime() - new Date(String(a.archived_at || a.agency_due_date || 0)).getTime());
     }
     return rows;
-  }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, taskLabels, search, sortKey, sortDir, isArchivedView]);
+  }, [baseRows, quickTab, clientIdFilter, staffFilter, serviceFilter, statusFilter, labelFilter, period.start, period.end, taskLabels, search, sortKey, sortDir, isArchivedView]);
 
   const visibleRows: Task[] = isLiveTab(quickTab) ? (pageTasks || []) : historyFiltered;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));

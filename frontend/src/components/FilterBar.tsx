@@ -52,7 +52,12 @@ export function FilterBar({ search, selects = [], period, onRefresh, refreshing,
         </label>
       ))}
       {period && (
-        <>
+        // Grouped in one wrapper so From/To/Active View wrap together as a
+        // unit under flex-wrap, instead of each sibling splitting onto its
+        // own line independently — real complaint, live: To (and everything
+        // after it) landed on a separate row from From once the band ran
+        // out of width.
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <label className="filter-control">From
             <input type="date" value={period.start} onChange={(e) => period.onStartChange(e.target.value)} />
           </label>
@@ -60,7 +65,7 @@ export function FilterBar({ search, selects = [], period, onRefresh, refreshing,
             <input type="date" value={period.end} onChange={(e) => period.onEndChange(e.target.value)} />
           </label>
           <button className="ghost-button" type="button" onClick={period.onActiveView}><CalendarRange size={13} strokeWidth={2} aria-hidden="true" />Active View</button>
-        </>
+        </div>
       )}
       {onRefresh && (
         <button className="ghost-button" type="button" disabled={refreshing} onClick={onRefresh}>

@@ -268,6 +268,16 @@ async function buildTaskFilterSql(req: AuthedRequest): Promise<{ where: string; 
     clauses.push(`(t.task_name ILIKE $${params.length} OR t.client_name ILIKE $${params.length} OR t.assigned_to ILIKE $${params.length} OR t.service_line ILIKE $${params.length})`);
   }
 
+  // The page's own "From"/"To" date-range filter — real gap found live: these
+  // inputs rendered and updated their own state, but nothing ever read them.
+  // A task with no due date can't be said to fall inside a chosen range, so
+  // it's excluded once either bound is set — same null-safety the Overdue/
+  // Due Today/Due Week quick tabs above already apply to agency_due_date.
+  const from = String(req.query.from || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { params.push(from); clauses.push(`t.agency_due_date IS NOT NULL AND t.agency_due_date::date >= $${params.length}`); }
+  const to = String(req.query.to || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { params.push(to); clauses.push(`t.agency_due_date IS NOT NULL AND t.agency_due_date::date <= $${params.length}`); }
+
   return { where: clauses.join(" AND "), params };
 }
 
