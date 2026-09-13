@@ -484,6 +484,18 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     : `${fmtDate(period.start) || "the beginning"} – ${fmtDate(period.end) || "today"}`;
   const periodSales = salesInPeriod.reduce((sum, s) => sum + Number(s.gross_sales || 0), 0);
   const periodTax = salesInPeriod.reduce((sum, s) => sum + Number(s.total_tax_due || 0), 0);
+  // Real incident: a preparer entered a client's non-taxable/exempt sales
+  // figure into "Adjustments" (meant for genuine dollar corrections to tax
+  // due, e.g. a rounding fix) instead of leaving it out of every rate
+  // column as the template expects — Adjustments gets added to Tax Due
+  // unrated, by design, so that silently overstated this period's tax by
+  // the full exempt amount with nothing on screen to suggest why. Adjustments
+  // wasn't shown ANYWHERE outside a single sale's own detail view, so this
+  // went unnoticed until someone manually re-added the category totals.
+  // Surfacing it whenever it's nonzero means a mistaken (or even a genuine,
+  // large) adjustment is now something staff see immediately instead of
+  // something they'd have to already suspect to go looking for.
+  const periodAdjustments = salesInPeriod.reduce((sum, s) => sum + Number(s.adjustments || 0), 0);
   const q = search.trim().toLowerCase();
   const visibleSales = q
     ? salesInPeriod.filter((s) => [
@@ -1098,7 +1110,15 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
         <div className="metric-grid metric-grid-3" style={{ margin: 16 }}>
           <div className="metric"><div className="metric-label">Rows This Period</div><div className="metric-value">{salesInPeriod.length}</div></div>
           <div className="metric"><div className="metric-label">Period Sales</div><div className="metric-value">{fmtMoney(periodSales)}</div></div>
-          <div className="metric"><div className="metric-label">Period Tax</div><div className="metric-value">{fmtMoney(periodTax)}</div></div>
+          <div className="metric">
+            <div className="metric-label">Period Tax</div>
+            <div className="metric-value">{fmtMoney(periodTax)}</div>
+            {periodAdjustments !== 0 && (
+              <div style={{ fontSize: 11, color: "var(--amber)", fontWeight: 600, marginTop: 2 }} title="Adjustments are added to Tax Due directly, dollar-for-dollar — a large or unexpected one is worth double-checking against the source data.">
+                Includes {fmtMoney(periodAdjustments)} in adjustments
+              </div>
+            )}
+          </div>
         </div>
         {periodByCategory.length > 0 && (
           <div style={{ margin: "0 16px 16px" }}>
@@ -1436,7 +1456,14 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                         {s.payment_date && <div className="muted" style={{ fontSize: 11 }}>Paid {fmtDate(s.payment_date)}</div>}
                       </td>
                       <td style={{ textAlign: "right" }}>{fmtMoney(s.gross_sales)}</td>
-                      <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 600 }}>{fmtMoney(s.total_tax_due)}</div>
+                        {Number(s.adjustments || 0) !== 0 && (
+                          <div style={{ fontSize: 10.5, color: "var(--amber)", fontWeight: 600 }}>
+                            Adj: {Number(s.adjustments) > 0 ? "+" : ""}{fmtMoney(s.adjustments)}
+                          </div>
+                        )}
+                      </td>
                       <td className="muted" style={{ fontSize: 12 }}>
                         {showCategoriesColumn && <div>{(s.lines || []).map((l: any) => l.category_name).join(", ") || "—"}</div>}
                         {s.notes && <div style={{ fontSize: 11 }}>{s.notes}</div>}
@@ -1649,6 +1676,17 @@ function SalesInputImportPanel({ clientId, onClose, onImported }: { clientId: st
                         {row.categoryLines.length > 0 ? `${row.categoryLines.length} categor${row.categoryLines.length === 1 ? "y" : "ies"}` : "—"}
                         {row.unmappedCategories.length > 0 && (
                           <div style={{ color: "var(--red)" }}>No rate configured for: {row.unmappedCategories.join(", ")}</div>
+                        )}
+                        {/* Adjustments are added to Est. Tax dollar-for-dollar, not
+                            derived from any category rate — surfaced here so a
+                            non-taxable/exempt figure mistakenly typed into the
+                            template's Adjustments column (instead of being left out
+                            of every rate column, as the template expects) is caught
+                            before committing, not discovered after. */}
+                        {Number(row.adjustments || 0) !== 0 && (
+                          <div style={{ color: "var(--amber)", fontWeight: 600 }}>
+                            Adjustments: {Number(row.adjustments) > 0 ? "+" : ""}{fmtMoney(row.adjustments)} (added to tax due as-is)
+                          </div>
                         )}
                       </td>
                       <td style={{ fontSize: 12, fontWeight: 600, color: row.action === "duplicate" ? "var(--muted)" : "var(--teal)" }}>
