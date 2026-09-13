@@ -144,7 +144,7 @@ form941FilingsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staf
 }));
 
 type MarkForm941FiledResult =
-  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; balanceDue: number }
+  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; balanceDue: number; notified?: boolean }
   | { ok: false; error: string };
 
 /**
@@ -157,7 +157,7 @@ type MarkForm941FiledResult =
  */
 async function markForm941FiledForClient(
   req: AuthedRequest,
-  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean },
+  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone?: string | null; smsAllowed?: boolean },
   year: number, quarter: 1 | 2 | 3 | 4, filedDate: string, paidDate: string | null, notify: boolean
 ): Promise<MarkForm941FiledResult> {
   const period = quarterPeriod(year, quarter);
@@ -192,38 +192,49 @@ async function markForm941FiledForClient(
     periodLabel: deriveTaskRulesPeriodLabel(period.start, "Quarterly"), filedDate, paidDate,
   });
 
+  // Filing above always succeeds regardless of notification outcome — only
+  // whether the confirmation actually reached the client is gated here
+  // (same fix as MD Sales Tax/MD UI/Annual Report's equivalent routes).
+  let notified = false;
   if (notify) {
-    const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
-    const sourceRecordId = `${client.clientId}:${period.end}`;
-    const periodLabel = `Q${quarter} ${year}`;
-    const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${row?.share_token}`;
-    await sendFilingConfirmation({
-      client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
-      filedDate, amount: balanceDue, amountLabel: "Balance Due", amountLabelAr: "الرصيد المستحق",
-      breakdown: [
-        { label: "Gross Liability", labelAr: "إجمالي الالتزام", valueStr: `$${totals.grossLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-        { label: "EFTPS Deposits Applied", labelAr: "الإيداعات المطبقة", valueStr: `−$${eftpsDepositsApplied.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-      ],
-      paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
-    });
-    await query(`UPDATE altax.v3_form941_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, period.end]);
-    // A re-file can change the balance (e.g. a client makes another EFTPS
-    // deposit for the quarter between two filings of the same period) — a
-    // reminder scheduled from an earlier, larger balance must be canceled
-    // if the new balance no longer warrants one, not just left stale.
-    if (!paidDate && balanceDue > REMINDER_THRESHOLD) {
-      const { schedulePaymentReminder } = await import("../../common/paymentReminders");
-      await schedulePaymentReminder({
-        sourceSystem: "Form941Filing", sourceRecordId, clientId: client.clientId, filingType: "Federal Payroll Tax (Form 941)",
-        periodLabel, amount: balanceDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+    const canEmail = Boolean(client.emailAllowed && client.email);
+    const canSms = Boolean(client.smsAllowed && client.phone);
+    if (canEmail || canSms) {
+      const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${client.clientId}:${period.end}`;
+      const periodLabel = `Q${quarter} ${year}`;
+      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${row?.share_token}`;
+      const { sent } = await sendFilingConfirmation({
+        client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
+        filedDate, amount: balanceDue, amountLabel: "Balance Due", amountLabelAr: "الرصيد المستحق",
+        breakdown: [
+          { label: "Gross Liability", labelAr: "إجمالي الالتزام", valueStr: `$${totals.grossLiability.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+          { label: "EFTPS Deposits Applied", labelAr: "الإيداعات المطبقة", valueStr: `−$${eftpsDepositsApplied.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+        ],
+        paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
       });
-    } else {
-      const { cancelPaymentReminder } = await import("../../common/paymentReminders");
-      await cancelPaymentReminder("Form941Filing", sourceRecordId, paidDate ? "Paid at filing time" : "Balance due is now at or below the reminder threshold");
+      notified = sent;
+      if (sent) {
+        await query(`UPDATE altax.v3_form941_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, period.end]);
+        // A re-file can change the balance (e.g. a client makes another EFTPS
+        // deposit for the quarter between two filings of the same period) — a
+        // reminder scheduled from an earlier, larger balance must be canceled
+        // if the new balance no longer warrants one, not just left stale.
+        if (!paidDate && balanceDue > REMINDER_THRESHOLD) {
+          const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+          await schedulePaymentReminder({
+            sourceSystem: "Form941Filing", sourceRecordId, clientId: client.clientId, filingType: "Federal Payroll Tax (Form 941)",
+            periodLabel, amount: balanceDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+          });
+        } else {
+          const { cancelPaymentReminder } = await import("../../common/paymentReminders");
+          await cancelPaymentReminder("Form941Filing", sourceRecordId, paidDate ? "Paid at filing time" : "Balance due is now at or below the reminder threshold");
+        }
+      }
     }
   }
 
-  return { ok: true, periodEnd: period.end, filedDate, paidDate, balanceDue };
+  return { ok: true, periodEnd: period.end, filedDate, paidDate, balanceDue, notified: notify ? notified : undefined };
 }
 
 form941FilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -377,11 +388,15 @@ form941FilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole
   const grossLiability = Number(existing.gross_liability);
   const eftpsDepositsApplied = Number(existing.eftps_deposits_applied);
 
+  if (!((client.emailAllowed && client.email) || (client.smsAllowed && client.phone))) {
+    return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
+  }
+
   const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
   const sourceRecordId = `${client.clientId}:${periodEnd}`;
   const periodLabel = `Q${quarter941} ${y941}`;
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/form941/${existing.share_token}`;
-  await sendFilingConfirmation({
+  const { sent } = await sendFilingConfirmation({
     client, sourceRecordId, filingType: "Federal Payroll Tax (Form 941)", periodLabel,
     filedDate: filedDateStr, amount: balanceDue, amountLabel: "Balance Due", amountLabelAr: "الرصيد المستحق",
     breakdown: [
@@ -390,6 +405,9 @@ form941FilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole
     ],
     paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
   });
+  if (!sent) {
+    return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
+  }
 
   await query(`UPDATE altax.v3_form941_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
   await logAudit("Accounting", "FORM_941_SENT", client.clientId, "Period", "", periodEnd,

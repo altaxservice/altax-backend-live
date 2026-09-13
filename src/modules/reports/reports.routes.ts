@@ -3080,30 +3080,43 @@ reportsRouter.post("/md-filing/:clientId/mark-filed", requireAuth, requireRole("
     periodLabel: deriveTaskRulesPeriodLabel(periodStart, client.salesTaxFrequency), filedDate, paidDate,
   });
 
+  // notified stays false (and sent_at is never set) whenever nothing could
+  // actually be delivered — no usable email/phone on file, or the send
+  // itself failed — instead of the old behavior of marking sent_at and
+  // reporting success regardless. Filing itself (above) always still
+  // succeeds either way; only the notification's own success is gated here.
+  let notified = false;
   if (notify) {
     const clientContact = await queryOne<any>(`SELECT email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
-    const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
-    const sourceRecordId = `${client.clientId}:${periodEnd}`;
-    const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${row?.share_token}`;
-    const hasBalanceDue = result?.balanceDue != null && round2(result.balanceDue) !== taxDue;
-    await sendFilingConfirmation({
-      client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed), phone: clientContact?.phone ?? null, smsAllowed: Boolean(clientContact?.sms_allowed) },
-      sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: fmtPeriodRange(periodStart, periodEnd),
-      filedDate, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
-      breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${result!.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
-      paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
-    });
-    await query(`UPDATE altax.v3_md_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
-    if (!paidDate) {
-      const { schedulePaymentReminder } = await import("../../common/paymentReminders");
-      await schedulePaymentReminder({
-        sourceSystem: "MdFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Sales & Use Tax",
-        periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+    const canEmail = Boolean(clientContact?.email_allowed && clientContact?.email);
+    const canSms = Boolean(clientContact?.sms_allowed && clientContact?.phone);
+    if (canEmail || canSms) {
+      const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${client.clientId}:${periodEnd}`;
+      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${row?.share_token}`;
+      const hasBalanceDue = result?.balanceDue != null && round2(result.balanceDue) !== taxDue;
+      const { sent } = await sendFilingConfirmation({
+        client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed), phone: clientContact?.phone ?? null, smsAllowed: Boolean(clientContact?.sms_allowed) },
+        sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: fmtPeriodRange(periodStart, periodEnd),
+        filedDate, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
+        breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${result!.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
+        paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
       });
+      notified = sent;
+      if (sent) {
+        await query(`UPDATE altax.v3_md_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+        if (!paidDate) {
+          const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+          await schedulePaymentReminder({
+            sourceSystem: "MdFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Sales & Use Tax",
+            periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+          });
+        }
+      }
     }
   }
 
-  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result?.onTime ?? null, balanceDue: result?.balanceDue ?? null });
+  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result?.onTime ?? null, balanceDue: result?.balanceDue ?? null, notified: notify ? notified : undefined });
 }));
 
 /**
@@ -3195,17 +3208,34 @@ reportsRouter.post("/md-filing/:clientId/send", requireAuth, requireRole("admin"
   const balanceDue = existing.balance_due !== null ? Number(existing.balance_due) : null;
 
   const clientContact = await queryOne<any>(`SELECT email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
+  // Real incident: this route always marked sent_at and returned {ok:true}
+  // regardless of whether the client actually had a usable email/phone on
+  // file — a client with neither (or both opted out) silently got nothing,
+  // while the Send button in the UI just vanished as if it had worked, with
+  // no warning anywhere. Checked up front now, before even attempting a
+  // send, so staff get a clear error instead of false confirmation.
+  const canEmail = Boolean(clientContact?.email_allowed && clientContact?.email);
+  const canSms = Boolean(clientContact?.sms_allowed && clientContact?.phone);
+  if (!canEmail && !canSms) {
+    return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
+  }
+
   const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
   const sourceRecordId = `${client.clientId}:${periodEnd}`;
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-filing/${existing.share_token}`;
   const hasBalanceDue = balanceDue != null && round2(balanceDue) !== taxDue;
-  await sendFilingConfirmation({
+  const { sent } = await sendFilingConfirmation({
     client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed), phone: clientContact?.phone ?? null, smsAllowed: Boolean(clientContact?.sms_allowed) },
     sourceRecordId, filingType: "Maryland Sales & Use Tax", periodLabel: fmtPeriodRange(periodStartStr, periodEnd),
     filedDate: filedDateStr, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
     breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${balanceDue!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
     paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
   });
+  // Contact info existed but the actual send still failed on every channel
+  // (provider error, etc.) — same "don't silently claim success" principle.
+  if (!sent) {
+    return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
+  }
 
   await query(`UPDATE altax.v3_md_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
   await logAudit("Accounting", "MD_FILING_SENT", client.clientId, "Period", "", periodEnd,

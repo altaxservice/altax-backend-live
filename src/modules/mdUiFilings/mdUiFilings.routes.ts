@@ -145,7 +145,7 @@ mdUiFilingsRouter.get("/qbo-pending", requireAuth, requireRole("admin", "staff")
 }));
 
 type MarkMdUiFiledResult =
-  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; amount: number }
+  | { ok: true; periodEnd: string; filedDate: string; paidDate: string | null; amount: number; notified?: boolean }
   | { ok: false; error: string };
 
 /**
@@ -155,7 +155,7 @@ type MarkMdUiFiledResult =
  */
 async function markMdUiFiledForClient(
   req: AuthedRequest,
-  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean },
+  client: { clientId: string; clientName: string; email: string | null; emailAllowed: boolean; phone?: string | null; smsAllowed?: boolean },
   periodStart: string, periodEnd: string, filedDate: string, paidDate: string | null, amount: number, notify: boolean
 ): Promise<MarkMdUiFiledResult> {
   const dueDate = mdUiDueDate(periodEnd);
@@ -179,25 +179,37 @@ async function markMdUiFiledForClient(
 
   await closeObligationTask({ clientId: client.clientId, keyword: "md ui", dueDate, periodLabel, filedDate, paidDate });
 
+  // Filing above always succeeds regardless of notification outcome — only
+  // whether the confirmation actually reached the client is gated here (see
+  // the same fix on the standalone /send route above, and MD Sales Tax's
+  // equivalent in reports.routes.ts).
+  let notified = false;
   if (notify) {
-    const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
-    const sourceRecordId = `${client.clientId}:${periodEnd}`;
-    const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-ui/${row?.share_token}`;
-    await sendFilingConfirmation({
-      client, sourceRecordId, filingType: "Maryland Unemployment Insurance", periodLabel,
-      filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
-    });
-    await query(`UPDATE altax.v3_md_ui_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
-    if (!paidDate) {
-      const { schedulePaymentReminder } = await import("../../common/paymentReminders");
-      await schedulePaymentReminder({
-        sourceSystem: "MdUiFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Unemployment Insurance",
-        periodLabel, amount, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+    const canEmail = Boolean(client.emailAllowed && client.email);
+    const canSms = Boolean(client.smsAllowed && client.phone);
+    if (canEmail || canSms) {
+      const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${client.clientId}:${periodEnd}`;
+      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-ui/${row?.share_token}`;
+      const { sent } = await sendFilingConfirmation({
+        client, sourceRecordId, filingType: "Maryland Unemployment Insurance", periodLabel,
+        filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
       });
+      notified = sent;
+      if (sent) {
+        await query(`UPDATE altax.v3_md_ui_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+        if (!paidDate) {
+          const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+          await schedulePaymentReminder({
+            sourceSystem: "MdUiFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Unemployment Insurance",
+            periodLabel, amount, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+          });
+        }
+      }
     }
   }
 
-  return { ok: true, periodEnd, filedDate, paidDate, amount };
+  return { ok: true, periodEnd, filedDate, paidDate, amount, notified: notify ? notified : undefined };
 }
 
 mdUiFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -323,13 +335,26 @@ mdUiFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requireRole("a
   const dueDate = mdUiDueDate(periodEnd);
   const periodLabel = deriveTaskRulesPeriodLabel(periodStartStr, "Quarterly") || `${periodStartStr} – ${periodEnd}`;
 
+  // Real incident (same bug found on MD Sales Tax's equivalent route): this
+  // used to mark sent_at and return {ok:true} unconditionally, even when
+  // the client had no usable email/phone on file or the send itself
+  // failed on every channel — silently claiming success with nothing
+  // actually delivered. Checked up front, and sendFilingConfirmation's own
+  // `sent` result is honored, before ever touching sent_at.
+  if (!((client.emailAllowed && client.email) || (client.smsAllowed && client.phone))) {
+    return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
+  }
+
   const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
   const sourceRecordId = `${client.clientId}:${periodEnd}`;
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/md-ui/${existing.share_token}`;
-  await sendFilingConfirmation({
+  const { sent } = await sendFilingConfirmation({
     client, sourceRecordId, filingType: "Maryland Unemployment Insurance", periodLabel,
     filedDate: filedDateStr, amount: Number(existing.amount), paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
   });
+  if (!sent) {
+    return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
+  }
 
   await query(`UPDATE altax.v3_md_ui_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
   await logAudit("Accounting", "MD_UI_SENT", client.clientId, "Period", "", periodEnd,

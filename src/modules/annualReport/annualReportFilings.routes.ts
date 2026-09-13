@@ -122,25 +122,36 @@ annualReportFilingsRouter.post("/mark-filed", requireAuth, requireRole("admin", 
     periodLabel: deriveTaskRulesPeriodLabel(periodStart, "Annual"), filedDate, paidDate,
   });
 
+  // Filing above always succeeds regardless of notification outcome — only
+  // whether the confirmation actually reached the client is gated here
+  // (same fix as MD Sales Tax/MD UI's equivalent routes).
+  let notified = false;
   if (notify) {
-    const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
-    const sourceRecordId = `${client.clientId}:${periodEnd}`;
-    const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/annual-report/${row?.share_token}`;
-    await sendFilingConfirmation({
-      client, sourceRecordId, filingType: "Maryland Annual Report", periodLabel: periodStart.slice(0, 4),
-      filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
-    });
-    await query(`UPDATE altax.v3_annual_report_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
-    if (!paidDate) {
-      const { schedulePaymentReminder } = await import("../../common/paymentReminders");
-      await schedulePaymentReminder({
-        sourceSystem: "AnnualReportFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Annual Report",
-        periodLabel: periodStart.slice(0, 4), amount, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+    const canEmail = Boolean(client.emailAllowed && client.email);
+    const canSms = Boolean(client.smsAllowed && client.phone);
+    if (canEmail || canSms) {
+      const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${client.clientId}:${periodEnd}`;
+      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/annual-report/${row?.share_token}`;
+      const { sent } = await sendFilingConfirmation({
+        client, sourceRecordId, filingType: "Maryland Annual Report", periodLabel: periodStart.slice(0, 4),
+        filedDate, amount, paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
       });
+      notified = sent;
+      if (sent) {
+        await query(`UPDATE altax.v3_annual_report_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+        if (!paidDate) {
+          const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+          await schedulePaymentReminder({
+            sourceSystem: "AnnualReportFiling", sourceRecordId, clientId: client.clientId, filingType: "Maryland Annual Report",
+            periodLabel: periodStart.slice(0, 4), amount, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+          });
+        }
+      }
     }
   }
 
-  res.json({ ok: true, periodEnd, filedDate, paidDate, amount });
+  res.json({ ok: true, periodEnd, filedDate, paidDate, amount, notified: notify ? notified : undefined });
 }));
 
 annualReportFilingsRouter.post("/:clientId/:periodEnd/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -202,13 +213,20 @@ annualReportFilingsRouter.post("/:clientId/:periodEnd/send", requireAuth, requir
   const paidDateStr = existing.paid_date ? new Date(existing.paid_date).toISOString().slice(0, 10) : null;
   const dueDate = annualReportDueDate(periodEnd);
 
+  if (!((client.emailAllowed && client.email) || (client.smsAllowed && client.phone))) {
+    return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
+  }
+
   const { sendFilingConfirmation } = await import("../../common/filingConfirmationEmail");
   const sourceRecordId = `${client.clientId}:${periodEnd}`;
   const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/annual-report/${existing.share_token}`;
-  await sendFilingConfirmation({
+  const { sent } = await sendFilingConfirmation({
     client, sourceRecordId, filingType: "Maryland Annual Report", periodLabel: periodStartStr.slice(0, 4),
     filedDate: filedDateStr, amount: Number(existing.amount), paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
   });
+  if (!sent) {
+    return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
+  }
 
   await query(`UPDATE altax.v3_annual_report_filings SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
   await logAudit("Accounting", "ANNUAL_REPORT_SENT", client.clientId, "Period", "", periodEnd,

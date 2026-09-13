@@ -683,12 +683,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     if (!ok) return;
     setMarkingPeriodEnd(p.end);
     try {
-      await api.post(`/reports/md-filing/${clientId}/mark-filed`, {
+      const res = await api.post<{ notified?: boolean }>(`/reports/md-filing/${clientId}/mark-filed`, {
         periodStart: p.start, periodEnd: p.end, filedDate: useFiledDate,
         paidDate: usePaidDate || undefined, notify: sendConfirmation,
       });
       setMdFilingReloadKey((k) => k + 1);
       setPickingPeriodEnd(null);
+      // Filing itself always succeeds above — this only reports whether the
+      // confirmation actually reached the client, so "Save and Send" can't
+      // silently claim success when the client has no usable email/phone
+      // on file (or the send itself failed).
+      if (sendConfirmation && res.notified === false) {
+        await notify("Filed, but no confirmation could be sent — this client has no email or phone on file (or both are opted out). Add contact info on the client's profile, then use Send on this row to try again.");
+      }
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not mark this period filed.");
     } finally {
@@ -852,8 +859,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
               </div>
             </div>
           ) : p.markedPaidDate ? (
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {!p.sentAt && (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {p.sentAt ? (
+                <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+              ) : (
                 <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
                   {markingPeriodEnd === p.end ? "…" : "Send"}
                 </button>
@@ -879,8 +888,10 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                 <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end} onClick={() => { setPickRecordPaymentEnd(p.end); setPickRecordPaymentDate(p.dueDate); }}>
                   Record Payment
                 </button>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {!p.sentAt && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                  {p.sentAt ? (
+                    <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  ) : (
                     <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendMdConfirmation(p)}>
                       {markingPeriodEnd === p.end ? "…" : "Send"}
                     </button>
