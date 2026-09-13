@@ -235,6 +235,51 @@ const PERIOD_PRESETS: { label: string; range: () => { start: string; end: string
   { label: "All time", range: () => ({ start: "", end: "" }) },
 ];
 
+/** Click-to-sort for the Filing Discount / History tables — see filingSort/historySort in SalesTab. */
+type MdFilingSortKey = "period" | "dueDate" | "targetFilingDate" | "taxDue" | "status" | "discountPenalty" | "interest" | "balanceDue" | "client" | "filed";
+type MdFilingSort = { key: MdFilingSortKey; dir: "asc" | "desc" } | null;
+
+function toggleMdFilingSort(prev: MdFilingSort, key: MdFilingSortKey): MdFilingSort {
+  // Same header: asc -> desc -> back to the table's natural (unsorted) order. Different header: starts at asc.
+  return prev && prev.key === key ? (prev.dir === "asc" ? { key, dir: "desc" } : null) : { key, dir: "asc" };
+}
+
+/** Status/Discount-Penalty/Client don't have one obvious field to sort by (they're each rendered from several fields — see renderMdPeriodRow) — these mirror that same derivation so the sort order matches what's actually on screen. */
+function mdFilingSortValue(p: any, key: MdFilingSortKey): number | string {
+  switch (key) {
+    case "period": return p.start;
+    case "dueDate": return p.dueDate;
+    case "targetFilingDate": return p.targetFilingDate;
+    case "taxDue": return p.taxDue;
+    case "status": return p.markedFiledDate ? -1 : p.onTime ? 0 : p.monthsLate;
+    case "discountPenalty": return p.markedFiledDate ? 0 : p.onTime ? -p.discount : p.penalty;
+    case "interest": return p.interest;
+    case "balanceDue": return p.balanceDue;
+    case "client": return p.acknowledgedAt ? 1 : 0;
+    case "filed": return p.markedFiledDate || "";
+    default: return "";
+  }
+}
+
+function sortMdFilingPeriods<T>(periods: T[], sort: MdFilingSort): T[] {
+  if (!sort) return periods;
+  const sorted = [...periods].sort((a, b) => {
+    const av = mdFilingSortValue(a, sort.key);
+    const bv = mdFilingSortValue(b, sort.key);
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  });
+  return sort.dir === "desc" ? sorted.reverse() : sorted;
+}
+
+function renderMdFilingSortTh(label: string, key: MdFilingSortKey, sort: MdFilingSort, setSort: (updater: (prev: MdFilingSort) => MdFilingSort) => void) {
+  const active = sort?.key === key;
+  return (
+    <th scope="col" onClick={() => setSort((prev) => toggleMdFilingSort(prev, key))} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }} title="Click to sort">
+      {label}{active ? (sort!.dir === "asc" ? " ▲" : " ▼") : ""}
+    </th>
+  );
+}
+
 function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId: string; clientState?: string | null; initialFrom?: string | null; initialTo?: string | null }) {
   const promptFor = usePrompt();
   const notify = useNotify();
@@ -308,6 +353,12 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [showHistoryTable, setShowHistoryTable] = useState(false);
   const [showExcludedTable, setShowExcludedTable] = useState(false);
   const [showSalesTable, setShowSalesTable] = useState(false);
+  // Click-to-sort on the Filing Discount / History tables' column headers —
+  // Review & File and History are independent datasets (a wide-range
+  // lookup vs. "everything ever filed"), so each gets its own sort state
+  // rather than sharing one; sorting one never reorders the other.
+  const [filingSort, setFilingSort] = useState<MdFilingSort>(null);
+  const [historySort, setHistorySort] = useState<MdFilingSort>(null);
   // Per-row filed/paid date entry for the multi-period table — without this,
   // "Mark Filed" on any row recorded the single shared Filing/Payment date
   // fields above the table, so backfilling several historical periods meant
@@ -1145,13 +1196,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                       <table>
                         <thead>
                           <tr>
-                            <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                            <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
-                            {showClientColumn && <th scope="col">Client</th>}
-                            <th scope="col">Filed</th>
+                            {renderMdFilingSortTh("Period", "period", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Due Date", "dueDate", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Target Filing Date", "targetFilingDate", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Tax Due", "taxDue", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Status", "status", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Discount / Penalty", "discountPenalty", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Interest", "interest", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Balance Due", "balanceDue", filingSort, setFilingSort)}
+                            {showClientColumn && renderMdFilingSortTh("Client", "client", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Filed", "filed", filingSort, setFilingSort)}
                           </tr>
                         </thead>
-                        <tbody>{mdFiling.periods.map((p) => renderMdPeriodRow(p))}</tbody>
+                        <tbody>{sortMdFilingPeriods(mdFiling.periods, filingSort).map((p) => renderMdPeriodRow(p))}</tbody>
                       </table>
                     </div>
                     {mdFiling.periods.length > 1 && (
@@ -1203,13 +1260,19 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                     <table>
                       <thead>
                         <tr>
-                          <th scope="col">Period</th><th scope="col">Due Date</th><th scope="col">Target Filing Date</th><th scope="col">Tax Due</th>
-                          <th scope="col">Status</th><th scope="col">Discount / Penalty</th><th scope="col">Interest</th><th scope="col">Balance Due</th>
-                          {showClientColumn && <th scope="col">Client</th>}
-                          <th scope="col">Filed</th>
+                          {renderMdFilingSortTh("Period", "period", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Due Date", "dueDate", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Target Filing Date", "targetFilingDate", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Tax Due", "taxDue", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Status", "status", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Discount / Penalty", "discountPenalty", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Interest", "interest", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Balance Due", "balanceDue", historySort, setHistorySort)}
+                          {showClientColumn && renderMdFilingSortTh("Client", "client", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Filed", "filed", historySort, setHistorySort)}
                         </tr>
                       </thead>
-                      <tbody>{historyPeriods.map((p) => renderMdPeriodRow(p))}</tbody>
+                      <tbody>{sortMdFilingPeriods(historyPeriods, historySort).map((p) => renderMdPeriodRow(p))}</tbody>
                     </table>
                   </div>
                 </>
