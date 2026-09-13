@@ -24,6 +24,18 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Real incident: the main JS bundle crossed Workbox's default 2 MiB
+        // precache limit (grew to ~2.1 MB) and generateSW throws instead of
+        // just warning — this silently broke every production deploy for
+        // three straight commits (both Railway and GitHub Actions CI),
+        // since `vite build` exits non-zero and nothing else in the build
+        // pipeline surfaces "the PWA service worker is why this failed."
+        // Raised with real headroom rather than nudged to just clear today's
+        // bundle, so the next reasonably-sized feature doesn't trip this
+        // again — the actual fix for bundle size (code-splitting via
+        // dynamic import()) is a separate, real improvement worth doing,
+        // but isn't a build-breaking emergency the way this limit is.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // Full-page navigations (not API fetches) fall back to the cached shell when offline.
         navigateFallback: '/index.html',
         // The public marketing site (marketing-site/, served separately by src/server.ts)
