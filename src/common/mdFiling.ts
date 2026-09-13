@@ -325,6 +325,35 @@ export function splitIntoMdFilingPeriodsForClient(
   const sorted = [...history].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
   const periods: MdFilingPeriod[] = [];
   let frequencyUsed: MdFilingFrequency | null = null;
+  // Real incident: a client's history only had rows starting mid-2026 (every
+  // client should have a day-0 backfill row per sql/084, but this one
+  // didn't) — any requested date before the EARLIEST row's effective_from
+  // fell into a gap no history row covers, and the loop below only ever
+  // walks rows that exist. Six real months of sales tax ($10,000+) went
+  // completely missing from Filing Discount with no error, no history
+  // entry, no exclusion — nothing to even suggest it was being hidden.
+  // Falling back to fallbackFrequency for that leading gap (same value
+  // already used above when there's no history at all) means a period
+  // before the earliest known record is always still generated, never
+  // silently dropped — worst case it's under the wrong guessed frequency,
+  // which is visibly wrong and fixable, not invisible.
+  let cursorFloor: string | null = null;
+  if (sorted[0].effectiveFrom > from) {
+    const gapTo = new Date(`${sorted[0].effectiveFrom}T00:00:00Z`);
+    gapTo.setUTCDate(gapTo.getUTCDate() - 1);
+    const gapToStr = gapTo.toISOString().slice(0, 10);
+    if (gapToStr >= from) {
+      const gapSeg = splitIntoMdFilingPeriods(from, gapToStr < to ? gapToStr : to, fallbackFrequency);
+      periods.push(...gapSeg.periods);
+      if (gapSeg.frequencyUsed) frequencyUsed = gapSeg.frequencyUsed;
+      if (gapSeg.periods.length > 0) {
+        const lastEnd = gapSeg.periods[gapSeg.periods.length - 1].end;
+        const nextDay = new Date(`${lastEnd}T00:00:00Z`);
+        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+        cursorFloor = nextDay.toISOString().slice(0, 10);
+      }
+    }
+  }
   // A period already in progress when the frequency changes is never split
   // mid-period — splitIntoMdFilingPeriods always emits a period's TRUE full
   // calendar end regardless of where segTo cuts off, so it completes in full
@@ -338,7 +367,6 @@ export function splitIntoMdFilingPeriodsForClient(
   // producing a duplicate/overlapping row and making the whole range look
   // like it was still stuck on the old frequency. cursorFloor makes each
   // segment skip past whatever the previous one already emitted.
-  let cursorFloor: string | null = null;
   for (const row of sorted) {
     let segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
     if (cursorFloor && cursorFloor > segFrom) segFrom = cursorFloor;
