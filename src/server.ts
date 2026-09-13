@@ -73,7 +73,7 @@ import { haccpRouter } from "./modules/haccp/haccp.routes";
 import { checklistsRouter } from "./modules/checklists/checklists.routes";
 import { budgetsRouter } from "./modules/budgets/budgets.routes";
 import { labelsRouter } from "./modules/labels/labels.routes";
-import { staffNotesRouter } from "./modules/staffNotes/staffNotes.routes";
+import { staffNotesRouter, runStaffNoteReminders } from "./modules/staffNotes/staffNotes.routes";
 import { suggestionsRouter } from "./modules/suggestions/suggestions.routes";
 import { fieldSuggestionsRouter } from "./modules/fieldSuggestions/fieldSuggestions.routes";
 import { formDraftsRouter } from "./modules/formDrafts/formDrafts.routes";
@@ -608,6 +608,16 @@ console.log("EFTPS staff task sweep scheduled for 6:31AM America/New_York.");
 cron.schedule("33 6 * * *", runScheduledJob("Orphaned Obligation Task Healing Sweep", () => healOrphanedObligationTasks()), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Orphaned obligation task healing sweep scheduled for 6:33AM America/New_York.");
+
+// Staff note reminders — unlike the daily-digest-style crons above, a note's
+// "Remind me on" is a specific staff-chosen date AND time (real owner
+// request, 2026-09-13: it previously had no time component and never
+// actually notified anyone, just colored a row red), so this sweeps every
+// 15 minutes rather than once a day, close enough to a chosen time to feel
+// like a real reminder without hammering the DB.
+cron.schedule("*/15 * * * *", runScheduledJob("Staff Note Reminders", () => runStaffNoteReminders()), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Staff note reminders scheduled every 15 minutes.");
 
 // Client risk-flag sweep (UX-005) — the "push" counterpart to the At-Risk
 // Clients dashboard panel (UX-001): logs one audit event per client newly

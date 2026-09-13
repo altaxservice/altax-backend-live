@@ -1,23 +1,43 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
+import type { WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { StatusBadge } from "../components/StatusBadge";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
 interface StaffNote {
   noteId: string; authorEmail: string; authorName: string | null;
   clientId: string | null; clientName: string | null; body: string;
   visibility: "firm" | "admin"; category: string | null; status: "Open" | "Done";
-  remindAt: string | null; resolvedAt: string | null; resolvedBy: string | null;
+  priority: string; assignedTo: string | null;
+  remindAt: string | null; reminderSentAt: string | null; resolvedAt: string | null; resolvedBy: string | null;
   createdAt: string; updatedAt: string; unread: boolean;
 }
 
 const CATEGORY_SUGGESTIONS = ["Billing", "Missing Info", "Follow-up", "General"];
+const PRIORITY_OPTIONS = ["Low", "Normal", "High", "Urgent"];
 
 function fmtRelative(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Remind date+time is always shown in America/New_York regardless of the viewer's own browser timezone — matches exactly how the backend (etWallClockToUtc) interprets what staff type in, so this never shows a different moment than what was actually scheduled. */
+function fmtRemindAt(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+/** Converts a stored UTC ISO timestamp into the "YYYY-MM-DDTHH:mm" a <input type="datetime-local"> needs, expressed in America/New_York wall-clock time — the same timezone the backend assumes when re-parsing whatever gets typed back in, so editing an existing reminder round-trips to the exact same instant instead of drifting by the viewer's own UTC offset. */
+function toEasternDatetimeLocal(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 /**
@@ -38,6 +58,7 @@ export function NotesPage() {
 
   const [notes, setNotes] = useState<StaffNote[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"open" | "done" | "all">("open");
   const [clientFilter, setClientFilter] = useState("");
@@ -47,7 +68,7 @@ export function NotesPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ body: "", clientId: "", category: "", remindAt: "", visibility: "firm" as "firm" | "admin" });
+  const [form, setForm] = useState({ body: "", clientId: "", category: "", remindAt: "", priority: "Normal", assignedTo: "", visibility: "firm" as "firm" | "admin" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Set while the open form is editing an existing note in place rather than
@@ -68,9 +89,15 @@ export function NotesPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, clientFilter, mineOnly, search]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
+  // Who a reminder can actually notify — the same admin+staff-name list
+  // TasksListPage/NewWorkItemModal already use for "Assigned To" (GET
+  // /system/options, open to staff too, unlike the admin-only GET /users).
+  useEffect(() => {
+    api.get<WebOptions>("/system/options").then((r) => setStaffOptions(r.staff || [])).catch(() => {});
+  }, []);
 
   function closeForm() {
-    setForm({ body: "", clientId: "", category: "", remindAt: "", visibility: "firm" });
+    setForm({ body: "", clientId: "", category: "", remindAt: "", priority: "Normal", assignedTo: "", visibility: "firm" });
     setShowForm(false);
     setEditingNoteId(null);
     setSaveError(null);
@@ -86,11 +113,13 @@ export function NotesPage() {
         await api.post(`/staff-notes/${editingNoteId}/edit`, {
           body: form.body.trim(), clientId: form.clientId || undefined,
           category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
+          priority: form.priority, assignedTo: form.assignedTo || undefined,
         });
       } else {
         await api.post("/staff-notes", {
           body: form.body.trim(), clientId: form.clientId || undefined,
           category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
+          priority: form.priority, assignedTo: form.assignedTo || undefined,
           visibility: isAdmin ? form.visibility : undefined,
         });
       }
@@ -132,7 +161,10 @@ export function NotesPage() {
 
   /** Opens the New Note form pre-filled from an existing note's text/category/remind date — for the same reminder that applies to several clients (e.g. "collect signed engagement letter"), so it doesn't have to be retyped. Client is deliberately left blank rather than copied — this is FOR a different client, picking the same one back would just be a no-op duplicate. */
   function startDuplicate(n: StaffNote) {
-    setForm({ body: n.body, clientId: "", category: n.category || "", remindAt: n.remindAt ? n.remindAt.slice(0, 10) : "", visibility: "firm" });
+    setForm({
+      body: n.body, clientId: "", category: n.category || "", remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : "",
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || "", visibility: "firm",
+    });
     setEditingNoteId(null);
     setSaveError(null);
     setShowForm(true);
@@ -141,7 +173,10 @@ export function NotesPage() {
 
   /** Opens the form editing this note in place — same fields pre-filled, including its current client, unlike Duplicate which blanks the client on purpose. Author or admin only; the backend enforces this too. */
   function startEdit(n: StaffNote) {
-    setForm({ body: n.body, clientId: n.clientId || "", category: n.category || "", remindAt: n.remindAt ? n.remindAt.slice(0, 10) : "", visibility: n.visibility });
+    setForm({
+      body: n.body, clientId: n.clientId || "", category: n.category || "", remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : "",
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || "", visibility: n.visibility,
+    });
     setEditingNoteId(n.noteId);
     setSaveError(null);
     setShowForm(true);
@@ -231,9 +266,26 @@ export function NotesPage() {
                   {CATEGORY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </div>
-              <div className="field" style={{ flex: "1 1 160px" }}>
+              <div className="field" style={{ flex: "1 1 200px" }}>
                 <label htmlFor="note-remind">Remind me on (optional)</label>
-                <input id="note-remind" type="date" value={form.remindAt} onChange={(e) => setForm((f) => ({ ...f, remindAt: e.target.value }))} />
+                <input id="note-remind" type="datetime-local" value={form.remindAt} onChange={(e) => setForm((f) => ({ ...f, remindAt: e.target.value }))} />
+                <span className="muted" style={{ fontSize: 10.5 }}>Eastern time</span>
+              </div>
+              <div className="field" style={{ flex: "1 1 130px" }}>
+                <label htmlFor="note-priority">Priority</label>
+                <select id="note-priority" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+                  {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ flex: "1 1 180px" }}>
+                <label htmlFor="note-assigned">Notify (optional)</label>
+                <select id="note-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
+                  <option value="">{form.remindAt ? "Just me (the author)" : "No one"}</option>
+                  {form.assignedTo && !staffOptions.includes(form.assignedTo) && (
+                    <option value={form.assignedTo}>{form.assignedTo} (Inactive)</option>
+                  )}
+                  {staffOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
               {isAdmin && (
                 <div className="field" style={{ flex: "1 1 160px" }}>
@@ -271,7 +323,9 @@ export function NotesPage() {
                   <th scope="col">Note</th>
                   <th scope="col">Client</th>
                   <th scope="col">Category</th>
+                  <th scope="col">Priority</th>
                   <th scope="col">Author</th>
+                  <th scope="col">Notify</th>
                   <th scope="col">Remind</th>
                   <th scope="col">Created</th>
                   <th scope="col"></th>
@@ -298,8 +352,13 @@ export function NotesPage() {
                       </td>
                       <td className="muted">{n.clientName || "—"}</td>
                       <td className="muted">{n.category || "—"}</td>
+                      <td>{n.priority && n.priority !== "Normal" ? <StatusBadge status={n.priority} /> : <span className="muted">—</span>}</td>
                       <td className="muted">{n.authorName || n.authorEmail}</td>
-                      <td style={overdue ? { color: "var(--red)", fontWeight: 700 } : undefined}>{n.remindAt ? fmtRelative(n.remindAt) : "—"}</td>
+                      <td className="muted">{n.remindAt ? (n.assignedTo || `${n.authorName || n.authorEmail} (author)`) : "—"}</td>
+                      <td style={overdue ? { color: "var(--red)", fontWeight: 700 } : undefined}>
+                        {n.remindAt ? fmtRemindAt(n.remindAt) : "—"}
+                        {n.remindAt && n.reminderSentAt && <div className="muted" style={{ fontSize: 10.5, fontWeight: 400 }}>Sent {fmtRelative(n.reminderSentAt)}</div>}
+                      </td>
                       <td className="muted">{fmtRelative(n.createdAt)}</td>
                       <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
                         {n.status === "Open"

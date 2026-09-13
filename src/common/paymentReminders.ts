@@ -26,7 +26,7 @@ function idSuffix(): string {
 }
 
 /** The UTC offset (in hours, e.g. -5 for EST or -4 for EDT) America/New_York is at on a given date — resolved via Intl against real IANA tzdata so DST transitions are handled correctly without a date library. */
-function etOffsetHoursForDate(dateStr: string): number {
+export function etOffsetHoursForDate(dateStr: string): number {
   const ref = new Date(`${dateStr}T12:00:00.000Z`); // noon UTC — nowhere near a DST-transition boundary
   const part = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "shortOffset" })
     .formatToParts(ref).find((p) => p.type === "timeZoneName")?.value || "GMT-5";
@@ -34,7 +34,7 @@ function etOffsetHoursForDate(dateStr: string): number {
 }
 
 /** A given wall-clock hour:minute in America/New_York on dateStr, as a real UTC instant. */
-function etWallClockToUtc(dateStr: string, hour: number, minute: number): Date {
+export function etWallClockToUtc(dateStr: string, hour: number, minute: number): Date {
   const offsetHours = etOffsetHoursForDate(dateStr);
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, hour - offsetHours, minute, 0));
