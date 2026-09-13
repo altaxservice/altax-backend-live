@@ -896,19 +896,38 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .modal-header h2 { margin: 0; font-size: 18px; }
-.create-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .create-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
   text-align: left;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 11px 12px;
   background: var(--paper);
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 }
-.create-tile:hover { border-color: var(--teal); background: var(--teal-soft); }
-.create-tile strong { display: block; font-size: 13px; margin-bottom: 3px; }
-.create-tile span { display: block; font-size: 11px; color: var(--muted); }
-.create-tile-disabled { opacity: 0.5; cursor: not-allowed; }
-.create-tile-disabled:hover { border-color: var(--line); background: var(--paper); }
+.create-tile:hover {
+  border-color: color-mix(in srgb, var(--ink) 18%, var(--line));
+  box-shadow: 0 6px 16px rgba(20, 31, 43, 0.08);
+  transform: translateY(-1px);
+}
+.create-tile:active { transform: translateY(0); box-shadow: none; }
+.create-tile-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.create-tile-text { min-width: 0; }
+.create-tile-text strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.create-tile-text span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.create-tile-disabled { opacity: 0.55; cursor: not-allowed; }
+.create-tile-disabled:hover { border-color: var(--line); box-shadow: none; transform: none; }
 
 /* Caps a long history/log list at a fixed height with its own scrollbar instead of
    letting it stack onto the page indefinitely — a full communications/audit history
