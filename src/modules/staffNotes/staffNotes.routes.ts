@@ -62,6 +62,7 @@ staffNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   const isAdmin = req.user!.role === "admin";
   const status = String(req.query.status || "open").toLowerCase();
   const clientId = String(req.query.clientId || "").trim();
+  const taskId = String(req.query.taskId || "").trim();
   const search = String(req.query.search || "").trim();
   const mineOnly = String(req.query.mine || "") === "1";
 
@@ -70,15 +71,17 @@ staffNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   if (status === "open") where += ` AND n.status = 'Open'`;
   else if (status === "done") where += ` AND n.status = 'Done'`;
   if (clientId) { params.push(clientId); where += ` AND n.client_id = $${params.length}`; }
+  if (taskId) { params.push(taskId); where += ` AND n.task_id = $${params.length}`; }
   if (search) { params.push(`%${search}%`); where += ` AND n.body ILIKE $${params.length}`; }
   if (mineOnly) { params.push(req.user!.email); where += ` AND n.author_email = $${params.length}`; }
   if (!isAdmin) where += ` AND n.visibility = 'firm'`;
 
   const rows = await query<any>(
-    `SELECT n.*, c.client_name,
+    `SELECT n.*, c.client_name, t.task_name,
             EXISTS (SELECT 1 FROM altax.v3_activity_reads r WHERE r.entity_type = 'staff_note' AND r.entity_id = n.note_id AND r.reader_email = $1) AS is_read
        FROM altax.v3_staff_notes n
        LEFT JOIN altax.v3_clients c ON c.client_id = n.client_id
+       LEFT JOIN altax.v3_tasks t ON t.task_id = n.task_id
       WHERE ${where}
       ORDER BY (n.status = 'Open' AND n.remind_at IS NOT NULL AND n.remind_at <= now()) DESC, n.remind_at ASC NULLS LAST, n.created_at DESC`,
     params
@@ -86,7 +89,8 @@ staffNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   res.json({
     notes: rows.map((r) => ({
       noteId: r.note_id, authorEmail: r.author_email, authorName: r.author_name,
-      clientId: r.client_id, clientName: r.client_name, body: r.body, visibility: r.visibility,
+      clientId: r.client_id, clientName: r.client_name, taskId: r.task_id, taskName: r.task_name,
+      body: r.body, visibility: r.visibility,
       category: r.category, status: r.status, priority: r.priority, assignedTo: r.assigned_to,
       remindAt: r.remind_at, reminderSentAt: r.reminder_sent_at, resolvedAt: r.resolved_at, resolvedBy: r.resolved_by,
       createdAt: r.created_at, updatedAt: r.updated_at, unread: !r.is_read,
@@ -118,6 +122,7 @@ staffNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHand
   const body = String(req.body?.body || "").trim();
   if (!body) return res.status(400).json({ error: "Note text is required." });
   const clientId = String(req.body?.clientId || "").trim() || null;
+  const taskId = String(req.body?.taskId || "").trim() || null;
   const category = String(req.body?.category || "").trim() || null;
   const remindAt = parseRemindAtInput(req.body?.remindAt);
   const priority = normalizePriority(req.body?.priority);
@@ -130,13 +135,17 @@ staffNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHand
     const client = await queryOne<any>(`SELECT client_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     if (!client) return res.status(400).json({ error: "Client not found." });
   }
+  if (taskId) {
+    const task = await queryOne<any>(`SELECT task_id FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+    if (!task) return res.status(400).json({ error: "Task not found." });
+  }
 
   const noteId = `SN-${idSuffix()}`;
   const authorRow = await queryOne<any>(`SELECT name FROM altax.v3_users WHERE lower(email) = lower($1)`, [req.user!.email]);
   await query(
-    `INSERT INTO altax.v3_staff_notes (note_id, author_email, author_name, client_id, body, visibility, category, remind_at, priority, assigned_to)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [noteId, req.user!.email, authorRow?.name || req.user!.email, clientId, body, visibility, category, remindAt, priority, assignedTo]
+    `INSERT INTO altax.v3_staff_notes (note_id, author_email, author_name, client_id, task_id, body, visibility, category, remind_at, priority, assigned_to)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [noteId, req.user!.email, authorRow?.name || req.user!.email, clientId, taskId, body, visibility, category, remindAt, priority, assignedTo]
   );
   await logAudit("Notes", "CREATE_STAFF_NOTE", noteId, "", "", "", `Note added by ${req.user!.email}.`, req.user!.email);
   res.status(201).json({ ok: true, noteId });
@@ -164,6 +173,7 @@ staffNotesRouter.post("/:noteId/edit", requireAuth, requireRole("admin", "staff"
   const body = String(req.body?.body || "").trim();
   if (!body) return res.status(400).json({ error: "Note text is required." });
   const clientId = String(req.body?.clientId || "").trim() || null;
+  const taskId = String(req.body?.taskId || "").trim() || null;
   const category = String(req.body?.category || "").trim() || null;
   const remindAt = parseRemindAtInput(req.body?.remindAt);
   const priority = normalizePriority(req.body?.priority);
@@ -172,6 +182,10 @@ staffNotesRouter.post("/:noteId/edit", requireAuth, requireRole("admin", "staff"
   if (clientId) {
     const client = await queryOne<any>(`SELECT client_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
     if (!client) return res.status(400).json({ error: "Client not found." });
+  }
+  if (taskId) {
+    const task = await queryOne<any>(`SELECT task_id FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+    if (!task) return res.status(400).json({ error: "Task not found." });
   }
 
   // A note already reminded about, then rescheduled to a new time (or given
@@ -183,10 +197,10 @@ staffNotesRouter.post("/:noteId/edit", requireAuth, requireRole("admin", "staff"
   const rearm = oldRemindAt !== newRemindAt;
 
   await query(
-    `UPDATE altax.v3_staff_notes SET body = $2, client_id = $3, category = $4, remind_at = $5, priority = $6, assigned_to = $7,
-            reminder_sent_at = CASE WHEN $8 THEN NULL ELSE reminder_sent_at END, updated_at = now()
+    `UPDATE altax.v3_staff_notes SET body = $2, client_id = $3, task_id = $4, category = $5, remind_at = $6, priority = $7, assigned_to = $8,
+            reminder_sent_at = CASE WHEN $9 THEN NULL ELSE reminder_sent_at END, updated_at = now()
       WHERE note_id = $1`,
-    [noteId, body, clientId, category, remindAt, priority, assignedTo, rearm]
+    [noteId, body, clientId, taskId, category, remindAt, priority, assignedTo, rearm]
   );
   await logAudit("Notes", "EDIT_STAFF_NOTE", noteId, "", "", "", `Note edited by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });

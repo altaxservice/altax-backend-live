@@ -19,6 +19,9 @@ import { usePrompt, useNotify } from "../components/ConfirmProvider";
 import { LabelChips, LabelPicker, useEntityLabel } from "../components/Labels";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useSelectedTask } from "../context/SelectedTaskContext";
+import { NoteFormModal } from "../components/NoteFormModal";
+import { DailyLogFormModal } from "../components/DailyLogFormModal";
+import { useToast } from "../components/Toast";
 
 const PRIORITY_OPTIONS = ["Normal", "Low", "High", "Urgent"];
 
@@ -98,6 +101,9 @@ export function TaskDetailPage() {
 
   const canEdit = user?.role === "admin" || user?.role === "staff";
   const { allLabels, labels: taskLabels, assign: assignLabel, unassign: unassignLabel } = useEntityLabel("task", taskId);
+  const toast = useToast();
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
 
   useEffect(() => {
     if (!canEdit) return;
@@ -265,6 +271,8 @@ export function TaskDetailPage() {
                 Finish in Accounting
               </Link>
             )}
+            <button className="btn" onClick={() => setShowNoteModal(true)}>+ Note</button>
+            <button className="btn" onClick={() => setShowLogModal(true)}>+ Log Work</button>
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
             {isAdmin && <button className="btn btn-danger" onClick={handleDelete}>Delete</button>}
@@ -416,6 +424,23 @@ export function TaskDetailPage() {
 
       {tab === "Attachments" && canEdit && taskId && <TaskAttachments taskId={taskId} clientId={task?.client_id ?? null} />}
       {tab === "Activity Timeline" && canEdit && taskId && <TaskThread taskId={taskId} clientId={task?.client_id ?? null} initialMode={openParam === "message" ? "message" : "note"} />}
+
+      {showNoteModal && task && (
+        <NoteFormModal
+          initialClientId={task.client_id || undefined}
+          initialTaskId={task.task_id}
+          onClose={() => setShowNoteModal(false)}
+          onDone={() => toast("Note saved.")}
+        />
+      )}
+      {showLogModal && task && (
+        <DailyLogFormModal
+          initialClientId={task.client_id || undefined}
+          initialTaskId={task.task_id}
+          onClose={() => setShowLogModal(false)}
+          onDone={() => toast("Logged.")}
+        />
+      )}
     </div>
   );
 }

@@ -1,23 +1,25 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import type { Client } from "../api/types";
-import type { WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { StatusBadge } from "../components/StatusBadge";
+import { NoteFormModal } from "../components/NoteFormModal";
+import { DailyLogFormModal } from "../components/DailyLogFormModal";
+import { NewWorkItemModal } from "../components/NewWorkItemModal";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
+import { useToast } from "../components/Toast";
 
 interface StaffNote {
   noteId: string; authorEmail: string; authorName: string | null;
-  clientId: string | null; clientName: string | null; body: string;
+  clientId: string | null; clientName: string | null;
+  taskId: string | null; taskName: string | null; body: string;
   visibility: "firm" | "admin"; category: string | null; status: "Open" | "Done";
   priority: string; assignedTo: string | null;
   remindAt: string | null; reminderSentAt: string | null; resolvedAt: string | null; resolvedBy: string | null;
   createdAt: string; updatedAt: string; unread: boolean;
 }
-
-const CATEGORY_SUGGESTIONS = ["Billing", "Missing Info", "Follow-up", "General"];
-const PRIORITY_OPTIONS = ["Low", "Normal", "High", "Urgent"];
 
 function fmtRelative(iso: string): string {
   const d = new Date(iso);
@@ -40,6 +42,13 @@ function toEasternDatetimeLocal(iso: string): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
+/** What the New/Edit/Duplicate Note modal should open pre-filled with — undefined means "leave that field blank," so opening it with `{}` (the plain "+ New Note" button) reproduces a completely unconnected note. */
+interface NoteModalState {
+  noteId?: string;
+  clientId?: string; taskId?: string; body?: string; category?: string; remindAt?: string;
+  priority?: string; assignedTo?: string; visibility?: "firm" | "admin";
+}
+
 /**
  * Firm Notes — a shared follow-up notebook, separate from Tasks and from the
  * per-client "Client Note"/"Firm Note" activity log. Real owner request,
@@ -48,17 +57,20 @@ function toEasternDatetimeLocal(iso: string): string {
  * instead of visiting each client individually — see staffNotes.routes.ts's
  * header comment for the full design (role-based visibility: 'firm' notes
  * are shared with the whole team, 'admin' notes are visible only to admin,
- * a toggle only admin ever sees).
+ * a toggle only admin ever sees). Extended 2026-09-14: a note can now link
+ * to a specific Task, and any note can spin off a Task or a Daily Log entry
+ * of its own — see NoteFormModal/DailyLogFormModal for the shared forms
+ * every cross-link path (Task Detail, Daily Log, and Notes itself) reuses.
  */
 export function NotesPage() {
   const { user } = useAuth();
   const confirmDialog = useConfirm();
   const notify = useNotify();
+  const toast = useToast();
   const isAdmin = user?.role === "admin";
 
   const [notes, setNotes] = useState<StaffNote[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"open" | "done" | "all">("open");
   const [clientFilter, setClientFilter] = useState("");
@@ -67,15 +79,11 @@ export function NotesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ body: "", clientId: "", category: "", remindAt: "", priority: "Normal", assignedTo: "", visibility: "firm" as "firm" | "admin" });
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  // Set while the open form is editing an existing note in place rather than
-  // creating a new one — same form, same fields, just a different submit
-  // target. Real owner report, live: notes weren't editable at all, only
-  // deletable — a typo or an updated date meant delete-and-retype.
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  // Undefined = closed. An empty object ({}) opens a completely blank,
+  // unconnected note — every pre-filled path below is purely additive.
+  const [noteModal, setNoteModal] = useState<NoteModalState | undefined>(undefined);
+  const [logModalFor, setLogModalFor] = useState<StaffNote | null>(null);
+  const [taskModalFor, setTaskModalFor] = useState<StaffNote | null>(null);
 
   function load() {
     const params = new URLSearchParams({ status: statusFilter });
@@ -89,48 +97,6 @@ export function NotesPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [statusFilter, clientFilter, mineOnly, search]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
-  // Who a reminder can actually notify — the same admin+staff-name list
-  // TasksListPage/NewWorkItemModal already use for "Assigned To" (GET
-  // /system/options, open to staff too, unlike the admin-only GET /users).
-  useEffect(() => {
-    api.get<WebOptions>("/system/options").then((r) => setStaffOptions(r.staff || [])).catch(() => {});
-  }, []);
-
-  function closeForm() {
-    setForm({ body: "", clientId: "", category: "", remindAt: "", priority: "Normal", assignedTo: "", visibility: "firm" });
-    setShowForm(false);
-    setEditingNoteId(null);
-    setSaveError(null);
-  }
-
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault();
-    if (!form.body.trim()) { setSaveError("Note text is required."); return; }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      if (editingNoteId) {
-        await api.post(`/staff-notes/${editingNoteId}/edit`, {
-          body: form.body.trim(), clientId: form.clientId || undefined,
-          category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
-          priority: form.priority, assignedTo: form.assignedTo || undefined,
-        });
-      } else {
-        await api.post("/staff-notes", {
-          body: form.body.trim(), clientId: form.clientId || undefined,
-          category: form.category.trim() || undefined, remindAt: form.remindAt || undefined,
-          priority: form.priority, assignedTo: form.assignedTo || undefined,
-          visibility: isAdmin ? form.visibility : undefined,
-        });
-      }
-      closeForm();
-      load();
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Could not save this note.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function markRead(noteId: string) {
     try {
@@ -159,28 +125,21 @@ export function NotesPage() {
     }
   }
 
-  /** Opens the New Note form pre-filled from an existing note's text/category/remind date — for the same reminder that applies to several clients (e.g. "collect signed engagement letter"), so it doesn't have to be retyped. Client is deliberately left blank rather than copied — this is FOR a different client, picking the same one back would just be a no-op duplicate. */
+  /** Opens the New Note form pre-filled from an existing note's text/category/remind date — for the same reminder that applies to several clients (e.g. "collect signed engagement letter"), so it doesn't have to be retyped. Client and task are deliberately left blank rather than copied — this is FOR a different client, picking the same ones back would just be a no-op duplicate. */
   function startDuplicate(n: StaffNote) {
-    setForm({
-      body: n.body, clientId: "", category: n.category || "", remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : "",
-      priority: n.priority || "Normal", assignedTo: n.assignedTo || "", visibility: "firm",
+    setNoteModal({
+      body: n.body, category: n.category || undefined, remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : undefined,
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined, visibility: "firm",
     });
-    setEditingNoteId(null);
-    setSaveError(null);
-    setShowForm(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  /** Opens the form editing this note in place — same fields pre-filled, including its current client, unlike Duplicate which blanks the client on purpose. Author or admin only; the backend enforces this too. */
+  /** Opens the form editing this note in place — same fields pre-filled, including its current client/task, unlike Duplicate which blanks them on purpose. Author or admin only; the backend enforces this too. */
   function startEdit(n: StaffNote) {
-    setForm({
-      body: n.body, clientId: n.clientId || "", category: n.category || "", remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : "",
-      priority: n.priority || "Normal", assignedTo: n.assignedTo || "", visibility: n.visibility,
+    setNoteModal({
+      noteId: n.noteId, clientId: n.clientId || undefined, taskId: n.taskId || undefined,
+      body: n.body, category: n.category || undefined, remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : undefined,
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined, visibility: n.visibility,
     });
-    setEditingNoteId(n.noteId);
-    setSaveError(null);
-    setShowForm(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function toggleSelected(noteId: string) {
@@ -238,68 +197,10 @@ export function NotesPage() {
             Created by me
           </label>
           <input placeholder="Search notes…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
-          <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => (showForm ? closeForm() : setShowForm(true))}>
-            {showForm ? "Cancel" : "+ New Note"}
+          <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => setNoteModal({})}>
+            + New Note
           </button>
         </div>
-
-        {showForm && (
-          <form onSubmit={handleCreate} style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{editingNoteId ? "Edit Note" : "New Note"}</div>
-            {saveError && <ErrorBanner error={saveError} />}
-            <div className="field">
-              <label htmlFor="note-body">Note</label>
-              <textarea id="note-body" rows={3} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} placeholder="e.g. AAA Carryout is missing a W-9 — chase before month-end." />
-            </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ flex: "1 1 220px" }}>
-                <label htmlFor="note-client">Client (optional)</label>
-                <select id="note-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}>
-                  <option value="">No client — general note</option>
-                  {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-                </select>
-              </div>
-              <div className="field" style={{ flex: "1 1 160px" }}>
-                <label htmlFor="note-category">Category (optional)</label>
-                <input id="note-category" list="note-category-list" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} />
-                <datalist id="note-category-list">
-                  {CATEGORY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
-                </datalist>
-              </div>
-              <div className="field" style={{ flex: "1 1 200px" }}>
-                <label htmlFor="note-remind">Remind me on (optional)</label>
-                <input id="note-remind" type="datetime-local" value={form.remindAt} onChange={(e) => setForm((f) => ({ ...f, remindAt: e.target.value }))} />
-                <span className="muted" style={{ fontSize: 10.5 }}>Eastern time</span>
-              </div>
-              <div className="field" style={{ flex: "1 1 130px" }}>
-                <label htmlFor="note-priority">Priority</label>
-                <select id="note-priority" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
-                  {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div className="field" style={{ flex: "1 1 180px" }}>
-                <label htmlFor="note-assigned">Notify (optional)</label>
-                <select id="note-assigned" value={form.assignedTo} onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
-                  <option value="">{form.remindAt ? "Just me (the author)" : "No one"}</option>
-                  {form.assignedTo && !staffOptions.includes(form.assignedTo) && (
-                    <option value={form.assignedTo}>{form.assignedTo} (Inactive)</option>
-                  )}
-                  {staffOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              {isAdmin && (
-                <div className="field" style={{ flex: "1 1 160px" }}>
-                  <label htmlFor="note-visibility">Visible to</label>
-                  <select id="note-visibility" value={form.visibility} onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value as "firm" | "admin" }))}>
-                    <option value="firm">Team</option>
-                    <option value="admin">Admin Only</option>
-                  </select>
-                </div>
-              )}
-            </div>
-            <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : editingNoteId ? "Save Changes" : "Save Note"}</button>
-          </form>
-        )}
 
         {error && <div style={{ padding: 16 }}><ErrorBanner error={error} /></div>}
 
@@ -322,6 +223,7 @@ export function NotesPage() {
                   <th scope="col" style={{ width: 32 }}><input type="checkbox" checked={selected.size > 0 && selected.size === notes.length} onChange={toggleSelectAll} /></th>
                   <th scope="col">Note</th>
                   <th scope="col">Client</th>
+                  <th scope="col">Task</th>
                   <th scope="col">Category</th>
                   <th scope="col">Priority</th>
                   <th scope="col">Author</th>
@@ -351,6 +253,9 @@ export function NotesPage() {
                         {n.visibility === "admin" && <span className="badge" style={{ marginLeft: 8, fontSize: 10 }}>Admin Only</span>}
                       </td>
                       <td className="muted">{n.clientName || "—"}</td>
+                      <td className="muted" onClick={(e) => n.taskId && e.stopPropagation()}>
+                        {n.taskId ? <Link to={`/tasks/${n.taskId}`}>{n.taskName || n.taskId}</Link> : "—"}
+                      </td>
                       <td className="muted">{n.category || "—"}</td>
                       <td>{n.priority && n.priority !== "Normal" ? <StatusBadge status={n.priority} /> : <span className="muted">—</span>}</td>
                       <td className="muted">{n.authorName || n.authorEmail}</td>
@@ -360,12 +265,14 @@ export function NotesPage() {
                         {n.remindAt && n.reminderSentAt && <div className="muted" style={{ fontSize: 10.5, fontWeight: 400 }}>Sent {fmtRelative(n.reminderSentAt)}</div>}
                       </td>
                       <td className="muted">{fmtRelative(n.createdAt)}</td>
-                      <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6 }}>
+                      <td onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {n.status === "Open"
                           ? <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Done")}>Mark Done</button>
                           : <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Open")}>Reopen</button>}
                         {canEdit && <button type="button" className="btn btn-sm" onClick={() => startEdit(n)}>Edit</button>}
                         <button type="button" className="btn btn-sm" title="Reuse this note's text for a different client" onClick={() => startDuplicate(n)}>Duplicate</button>
+                        <button type="button" className="btn btn-sm" title="Log work for this client/task" onClick={() => setLogModalFor(n)}>Log Work</button>
+                        <button type="button" className="btn btn-sm" title="Create a task from this note" onClick={() => setTaskModalFor(n)}>Create Task</button>
                         {canEdit && <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteOne(n.noteId)}>Delete</button>}
                       </td>
                     </tr>
@@ -376,6 +283,38 @@ export function NotesPage() {
           </div>
         )}
       </div>
+
+      {noteModal !== undefined && (
+        <NoteFormModal
+          noteId={noteModal.noteId}
+          initialClientId={noteModal.clientId}
+          initialTaskId={noteModal.taskId}
+          initialBody={noteModal.body}
+          initialCategory={noteModal.category}
+          initialRemindAt={noteModal.remindAt}
+          initialPriority={noteModal.priority}
+          initialAssignedTo={noteModal.assignedTo}
+          initialVisibility={noteModal.visibility}
+          onClose={() => setNoteModal(undefined)}
+          onDone={load}
+        />
+      )}
+      {logModalFor && (
+        <DailyLogFormModal
+          initialClientId={logModalFor.clientId || undefined}
+          initialTaskId={logModalFor.taskId || undefined}
+          onClose={() => setLogModalFor(null)}
+          onDone={() => toast("Logged.")}
+        />
+      )}
+      {taskModalFor && (
+        <NewWorkItemModal
+          initialClientId={taskModalFor.clientId || undefined}
+          initialNotes={taskModalFor.body}
+          onClose={() => setTaskModalFor(null)}
+          onDone={() => {}}
+        />
+      )}
     </div>
   );
 }
