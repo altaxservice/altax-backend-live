@@ -887,8 +887,12 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .modal-panel {
   width: min(720px, 100%);
+  min-width: 320px;
+  max-width: 95vw;
   max-height: 85vh;
-  overflow-y: auto;
+  min-height: 160px;
+  overflow: auto;
+  resize: both;
   background: var(--paper);
   border-radius: 10px;
   box-shadow: 0 28px 70px rgba(15, 23, 42, 0.32);
@@ -1359,6 +1363,7 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
     max-height: 90vh;
     border-radius: 12px 12px 0 0;
     padding: 16px;
+    resize: none;
   }
   .create-grid { grid-template-columns: 1fr; }
   .login-role-grid { grid-template-columns: 1fr; }
