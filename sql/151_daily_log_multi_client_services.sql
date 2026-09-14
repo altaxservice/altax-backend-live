@@ -1,0 +1,12 @@
+-- Real owner request, 2026-09-14: log one entry covering several clients at
+-- once ("I did sales tax for 6 clients") and tag it with which of the
+-- firm's real services applied (the same FIRM_SERVICES catalog that
+-- already drives v3_clients.services, contracts, and subscription
+-- pricing) -- multiple clients AND multiple services per entry.
+--
+-- client_id itself stays a single FK per row (fan-out by client happens at
+-- write time: selecting N clients creates N rows sharing the same body/
+-- services/time, one per client) so every existing per-client query still
+-- works unchanged. services is genuinely multi-valued PER row though --
+-- "for this client today I did Sales Tax AND Payroll" is one row, not two.
+ALTER TABLE altax.v3_daily_logs ADD COLUMN IF NOT EXISTS services TEXT[];

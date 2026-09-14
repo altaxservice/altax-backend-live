@@ -5,11 +5,13 @@ import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
 
+interface FirmServiceOption { key: string; label: string }
+
 interface DailyLogEntry {
   logId: string; authorEmail: string; authorName: string | null;
   clientId: string | null; clientName: string | null;
   taskId: string | null; taskName: string | null;
-  loggedAt: string; category: string | null; body: string;
+  loggedAt: string; category: string | null; services: string[]; body: string;
   timeSpentMinutes: number | null;
   createdAt: string; updatedAt: string;
 }
@@ -54,14 +56,19 @@ function localDayKey(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const emptyForm = { body: "", clientIds: [] as string[], taskId: "", category: "", services: [] as string[], loggedAt: "", timeSpentHours: "", timeSpentMinutes: "" };
+
 /**
  * Daily Log — a personal/firm work journal, deliberately separate from both
  * Time Tracking (a billing tool: hours + rate + invoice rollup, no
  * narrative worth reading back) and Notes (forward-looking reminders, not a
  * "here's what I did" record). Real owner request, 2026-09-13: date+time,
- * which client, which task if any, and free text on what was involved and
- * what was done about it. See dailyLog.routes.ts's header comment for why
- * this is offered to everyone but never required/reminded.
+ * which client(s), which task if any, and free text on what was involved
+ * and what was done about it. Extended 2026-09-14: one entry can cover
+ * several clients at once ("I did sales tax for 6 clients") and multiple of
+ * the firm's real services — see dailyLog.routes.ts's header comment for
+ * how the client picker fans out into one row per client behind the scenes,
+ * and for why this is offered to everyone but never required/reminded.
  */
 export function DailyLogPage() {
   const { user } = useAuth();
@@ -70,13 +77,15 @@ export function DailyLogPage() {
 
   const [logs, setLogs] = useState<DailyLogEntry[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
+  const [serviceOptions, setServiceOptions] = useState<FirmServiceOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [search, setSearch] = useState("");
 
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ body: "", clientId: "", taskId: "", category: "", loggedAt: "", timeSpentHours: "", timeSpentMinutes: "" });
+  const [form, setForm] = useState(emptyForm);
+  const [clientSearch, setClientSearch] = useState("");
   const [formTasks, setFormTasks] = useState<Task[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -94,22 +103,46 @@ export function DailyLogPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [clientFilter, mineOnly, search]);
   useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
+  useEffect(() => { api.get<{ services: FirmServiceOption[] }>("/daily-log/services").then((r) => setServiceOptions(r.services)).catch(() => {}); }, []);
 
-  // The task picker only makes sense once a client is chosen — narrows to
-  // that client's own tasks instead of every task in the firm.
+  // The task picker only makes sense with exactly one client picked — a
+  // task belongs to one client, so it's hidden the moment a second client
+  // is added (see the JSX below) and cleared whenever the selection
+  // changes away from that single client.
   useEffect(() => {
-    if (!form.clientId) { setFormTasks([]); return; }
-    api.get<{ tasks: Task[] }>(`/tasks?clientId=${encodeURIComponent(form.clientId)}&status=all`)
+    if (form.clientIds.length !== 1) { setFormTasks([]); return; }
+    api.get<{ tasks: Task[] }>(`/tasks?clientId=${encodeURIComponent(form.clientIds[0])}&status=all`)
       .then((r) => setFormTasks(r.tasks))
       .catch(() => setFormTasks([]));
-  }, [form.clientId]);
+  }, [form.clientIds]);
 
   function closeForm() {
-    setForm({ body: "", clientId: "", taskId: "", category: "", loggedAt: "", timeSpentHours: "", timeSpentMinutes: "" });
+    setForm(emptyForm);
+    setClientSearch("");
     setShowForm(false);
     setEditingLogId(null);
     setSaveError(null);
   }
+
+  function toggleClient(clientId: string) {
+    setForm((f) => {
+      const has = f.clientIds.includes(clientId);
+      const clientIds = has ? f.clientIds.filter((id) => id !== clientId) : [...f.clientIds, clientId];
+      // A task only ever applies to a single client — dropping to 0 or
+      // climbing past 1 selected client always clears it.
+      return { ...f, clientIds, taskId: clientIds.length === 1 ? f.taskId : "" };
+    });
+  }
+
+  function toggleService(key: string) {
+    setForm((f) => ({ ...f, services: f.services.includes(key) ? f.services.filter((k) => k !== key) : [...f.services, key] }));
+  }
+
+  const filteredClientOptions = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return clients;
+    return clients.filter((c) => c.client_name.toLowerCase().includes(q));
+  }, [clients, clientSearch]);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -118,12 +151,13 @@ export function DailyLogPage() {
     setSaveError(null);
     try {
       const payload = {
-        body: form.body.trim(), clientId: form.clientId || undefined, taskId: form.taskId || undefined,
-        category: form.category.trim() || undefined, loggedAt: form.loggedAt || undefined,
+        body: form.body.trim(), clientIds: form.clientIds, taskId: form.taskId || undefined,
+        category: form.category.trim() || undefined, services: form.services, loggedAt: form.loggedAt || undefined,
         timeSpentHours: form.timeSpentHours || undefined, timeSpentMinutes: form.timeSpentMinutes || undefined,
       };
       if (editingLogId) {
-        await api.post(`/daily-log/${editingLogId}/edit`, payload);
+        // Editing stays single-client (see dailyLog.routes.ts) — send just the one id, if any.
+        await api.post(`/daily-log/${editingLogId}/edit`, { ...payload, clientId: form.clientIds[0] || undefined });
       } else {
         await api.post("/daily-log", payload);
       }
@@ -138,11 +172,13 @@ export function DailyLogPage() {
 
   function startEdit(l: DailyLogEntry) {
     setForm({
-      body: l.body, clientId: l.clientId || "", taskId: l.taskId || "", category: l.category || "",
+      body: l.body, clientIds: l.clientId ? [l.clientId] : [], taskId: l.taskId || "", category: l.category || "",
+      services: l.services || [],
       loggedAt: toDatetimeLocal(l.loggedAt),
       timeSpentHours: l.timeSpentMinutes ? String(Math.floor(l.timeSpentMinutes / 60)) : "",
       timeSpentMinutes: l.timeSpentMinutes ? String(l.timeSpentMinutes % 60) : "",
     });
+    setClientSearch("");
     setEditingLogId(l.logId);
     setSaveError(null);
     setShowForm(true);
@@ -171,12 +207,14 @@ export function DailyLogPage() {
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [logs]);
 
+  const serviceLabel = (key: string) => serviceOptions.find((s) => s.key === key)?.label || key;
+
   return (
     <div style={{ padding: 20 }}>
       <div className="command-panel">
         <div className="command-panel-header">
           <h2 className="command-panel-title">Daily Log</h2>
-          <div className="command-panel-note">What you worked on, for which client, and on which task if any — a personal work journal, not a Task.</div>
+          <div className="command-panel-note">What you worked on, for which client(s), and on which task if any — a personal work journal, not a Task.</div>
         </div>
 
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--line)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -200,8 +238,58 @@ export function DailyLogPage() {
             {saveError && <ErrorBanner error={saveError} />}
             <div className="field">
               <label htmlFor="dl-body">What did you work on, and what did you do about it?</label>
-              <textarea id="dl-body" rows={3} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} placeholder="e.g. Called AAA Carryout about their missing W-9 — they'll fax it Friday, following up Monday if not received." />
+              <textarea id="dl-body" rows={3} value={form.body} onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))} placeholder="e.g. Filed sales tax for these clients — all confirmed on the state portal, no balance due." />
             </div>
+
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              {/* Client(s) — search + checklist, same idea as CommandPalette's search-then-pick, but multi-select via checkboxes rather than a single jump-to-result. */}
+              <div className="field" style={{ flex: "1 1 260px", maxWidth: 320 }}>
+                <label htmlFor="dl-client-search">Client(s) (optional — pick as many as apply)</label>
+                <input
+                  id="dl-client-search"
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  placeholder="Search clients…"
+                  style={{ marginBottom: 4 }}
+                />
+                {form.clientIds.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                    {form.clientIds.map((id) => {
+                      const c = clients.find((cl) => cl.client_id === id);
+                      return (
+                        <span key={id} className="status-pill status-gray" style={{ fontSize: 10.5, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {c?.client_name || id}
+                          <button type="button" onClick={() => toggleClient(id)} aria-label={`Remove ${c?.client_name || id}`} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontWeight: 800 }}>×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                <div style={{ maxHeight: 150, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 4 }}>
+                  {filteredClientOptions.length === 0 && <p className="muted" style={{ fontSize: 11.5, margin: 4 }}>No matches.</p>}
+                  {filteredClientOptions.slice(0, 200).map((c) => (
+                    <label key={c.client_id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "3px 4px", cursor: "pointer" }}>
+                      <input type="checkbox" checked={form.clientIds.includes(c.client_id)} onChange={() => toggleClient(c.client_id)} />
+                      {c.client_name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Service(s) — the firm's real service catalog (FIRM_SERVICES), not a freeform tag, so this stays consistent with client profiles/contracts. */}
+              <div className="field" style={{ flex: "1 1 260px", maxWidth: 320 }}>
+                <label>Service(s) (optional — pick as many as apply)</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", border: "1px solid var(--line)", borderRadius: 6, padding: 8, maxHeight: 150, overflowY: "auto" }}>
+                  {serviceOptions.map((s) => (
+                    <label key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", flex: "1 1 140px" }}>
+                      <input type="checkbox" checked={form.services.includes(s.key)} onChange={() => toggleService(s.key)} />
+                      {s.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ flex: "1 1 200px" }}>
                 <label htmlFor="dl-when">Date &amp; time</label>
@@ -209,16 +297,11 @@ export function DailyLogPage() {
                 <span className="muted" style={{ fontSize: 10.5 }}>Blank = right now</span>
               </div>
               <div className="field" style={{ flex: "1 1 200px" }}>
-                <label htmlFor="dl-client">Client (optional)</label>
-                <select id="dl-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value, taskId: "" }))}>
-                  <option value="">No client — internal/general</option>
-                  {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-                </select>
-              </div>
-              <div className="field" style={{ flex: "1 1 200px" }}>
                 <label htmlFor="dl-task">Task (optional)</label>
-                <select id="dl-task" value={form.taskId} onChange={(e) => setForm((f) => ({ ...f, taskId: e.target.value }))} disabled={!form.clientId}>
-                  <option value="">{form.clientId ? "No specific task" : "Pick a client first"}</option>
+                <select id="dl-task" value={form.taskId} onChange={(e) => setForm((f) => ({ ...f, taskId: e.target.value }))} disabled={form.clientIds.length !== 1}>
+                  <option value="">
+                    {form.clientIds.length === 1 ? "No specific task" : form.clientIds.length === 0 ? "Pick a client first" : "Pick just one client to link a task"}
+                  </option>
                   {formTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
                 </select>
               </div>
@@ -240,6 +323,11 @@ export function DailyLogPage() {
                 <span className="muted" style={{ fontSize: 10.5 }}>For your own awareness — not billing. Use Time Tracking for billable hours.</span>
               </div>
             </div>
+            {form.clientIds.length > 1 && (
+              <p className="muted" style={{ fontSize: 11, margin: 0 }}>
+                This will create {form.clientIds.length} separate entries — one per client, all sharing this same text, services, and time.
+              </p>
+            )}
             <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: "flex-start" }}>{saving ? "Saving…" : editingLogId ? "Save Changes" : "Save Entry"}</button>
           </form>
         )}
@@ -265,6 +353,7 @@ export function DailyLogPage() {
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
                               <span className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>{fmtTime(l.loggedAt)}</span>
                               {l.category && <span className="badge" style={{ fontSize: 10 }}>{l.category}</span>}
+                              {(l.services || []).map((s) => <span key={s} className="status-pill status-teal" style={{ fontSize: 10 }}>{serviceLabel(s)}</span>)}
                               {l.clientName && <span style={{ fontSize: 12, fontWeight: 700 }}>{l.clientName}</span>}
                               {l.taskName && <span className="muted" style={{ fontSize: 11.5 }}>· {l.taskName}</span>}
                               {l.timeSpentMinutes ? <span className="muted" style={{ fontSize: 11 }}>· {fmtTimeSpent(l.timeSpentMinutes)}</span> : null}
