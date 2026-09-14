@@ -874,7 +874,7 @@ export function TasksListPage() {
 
       {pendingStatusChange && (
         <div className="modal-overlay" onClick={() => setPendingStatusChange(null)}>
-          <div className="modal-panel" style={{ maxWidth: 420 }} role="dialog" aria-modal="true" aria-labelledby="status-notify-title" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" style={{ width: "min(420px, 100%)" }} role="dialog" aria-modal="true" aria-labelledby="status-notify-title" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="status-notify-title">Update status to &quot;{pendingStatusChange.status}&quot;</h2>
               <button className="btn btn-sm" onClick={() => setPendingStatusChange(null)}>Close</button>

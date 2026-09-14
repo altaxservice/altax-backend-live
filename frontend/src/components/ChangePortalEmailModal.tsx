@@ -104,7 +104,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-portal-email-title" style={{ maxWidth: 520, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-portal-email-title" style={{ width: "min(520px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-portal-email-title">Change Sign-In Email</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

@@ -84,7 +84,7 @@ export function UploadFileModal({ clientId, clientName, onClose, onDone }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-file-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-file-title" style={{ width: "min(480px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="upload-file-title">Send File to {clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

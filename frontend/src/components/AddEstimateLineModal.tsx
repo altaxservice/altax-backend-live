@@ -141,7 +141,7 @@ export function AddEstimateLineModal({ jurisdiction, onClose, onAdd }: {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="add-estimate-line-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="add-estimate-line-title" style={{ width: "min(640px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="add-estimate-line-title">Add Line</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>

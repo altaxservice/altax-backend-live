@@ -324,7 +324,7 @@ export function UsersPage() {
 
       {preparerEdit && (
         <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
-          <div ref={preparerPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+          <div ref={preparerPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="ptin-caf-title">PTIN / CAF — {preparerEdit.name}</h2>
               <button className="btn btn-sm" onClick={() => setPreparerEdit(null)}>Close</button>
@@ -351,7 +351,7 @@ export function UsersPage() {
 
       {scheduleEdit && (
         <div className="modal-overlay" onClick={() => setScheduleEdit(null)}>
-          <div ref={schedulePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="schedule-title" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+          <div ref={schedulePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="schedule-title" style={{ width: "min(560px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="schedule-title">Working Hours — {scheduleEdit.name}</h2>
               <button className="btn btn-sm" onClick={() => setScheduleEdit(null)}>Close</button>

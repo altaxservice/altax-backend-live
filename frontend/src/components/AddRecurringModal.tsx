@@ -58,7 +58,7 @@ export function AddRecurringModal({ clients, editing, onClose, onDone }: { clien
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="recurring-billing-modal-title" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="recurring-billing-modal-title" style={{ width: "min(620px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="recurring-billing-modal-title">{editing?.recurring_billing_id ? "Edit Recurring Billing" : "Add Recurring Billing"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <div className="field"><label htmlFor="recur-client">Client</label><select id="recur-client" value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}><option value="">Select a client…</option>{clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}</select></div>

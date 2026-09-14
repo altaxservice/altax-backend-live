@@ -100,7 +100,7 @@ export function InstallPrompt() {
         </div>
         {showIosSteps && (
           <div className="modal-overlay" onClick={() => setShowIosSteps(false)}>
-            <div ref={stepsPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-steps-title" style={{ maxWidth: 400 }} dir={dir} onClick={(e) => e.stopPropagation()}>
+            <div ref={stepsPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="install-steps-title" style={{ width: "min(400px, 100%)" }} dir={dir} onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 id="install-steps-title" style={{ fontSize: 16 }}>{t("install.stepsTitle")}</h2>
                 <button className="btn btn-sm" onClick={() => setShowIosSteps(false)}>{t("install.close")}</button>

@@ -76,7 +76,7 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="request-document-title" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="request-document-title" style={{ width: "min(480px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="request-document-title">Request Document — {employeeName || clientName}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

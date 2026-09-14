@@ -223,7 +223,7 @@ export function FeeSchedulePage() {
 
       {editing && (
         <div className="modal-overlay" onClick={() => setEditing(null)}>
-          <div ref={editModalPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="fee-schedule-modal-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+          <div ref={editModalPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="fee-schedule-modal-title" style={{ width: "min(640px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="fee-schedule-modal-title">{editing.fee_item_id ? "Edit Fee" : "Add Fee"}</h2>
               <button className="btn btn-sm" onClick={() => setEditing(null)}>Close</button>

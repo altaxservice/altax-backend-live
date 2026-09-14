@@ -68,7 +68,7 @@ function NewSuggestionModal({ onClose, onDone }: { onClose: () => void; onDone: 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-suggestion-title" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-suggestion-title" style={{ width: "min(520px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="new-suggestion-title">New Suggestion</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <form onSubmit={handleSubmit}>

@@ -107,7 +107,7 @@ export function DailyLogFormModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="daily-log-form-title" style={{ maxWidth: 640, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="daily-log-form-title" style={{ width: "min(640px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="daily-log-form-title">{logId ? "Edit Entry" : "Log Work"}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

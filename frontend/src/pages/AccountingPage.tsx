@@ -2343,7 +2343,7 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-agent-modal-title" style={{ maxWidth: 620, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-agent-modal-title" style={{ width: "min(620px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="payroll-agent-modal-title">Payroll Agent</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
         <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
@@ -2555,7 +2555,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ maxWidth: 820, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ width: "min(820px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="batch-paychecks-title">Batch Create Paychecks</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

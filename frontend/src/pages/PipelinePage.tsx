@@ -442,7 +442,7 @@ function NewProspectModal({ onClose, onCreated, onSkipToClient }: { onClose: () 
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-prospect-title" style={{ maxWidth: 480, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-prospect-title" style={{ width: "min(480px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <h3 id="new-prospect-title" style={{ marginTop: 0 }}>New Prospect</h3>
         <p className="muted" style={{ fontSize: 12.5, marginTop: -6 }}>
           Not a client yet — this just adds a card to the pipeline. Full quoting/entity details can be filled in later on the estimate itself.

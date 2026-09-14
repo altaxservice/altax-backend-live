@@ -272,7 +272,7 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title" style={{ maxWidth: 920, width: "96vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="invoice-editor-title" style={{ width: "min(920px, 96vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="invoice-editor-title">{isEdit ? `Edit ${editing!.invoice_id}` : "Create Invoice"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 

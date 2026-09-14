@@ -129,7 +129,7 @@ export function IdleTimeout() {
 
   return (
     <div className="modal-overlay">
-      <div ref={panelRef} className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" style={{ width: "min(400px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="idle-title">Still there?</h2>
         </div>

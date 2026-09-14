@@ -91,7 +91,7 @@ export function NoteFormModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="note-form-title" style={{ maxWidth: 560, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="note-form-title" style={{ width: "min(560px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="note-form-title">{noteId ? "Edit Note" : "New Note"}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

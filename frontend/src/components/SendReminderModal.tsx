@@ -41,7 +41,7 @@ export function SendReminderModal({ invoice, onClose }: { invoice: Invoice; onCl
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="send-reminder-title" style={{ maxWidth: 440, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="send-reminder-title" style={{ width: "min(440px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="send-reminder-title">Send Reminder — {invoice.invoice_id}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
 

@@ -156,7 +156,7 @@ export function GeneratePoaFormModal({ clientId, defaultFormType, editingFiling,
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ maxWidth: 680, width: "94vw" }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-poa-form-title" style={{ width: "min(680px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-poa-form-title">{isEditing ? "Edit Draft Authorization Form" : "Generate Authorization Form"}</h2>
           <button className="btn btn-sm" onClick={handleClose}>Close</button>

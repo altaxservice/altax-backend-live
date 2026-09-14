@@ -237,7 +237,7 @@ function PreparerInfoModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="preparer-info-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="preparer-info-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="preparer-info-title">Preparer Info</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -303,7 +303,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-password-title">Change Password</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -400,7 +400,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   if (done === "enabled") {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -417,7 +417,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   if (user?.totpEnabled) {
     return (
       <div className="modal-overlay" onClick={onClose}>
-        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+        <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(420px, 100%)" }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
             <button className="btn btn-sm" onClick={onClose}>Close</button>
@@ -480,7 +480,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>

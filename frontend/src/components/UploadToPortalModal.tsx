@@ -111,7 +111,7 @@ export function UploadToPortalModal({ mode, lockedClientId, lockedClientName, lo
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-to-portal-title" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="upload-to-portal-title" style={{ width: "min(480px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="upload-to-portal-title">{title}</h2>
           <button className="btn btn-sm" onClick={onClose}>Close</button>
