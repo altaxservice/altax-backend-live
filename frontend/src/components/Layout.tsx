@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen,
   type LucideProps,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -61,6 +61,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users },
   { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks },
   { to: "/notes", label: "Notes", roles: ["admin", "staff"], group: "Work", icon: StickyNote },
+  { to: "/daily-log", label: "Daily Log", roles: ["admin", "staff"], group: "Work", icon: NotebookPen },
   { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar },
   { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock },
   { to: "/rules", label: "Task Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow },
@@ -105,6 +106,7 @@ const TITLES: Record<string, string> = {
   "/clients": "Clients",
   "/tasks": "Tasks",
   "/notes": "Notes",
+  "/daily-log": "Daily Log",
   "/calendar": "Calendar",
   "/time-tracking": "Time Tracking",
   "/billing": "Billing",
