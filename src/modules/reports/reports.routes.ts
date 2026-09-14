@@ -3383,6 +3383,376 @@ reportsRouter.get("/md-filing/:clientId/excluded-periods", requireAuth, requireR
   });
 }));
 
+/**
+ * DC mirror of the MD Filing Discount/History routes above — real owner
+ * request, 2026-09-14: FATIMA LLC (a genuine DC client) had no equivalent
+ * "Mark Filed" tracking. DC has no timely-filing discount (Tax Clarity Act
+ * of 2001), so this only ever computes penalty + interest, never a
+ * discount — see dcFiling.ts's header comment for the sourced rates.
+ * Reuses loadSalesTaxFrequencyHistory/loadSalesDatesAndTaxForPeriod as-is
+ * (neither is state-specific) — only the rate table, tables, and route
+ * paths are DC's own.
+ */
+export async function loadRecordedDcFilingPayments(clientId: string, expandedFrom: string, expandedTo: string): Promise<Map<string, { filedDate: string; paidDate: string | null; acknowledgedAt: string | null; sentAt: string | null }>> {
+  const rows = await query<{ period_end: string; filed_date: string; paid_date: string | null; acknowledged_at: string | null; sent_at: string | null }>(
+    `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date, paid_date::date::text AS paid_date, acknowledged_at::text AS acknowledged_at, sent_at::text AS sent_at
+       FROM altax.v3_dc_filing_payments
+      WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
+    [clientId, expandedFrom, expandedTo]
+  );
+  return new Map(rows.map((r) => [r.period_end, { filedDate: r.filed_date, paidDate: r.paid_date, acknowledgedAt: r.acknowledged_at, sentAt: r.sent_at }]));
+}
+
+export async function loadExcludedDcFilingPeriods(clientId: string, expandedFrom: string, expandedTo: string): Promise<string[]> {
+  const rows = await query<{ period_end: string }>(
+    `SELECT period_end::date::text AS period_end FROM altax.v3_dc_filing_period_exclusions
+      WHERE client_id = $1 AND period_end::date >= $2::date AND period_end::date <= $3::date`,
+    [clientId, expandedFrom, expandedTo]
+  );
+  return rows.map((r) => r.period_end);
+}
+
+export async function computeDcFilingForReport(
+  client: ReportClientInfo,
+  from: string,
+  to: string,
+  filedDateOverride?: string,
+  paidDateOverride?: string,
+  options?: { includeZeroTaxPeriods?: boolean }
+) {
+  if (client.state !== "DC") return null;
+  const { splitIntoDcFilingPeriodsForClient, computeDcFilingBreakdown } = await import("../../common/dcFiling");
+  const history = await loadSalesTaxFrequencyHistory(client.clientId);
+  const periodsResult = splitIntoDcFilingPeriodsForClient(from, to, history, client.salesTaxFrequency);
+  const { periods } = periodsResult;
+  if (periods.length === 0) return null;
+  const expandedFrom = periods[0].start;
+  const expandedTo = periods[periods.length - 1].end;
+  const [sales, recordedFilings, excludedPeriodEnds] = await Promise.all([
+    loadSalesDatesAndTaxForPeriod(client.clientId, expandedFrom, expandedTo),
+    loadRecordedDcFilingPayments(client.clientId, expandedFrom, expandedTo),
+    loadExcludedDcFilingPeriods(client.clientId, expandedFrom, expandedTo),
+  ]);
+  const today = new Date().toISOString().slice(0, 10);
+  const filedDate = filedDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(filedDateOverride) ? filedDateOverride : today;
+  const paidDate = paidDateOverride && /^\d{4}-\d{2}-\d{2}$/.test(paidDateOverride) ? paidDateOverride : today;
+  const breakdown = await computeDcFilingBreakdown(sales, from, to, client.salesTaxFrequency, filedDate, paidDate, recordedFilings, periodsResult, { ...options, excludedPeriodEnds });
+  if (excludedPeriodEnds.length > 0) {
+    const revived = breakdown.periods.filter((p) => excludedPeriodEnds.includes(p.end));
+    for (const p of revived) {
+      await query(`DELETE FROM altax.v3_dc_filing_period_exclusions WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, p.end]);
+      await logAudit("Accounting", "DC_FILING_PERIOD_AUTO_RESTORED", client.clientId, "Period", "", p.end,
+        `DC sales tax period ending ${p.end} auto-restored: real tax due ($${p.taxDue.toFixed(2)}) found after it was excluded as having no obligation.`, "system");
+    }
+  }
+  if (breakdown.periods.length === 0) return null;
+  return { ...breakdown, filedDate, paidDate };
+}
+
+/** Same per-real-filing-period DC FR-800 breakdown used by Accounting → Sales & Tax by Period. */
+reportsRouter.get("/dc-filing/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const period = parsePeriod(req);
+  if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  const data = await loadSalesTaxForPeriod(client.clientId, period.from, period.to);
+  const dcFiledDate = String(req.query.dcFiledDate || "").trim() || undefined;
+  const dcPaidDate = String(req.query.dcPaidDate || "").trim() || undefined;
+  const includeZeroTaxPeriods = String(req.query.includeZeroTaxPeriods || "") === "true";
+  const dcFiling = await computeDcFilingForReport(client, period.from, period.to, dcFiledDate, dcPaidDate, { includeZeroTaxPeriods });
+  res.json({ dcFiling });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/mark-filed — see that route's doc comment for the full reasoning (paidDate optional, notify sends a filing-confirmation email/SMS and schedules a payment reminder if unpaid). */
+reportsRouter.post("/dc-filing/:clientId/mark-filed", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "DC") return res.status(400).json({ error: "This client is not DC-based." });
+
+  const body = req.body || {};
+  const periodStart = String(body.periodStart || "").trim();
+  const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const notify = body.notify === true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate))) {
+    return res.status(400).json({ error: "periodStart, periodEnd, and filedDate must be YYYY-MM-DD (paidDate too, if provided)." });
+  }
+
+  const existing = await queryOne<{ period_end: string }>(
+    `SELECT period_end FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (existing) return res.status(400).json({ error: "A filing for this period has already been recorded. Undo it first if you need to re-file." });
+
+  const { dcDueDateForPeriod, computeDcFiling } = await import("../../common/dcFiling");
+  const sales = await loadSalesDatesAndTaxForPeriod(client.clientId, periodStart, periodEnd);
+  const taxDue = round2(sales.reduce((sum, s) => sum + (s.totalTaxDue || 0), 0));
+  const dueDate = dcDueDateForPeriod(periodEnd);
+  const result = paidDate ? await computeDcFiling(taxDue, dueDate, filedDate, paidDate) : null;
+  const shareToken = crypto.randomBytes(24).toString("hex");
+
+  const row = await queryOne<{ share_token: string }>(
+    `INSERT INTO altax.v3_dc_filing_payments (client_id, period_start, period_end, filed_date, paid_date, tax_due, balance_due, on_time, filed_by, share_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING share_token`,
+    [client.clientId, periodStart, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? null, result?.onTime ?? null, req.user!.email, shareToken]
+  );
+  await logAudit("Accounting", "DC_FILING_MARK_FILED", client.clientId, "Period", "", `${periodStart} - ${periodEnd}: filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}`,
+    `DC sales tax filing (${periodStart} - ${periodEnd}) marked filed ${filedDate}${paidDate ? `, paid ${paidDate}` : " (payment not yet recorded)"} by ${req.user!.email}.`, req.user!.email);
+
+  await closeObligationTask({
+    clientId: client.clientId, keyword: "sales tax", dueDate,
+    periodLabel: deriveTaskRulesPeriodLabel(periodStart, client.salesTaxFrequency), filedDate, paidDate,
+  });
+
+  let notified = false;
+  if (notify) {
+    const clientContact = await queryOne<any>(`SELECT email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
+    const canEmail = Boolean(clientContact?.email_allowed && clientContact?.email);
+    const canSms = Boolean(clientContact?.sms_allowed && clientContact?.phone);
+    if (canEmail || canSms) {
+      const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
+      const sourceRecordId = `${client.clientId}:${periodEnd}`;
+      const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/dc-filing/${row?.share_token}`;
+      const hasBalanceDue = result?.balanceDue != null && round2(result.balanceDue) !== taxDue;
+      const { sent } = await sendFilingConfirmation({
+        client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed), phone: clientContact?.phone ?? null, smsAllowed: Boolean(clientContact?.sms_allowed) },
+        sourceRecordId, filingType: "DC Sales & Use Tax", periodLabel: fmtPeriodRange(periodStart, periodEnd),
+        filedDate, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
+        breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${result!.balanceDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
+        paymentDueDate: dueDate, paidDate, acknowledgeUrl, req,
+      });
+      notified = sent;
+      if (sent) {
+        await query(`UPDATE altax.v3_dc_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+        if (!paidDate) {
+          const { schedulePaymentReminder } = await import("../../common/paymentReminders");
+          await schedulePaymentReminder({
+            sourceSystem: "DcFiling", sourceRecordId, clientId: client.clientId, filingType: "DC Sales & Use Tax",
+            periodLabel: `${periodStart} – ${periodEnd}`, amount: taxDue, paymentDueDate: dueDate, createdBy: req.user!.email, leadDays: 3,
+          });
+        }
+      }
+    }
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, onTime: result?.onTime ?? null, balanceDue: result?.balanceDue ?? null, notified: notify ? notified : undefined });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/record-payment. */
+reportsRouter.post("/dc-filing/:clientId/record-payment", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "DC") return res.status(400).json({ error: "This client is not DC-based." });
+
+  const body = req.body || {};
+  const periodEnd = String(body.periodEnd || "").trim();
+  const paidDate = String(body.paidDate || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    return res.status(400).json({ error: "periodEnd and paidDate must be YYYY-MM-DD." });
+  }
+
+  const existing = await queryOne<any>(
+    `SELECT period_start, filed_date, paid_date, tax_due FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
+  if (existing.paid_date) return res.status(400).json({ error: "This period already has a payment recorded. Use unmark-paid to correct it, then re-record." });
+
+  const { dcDueDateForPeriod, computeDcFiling } = await import("../../common/dcFiling");
+  const dueDate = dcDueDateForPeriod(periodEnd);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const taxDue = Number(existing.tax_due);
+  const result = await computeDcFiling(taxDue, dueDate, filedDateStr, paidDate);
+
+  await query(
+    `UPDATE altax.v3_dc_filing_payments SET paid_date = $3, balance_due = $4, on_time = $5 WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, paidDate, result.balanceDue, result.onTime]
+  );
+  await logAudit("Accounting", "DC_FILING_RECORD_PAYMENT", client.clientId, "Period", "", `${periodEnd}: paid ${paidDate}`,
+    `Payment for DC sales tax filing (period ending ${periodEnd}) recorded as paid ${paidDate} by ${req.user!.email}.`, req.user!.email);
+
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  await markObligationTaskPaid({
+    clientId: client.clientId, keyword: "sales tax", dueDate,
+    periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, client.salesTaxFrequency), paidDate,
+  });
+
+  const { cancelPaymentReminder } = await import("../../common/paymentReminders");
+  await cancelPaymentReminder("DcFiling", `${client.clientId}:${periodEnd}`, "Payment recorded");
+
+  res.json({ ok: true, periodEnd, paidDate, onTime: result.onTime, balanceDue: result.balanceDue });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/send. */
+reportsRouter.post("/dc-filing/:clientId/send", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  const existing = await queryOne<any>(
+    `SELECT period_start, filed_date, paid_date, tax_due, balance_due, share_token FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet — mark it filed first." });
+
+  const { dcDueDateForPeriod } = await import("../../common/dcFiling");
+  const dueDate = dcDueDateForPeriod(periodEnd);
+  const periodStartStr = new Date(existing.period_start).toISOString().slice(0, 10);
+  const filedDateStr = new Date(existing.filed_date).toISOString().slice(0, 10);
+  const paidDateStr = existing.paid_date ? new Date(existing.paid_date).toISOString().slice(0, 10) : null;
+  const taxDue = Number(existing.tax_due);
+  const balanceDue = existing.balance_due !== null ? Number(existing.balance_due) : null;
+
+  const clientContact = await queryOne<any>(`SELECT email, email_allowed, phone, sms_allowed FROM altax.v3_clients WHERE client_id = $1`, [client.clientId]);
+  const canEmail = Boolean(clientContact?.email_allowed && clientContact?.email);
+  const canSms = Boolean(clientContact?.sms_allowed && clientContact?.phone);
+  if (!canEmail && !canSms) {
+    return res.status(400).json({ error: "This client has no email or phone number on file (or both are opted out) — nothing was sent. Add contact info on the client's profile first." });
+  }
+
+  const { sendFilingConfirmation, fmtPeriodRange } = await import("../../common/filingConfirmationEmail");
+  const sourceRecordId = `${client.clientId}:${periodEnd}`;
+  const acknowledgeUrl = `${publicBaseUrl(req) || ""}/public/dc-filing/${existing.share_token}`;
+  const hasBalanceDue = balanceDue != null && round2(balanceDue) !== taxDue;
+  const { sent } = await sendFilingConfirmation({
+    client: { clientId: client.clientId, clientName: client.clientName, email: clientContact?.email ?? null, emailAllowed: Boolean(clientContact?.email_allowed), phone: clientContact?.phone ?? null, smsAllowed: Boolean(clientContact?.sms_allowed) },
+    sourceRecordId, filingType: "DC Sales & Use Tax", periodLabel: fmtPeriodRange(periodStartStr, periodEnd),
+    filedDate: filedDateStr, amount: taxDue, amountLabel: "Tax Due", amountLabelAr: "الضريبة المستحقة",
+    breakdown: hasBalanceDue ? [{ label: "Balance Due", labelAr: "الرصيد المستحق", valueStr: `$${balanceDue!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }] : undefined,
+    paymentDueDate: dueDate, paidDate: paidDateStr, acknowledgeUrl, req,
+  });
+  if (!sent) {
+    return res.status(502).json({ error: "Could not send this confirmation — the email/SMS provider reported a failure. Try again, or check the client's contact info." });
+  }
+
+  await query(`UPDATE altax.v3_dc_filing_payments SET sent_at = now() WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "DC_FILING_SENT", client.clientId, "Period", "", periodEnd,
+    `DC sales tax filing confirmation (period ending ${periodEnd}) sent by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/edit. */
+reportsRouter.post("/dc-filing/:clientId/edit", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+  if (client.state !== "DC") return res.status(400).json({ error: "This client is not DC-based." });
+
+  const body = req.body || {};
+  const periodEnd = String(body.periodEnd || "").trim();
+  const filedDate = String(body.filedDate || "").trim();
+  const paidDateRaw = String(body.paidDate || "").trim();
+  const paidDate = paidDateRaw ? paidDateRaw : null;
+  const taxDue = Number(body.taxDue);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || !/^\d{4}-\d{2}-\d{2}$/.test(filedDate)
+    || (paidDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) || !Number.isFinite(taxDue) || taxDue < 0) {
+    return res.status(400).json({ error: "periodEnd and filedDate must be YYYY-MM-DD; paidDate must be YYYY-MM-DD or empty; taxDue must be a non-negative number." });
+  }
+
+  const existing = await queryOne<any>(`SELECT paid_date FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  if (!existing) return res.status(400).json({ error: "This period hasn't been marked filed yet." });
+
+  const { dcDueDateForPeriod, computeDcFiling } = await import("../../common/dcFiling");
+  const dueDate = dcDueDateForPeriod(periodEnd);
+  const result = paidDate ? await computeDcFiling(taxDue, dueDate, filedDate, paidDate) : null;
+
+  await query(
+    `UPDATE altax.v3_dc_filing_payments SET filed_date = $3, paid_date = $4, tax_due = $5, balance_due = $6, on_time = $7
+      WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd, filedDate, paidDate, taxDue, result?.balanceDue ?? taxDue, result?.onTime ?? null]
+  );
+  await logAudit("Accounting", "DC_FILING_EDITED", client.clientId, "Period", "", periodEnd,
+    `DC sales tax filing (period ending ${periodEnd}) corrected to filed ${filedDate}${paidDate ? `, paid ${paidDate}` : ""}, tax due $${taxDue.toFixed(2)} by ${req.user!.email}.`, req.user!.email);
+
+  if (paidDate && !existing.paid_date) {
+    const periodStartRow = await queryOne<any>(`SELECT period_start FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+    const periodStartStr = new Date(periodStartRow.period_start).toISOString().slice(0, 10);
+    await markObligationTaskPaid({
+      clientId: client.clientId, keyword: "sales tax", dueDate,
+      periodLabel: deriveTaskRulesPeriodLabel(periodStartStr, client.salesTaxFrequency), paidDate,
+    });
+  }
+
+  res.json({ ok: true, periodEnd, filedDate, paidDate, taxDue, balanceDue: result?.balanceDue ?? taxDue, onTime: result?.onTime ?? null });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/unmark-paid. */
+reportsRouter.post("/dc-filing/:clientId/unmark-paid", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  await query(`DELETE FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "DC_FILING_UNMARK_PAID", client.clientId, "Period", "", periodEnd,
+    `DC sales tax filing (period ending ${periodEnd}) un-marked by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/exclude-period. */
+reportsRouter.post("/dc-filing/:clientId/exclude-period", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodStart = String((req.body || {}).periodStart || "").trim();
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  const reason = String((req.body || {}).reason || "").trim() || null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) {
+    return res.status(400).json({ error: "periodStart and periodEnd must be YYYY-MM-DD." });
+  }
+
+  const existing = await queryOne<{ period_end: string }>(
+    `SELECT period_end FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2::date`,
+    [client.clientId, periodEnd]
+  );
+  if (existing) return res.status(400).json({ error: "This period has already been filed — delete that filing first if you need to exclude it instead." });
+
+  await query(
+    `INSERT INTO altax.v3_dc_filing_period_exclusions (client_id, period_start, period_end, reason, excluded_by)
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (client_id, period_end) DO NOTHING`,
+    [client.clientId, periodStart, periodEnd, reason, req.user!.email]
+  );
+  await logAudit("Accounting", "DC_FILING_PERIOD_EXCLUDED", client.clientId, "Period", "", periodEnd,
+    `DC sales tax period ${periodStart} - ${periodEnd} permanently excluded (no filing obligation)${reason ? `: ${reason}` : ""}, by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** DC mirror of POST /md-filing/:clientId/restore-period. */
+reportsRouter.post("/dc-filing/:clientId/restore-period", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const periodEnd = String((req.body || {}).periodEnd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return res.status(400).json({ error: "periodEnd must be YYYY-MM-DD." });
+
+  await query(`DELETE FROM altax.v3_dc_filing_period_exclusions WHERE client_id = $1 AND period_end = $2::date`, [client.clientId, periodEnd]);
+  await logAudit("Accounting", "DC_FILING_PERIOD_RESTORED", client.clientId, "Period", "", periodEnd,
+    `DC sales tax period ending ${periodEnd} restored (exclusion removed) by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));
+
+/** DC mirror of GET /md-filing/:clientId/excluded-periods. */
+reportsRouter.get("/dc-filing/:clientId/excluded-periods", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const client = await loadClientInfo(req, req.params.clientId);
+  if (!client) return res.status(403).json({ error: "You do not have access to this client." });
+
+  const rows = await query<{ period_start: string; period_end: string; reason: string | null; excluded_by: string | null; excluded_at: string }>(
+    `SELECT period_start::date::text AS period_start, period_end::date::text AS period_end, reason, excluded_by, excluded_at::text AS excluded_at
+       FROM altax.v3_dc_filing_period_exclusions WHERE client_id = $1 ORDER BY period_end DESC`,
+    [client.clientId]
+  );
+  res.json({
+    excluded: rows.map((r) => ({ start: r.period_start, end: r.period_end, reason: r.reason, excludedBy: r.excluded_by, excludedAt: r.excluded_at })),
+  });
+}));
+
 reportsRouter.get("/pdf/sales-tax/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const period = parsePeriod(req);
   if (!period) return res.status(400).json({ error: "Valid from/to dates (YYYY-MM-DD) are required." });

@@ -444,6 +444,8 @@ select.action-menu { color: var(--muted); font-weight: 600; }
 /* Exactly-three-tile variant (client dashboard) — repeat(4) left a visibly empty
    fourth slot next to the client's three KPIs. */
 .metric-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Exactly-two-tile variant (DC Filing Penalty totals — no discount tile, unlike MD's three). */
+.metric-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .metric-clickable {
   font-family: inherit;
   text-align: start; /* not "left" — must follow RTL when the portal is in Arabic */

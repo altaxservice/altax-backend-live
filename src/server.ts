@@ -30,6 +30,7 @@ import { payrollImportRouter } from "./modules/payrollImport/payrollImport.route
 import { eftpsDepositsRouter } from "./modules/eftpsDeposits/eftpsDeposits.routes";
 import { publicEftpsDepositRouter } from "./modules/eftpsDeposits/publicEftpsDeposit.routes";
 import { publicMdFilingRouter } from "./modules/reports/publicMdFiling.routes";
+import { publicDcFilingRouter } from "./modules/reports/publicDcFiling.routes";
 import { annualReportFilingsRouter } from "./modules/annualReport/annualReportFilings.routes";
 import { publicAnnualReportFilingsRouter } from "./modules/annualReport/publicAnnualReportFilings.routes";
 import { mdUiFilingsRouter } from "./modules/mdUiFilings/mdUiFilings.routes";
@@ -341,6 +342,7 @@ app.use("/import", payrollImportRouter);
 app.use("/eftps-deposits", eftpsDepositsRouter);
 app.use("/public/eftps-deposits", publicEftpsDepositRouter);
 app.use("/public/md-filing", publicMdFilingRouter);
+app.use("/public/dc-filing", publicDcFilingRouter);
 app.use("/sales-input-import", salesInputImportRouter);
 app.use("/annual-report-filings", annualReportFilingsRouter);
 app.use("/public/annual-report", publicAnnualReportFilingsRouter);

@@ -372,6 +372,28 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
   const [editingPeriodEnd, setEditingPeriodEnd] = useState<string | null>(null);
   const [editTaxForm, setEditTaxForm] = useState({ filedDate: "", paidDate: "", taxDue: "" });
   const [pickRecordPaymentDate, setPickRecordPaymentDate] = useState("");
+  // DC mirror of the MD Filing state above — a client is either MD or DC
+  // (never both, since state is a single field), so the two sections never
+  // render at once and can safely share every OTHER piece of UI state above
+  // (markingPeriodEnd, pickingPeriodEnd, editTaxForm, filingSort,
+  // historySort, showFilingTable/showHistoryTable/showExcludedTable, etc.)
+  // — only the actual filing DATA needs its own state, since DC's periods
+  // come from a separate endpoint/table (/reports/dc-filing, v3_dc_filing_
+  // payments) with its own penalty/interest math (dcFiling.ts — no discount
+  // at all, unlike MD's Form 202 Line 18).
+  const [dcFiledDate, setDcFiledDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dcPaidDate, setDcPaidDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dcFiling, setDcFiling] = useState<{
+    periods: (MdFilingResult & { start: string; end: string; dueDate: string; targetFilingDate: string; filedDate: string; paidDate: string })[];
+    totals: { taxDue: number; discount: number; penalty: number; interest: number; balanceDue: number };
+    frequencyUsed: string | null;
+  } | null>(null);
+  const [dcFilingLoading, setDcFilingLoading] = useState(false);
+  const [dcFilingError, setDcFilingError] = useState<string | null>(null);
+  const [dcFilingReloadKey, setDcFilingReloadKey] = useState(0);
+  const [dcHistoryPeriods, setDcHistoryPeriods] = useState<NonNullable<typeof dcFiling>["periods"] | null>(null);
+  const [dcExcludedReloadKey, setDcExcludedReloadKey] = useState(0);
+  const [dcExcludedPeriods, setDcExcludedPeriods] = useState<{ start: string; end: string; reason: string | null; excludedBy: string | null; excludedAt: string }[] | null>(null);
   const [importedFromCalculator, setImportedFromCalculator] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -657,6 +679,52 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
       .catch(() => setExcludedPeriods([]));
   }, [clientId, clientState, excludedReloadKey]);
 
+  // DC mirror of the three MD fetch effects above — same shapes, same
+  // GET /reports/dc-filing endpoint, own reload keys so refreshing MD data
+  // (which will never happen for a DC client anyway) can't cross-trigger a
+  // DC refetch or vice versa.
+  const dcFilingRequestId = useRef(0);
+  useEffect(() => {
+    if (clientState !== "DC" || !period.start || !period.end) { setDcFiling(null); setDcFilingError(null); setDcFilingLoading(false); return; }
+    const t = setTimeout(() => {
+      const requestId = ++dcFilingRequestId.current;
+      setDcFilingLoading(true);
+      setDcFilingError(null);
+      api.get<{ dcFiling: typeof dcFiling }>(`/reports/dc-filing/${clientId}?from=${period.start}&to=${period.end}&dcFiledDate=${dcFiledDate}&dcPaidDate=${dcPaidDate}`)
+        .then((r) => {
+          if (requestId !== dcFilingRequestId.current) return;
+          setDcFiling(r.dcFiling);
+        })
+        .catch((err) => {
+          if (requestId !== dcFilingRequestId.current) return;
+          setDcFiling(null);
+          setDcFilingError(err instanceof ApiError ? err.message : "Could not load the DC filing figures.");
+        })
+        .finally(() => {
+          if (requestId !== dcFilingRequestId.current) return;
+          setDcFilingLoading(false);
+        });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [clientId, clientState, period.start, period.end, dcFiledDate, dcPaidDate, dcFilingReloadKey]);
+
+  useEffect(() => {
+    if (clientState !== "DC") { setDcHistoryPeriods(null); return; }
+    const today = new Date();
+    const wideFrom = "2015-01-01";
+    const wideTo = new Date(today.getFullYear() + 2, 11, 31).toISOString().slice(0, 10);
+    api.get<{ dcFiling: typeof dcFiling }>(`/reports/dc-filing/${clientId}?from=${wideFrom}&to=${wideTo}&includeZeroTaxPeriods=true`)
+      .then((r) => setDcHistoryPeriods((r.dcFiling?.periods || []).filter((p) => p.markedFiledDate)))
+      .catch(() => setDcHistoryPeriods([]));
+  }, [clientId, clientState, dcFilingReloadKey]);
+
+  useEffect(() => {
+    if (clientState !== "DC") { setDcExcludedPeriods(null); return; }
+    api.get<{ excluded: typeof dcExcludedPeriods }>(`/reports/dc-filing/${clientId}/excluded-periods`)
+      .then((r) => setDcExcludedPeriods(r.excluded || []))
+      .catch(() => setDcExcludedPeriods([]));
+  }, [clientId, clientState, dcExcludedReloadKey]);
+
   /**
    * Records a period as actually filed — paidDate is now OPTIONAL (filing and
    * paying are separate events; see reports.routes.ts's mark-filed doc
@@ -806,6 +874,252 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
     } finally {
       setMarkingPeriodEnd(null);
     }
+  }
+
+  // DC mirrors of the MD handlers above — same shared UI state
+  // (markingPeriodEnd/pickingPeriodEnd/editTaxForm/etc., see the DC state
+  // block's own comment for why that's safe), own API paths and reload
+  // keys. startEditPeriod above is already state-agnostic and reused as-is.
+  async function handleDcMarkFiled(p: { start: string; end: string }, filedDate: string, paidDate: string, sendConfirmation: boolean) {
+    const useFiledDate = filedDate || dcFiledDate;
+    const usePaidDate = paidDate.trim();
+    const ok = await confirmDialog({
+      title: "Mark period filed?",
+      message: `Confirm DC actually received this filing${usePaidDate ? "/payment" : ""}. Period ${fmtDate(p.start)} through ${fmtDate(p.end)}, filed ${fmtDate(useFiledDate)}${usePaidDate ? `, paid ${fmtDate(usePaidDate)}` : " (payment not yet made)"}.${sendConfirmation ? " The client will be emailed a filing confirmation." : ""} This clears the period's Past Due flag.`,
+      confirmLabel: sendConfirmation ? "Save and Send" : "Save and Close",
+    });
+    if (!ok) return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      const res = await api.post<{ notified?: boolean }>(`/reports/dc-filing/${clientId}/mark-filed`, {
+        periodStart: p.start, periodEnd: p.end, filedDate: useFiledDate,
+        paidDate: usePaidDate || undefined, notify: sendConfirmation,
+      });
+      setDcFilingReloadKey((k) => k + 1);
+      setPickingPeriodEnd(null);
+      if (sendConfirmation && res.notified === false) {
+        await notify("Filed, but no confirmation could be sent — this client has no email or phone on file (or both are opted out). Add contact info on the client's profile, then use Send on this row to try again.");
+      }
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark this period filed.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleDcRecordPayment(p: { end: string }, paidDate: string) {
+    if (!paidDate) return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/record-payment`, { periodEnd: p.end, paidDate });
+      setDcFilingReloadKey((k) => k + 1);
+      setPickRecordPaymentEnd(null);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not record this payment.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleSendDcConfirmation(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/send`, { periodEnd: p.end });
+      setDcFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not send this confirmation.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleUnmarkDcPeriodFiled(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/unmark-paid`, { periodEnd: p.end });
+      setDcFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleExcludeDcPeriod(p: { start: string; end: string }) {
+    const reason = await promptFor({
+      title: "Exclude this period?",
+      message: `${fmtDate(p.start)} through ${fmtDate(p.end)} will stop appearing in Filing Penalty — use this when there was no actual filing obligation that period. You can restore it later from the "Excluded" list below. Optionally, say why:`,
+      placeholder: "Reason (optional)",
+      required: false,
+    });
+    if (reason === null) return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/exclude-period`, { periodStart: p.start, periodEnd: p.end, reason: reason || undefined });
+      setDcFilingReloadKey((k) => k + 1);
+      setDcExcludedReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not exclude this period.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  async function handleRestoreDcPeriod(p: { end: string }) {
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/restore-period`, { periodEnd: p.end });
+      setDcFilingReloadKey((k) => k + 1);
+      setDcExcludedReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not restore this period.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  /** Corrects an already-filed DC period's filed date / paid date / tax due — mirrors handleSaveEditPeriod, recomputed server-side against dcFiling.ts's penalty/interest math (no discount to recompute, unlike MD). */
+  async function handleSaveEditDcPeriod(p: { end: string }) {
+    if (!editTaxForm.filedDate || editTaxForm.taxDue === "") return;
+    setMarkingPeriodEnd(p.end);
+    try {
+      await api.post(`/reports/dc-filing/${clientId}/edit`, {
+        periodEnd: p.end, filedDate: editTaxForm.filedDate, paidDate: editTaxForm.paidDate || undefined, taxDue: Number(editTaxForm.taxDue),
+      });
+      setEditingPeriodEnd(null);
+      setDcFilingReloadKey((k) => k + 1);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this correction.");
+    } finally {
+      setMarkingPeriodEnd(null);
+    }
+  }
+
+  /**
+   * DC mirror of renderMdPeriodRow — same row shape and interaction pattern,
+   * but DC never has a discount (see dcFiling.ts), so the Discount/Penalty
+   * cell only ever shows a penalty or "—", never a "− $X" discount amount.
+   */
+  function renderDcPeriodRow(p: NonNullable<typeof dcFiling>["periods"][number]) {
+    const paidByNow = Boolean(p.markedPaidDate) && p.markedPaidDate!.slice(0, 10) <= new Date().toISOString().slice(0, 10);
+    return (
+      <tr
+        key={`${p.start}-${p.end}`}
+        onClick={() => setPeriod({ start: p.start, end: p.end })}
+        style={{ cursor: "pointer" }}
+        title="View this period's actual sales entries below"
+      >
+        <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
+        <td>{fmtDate(p.dueDate)}</td>
+        <td className="muted">{fmtDate(p.targetFilingDate)}</td>
+        <td>{fmtMoney(p.taxDue)}</td>
+        <td className={p.onTime && !p.markedFiledDate ? "muted" : ""} style={!p.onTime && !paidByNow ? { color: "var(--red)", fontWeight: 600 } : p.markedFiledDate && !paidByNow ? { color: "var(--amber)", fontWeight: 600 } : undefined}>
+          {paidByNow ? <span style={{ color: "var(--teal)" }}>✓ Filed</span> : p.markedFiledDate ? (p.markedPaidDate ? "Filed — payment scheduled" : "Filed — payment pending") : p.onTime ? "On time" : `Late — ${p.monthsLate} mo`}
+        </td>
+        <td>{p.markedFiledDate && !paidByNow ? "—" : p.onTime ? "—" : fmtMoney(p.penalty)}</td>
+        <td>{p.markedFiledDate && !paidByNow ? "—" : p.onTime ? "—" : fmtMoney(p.interest)}</td>
+        <td style={{ fontWeight: 700 }}>{fmtMoney(p.balanceDue)}</td>
+        {showClientColumn && <td>{p.acknowledgedAt ? <span style={{ color: "var(--teal)" }}>✓ Client confirmed</span> : <span className="muted">Awaiting client confirmation</span>}</td>}
+        <td onClick={(e) => e.stopPropagation()}>
+          {editingPeriodEnd === p.end ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
+              <label style={{ fontSize: 11 }} htmlFor={`dc-edit-filed-${p.end}`}>Filed Date</label>
+              <input id={`dc-edit-filed-${p.end}`} type="date" value={editTaxForm.filedDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, filedDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <label style={{ fontSize: 11 }} htmlFor={`dc-edit-paid-${p.end}`}>Payment Date (optional)</label>
+              <input id={`dc-edit-paid-${p.end}`} type="date" value={editTaxForm.paidDate} onChange={(e) => setEditTaxForm((s) => ({ ...s, paidDate: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <label style={{ fontSize: 11 }} htmlFor={`dc-edit-tax-${p.end}`}>Tax Due</label>
+              <input id={`dc-edit-tax-${p.end}`} type="number" step="0.01" min="0" value={editTaxForm.taxDue} onChange={(e) => setEditTaxForm((s) => ({ ...s, taxDue: e.target.value }))} style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <div style={{ display: "flex", gap: 4 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !editTaxForm.filedDate || editTaxForm.taxDue === ""} onClick={() => handleSaveEditDcPeriod(p)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save"}
+                </button>
+                <button type="button" className="btn btn-sm" onClick={() => setEditingPeriodEnd(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : p.markedPaidDate ? (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+              {p.sentAt ? (
+                <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+              ) : (
+                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p)}>
+                  {markingPeriodEnd === p.end ? "…" : "Send"}
+                </button>
+              )}
+              <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => startEditPeriod(p)}>Edit</button>
+              <button type="button" className="btn btn-sm btn-danger" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkDcPeriodFiled(p)} title={p.markedFiledDate !== p.markedPaidDate ? `Filed ${fmtDate(p.markedFiledDate!)}, Paid ${fmtDate(p.markedPaidDate)}` : undefined}>
+                {markingPeriodEnd === p.end ? "…" : "Delete"}
+              </button>
+            </div>
+          ) : p.markedFiledDate ? (
+            pickRecordPaymentEnd === p.end ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
+                <input type="date" value={pickRecordPaymentDate} onChange={(e) => setPickRecordPaymentDate(e.target.value)} title="Actual payment date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickRecordPaymentDate} onClick={() => handleDcRecordPayment(p, pickRecordPaymentDate)}>
+                    {markingPeriodEnd === p.end ? "…" : "Record"}
+                  </button>
+                  <button type="button" className="btn btn-sm" onClick={() => setPickRecordPaymentEnd(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end} onClick={() => { setPickRecordPaymentEnd(p.end); setPickRecordPaymentDate(p.dueDate); }}>
+                  Record Payment
+                </button>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                  {p.sentAt ? (
+                    <span className="muted" style={{ fontSize: 11 }} title={`Confirmation sent ${fmtDate(p.sentAt)}`}>✓ Sent {fmtDate(p.sentAt)}</span>
+                  ) : (
+                    <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleSendDcConfirmation(p)}>
+                      {markingPeriodEnd === p.end ? "…" : "Send"}
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => startEditPeriod(p)}>Edit</button>
+                  <button type="button" className="btn btn-sm btn-danger" disabled={markingPeriodEnd === p.end} onClick={() => handleUnmarkDcPeriodFiled(p)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )
+          ) : pickingPeriodEnd === p.end ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 180 }}>
+              <input type="date" value={pickFiledDate} onChange={(e) => setPickFiledDate(e.target.value)} title="Actual filed date" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <input type="date" value={pickPaidDate} onChange={(e) => setPickPaidDate(e.target.value)} title="Actual payment date (optional)" placeholder="Payment date (optional)" style={{ padding: "2px 4px", fontSize: 11.5 }} />
+              <div style={{ display: "flex", gap: 4 }}>
+                <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleDcMarkFiled(p, pickFiledDate, pickPaidDate, false)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save and Close"}
+                </button>
+                <button type="button" className="btn btn-sm btn-primary" disabled={markingPeriodEnd === p.end || !pickFiledDate} onClick={() => handleDcMarkFiled(p, pickFiledDate, pickPaidDate, true)}>
+                  {markingPeriodEnd === p.end ? "…" : "Save and Send"}
+                </button>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setPickingPeriodEnd(null)}>Cancel</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={markingPeriodEnd === p.end}
+                onClick={() => { setPickingPeriodEnd(p.end); setPickFiledDate(p.dueDate); setPickPaidDate(""); }}
+                title="Enter this period's actual filed date (and payment date, if already paid)"
+              >
+                Mark Filed
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                disabled={markingPeriodEnd === p.end}
+                onClick={() => handleExcludeDcPeriod(p)}
+                title="This period was never filed and never will be (no actual obligation) — exclude it from this table. Restorable from the Excluded list below."
+              >
+                {markingPeriodEnd === p.end ? "…" : "Delete"}
+              </button>
+            </div>
+          )}
+        </td>
+      </tr>
+    );
   }
 
   /**
@@ -1349,6 +1663,184 @@ function SalesTab({ clientId, clientState, initialFrom, initialTo }: { clientId:
                           <td className="muted">{fmtDate(p.excludedAt)}{p.excludedBy ? ` by ${p.excludedBy}` : ""}</td>
                           <td>
                             <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleRestorePeriod(p)}>
+                              {markingPeriodEnd === p.end ? "…" : "Restore"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
+        )}
+        {/* DC mirror of the three MD blocks above — same structure, DC's own
+            data/handlers/row-renderer. No "Total Discount" tile (DC has
+            none) and the shared column header reads "Penalty" not
+            "Discount / Penalty", since a DC period never shows a discount. */}
+        {clientState === "DC" && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <button
+              type="button"
+              className="small-label"
+              disabled={!dcFiling || dcFiling.periods.length === 0}
+              onClick={() => setShowFilingTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: dcFiling && dcFiling.periods.length > 0 ? "pointer" : "default", textDecoration: dcFiling && dcFiling.periods.length > 0 ? "underline" : "none" }}
+            >
+              Filing Penalty (FR-800){dcFiling && dcFiling.periods.length > 0 ? ` (${dcFiling.periods.length})` : ""}
+            </button>
+
+            {dcFilingError && <ErrorBanner error={dcFilingError} />}
+            {dcFilingLoading && <div className="spinner-wrap">Loading…</div>}
+
+            {!period.start || !period.end ? (
+              <p className="muted" style={{ fontSize: 12 }}>
+                Pick a specific period above (not "All time") to see the filing due date and penalty/interest math.
+              </p>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                  <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                    <label>Filing date</label>
+                    <input type="date" value={dcFiledDate} onChange={(e) => setDcFiledDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                  </div>
+                  <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+                    <label>Payment date</label>
+                    <input type="date" value={dcPaidDate} onChange={(e) => setDcPaidDate(e.target.value)} style={{ padding: "4px 6px" }} />
+                  </div>
+                </div>
+
+                {dcFiling && dcFiling.periods.length > 0 && !dcFiling.frequencyUsed && (
+                  <p className="muted" style={{ fontSize: 11, margin: "0 0 10px", color: "var(--red)" }}>
+                    Filing frequency isn't set on this client's profile, so this period is shown as one combined return.
+                    Set Sales Tax Frequency on the client's profile for an accurate per-period breakdown.
+                  </p>
+                )}
+
+                {showFilingTable && dcFiling && dcFiling.periods.length > 0 && (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+                        <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+                        Show Client column
+                      </label>
+                    </div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            {renderMdFilingSortTh("Period", "period", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Due Date", "dueDate", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Target Filing Date", "targetFilingDate", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Tax Due", "taxDue", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Status", "status", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Penalty", "discountPenalty", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Interest", "interest", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Balance Due", "balanceDue", filingSort, setFilingSort)}
+                            {showClientColumn && renderMdFilingSortTh("Client", "client", filingSort, setFilingSort)}
+                            {renderMdFilingSortTh("Filed", "filed", filingSort, setFilingSort)}
+                          </tr>
+                        </thead>
+                        <tbody>{sortMdFilingPeriods(dcFiling.periods, filingSort).map((p) => renderDcPeriodRow(p))}</tbody>
+                      </table>
+                    </div>
+                    {dcFiling.periods.length > 1 && (
+                      <>
+                        <p className="muted" style={{ fontSize: 11.5, margin: "6px 0 0" }}>Click any row to view that period's actual sales entries below.</p>
+                        <div className="metric-grid metric-grid-2" style={{ marginTop: 12 }}>
+                          <div className="metric"><div className="metric-label">Total Penalty + Interest</div><div className="metric-value">{fmtMoney(dcFiling.totals.penalty + dcFiling.totals.interest)}</div></div>
+                          <div className="metric"><div className="metric-label">Total Balance Due</div><div className="metric-value">{fmtMoney(dcFiling.totals.balanceDue)}</div></div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {clientState === "DC" && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <button
+              type="button"
+              className="small-label"
+              onClick={() => setShowHistoryTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+            >
+              History ({dcHistoryPeriods?.length ?? 0})
+            </button>
+            {showHistoryTable && (
+              dcHistoryPeriods === null ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+              ) : dcHistoryPeriods.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No DC Sales Tax filings recorded yet.</p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }} className="muted">
+                      <input type="checkbox" checked={showClientColumn} onChange={(e) => setShowClientColumn(e.target.checked)} />
+                      Show Client column
+                    </label>
+                  </div>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          {renderMdFilingSortTh("Period", "period", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Due Date", "dueDate", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Target Filing Date", "targetFilingDate", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Tax Due", "taxDue", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Status", "status", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Penalty", "discountPenalty", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Interest", "interest", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Balance Due", "balanceDue", historySort, setHistorySort)}
+                          {showClientColumn && renderMdFilingSortTh("Client", "client", historySort, setHistorySort)}
+                          {renderMdFilingSortTh("Filed", "filed", historySort, setHistorySort)}
+                        </tr>
+                      </thead>
+                      <tbody>{sortMdFilingPeriods(dcHistoryPeriods, historySort).map((p) => renderDcPeriodRow(p))}</tbody>
+                    </table>
+                  </div>
+                </>
+              )
+            )}
+          </div>
+        )}
+        {clientState === "DC" && (
+          <div style={{ margin: "0 16px 16px" }}>
+            <button
+              type="button"
+              className="small-label"
+              onClick={() => setShowExcludedTable((v) => !v)}
+              style={{ margin: "0 0 6px", padding: 0, border: "none", background: "none", font: "inherit", color: "inherit", display: "block", cursor: "pointer", textDecoration: "underline" }}
+            >
+              Excluded ({dcExcludedPeriods?.length ?? 0})
+            </button>
+            {showExcludedTable && (
+              dcExcludedPeriods === null ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
+              ) : dcExcludedPeriods.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No periods excluded.</p>
+              ) : (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Period</th>
+                        <th scope="col">Reason</th>
+                        <th scope="col">Excluded</th>
+                        <th scope="col"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dcExcludedPeriods.map((p) => (
+                        <tr key={p.end}>
+                          <td>{fmtDate(p.start)} – {fmtDate(p.end)}</td>
+                          <td className="muted">{p.reason || "—"}</td>
+                          <td className="muted">{fmtDate(p.excludedAt)}{p.excludedBy ? ` by ${p.excludedBy}` : ""}</td>
+                          <td>
+                            <button type="button" className="btn btn-sm" disabled={markingPeriodEnd === p.end} onClick={() => handleRestoreDcPeriod(p)}>
                               {markingPeriodEnd === p.end ? "…" : "Restore"}
                             </button>
                           </td>
