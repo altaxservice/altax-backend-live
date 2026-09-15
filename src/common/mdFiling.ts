@@ -368,15 +368,70 @@ export function splitIntoMdFilingPeriodsForClient(
   // like it was still stuck on the old frequency. cursorFloor makes each
   // segment skip past whatever the previous one already emitted.
   for (const row of sorted) {
+    // Captured BEFORE this iteration's own segFrom clamp overwrites it —
+    // "genuinely new territory the PREVIOUS segment hasn't already emitted,"
+    // used below to filter this segment's own back-filled periods.
+    const priorCursorFloor = cursorFloor;
     let segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
     if (cursorFloor && cursorFloor > segFrom) segFrom = cursorFloor;
     const segTo = (row.effectiveTo && row.effectiveTo < to) ? row.effectiveTo : to;
     if (segFrom > segTo) continue;
     const seg = splitIntoMdFilingPeriods(segFrom, segTo, row.frequency);
-    periods.push(...seg.periods);
+    // Real incident, 2026-09-15, two related off-by-ones in the same call:
+    //
+    // (1) splitIntoMdFilingPeriods always emits a period's TRUE full
+    // calendar end (see its own doc comment) — right for a period already
+    // in progress when segTo cuts off mid-period, but WRONG when segTo
+    // lands exactly ON a period boundary: its internal
+    // `while (cursor <= toDate)` then starts a whole extra period AT segTo
+    // itself, which has zero genuine days under this row's frequency (the
+    // next row's effectiveFrom is segTo's very next day, by construction).
+    // Confirmed live: a client whose Semiannual->Monthly switch landed
+    // exactly on a semiannual boundary got a bogus "Jul 1 - Dec 31"
+    // semiannual period instead of six real monthly ones — which also
+    // silently orphaned that August's already-recorded Mark Filed row,
+    // since no computed period's end matched it anymore.
+    //
+    // (2) The same "always emits the TRUE calendar start" behavior also
+    // back-fills the OTHER direction: segFrom being clamped forward by
+    // cursorFloor (because a prior segment already emitted periods through
+    // that date) doesn't stop this segment's own period from snapping back
+    // to ITS period's true calendar start, which can land BEFORE
+    // cursorFloor and re-emit territory a prior segment already covered in
+    // full — exactly the "Quarterly through Sep 7 emits a full Jul-Sep
+    // quarter" duplicate-row scenario cursorFloor was meant to prevent
+    // (see below), except cursorFloor alone only adjusts segFrom, it
+    // doesn't stop this back-fill. Confirmed live: a client that went
+    // Monthly (ends Aug 17) -> Quarterly (starts Aug 18) got a real Aug
+    // monthly period from the first segment AND a duplicate, overlapping
+    // "Jul 1 - Sep 30" quarterly period from the second.
+    //
+    // Fix 1 DROPS the offending period — the next row's own segment
+    // correctly regenerates that time under the new frequency on its own,
+    // so nothing is lost. Fix 2 instead CLIPS the period's start forward to
+    // priorCursorFloor (keeping its real end/dueDate) rather than dropping
+    // it outright — there is no later segment left to regenerate that
+    // dropped time, so an outright drop would silently swap the duplicate
+    // for a genuine invisible gap instead (confirmed live: dropping the
+    // whole Jul-Sep quarter left September with NO period at all — any
+    // September sales entered later would fall in a date range no period
+    // covers, exactly the kind of silently-missing-revenue bug this file
+    // has already been fixed for once before). Clipping the start instead
+    // turns it into a one-month "stub" quarter (Sep 1 - Sep 30, same due
+    // date a quarter ending Sep 30 always had) — the period's end and
+    // dueDate depend only on its calendar end, never its start, so this is
+    // safe. The end is never earlier than priorCursorFloor here (it can't
+    // be — segFrom, which every emitted period's end is >= by construction,
+    // was already clamped to priorCursorFloor above), so clipping the start
+    // is always sufficient; nothing needs dropping outright for this fix.
+    let segPeriods = row.effectiveTo ? seg.periods.filter((p) => p.start < row.effectiveTo!) : seg.periods;
+    if (priorCursorFloor) {
+      segPeriods = segPeriods.map((p) => (p.start < priorCursorFloor! ? { ...p, start: priorCursorFloor! } : p));
+    }
+    periods.push(...segPeriods);
     if (seg.frequencyUsed) frequencyUsed = seg.frequencyUsed;
-    if (seg.periods.length > 0) {
-      const lastEnd = seg.periods[seg.periods.length - 1].end;
+    if (segPeriods.length > 0) {
+      const lastEnd = segPeriods[segPeriods.length - 1].end;
       const nextDay = new Date(`${lastEnd}T00:00:00Z`);
       nextDay.setUTCDate(nextDay.getUTCDate() + 1);
       cursorFloor = nextDay.toISOString().slice(0, 10);

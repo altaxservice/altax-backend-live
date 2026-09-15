@@ -224,15 +224,29 @@ export function splitIntoDcFilingPeriodsForClient(
     }
   }
   for (const row of sorted) {
+    // Captured BEFORE this iteration's own segFrom clamp overwrites it —
+    // see mdFiling.ts's splitIntoMdFilingPeriodsForClient for the full
+    // reasoning (two related off-by-ones, both fixed the same way here).
+    const priorCursorFloor = cursorFloor;
     let segFrom = row.effectiveFrom > from ? row.effectiveFrom : from;
     if (cursorFloor && cursorFloor > segFrom) segFrom = cursorFloor;
     const segTo = (row.effectiveTo && row.effectiveTo < to) ? row.effectiveTo : to;
     if (segFrom > segTo) continue;
     const seg = splitIntoDcFilingPeriods(segFrom, segTo, row.frequency);
-    periods.push(...seg.periods);
+    // Fix 1 (effectiveTo) DROPS the offending period since the next row's
+    // own segment correctly regenerates that time. Fix 2 (priorCursorFloor)
+    // instead CLIPS the period's start forward — there is no later segment
+    // to regenerate dropped time here, so dropping would trade a duplicate
+    // for a silent invisible gap instead. See mdFiling.ts's identical fix
+    // for the full reasoning and the real incident that surfaced it.
+    let segPeriods = row.effectiveTo ? seg.periods.filter((p) => p.start < row.effectiveTo!) : seg.periods;
+    if (priorCursorFloor) {
+      segPeriods = segPeriods.map((p) => (p.start < priorCursorFloor! ? { ...p, start: priorCursorFloor! } : p));
+    }
+    periods.push(...segPeriods);
     if (seg.frequencyUsed) frequencyUsed = seg.frequencyUsed;
-    if (seg.periods.length > 0) {
-      const lastEnd = seg.periods[seg.periods.length - 1].end;
+    if (segPeriods.length > 0) {
+      const lastEnd = segPeriods[segPeriods.length - 1].end;
       const nextDay = new Date(`${lastEnd}T00:00:00Z`);
       nextDay.setUTCDate(nextDay.getUTCDate() + 1);
       cursorFloor = nextDay.toISOString().slice(0, 10);
