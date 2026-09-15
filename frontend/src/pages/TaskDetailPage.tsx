@@ -271,8 +271,8 @@ export function TaskDetailPage() {
                 Finish in Accounting
               </Link>
             )}
-            <button className="btn" onClick={() => setShowNoteModal(true)}>+ Note</button>
-            <button className="btn" onClick={() => setShowLogModal(true)}>+ Log Work</button>
+            {isAdmin && <button className="btn" onClick={() => setShowNoteModal(true)}>+ Note</button>}
+            {isAdmin && <button className="btn" onClick={() => setShowLogModal(true)}>+ Log Work</button>}
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
             {isAdmin && <button className="btn btn-danger" onClick={handleDelete}>Delete</button>}

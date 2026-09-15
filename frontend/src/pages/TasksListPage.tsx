@@ -748,7 +748,7 @@ export function TasksListPage() {
                           Parked{t.parked_at ? ` ${fmtDateOnly(t.parked_at)}` : ""}{t.parked_by ? ` by ${t.parked_by}` : ""}: {t.parked_reason || "—"}
                         </div>
                       )}
-                      <LabelChips labels={taskLabels[t.task_id] || []} onRemove={canManage ? (labelId) => unassignLabel(t.task_id, labelId) : undefined} />
+                      <LabelChips labels={taskLabels[t.task_id] || []} onRemove={canManage ? (labelId, assignedBy) => unassignLabel(t.task_id, labelId, assignedBy) : undefined} />
                       {canManage && (
                         <LabelPicker
                           allLabels={allLabels}

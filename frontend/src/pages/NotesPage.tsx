@@ -46,21 +46,23 @@ function toEasternDatetimeLocal(iso: string): string {
 interface NoteModalState {
   noteId?: string;
   clientId?: string; taskId?: string; body?: string; category?: string; remindAt?: string;
-  priority?: string; assignedTo?: string; visibility?: "firm" | "admin";
+  priority?: string; assignedTo?: string;
 }
 
 /**
- * Firm Notes — a shared follow-up notebook, separate from Tasks and from the
+ * Firm Notes — a follow-up notebook, separate from Tasks and from the
  * per-client "Client Note"/"Firm Note" activity log. Real owner request,
  * 2026-09-07: while working through client tasks, jot a reminder that isn't
  * a formal Task, then review/resolve/delete it later from ONE central place
- * instead of visiting each client individually — see staffNotes.routes.ts's
- * header comment for the full design (role-based visibility: 'firm' notes
- * are shared with the whole team, 'admin' notes are visible only to admin,
- * a toggle only admin ever sees). Extended 2026-09-14: a note can now link
- * to a specific Task, and any note can spin off a Task or a Daily Log entry
- * of its own — see NoteFormModal/DailyLogFormModal for the shared forms
- * every cross-link path (Task Detail, Daily Log, and Notes itself) reuses.
+ * instead of visiting each client individually.
+ *
+ * Private by author, 2026-09-14: a staff member only ever sees their own
+ * notes (see staffNotes.routes.ts's GET / — admin still sees every note
+ * firm-wide); the old Team/Admin-Only visibility toggle is gone since it no
+ * longer has anything left to control. Linking a note to a Task, or
+ * spinning off a Task/Log entry from one, is admin-only (the "Log Work"/
+ * "Create Task" row actions and NoteFormModal's Task field only render for
+ * admin) — see NoteFormModal/DailyLogFormModal for the shared forms.
  */
 export function NotesPage() {
   const { user } = useAuth();
@@ -129,7 +131,7 @@ export function NotesPage() {
   function startDuplicate(n: StaffNote) {
     setNoteModal({
       body: n.body, category: n.category || undefined, remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : undefined,
-      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined, visibility: "firm",
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined,
     });
   }
 
@@ -138,7 +140,7 @@ export function NotesPage() {
     setNoteModal({
       noteId: n.noteId, clientId: n.clientId || undefined, taskId: n.taskId || undefined,
       body: n.body, category: n.category || undefined, remindAt: n.remindAt ? toEasternDatetimeLocal(n.remindAt) : undefined,
-      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined, visibility: n.visibility,
+      priority: n.priority || "Normal", assignedTo: n.assignedTo || undefined,
     });
   }
 
@@ -192,10 +194,12 @@ export function NotesPage() {
             <option value="">All clients</option>
             {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
           </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
-            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-            Created by me
-          </label>
+          {isAdmin && (
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
+              <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+              Created by me
+            </label>
+          )}
           <input placeholder="Search notes…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
           <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => setNoteModal({})}>
             + New Note
@@ -250,7 +254,6 @@ export function NotesPage() {
                       <td style={{ maxWidth: 360, fontWeight: n.unread ? 700 : 400 }}>
                         {n.unread && <span style={{ color: "var(--teal)" }}>● </span>}
                         {n.body}
-                        {n.visibility === "admin" && <span className="badge" style={{ marginLeft: 8, fontSize: 10 }}>Admin Only</span>}
                       </td>
                       <td className="muted">{n.clientName || "—"}</td>
                       <td className="muted" onClick={(e) => n.taskId && e.stopPropagation()}>
@@ -271,8 +274,8 @@ export function NotesPage() {
                           : <button type="button" className="btn btn-sm" onClick={() => setStatus(n.noteId, "Open")}>Reopen</button>}
                         {canEdit && <button type="button" className="btn btn-sm" onClick={() => startEdit(n)}>Edit</button>}
                         <button type="button" className="btn btn-sm" title="Reuse this note's text for a different client" onClick={() => startDuplicate(n)}>Duplicate</button>
-                        <button type="button" className="btn btn-sm" title="Log work for this client/task" onClick={() => setLogModalFor(n)}>Log Work</button>
-                        <button type="button" className="btn btn-sm" title="Create a task from this note" onClick={() => setTaskModalFor(n)}>Create Task</button>
+                        {isAdmin && <button type="button" className="btn btn-sm" title="Log work for this client/task" onClick={() => setLogModalFor(n)}>Log Work</button>}
+                        {isAdmin && <button type="button" className="btn btn-sm" title="Create a task from this note" onClick={() => setTaskModalFor(n)}>Create Task</button>}
                         {canEdit && <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteOne(n.noteId)}>Delete</button>}
                       </td>
                     </tr>
@@ -294,7 +297,6 @@ export function NotesPage() {
           initialRemindAt={noteModal.remindAt}
           initialPriority={noteModal.priority}
           initialAssignedTo={noteModal.assignedTo}
-          initialVisibility={noteModal.visibility}
           onClose={() => setNoteModal(undefined)}
           onDone={load}
         />

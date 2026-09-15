@@ -17,14 +17,21 @@ const PRIORITY_OPTIONS = ["Low", "Normal", "High", "Urgent"];
  * exact same form, alongside Notes' own inline New/Edit/Duplicate. Passing
  * no initial props at all reproduces a completely blank, unconnected note —
  * every cross-link here is additive, never required.
+ *
+ * Notes are private to their own author by default (staff never see each
+ * other's or admin's notes — see staffNotes.routes.ts's GET /), so the old
+ * Team/Admin-Only visibility choice is gone entirely. Real owner request,
+ * 2026-09-14: linking a note to a task is also admin-only now — a staff
+ * user never sees the Task field here at all, only ever creating plain,
+ * unconnected notes (or notes tied only to a client).
  */
 export function NoteFormModal({
   noteId, initialClientId, initialTaskId, initialBody, initialCategory, initialRemindAt,
-  initialPriority, initialAssignedTo, initialVisibility, onClose, onDone,
+  initialPriority, initialAssignedTo, onClose, onDone,
 }: {
   noteId?: string;
   initialClientId?: string; initialTaskId?: string; initialBody?: string; initialCategory?: string;
-  initialRemindAt?: string; initialPriority?: string; initialAssignedTo?: string; initialVisibility?: "firm" | "admin";
+  initialRemindAt?: string; initialPriority?: string; initialAssignedTo?: string;
   onClose: () => void; onDone: () => void;
 }) {
   useEscapeToClose(onClose);
@@ -39,12 +46,11 @@ export function NoteFormModal({
 
   const [body, setBody] = useState(initialBody || "");
   const [clientId, setClientId] = useState(initialClientId || "");
-  const [taskId, setTaskId] = useState(initialTaskId || "");
+  const [taskId, setTaskId] = useState(isAdmin ? (initialTaskId || "") : "");
   const [category, setCategory] = useState(initialCategory || "");
   const [remindAt, setRemindAt] = useState(initialRemindAt || "");
   const [priority, setPriority] = useState(initialPriority || "Normal");
   const [assignedTo, setAssignedTo] = useState(initialAssignedTo || "");
-  const [visibility, setVisibility] = useState<"firm" | "admin">(initialVisibility || "firm");
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -56,13 +62,14 @@ export function NoteFormModal({
 
   // A task only makes sense against a specific client — populated whenever
   // one is picked, cleared (via the client <select>'s own onChange below)
-  // the moment the client changes.
+  // the moment the client changes. Staff never see the Task field at all
+  // (admin-only cross-linking), so there's nothing to fetch for them.
   useEffect(() => {
-    if (!clientId) { setFormTasks([]); return; }
+    if (!isAdmin || !clientId) { setFormTasks([]); return; }
     api.get<{ tasks: Task[] }>(`/tasks?clientId=${encodeURIComponent(clientId)}&status=all`)
       .then((r) => setFormTasks(r.tasks))
       .catch(() => setFormTasks([]));
-  }, [clientId]);
+  }, [isAdmin, clientId]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -71,14 +78,14 @@ export function NoteFormModal({
     setSaveError(null);
     try {
       const payload = {
-        body: body.trim(), clientId: clientId || undefined, taskId: taskId || undefined,
+        body: body.trim(), clientId: clientId || undefined, taskId: isAdmin ? (taskId || undefined) : undefined,
         category: category.trim() || undefined, remindAt: remindAt || undefined,
         priority, assignedTo: assignedTo || undefined,
       };
       if (noteId) {
         await api.post(`/staff-notes/${noteId}/edit`, payload);
       } else {
-        await api.post("/staff-notes", { ...payload, visibility: isAdmin ? visibility : undefined });
+        await api.post("/staff-notes", payload);
       }
       onDone();
       onClose();
@@ -110,13 +117,15 @@ export function NoteFormModal({
                 {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
               </select>
             </div>
-            <div className="field" style={{ flex: "1 1 220px" }}>
-              <label htmlFor="note-task">Task (optional)</label>
-              <select id="note-task" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={!clientId}>
-                <option value="">{clientId ? "No specific task" : "Pick a client first"}</option>
-                {formTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
-              </select>
-            </div>
+            {isAdmin && (
+              <div className="field" style={{ flex: "1 1 220px" }}>
+                <label htmlFor="note-task">Task (optional)</label>
+                <select id="note-task" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={!clientId}>
+                  <option value="">{clientId ? "No specific task" : "Pick a client first"}</option>
+                  {formTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="field" style={{ flex: "1 1 160px" }}>
               <label htmlFor="note-category">Category (optional)</label>
               <input id="note-category" list="note-category-list" value={category} onChange={(e) => setCategory(e.target.value)} />
@@ -145,15 +154,6 @@ export function NoteFormModal({
                 {staffOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            {isAdmin && (
-              <div className="field" style={{ flex: "1 1 160px" }}>
-                <label htmlFor="note-visibility">Visible to</label>
-                <select id="note-visibility" value={visibility} onChange={(e) => setVisibility(e.target.value as "firm" | "admin")}>
-                  <option value="firm">Team</option>
-                  <option value="admin">Admin Only</option>
-                </select>
-              </div>
-            )}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button type="button" className="btn" onClick={onClose}>Cancel</button>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api/client";
 import type { Client, Task } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
@@ -16,6 +17,10 @@ const CATEGORY_SUGGESTIONS = ["Call", "Filing", "Research", "Meeting", "Admin", 
  * this exact same form, alongside Daily Log's own inline New/Edit. Passing
  * no initial props at all reproduces a completely blank, unconnected entry —
  * every cross-link here is additive, never required.
+ *
+ * Real owner request, 2026-09-14: linking an entry to a task is admin-only
+ * — a staff user never sees the Task field here at all, only ever logging
+ * plain work (optionally tied to a client, never a specific task).
  */
 export function DailyLogFormModal({
   logId, initialClientId, initialTaskId, initialBody, initialCategory, initialServices,
@@ -29,6 +34,8 @@ export function DailyLogFormModal({
   useEscapeToClose(onClose);
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef);
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [clients, setClients] = useState<Client[]>([]);
   const [serviceOptions, setServiceOptions] = useState<FirmServiceOption[]>([]);
@@ -37,7 +44,7 @@ export function DailyLogFormModal({
 
   const [body, setBody] = useState(initialBody || "");
   const [clientIds, setClientIds] = useState<string[]>(initialClientId ? [initialClientId] : []);
-  const [taskId, setTaskId] = useState(initialTaskId || "");
+  const [taskId, setTaskId] = useState(isAdmin ? (initialTaskId || "") : "");
   const [category, setCategory] = useState(initialCategory || "");
   const [services, setServices] = useState<string[]>(initialServices || []);
   const [loggedAt, setLoggedAt] = useState(initialLoggedAt || "");
@@ -53,12 +60,14 @@ export function DailyLogFormModal({
   // The task picker only makes sense with exactly one client picked — a
   // task belongs to one client, so it's disabled the moment a 2nd client is
   // added and cleared whenever the selection changes away from a single one.
+  // Staff never see the Task field at all (admin-only cross-linking), so
+  // there's nothing to fetch for them.
   useEffect(() => {
-    if (clientIds.length !== 1) { setFormTasks([]); return; }
+    if (!isAdmin || clientIds.length !== 1) { setFormTasks([]); return; }
     api.get<{ tasks: Task[] }>(`/tasks?clientId=${encodeURIComponent(clientIds[0])}&status=all`)
       .then((r) => setFormTasks(r.tasks))
       .catch(() => setFormTasks([]));
-  }, [clientIds]);
+  }, [isAdmin, clientIds]);
 
   function toggleClient(clientId: string) {
     setClientIds((prev) => {
@@ -86,7 +95,7 @@ export function DailyLogFormModal({
     setSaveError(null);
     try {
       const payload = {
-        body: body.trim(), clientIds, taskId: taskId || undefined,
+        body: body.trim(), clientIds, taskId: isAdmin ? (taskId || undefined) : undefined,
         category: category.trim() || undefined, services, loggedAt: loggedAt || undefined,
         timeSpentHours: timeSpentHours || undefined, timeSpentMinutes: timeSpentMinutes || undefined,
       };
@@ -172,15 +181,17 @@ export function DailyLogFormModal({
               <input id="dl-when" type="datetime-local" value={loggedAt} onChange={(e) => setLoggedAt(e.target.value)} />
               <span className="muted" style={{ fontSize: 10.5 }}>Blank = right now</span>
             </div>
-            <div className="field" style={{ flex: "1 1 200px" }}>
-              <label htmlFor="dl-task">Task (optional)</label>
-              <select id="dl-task" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={clientIds.length !== 1}>
-                <option value="">
-                  {clientIds.length === 1 ? "No specific task" : clientIds.length === 0 ? "Pick a client first" : "Pick just one client to link a task"}
-                </option>
-                {formTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
-              </select>
-            </div>
+            {isAdmin && (
+              <div className="field" style={{ flex: "1 1 200px" }}>
+                <label htmlFor="dl-task">Task (optional)</label>
+                <select id="dl-task" value={taskId} onChange={(e) => setTaskId(e.target.value)} disabled={clientIds.length !== 1}>
+                  <option value="">
+                    {clientIds.length === 1 ? "No specific task" : clientIds.length === 0 ? "Pick a client first" : "Pick just one client to link a task"}
+                  </option>
+                  {formTasks.map((t) => <option key={t.task_id} value={t.task_id}>{t.task_name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="field" style={{ flex: "1 1 150px" }}>
               <label htmlFor="dl-category">Category (optional)</label>
               <input id="dl-category" list="dl-category-list" value={category} onChange={(e) => setCategory(e.target.value)} />

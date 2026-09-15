@@ -74,7 +74,12 @@ staffNotesRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandl
   if (taskId) { params.push(taskId); where += ` AND n.task_id = $${params.length}`; }
   if (search) { params.push(`%${search}%`); where += ` AND n.body ILIKE $${params.length}`; }
   if (mineOnly) { params.push(req.user!.email); where += ` AND n.author_email = $${params.length}`; }
-  if (!isAdmin) where += ` AND n.visibility = 'firm'`;
+  // Notes are private to their author by default (real owner request,
+  // 2026-09-14: staff shouldn't see each other's or admin's notes) — admin
+  // still sees every note firm-wide. This replaces the old Team/Admin-Only
+  // visibility toggle, which no longer has anything meaningful left to
+  // control (every staff note is already scoped to its own author).
+  if (!isAdmin) { params.push(req.user!.email); where += ` AND n.author_email = $${params.length}`; }
 
   const rows = await query<any>(
     `SELECT n.*, c.client_name, t.task_name,
@@ -112,13 +117,13 @@ staffNotesRouter.get("/open-count", requireAuth, requireRole("admin", "staff"), 
   const isAdmin = req.user!.role === "admin";
   const row = await queryOne<any>(
     `SELECT COUNT(*)::int AS count FROM altax.v3_staff_notes n
-      WHERE n.status = 'Open' ${isAdmin ? "" : "AND n.visibility = 'firm'"}`
+      WHERE n.status = 'Open' ${isAdmin ? "" : "AND n.author_email = $1"}`,
+    isAdmin ? [] : [req.user!.email]
   );
   res.json({ count: row?.count || 0 });
 }));
 
 staffNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const isAdmin = req.user!.role === "admin";
   const body = String(req.body?.body || "").trim();
   if (!body) return res.status(400).json({ error: "Note text is required." });
   const clientId = String(req.body?.clientId || "").trim() || null;
@@ -127,9 +132,12 @@ staffNotesRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHand
   const remindAt = parseRemindAtInput(req.body?.remindAt);
   const priority = normalizePriority(req.body?.priority);
   const assignedTo = String(req.body?.assignedTo || "").trim() || null;
-  // Never trust visibility: 'admin' from the request body alone — a staff
-  // account could otherwise write itself into the admin-only tier.
-  const visibility = isAdmin && req.body?.visibility === "admin" ? "admin" : "firm";
+  // Visibility is no longer a request input — GET / now scopes every note
+  // to its own author for staff (see that route's comment), so the old
+  // Team/Admin-Only choice has nothing left to control. Every new note
+  // just gets the ordinary 'firm' value; kept only so the column stays
+  // populated for old code paths that still read it.
+  const visibility = "firm";
 
   if (clientId) {
     const client = await queryOne<any>(`SELECT client_id FROM altax.v3_clients WHERE client_id = $1`, [clientId]);

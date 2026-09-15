@@ -1216,7 +1216,7 @@ export function ClientsListPage() {
                           {c.client_type ? ` · ${c.client_type}` : ""}
                           {c.entity_type ? ` · ${c.entity_type}` : ""}
                         </div>
-                        <LabelChips labels={clientLabels[c.client_id] || []} onRemove={(labelId) => unassignLabel(c.client_id, labelId)} />
+                        <LabelChips labels={clientLabels[c.client_id] || []} onRemove={(labelId, assignedBy) => unassignLabel(c.client_id, labelId, assignedBy)} />
                         <LabelPicker
                           allLabels={allLabels}
                           assignedIds={new Set((clientLabels[c.client_id] || []).map((l) => l.label_id))}

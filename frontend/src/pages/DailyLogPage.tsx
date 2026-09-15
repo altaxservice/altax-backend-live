@@ -79,13 +79,18 @@ interface LogModalState {
  * and for why this is offered to everyone but never required/reminded.
  * Extended again 2026-09-14: an entry can link to a specific Task, and any
  * entry can spin off a Note or a Task of its own — see DailyLogFormModal/
- * NoteFormModal for the shared forms every cross-link path reuses.
+ * NoteFormModal for the shared forms every cross-link path reuses. That
+ * cross-linking (and the Task field in the log form itself) is admin-only;
+ * staff only ever log plain entries. Also private by author, same day: a
+ * staff member's list here only ever shows their OWN entries (see
+ * dailyLog.routes.ts's GET /) — admin still sees every entry firm-wide.
  */
 export function DailyLogPage() {
   const { user } = useAuth();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const toast = useToast();
+  const isAdmin = user?.role === "admin";
 
   const [logs, setLogs] = useState<DailyLogEntry[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -162,10 +167,12 @@ export function DailyLogPage() {
             <option value="">All clients</option>
             {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
           </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
-            <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
-            Logged by me
-          </label>
+          {isAdmin && (
+            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
+              <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+              Logged by me
+            </label>
+          )}
           <input placeholder="Search entries…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ fontSize: 12.5, maxWidth: 220 }} />
           <button type="button" className="btn btn-sm btn-primary" style={{ marginLeft: "auto" }} onClick={() => setLogModal({})}>
             + Log Work
@@ -202,8 +209,8 @@ export function DailyLogPage() {
                             <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>{l.authorName || l.authorEmail}</div>
                           </div>
                           <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                            <button type="button" className="btn btn-sm" title="Write a note for this client/task" onClick={() => setNoteModalFor(l)}>+ Note</button>
-                            <button type="button" className="btn btn-sm" title="Create a task from this entry" onClick={() => setTaskModalFor(l)}>Create Task</button>
+                            {isAdmin && <button type="button" className="btn btn-sm" title="Write a note for this client/task" onClick={() => setNoteModalFor(l)}>+ Note</button>}
+                            {isAdmin && <button type="button" className="btn btn-sm" title="Create a task from this entry" onClick={() => setTaskModalFor(l)}>Create Task</button>}
                             {canEdit && (
                               <>
                                 <button type="button" className="btn btn-sm" onClick={() => startEdit(l)}>Edit</button>

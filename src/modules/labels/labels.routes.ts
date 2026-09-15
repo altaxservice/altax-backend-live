@@ -104,61 +104,74 @@ labelsRouter.post("/:labelId/delete", requireAuth, requireRole("admin"), asyncHa
  */
 labelsRouter.get("/for/:entityType", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType } = req.params;
+  const isAdmin = req.user!.role === "admin";
 
   // 'client' and 'task' assignments are client-scoped; a non-admin staff user
   // only gets back the rows for clients they can actually access (same rule
   // as canAccessClient's task-assignment check), not every client's labels.
-  if (entityType === "client" && req.user!.role !== "admin") {
+  // Real owner request, 2026-09-14: on top of that, a staff member only ever
+  // sees labels THEY assigned — not another staff member's or admin's tags
+  // on the same record. Admin still sees every assignment from everyone.
+  if (entityType === "client" && !isAdmin) {
     const aliases = await getUserAliases(req.user!.email);
     const rows = await query(
-      `SELECT el.entity_id, el.label_id, l.name, l.color
+      `SELECT el.entity_id, el.label_id, l.name, l.color, el.assigned_by, el.assigned_at
          FROM altax.v3_entity_labels el
          JOIN altax.v3_labels l ON l.label_id = el.label_id
-        WHERE el.entity_type = 'client'
+        WHERE el.entity_type = 'client' AND el.assigned_by = $2
           AND el.entity_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL)
         ORDER BY l.name ASC`,
-      [Array.from(aliases)]
+      [Array.from(aliases), req.user!.email]
     );
     return res.json({ assignments: rows });
   }
-  if (entityType === "task" && req.user!.role !== "admin") {
+  if (entityType === "task" && !isAdmin) {
     const aliases = await getUserAliases(req.user!.email);
     const rows = await query(
-      `SELECT el.entity_id, el.label_id, l.name, l.color
+      `SELECT el.entity_id, el.label_id, l.name, l.color, el.assigned_by, el.assigned_at
          FROM altax.v3_entity_labels el
          JOIN altax.v3_labels l ON l.label_id = el.label_id
          JOIN altax.v3_tasks t ON t.task_id = el.entity_id
-        WHERE el.entity_type = 'task'
+        WHERE el.entity_type = 'task' AND el.assigned_by = $2
           AND t.client_id IN (SELECT DISTINCT client_id FROM altax.v3_tasks WHERE lower(assigned_to) = ANY($1::text[]) AND client_id IS NOT NULL)
         ORDER BY l.name ASC`,
-      [Array.from(aliases)]
+      [Array.from(aliases), req.user!.email]
     );
     return res.json({ assignments: rows });
   }
 
+  const params: any[] = [entityType];
+  let where = `el.entity_type = $1`;
+  if (!isAdmin) { params.push(req.user!.email); where += ` AND el.assigned_by = $${params.length}`; }
   const rows = await query(
-    `SELECT el.entity_id, el.label_id, l.name, l.color
+    `SELECT el.entity_id, el.label_id, l.name, l.color, el.assigned_by, el.assigned_at
        FROM altax.v3_entity_labels el
        JOIN altax.v3_labels l ON l.label_id = el.label_id
-      WHERE el.entity_type = $1
+      WHERE ${where}
       ORDER BY l.name ASC`,
-    [entityType]
+    params
   );
   res.json({ assignments: rows });
 }));
 
 labelsRouter.get("/for/:entityType/:entityId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType, entityId } = req.params;
+  const isAdmin = req.user!.role === "admin";
   if (!(await canAccessLabelEntity(req.user, entityType, entityId))) {
     return res.status(403).json({ error: "You do not have access to this record." });
   }
+  const params: any[] = [entityType, entityId];
+  let where = `el.entity_type = $1 AND el.entity_id = $2`;
+  // Same author-only scoping as the bulk route above — a staff member only
+  // sees the labels they themselves put on this record.
+  if (!isAdmin) { params.push(req.user!.email); where += ` AND el.assigned_by = $${params.length}`; }
   const rows = await query(
-    `SELECT l.label_id, l.name, l.color
+    `SELECT l.label_id, l.name, l.color, el.assigned_by, el.assigned_at
        FROM altax.v3_entity_labels el
        JOIN altax.v3_labels l ON l.label_id = el.label_id
-      WHERE el.entity_type = $1 AND el.entity_id = $2
+      WHERE ${where}
       ORDER BY l.name ASC`,
-    [entityType, entityId]
+    params
   );
   res.json({ labels: rows });
 }));
@@ -175,7 +188,7 @@ labelsRouter.post("/for/:entityType/:entityId", requireAuth, requireRole("admin"
 
   await query(
     `INSERT INTO altax.v3_entity_labels (entity_type, entity_id, label_id, assigned_by)
-     VALUES ($1,$2,$3,$4) ON CONFLICT (entity_type, entity_id, label_id) DO NOTHING`,
+     VALUES ($1,$2,$3,$4) ON CONFLICT (entity_type, entity_id, label_id, assigned_by) DO NOTHING`,
     [entityType, entityId, labelId, req.user!.email]
   );
   res.json({ ok: true });
@@ -183,12 +196,24 @@ labelsRouter.post("/for/:entityType/:entityId", requireAuth, requireRole("admin"
 
 labelsRouter.post("/for/:entityType/:entityId/:labelId/remove", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { entityType, entityId, labelId } = req.params;
+  const isAdmin = req.user!.role === "admin";
   if (!(await canAccessLabelEntity(req.user, entityType, entityId))) {
     return res.status(403).json({ error: "You do not have access to this record." });
   }
-  await query(
-    `DELETE FROM altax.v3_entity_labels WHERE entity_type = $1 AND entity_id = $2 AND label_id = $3`,
-    [entityType, entityId, labelId]
-  );
+  // A staff member can only remove a label THEY assigned — they can't see
+  // another staff member's or admin's tag on this record (GET routes above
+  // already scope that out), so they shouldn't be able to blindly delete it
+  // by label id either. Since two different people can now independently
+  // tag the same entity with the same label (the primary key widened to
+  // include assigned_by — sql/155), admin passes back WHICH assignment to
+  // remove (the chip it clicked carries its own assignedBy); omitting it
+  // falls back to removing every assignment of that label on this record,
+  // for any caller that hasn't been updated to send it.
+  const targetAssignedBy = String(req.body?.assignedBy || "").trim() || null;
+  const params: any[] = [entityType, entityId, labelId];
+  let where = `entity_type = $1 AND entity_id = $2 AND label_id = $3`;
+  if (!isAdmin) { params.push(req.user!.email); where += ` AND assigned_by = $${params.length}`; }
+  else if (targetAssignedBy) { params.push(targetAssignedBy); where += ` AND assigned_by = $${params.length}`; }
+  await query(`DELETE FROM altax.v3_entity_labels WHERE ${where}`, params);
   res.json({ ok: true });
 }));

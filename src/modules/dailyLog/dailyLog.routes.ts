@@ -57,6 +57,7 @@ function normalizeServices(raw: unknown): string[] {
 }
 
 dailyLogRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const isAdmin = req.user!.role === "admin";
   const clientId = String(req.query.clientId || "").trim();
   const taskId = String(req.query.taskId || "").trim();
   const service = String(req.query.service || "").trim();
@@ -71,6 +72,10 @@ dailyLogRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler
   if (taskId) { params.push(taskId); where += ` AND l.task_id = $${params.length}`; }
   if (service) { params.push(service); where += ` AND l.services @> ARRAY[$${params.length}]::text[]`; }
   if (mineOnly) { params.push(req.user!.email); where += ` AND l.author_email = $${params.length}`; }
+  // Daily Log entries are private to their author by default (real owner
+  // request, 2026-09-14: staff shouldn't see each other's or admin's
+  // entries) — admin still sees every entry firm-wide.
+  if (!isAdmin) { params.push(req.user!.email); where += ` AND l.author_email = $${params.length}`; }
   if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { params.push(from); where += ` AND l.logged_at::date >= $${params.length}`; }
   if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { params.push(to); where += ` AND l.logged_at::date <= $${params.length}`; }
   if (search) { params.push(`%${search}%`); where += ` AND l.body ILIKE $${params.length}`; }
