@@ -323,7 +323,7 @@ export function UsersPage() {
       )}
 
       {preparerEdit && (
-        <div className="modal-overlay" onClick={() => setPreparerEdit(null)}>
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setPreparerEdit(null))(); }}>
           <div ref={preparerPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="ptin-caf-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="ptin-caf-title">PTIN / CAF — {preparerEdit.name}</h2>
@@ -350,7 +350,7 @@ export function UsersPage() {
       )}
 
       {scheduleEdit && (
-        <div className="modal-overlay" onClick={() => setScheduleEdit(null)}>
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setScheduleEdit(null))(); }}>
           <div ref={schedulePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="schedule-title" style={{ width: "min(560px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="schedule-title">Working Hours — {scheduleEdit.name}</h2>

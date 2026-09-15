@@ -75,7 +75,7 @@ export function RequestDocumentModal({ clientId, clientName, employeeId, employe
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="request-document-title" style={{ width: "min(480px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="request-document-title">Request Document — {employeeName || clientName}</h2>

@@ -74,7 +74,7 @@ export function GenerateW9Modal({ employeeId, onClose, onDone }: { employeeId: s
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-w9-title" style={{ width: "min(620px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-w9-title">Generate Form W-9</h2>

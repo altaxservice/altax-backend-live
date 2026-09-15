@@ -202,7 +202,7 @@ export function NewWorkItemModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-work-item-title" style={{ width: "min(720px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="new-work-item-title">New Work Item</h2>

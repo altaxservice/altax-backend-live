@@ -299,7 +299,7 @@ export function RulesPage() {
         rules.length > 0 ? (
           <CreateBatchTasksModal rules={rules} initialRuleId={batchRuleId || undefined} onClose={() => setShowBatchModal(false)} onDone={() => load()} />
         ) : (
-          <div className="modal-overlay" onClick={() => setShowBatchModal(false)}>
+          <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setShowBatchModal(false))(); }}>
             <div ref={batchEmptyPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-tasks-empty-title" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header"><h2 id="batch-tasks-empty-title">Create Batch Tasks</h2><button className="btn btn-sm" onClick={() => setShowBatchModal(false)}>Close</button></div>
               <p className="muted">Add a rule first, then run a batch from it.</p>

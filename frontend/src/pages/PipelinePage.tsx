@@ -441,7 +441,7 @@ function NewProspectModal({ onClose, onCreated, onSkipToClient }: { onClose: () 
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-prospect-title" style={{ width: "min(480px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <h3 id="new-prospect-title" style={{ marginTop: 0 }}>New Prospect</h3>
         <p className="muted" style={{ fontSize: 12.5, marginTop: -6 }}>

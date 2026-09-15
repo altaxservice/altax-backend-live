@@ -113,7 +113,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={{ confirm, promptFor, notify }}>
       {children}
       {pending && (
-        <div className="modal-overlay" onClick={handleCancel}>
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (handleCancel)(); }}>
           <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" style={{ width: "min(440px, 100%)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="confirm-dialog-title">{pending.kind === "notify" ? (pending.options.title || "Notice") : (pending.options.title || (pending.kind === "confirm" ? "Please confirm" : "One more thing"))}</h2>

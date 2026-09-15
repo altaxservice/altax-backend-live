@@ -57,7 +57,7 @@ export function AddRecurringModal({ clients, editing, onClose, onDone }: { clien
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="recurring-billing-modal-title" style={{ width: "min(620px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="recurring-billing-modal-title">{editing?.recurring_billing_id ? "Edit Recurring Billing" : "Add Recurring Billing"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}

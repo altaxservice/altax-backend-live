@@ -64,7 +64,7 @@ export function SendEstimateModal({ estimate, totals, onClose, onSent }: {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="send-estimate-title" style={{ width: "min(880px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="send-estimate-title">Send {estimate.estimate_number}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}

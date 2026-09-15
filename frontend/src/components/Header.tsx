@@ -236,7 +236,7 @@ function PreparerInfoModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="preparer-info-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="preparer-info-title">Preparer Info</h2>
@@ -302,7 +302,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-password-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-password-title">Change Password</h2>
@@ -399,7 +399,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
 
   if (done === "enabled") {
     return (
-      <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
         <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
@@ -416,7 +416,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   // recovery code, or failing that an admin reset on Users & Access.
   if (user?.totpEnabled) {
     return (
-      <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
         <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(420px, 100%)" }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2 id="tfa-modal-title">Two-Factor Authentication</h2>
@@ -479,7 +479,7 @@ function TwoFactorModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tfa-modal-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="tfa-modal-title">Two-Factor Authentication</h2>

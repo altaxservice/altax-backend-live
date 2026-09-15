@@ -181,7 +181,7 @@ export function EstimatesListPage() {
       )}
 
       {creating && (
-        <div className="modal-overlay" onClick={() => setCreating(false)}>
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setCreating(false))(); }}>
           <div ref={newEstimatePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-estimate-title" style={{ width: "min(560px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="new-estimate-title">New Estimate</h2>

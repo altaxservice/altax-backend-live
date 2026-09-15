@@ -559,7 +559,7 @@ export function GenerateGovFormModal({ clientId, defaultFormType, editingFiling,
   }
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (handleClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="generate-gov-form-title" style={{ width: "min(680px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="generate-gov-form-title">{isEditing ? "Edit Draft Filing" : "Generate Government Form"}</h2>

@@ -103,7 +103,7 @@ export function ChangePortalEmailModal({ clientId, clientName, contactEmail, onC
   const pending = user?.pending_email || null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="change-portal-email-title" style={{ width: "min(520px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="change-portal-email-title">Change Sign-In Email</h2>

@@ -167,7 +167,7 @@ export function NewAppointmentModal({ clients, defaultDate, appointment, onClose
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="new-appointment-title" style={{ width: "min(560px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="new-appointment-title">{isEditing ? "Edit Appointment" : "New Appointment"}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}

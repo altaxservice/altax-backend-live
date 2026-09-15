@@ -118,7 +118,7 @@ function SinceLastLoginModal({ data, onClose }: { data: ActivitySinceLogin; onCl
   const navigate = useNavigate();
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="since-last-login-title" style={{ width: "min(640px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <h3 id="since-last-login-title" style={{ marginTop: 0 }}>What happened since your last login</h3>
         <p className="muted" style={{ fontSize: 12, marginTop: -6 }}>Since {fmtDateTime(data.since as string)} — {data.count} update{data.count === 1 ? "" : "s"}{data.truncated ? " (showing the most recent 200)" : ""}.</p>

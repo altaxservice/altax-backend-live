@@ -2834,7 +2834,7 @@ function PayrollAgentModal({ clientId, employees, onClose }: { clientId: string;
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-agent-modal-title" style={{ width: "min(620px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="payroll-agent-modal-title">Payroll Agent</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
@@ -3046,7 +3046,7 @@ function BatchPayrollModal({ clientId, employees, onClose, onDone }: { clientId:
   const succeededCount = results ? Object.values(results).filter((r) => r.ok).length : 0;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="batch-paychecks-title" style={{ width: "min(820px, 94vw)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 id="batch-paychecks-title">Batch Create Paychecks</h2>

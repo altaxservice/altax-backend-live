@@ -715,7 +715,7 @@ function SalesReceiptModal({ clients, onClose, onDone }: { clients: Client[]; on
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sales-receipt-title" style={{ width: "min(620px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="sales-receipt-title">Create Sales Receipt</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
@@ -793,7 +793,7 @@ function RecordPaymentShortcutModal({ invoices, clientName, onClose, onDone }: {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (onClose)(); }}>
       <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="record-payment-title" style={{ width: "min(620px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header"><h2 id="record-payment-title">Record Payment</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
         {error && <ErrorBanner error={error} />}
