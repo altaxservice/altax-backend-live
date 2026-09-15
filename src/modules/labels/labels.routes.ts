@@ -7,12 +7,19 @@ import { canAccessClient, getUserAliases } from "../../common/assignment";
 
 /**
  * Firm-wide colored labels (name + hex color), reusable across any record type —
- * Tasks and Clients to start. The label palette itself (v3_labels) is admin-managed,
- * same "firm-wide config, admin edits it" shape as List Settings; assigning an
- * existing label to a record is open to admin+staff, same as everything else they
- * already edit day to day. entity_type is a free short code ('task', 'client', ...)
+ * Tasks and Clients to start. entity_type is a free short code ('task', 'client', ...)
  * rather than a hard enum, so wiring in a new entity type later needs no schema
  * change — only a new frontend call site.
+ *
+ * The label palette (v3_labels) itself was admin-managed until 2026-09-14 —
+ * real owner request that day: staff should be able to create their own
+ * label TYPES too ("label the way they want"), not just apply ones admin
+ * made. Creating is open to admin+staff; editing/deleting a specific label
+ * is admin OR whoever created it (created_by), same "you manage what you
+ * made" rule this file already applies to assignments below — a staff
+ * member can't rename or delete a colleague's or admin's label type.
+ * Deleting a label still cascades everywhere it's been assigned (by
+ * anyone), same as it always has for admin.
  */
 export const labelsRouter = Router();
 
@@ -47,11 +54,11 @@ async function canAccessLabelEntity(user: AuthedRequest["user"], entityType: str
 }
 
 labelsRouter.get("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
-  const labels = await query(`SELECT label_id, name, color FROM altax.v3_labels ORDER BY name ASC`);
+  const labels = await query(`SELECT label_id, name, color, created_by FROM altax.v3_labels ORDER BY name ASC`);
   res.json({ labels });
 }));
 
-labelsRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+labelsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const name = String(req.body?.name || "").trim();
   const color = String(req.body?.color || "").trim();
   if (!name) return res.status(400).json({ error: "Label name is required." });
@@ -65,14 +72,18 @@ labelsRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (re
     `INSERT INTO altax.v3_labels (label_id, name, color, created_by) VALUES ($1,$2,$3,$4)`,
     [labelId, name, color, req.user!.email]
   );
-  await logAudit("Labels", "LABEL_CREATED", labelId, "Name", "", name, "Label created.", req.user!.email);
+  await logAudit("Labels", "LABEL_CREATED", labelId, "Name", "", name, `Label created by ${req.user!.email}.`, req.user!.email);
   res.status(201).json({ ok: true, labelId });
 }));
 
-labelsRouter.patch("/:labelId", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+labelsRouter.patch("/:labelId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { labelId } = req.params;
+  const isAdmin = req.user!.role === "admin";
   const old = await queryOne<any>(`SELECT * FROM altax.v3_labels WHERE label_id = $1`, [labelId]);
   if (!old) return res.status(404).json({ error: "Label not found." });
+  if (!isAdmin && old.created_by !== req.user!.email) {
+    return res.status(403).json({ error: "Only the label's creator or an admin can edit it." });
+  }
 
   const name = req.body?.name !== undefined ? String(req.body.name).trim() : old.name;
   const color = req.body?.color !== undefined ? String(req.body.color).trim() : old.color;
@@ -83,16 +94,20 @@ labelsRouter.patch("/:labelId", requireAuth, requireRole("admin"), asyncHandler(
   if (dupe) return res.status(409).json({ error: `A label named "${name}" already exists.` });
 
   await query(`UPDATE altax.v3_labels SET name = $2, color = $3, updated_at = now() WHERE label_id = $1`, [labelId, name, color]);
-  await logAudit("Labels", "LABEL_UPDATED", labelId, "Name", old.name, name, "Label updated.", req.user!.email);
+  await logAudit("Labels", "LABEL_UPDATED", labelId, "Name", old.name, name, `Label updated by ${req.user!.email}.`, req.user!.email);
   res.json({ ok: true });
 }));
 
-labelsRouter.post("/:labelId/delete", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+labelsRouter.post("/:labelId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { labelId } = req.params;
-  const old = await queryOne<any>(`SELECT name FROM altax.v3_labels WHERE label_id = $1`, [labelId]);
+  const isAdmin = req.user!.role === "admin";
+  const old = await queryOne<any>(`SELECT name, created_by FROM altax.v3_labels WHERE label_id = $1`, [labelId]);
   if (!old) return res.status(404).json({ error: "Label not found." });
+  if (!isAdmin && old.created_by !== req.user!.email) {
+    return res.status(403).json({ error: "Only the label's creator or an admin can delete it." });
+  }
   await query(`DELETE FROM altax.v3_labels WHERE label_id = $1`, [labelId]);
-  await logAudit("Labels", "LABEL_DELETED", labelId, "Name", old.name, "", "Label deleted (removed from every record it was on).", req.user!.email);
+  await logAudit("Labels", "LABEL_DELETED", labelId, "Name", old.name, "", `Label deleted by ${req.user!.email} (removed from every record it was on).`, req.user!.email);
   res.json({ ok: true });
 }));
 

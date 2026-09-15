@@ -3,19 +3,31 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { LabelChips, type LabelInfo } from "../components/Labels";
 import { useConfirm, useNotify } from "../components/ConfirmProvider";
+import { useAuth } from "../auth/AuthContext";
 
 const DEFAULT_COLOR = "#0f2d3e";
 
 /**
- * Admin-managed label palette — name + color, reusable everywhere labels show
- * up (Tasks, Clients, ...). Deleting a label here removes it from every record
+ * The label palette — name + color, reusable everywhere labels show up
+ * (Tasks, Clients, ...). Deleting a label here removes it from every record
  * it was on (v3_entity_labels cascades), same "changes here don't rewrite past
  * records" caveat as List Settings, just the opposite direction: a label is
  * live everywhere it's attached, not a frozen snapshot on save.
+ *
+ * Open to staff since 2026-09-14 (real owner request: "label the way they
+ * want," not just apply ones admin made) — anyone can create a new label
+ * type, but editing/deleting one is admin OR whoever created it, enforced
+ * server-side (labels.routes.ts); the Edit/Delete buttons here are just
+ * hidden for a label staff didn't create, matching that same rule. Note
+ * this only governs the label TYPE itself — who's allowed to see or remove
+ * an individual client/task's tag with it is a separate, per-assignment
+ * rule (see Labels.tsx's useEntityLabel(s), staff only ever sees their own).
  */
 export function LabelsPage() {
   const notify = useNotify();
   const confirmDialog = useConfirm();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [labels, setLabels] = useState<LabelInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -93,8 +105,10 @@ export function LabelsPage() {
   return (
     <div>
       <p className="muted" style={{ marginBottom: 16, maxWidth: 720 }}>
-        A firm-wide set of colored labels you can attach to Tasks and Clients — helpful for anything a status field
-        doesn't cover (e.g. "VIP", "Needs Callback", "New Client"). Deleting a label here removes it everywhere it's attached.
+        Colored labels you can attach to Tasks and Clients — helpful for anything a status field doesn't cover
+        (e.g. "VIP", "Needs Callback", "New Client"). Everyone shares this same list of label types, but which
+        client/task YOU'VE tagged with one is private to you — a teammate's own tags never show on your screen.
+        You can edit or delete a label you created; deleting removes it everywhere it's attached.
       </p>
 
       <form onSubmit={handleCreate} className="card" style={{ maxWidth: 420, marginBottom: 20, display: "flex", gap: 10, alignItems: "flex-end" }}>
@@ -115,33 +129,44 @@ export function LabelsPage() {
 
       <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col">Preview</th><th scope="col">Name</th><th scope="col">Color</th><th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">Preview</th><th scope="col">Name</th><th scope="col">Color</th><th scope="col">Created By</th><th scope="col"></th></tr></thead>
           <tbody>
-            {filteredLabels.map((l) => (
-              <tr key={l.label_id}>
-                {editingId === l.label_id ? (
-                  <>
-                    <td><LabelChips labels={[{ label_id: l.label_id, name: editName || l.name, color: editColor }]} /></td>
-                    <td><input value={editName} onChange={(e) => setEditName(e.target.value)} /></td>
-                    <td><input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} style={{ width: 40, height: 30, padding: 2 }} /></td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <button type="button" className="btn btn-sm btn-primary" onClick={() => handleSaveEdit(l.label_id)}>Save</button>{" "}
-                      <button type="button" className="btn btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td><LabelChips labels={[l]} /></td>
-                    <td>{l.name}</td>
-                    <td className="muted">{l.color}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <button type="button" className="btn btn-sm" onClick={() => startEdit(l)}>Edit</button>{" "}
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(l)}>Delete</button>
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
+            {filteredLabels.map((l) => {
+              const canManage = isAdmin || l.created_by === user?.email;
+              return (
+                <tr key={l.label_id}>
+                  {editingId === l.label_id ? (
+                    <>
+                      <td><LabelChips labels={[{ label_id: l.label_id, name: editName || l.name, color: editColor }]} /></td>
+                      <td><input value={editName} onChange={(e) => setEditName(e.target.value)} /></td>
+                      <td><input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} style={{ width: 40, height: 30, padding: 2 }} /></td>
+                      <td className="muted">{l.created_by || "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <button type="button" className="btn btn-sm btn-primary" onClick={() => handleSaveEdit(l.label_id)}>Save</button>{" "}
+                        <button type="button" className="btn btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td><LabelChips labels={[l]} /></td>
+                      <td>{l.name}</td>
+                      <td className="muted">{l.color}</td>
+                      <td className="muted">{l.created_by || "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {canManage ? (
+                          <>
+                            <button type="button" className="btn btn-sm" onClick={() => startEdit(l)}>Edit</button>{" "}
+                            <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(l)}>Delete</button>
+                          </>
+                        ) : (
+                          <span className="muted" style={{ fontSize: 11.5 }}>Not yours to edit</span>
+                        )}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

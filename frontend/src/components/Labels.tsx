@@ -10,7 +10,7 @@ import { api } from "../api/client";
  * now allows that — sql/155). A staff member's own list never has more than
  * one row per label per record, so assignedBy there is just their own name.
  */
-export interface LabelInfo { label_id: string; name: string; color: string; assignedBy?: string | null; assignedAt?: string | null }
+export interface LabelInfo { label_id: string; name: string; color: string; assignedBy?: string | null; assignedAt?: string | null; created_by?: string | null }
 
 /** Simple relative-luminance check so chip text stays readable against any admin-picked color. */
 function pickTextColor(hex: string): string {

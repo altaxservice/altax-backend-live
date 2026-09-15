@@ -116,7 +116,6 @@ function App() {
                 <Route path="/firm-report" element={<FirmReportPage />} />
                 <Route path="/firm-portals" element={<FirmPortalsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
-                <Route path="/labels" element={<LabelsPage />} />
                 <Route path="/document-checklists" element={<DocumentChecklistsPage />} />
               </Route>
               {/* Staff also get in here now (hard audit 2026-08-13, TAX-001) — the
@@ -140,6 +139,7 @@ function App() {
                 <Route path="/billing/:invoiceId" element={<InvoiceDetailPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
+                <Route path="/labels" element={<LabelsPage />} />
                 <Route path="/clients" element={<ClientsListPage />} />
                 <Route path="/clients/:clientId" element={<ClientDetailPage />} />
                 <Route path="/tasks" element={<TasksListPage />} />
