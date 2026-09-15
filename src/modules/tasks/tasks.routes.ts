@@ -513,7 +513,7 @@ function missingCompletionEvidence(task: { payment_required?: boolean; paid_date
  * Completed, keeping the active Tasks list free of finished work while
  * preserving the record (alTaxPortalRestoreArchivedTask reverses this).
  */
-async function archiveTask(taskId: string, reason: string, archivedBy: string): Promise<void> {
+export async function archiveTask(taskId: string, reason: string, archivedBy: string): Promise<void> {
   const task = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
   if (!task) return;
   await query(

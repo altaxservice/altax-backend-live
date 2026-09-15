@@ -14,6 +14,8 @@
  * they can't be used to look up "the task for this client+period."
  */
 import { query, queryOne } from "../config/db";
+import { logAudit } from "./audit";
+import { archiveTask } from "../modules/tasks/tasks.routes";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -37,16 +39,34 @@ export function deriveTaskRulesPeriodLabel(periodStart: string, frequency: strin
   return null;
 }
 
-/** A safe no-op when no matching task exists (filed manually without ever going through the Agent, or already closed). */
+/**
+ * A safe no-op when no matching task exists (filed manually without ever
+ * going through the Agent, or already closed). Archives the task after
+ * closing it — real incident, 2026-09-15: this UPDATE (and closeObligationTask
+ * below) flipped status to Completed directly in v3_tasks without ever
+ * calling archiveTask, unlike every UI path (PATCH /:taskId, bulk-complete)
+ * which always archives on the same transition. A task closed this way
+ * became invisible on BOTH the Active tab (excluded once its status is
+ * Completed) and the Completed tab (which only reads v3_archived_tasks) —
+ * permanently stuck in neither list. 99 real tasks were found stuck this
+ * way in production before this fix; see sql/ migration notes / the
+ * one-off backfill for the cleanup of those.
+ */
 export async function closeTaskRulesAgentTask(clientId: string, taskName: string, periodLabel: string | null): Promise<void> {
   if (!periodLabel) return;
-  await query(
+  const rows = await query<{ task_id: string }>(
     `UPDATE altax.v3_tasks SET status = 'Completed', updated_at = now()
       WHERE client_id = $1 AND lower(task_name) = lower($2)
         AND lower(coalesce(period,'')) = lower($3)
-        AND lower(status) NOT IN ('completed','closed','archived','void')`,
+        AND lower(status) NOT IN ('completed','closed','archived','void')
+      RETURNING task_id`,
     [clientId, taskName, periodLabel]
   );
+  for (const r of rows) {
+    await archiveTask(r.task_id, "Auto-archived after being marked Completed by the Task Rules Agent.", "system");
+    await logAudit("Tasks", "ARCHIVE", r.task_id, "Status", "Completed", "Archived",
+      "Task auto-archived after being marked Completed by the Task Rules Agent.", "system");
+  }
 }
 
 /**
@@ -82,7 +102,10 @@ export async function closeObligationTask(params: {
   filedDate: string;
   paidDate?: string | null;
 }): Promise<void> {
-  await query(
+  // Archives after closing — see closeTaskRulesAgentTask's doc comment above
+  // for the real incident this fixes (a task closed here stayed permanently
+  // invisible on both the Active and Completed tabs).
+  const rows = await query<{ task_id: string }>(
     `UPDATE altax.v3_tasks
         SET status = 'Completed', filed_date = $5::date, paid_date = $6::date, updated_at = now()
       WHERE client_id = $1
@@ -91,9 +114,15 @@ export async function closeObligationTask(params: {
         AND (
           agency_due_date = $3::date
           OR ($4::text IS NOT NULL AND lower(coalesce(period, '')) = lower($4))
-        )`,
+        )
+      RETURNING task_id`,
     [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.filedDate, params.paidDate ?? null]
   );
+  for (const r of rows) {
+    await archiveTask(r.task_id, "Auto-archived after being marked Completed (obligation filed).", "system");
+    await logAudit("Tasks", "ARCHIVE", r.task_id, "Status", "Completed", "Archived",
+      "Task auto-archived after being marked Completed (obligation filed).", "system");
+  }
 }
 
 /**

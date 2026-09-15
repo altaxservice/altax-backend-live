@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { query, queryOne } from "../../config/db";
 import { computeDuePeriod } from "../rules/rules.routes";
+import { logAudit } from "../../common/audit";
+import { archiveTask } from "../tasks/tasks.routes";
 
 // A 3-digit random suffix collided in a same-second bulk-insert loop
 // elsewhere in this module (eftpsDeposits.routes.ts) — this sweep also loops
@@ -87,9 +89,19 @@ export async function ensureEftpsStaffTasks(): Promise<{ created: number }> {
  * filed_date on record" benefit-of-the-doubt default.
  */
 export async function closeEftpsStaffTask(clientId: string, periodEnd: string, filedDate: string): Promise<void> {
-  await query(
+  // Archives after closing — see taskRulesAgentBridge.ts's closeTaskRulesAgentTask
+  // doc comment for the real incident this mirrors (a task closed without
+  // archiving stayed permanently invisible on both the Active and Completed
+  // tabs, since Completed only reads v3_archived_tasks).
+  const rows = await query<{ task_id: string }>(
     `UPDATE altax.v3_tasks SET status = 'Completed', filed_date = $2::date, updated_at = now()
-      WHERE source_system = 'EftpsDepositTask' AND source_record_id = $1 AND status NOT IN ('Completed', 'Closed', 'Archived', 'Void')`,
+      WHERE source_system = 'EftpsDepositTask' AND source_record_id = $1 AND status NOT IN ('Completed', 'Closed', 'Archived', 'Void')
+      RETURNING task_id`,
     [`${clientId}:${periodEnd}`, filedDate]
   );
+  for (const r of rows) {
+    await archiveTask(r.task_id, "Auto-archived after being marked Completed (EFTPS deposit filed).", "system");
+    await logAudit("Tasks", "ARCHIVE", r.task_id, "Status", "Completed", "Archived",
+      "Task auto-archived after being marked Completed (EFTPS deposit filed).", "system");
+  }
 }
