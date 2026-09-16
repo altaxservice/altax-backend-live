@@ -9,7 +9,7 @@ import { useFocusTrap } from "../hooks/useFocusTrap";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
-  assignedClientId: "", assignedEmployeeId: "", reminderPreference: "Email",
+  assignedClientId: "", assignedEmployeeId: "", reminderPreference: "Email", bookablePublicly: true,
 };
 
 const ROLE_FILTER_OPTIONS = ["Admin", "Staff", "Client", "Employee"];
@@ -115,7 +115,7 @@ export function UsersPage() {
     setForm({
       userId: u.user_id, email: u.email, name: u.name, role: u.role, phone: u.phone || "", active: u.active,
       assignedClientId: u.assigned_client_id || "", assignedEmployeeId: u.assigned_employee_id || "",
-      reminderPreference: u.reminder_preference || "Email",
+      reminderPreference: u.reminder_preference || "Email", bookablePublicly: u.bookable_publicly,
     });
     setShowForm(true);
     setCreateCategory("edit");
@@ -553,6 +553,20 @@ export function UsersPage() {
             <input id="u-active" type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} style={{ width: "auto" }} />
             <label htmlFor="u-active" style={{ textTransform: "none", fontSize: 13 }}>Active</label>
           </div>
+          {(form.role === "Admin" || form.role === "Staff") && (
+            <div className="field">
+              <div style={{ flexDirection: "row", alignItems: "center", gap: 8, display: "flex" }}>
+                <input
+                  id="u-bookable" type="checkbox" checked={form.bookablePublicly}
+                  onChange={(e) => setForm((f) => ({ ...f, bookablePublicly: e.target.checked }))} style={{ width: "auto" }}
+                />
+                <label htmlFor="u-bookable" style={{ textTransform: "none", fontSize: 13 }}>Bookable on the public appointment scheduler</label>
+              </div>
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                Uncheck this for a shared/system login (like a general firm inbox account) that isn't a real person a client should be able to "meet with."
+              </p>
+            </div>
+          )}
           <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Saving a portal user does not send an invite by itself if one is already pending — use Resend Invite from the row Actions menu when you're ready.</p>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>

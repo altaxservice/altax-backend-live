@@ -79,7 +79,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     `SELECT user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
             reminder_preference, active, last_login, must_reset_password, invite_expires,
             (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite,
-            pending_email, pending_email_expires, ptin, caf_number
+            pending_email, pending_email_expires, ptin, caf_number, bookable_publicly
        FROM altax.v3_users
       ORDER BY name ASC`
   );
@@ -201,10 +201,18 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
   const phone = String(body.phone || "").trim() || null;
   const reminderPreference = String(body.reminderPreference || "Email").trim();
   const active = body.active === undefined ? true : Boolean(body.active);
+  // Owner-flagged real incident, 2026-09-16: this column has existed since
+  // sql/143 (defaulting every admin/staff to publicly bookable) with no way
+  // to ever turn it off — a shared/system account ("AL TAX SERVICE") was
+  // listed as a person a client could "meet with" on the public scheduler,
+  // with no admin control to fix it short of a raw database edit.
+  const bookablePublicly = body.bookablePublicly === undefined
+    ? (existing ? Boolean(existing.bookable_publicly) : true)
+    : Boolean(body.bookablePublicly);
   const params = [
     finalUserId, email, name, requestedRole, phone, assignedClientId || null, assignedEmployeeId || null,
     reminderPreference, active, inviteTokenToStore, inviteExpiresToStore, mustResetToStore,
-    "Node Web App", userId || email,
+    "Node Web App", userId || email, bookablePublicly,
   ];
 
   if (existing) {
@@ -222,7 +230,7 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
       `UPDATE altax.v3_users SET
          email = $2, name = $3, role = $4, phone = $5, assigned_client_id = $6, assigned_employee_id = $7,
          reminder_preference = $8, active = $9, invite_token = $10, invite_expires = $11,
-         must_reset_password = $12, source_system = $13, source_record_id = $14,
+         must_reset_password = $12, source_system = $13, source_record_id = $14, bookable_publicly = $15,
          token_version = token_version + ${identityChanged ? "1" : "0"}, updated_at = now()
        WHERE user_id = $1`,
       params
@@ -235,8 +243,8 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
       `INSERT INTO altax.v3_users
          (user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
           reminder_preference, active, invite_token, invite_expires, must_reset_password,
-          source_system, source_record_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          source_system, source_record_id, bookable_publicly)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       params
     );
     await logAudit("Staff", "CREATE", finalUserId, "", "", email,

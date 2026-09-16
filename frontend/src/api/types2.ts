@@ -42,6 +42,7 @@ export interface PortalUser {
   /** Self-editable by the admin/staff user themselves (see /auth/preparer-info) — used on IRS Form 2848. */
   ptin: string | null;
   caf_number: string | null;
+  bookable_publicly: boolean;
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;
