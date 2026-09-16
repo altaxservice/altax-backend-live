@@ -61,6 +61,14 @@ export function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showForm, setShowForm] = useState(false);
+  // Direct owner request, 2026-09-16: "Add User" used to drop straight into one
+  // flat form with a 4-option Role dropdown (Admin/Staff/Client/Employee) — the
+  // exact "Staff" (firm hire) vs "Employee" (a CLIENT's own worker) mix-up this
+  // was built to prevent. Now the first click is a plain Firm/Client fork, and
+  // only the roles that make sense for that fork ever appear. null = show the
+  // fork; "edit" = editing an existing user, skip the fork and show every role
+  // like before (changing an existing account's category isn't this flow's job).
+  const [createCategory, setCreateCategory] = useState<"firm" | "client" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -110,6 +118,7 @@ export function UsersPage() {
       reminderPreference: u.reminder_preference || "Email",
     });
     setShowForm(true);
+    setCreateCategory("edit");
     setInviteInfo(null);
     setSaveError(null);
   }
@@ -117,8 +126,14 @@ export function UsersPage() {
   function startCreate() {
     setForm(EMPTY_FORM);
     setShowForm(true);
+    setCreateCategory(null);
     setInviteInfo(null);
     setSaveError(null);
+  }
+
+  function chooseCategory(category: "firm" | "client") {
+    setCreateCategory(category);
+    setForm((f) => ({ ...f, role: category === "firm" ? "Staff" : "Client" }));
   }
 
   async function handleSave(e: FormEvent) {
@@ -427,9 +442,40 @@ export function UsersPage() {
         </div>
       )}
 
-      {showForm && (
+      {showForm && createCategory === null && (
+        <div className="card" style={{ maxWidth: 480, marginBottom: 24 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>New User</h2>
+          <p className="muted" style={{ fontSize: 12.5, margin: "0 0 16px" }}>Who is this account for?</p>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              type="button" className="btn" onClick={() => chooseCategory("firm")}
+              style={{ flex: "1 1 180px", padding: "16px 14px", textAlign: "left" }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Firm User</div>
+              <div className="muted" style={{ fontSize: 12 }}>Someone who works AT AL TAX SERVICE — Admin or Staff.</div>
+            </button>
+            <button
+              type="button" className="btn" onClick={() => chooseCategory("client")}
+              style={{ flex: "1 1 180px", padding: "16px 14px", textAlign: "left" }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Client User</div>
+              <div className="muted" style={{ fontSize: 12 }}>A client business's own login, or a login for one of their employees.</div>
+            </button>
+          </div>
+          <button type="button" className="btn" style={{ marginTop: 14 }} onClick={() => setShowForm(false)}>Cancel</button>
+        </div>
+      )}
+
+      {showForm && createCategory !== null && (
         <form onSubmit={handleSave} className="card" style={{ maxWidth: 480, marginBottom: 24 }}>
-          <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>{form.userId ? "Edit User" : "New User"}</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            {createCategory !== "edit" && (
+              <button type="button" className="btn btn-sm" onClick={() => setCreateCategory(null)}>&larr; Back</button>
+            )}
+            <h2 style={{ fontSize: 15, margin: 0 }}>
+              {form.userId ? "Edit User" : createCategory === "firm" ? "New Firm User" : "New Client User"}
+            </h2>
+          </div>
           {saveError && <ErrorBanner error={saveError} />}
           <div className="field">
             <label htmlFor="u-id">User ID</label>
@@ -446,16 +492,17 @@ export function UsersPage() {
           <div className="field">
             <label htmlFor="u-role">Role</label>
             <select id="u-role" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
-              <option value="Admin">Admin — firm owner/manager</option>
-              <option value="Staff">Staff — a person you hire to work at the firm</option>
-              <option value="Client">Client — a business the firm serves</option>
-              <option value="Employee">Employee — belongs to a CLIENT, not the firm</option>
+              {(createCategory === "edit" || createCategory === "firm") && <option value="Admin">Admin — firm owner/manager</option>}
+              {(createCategory === "edit" || createCategory === "firm") && <option value="Staff">Staff — a person you hire to work at the firm</option>}
+              {(createCategory === "edit" || createCategory === "client") && <option value="Client">Client — a business the firm serves</option>}
+              {(createCategory === "edit" || createCategory === "client") && <option value="Employee">Employee — belongs to a CLIENT, not the firm</option>}
             </select>
             {/* Direct owner concern, 2026-09-16: "Staff" (a firm hire) and
                 "Employee" (a client business's own worker, e.g. their payroll
-                self-service login) sound alike but are unrelated — the option
-                labels above disambiguate at the point of picking, and this
-                confirms it again once picked, before Save is even reachable. */}
+                self-service login) sound alike but are unrelated — the Firm/Client
+                fork above keeps them from ever appearing in the same dropdown, and
+                this confirms it again once a role is picked, before Save is even
+                reachable. */}
             {form.role === "Staff" && (
               <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
                 This creates a firm team member's own login (Users &amp; Access, task assignment, etc.) — for hiring a new employee of AL TAX SERVICE.
