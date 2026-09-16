@@ -8,6 +8,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { createPasswordHashFields } from "../auth/password";
 import { normalizeText, isAssignedToUser, getUserAliases } from "../../common/assignment";
 import { getStaffSchedule, saveStaffSchedule } from "../../common/staffSchedules";
+import { ensureStaffOnboardingTasks, ensureStaffOffboardingTasks } from "./staffLifecycleTasks";
 
 export const usersRouter = Router();
 
@@ -240,6 +241,9 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
     );
     await logAudit("Staff", "CREATE", finalUserId, "", "", email,
       `Staff user created by ${req.user!.email}.`, req.user!.email);
+    if (roleKey === "staff") {
+      await ensureStaffOnboardingTasks({ user_id: finalUserId, email, name }, req.user!.email);
+    }
   }
 
   let inviteEmailed = false;
@@ -290,6 +294,13 @@ usersRouter.post("/:userId/deactivate", requireAuth, requireRole("admin"), async
 
   await logAudit("Staff", "DEACTIVATE", userId, "Active", String(old.active), "Inactive",
     `Staff user deactivated by ${req.user!.email}.`, req.user!.email);
+
+  if (normalizePortalRole(old.role) === "staff") {
+    await ensureStaffOffboardingTasks(
+      { user_id: userId, email: old.email, name: old.name }, req.user!.email,
+      Number(openTasks?.count || 0), Number(assignedClients?.count || 0)
+    );
+  }
 
   res.json({
     ok: true, userId,
