@@ -448,17 +448,23 @@ export function UsersPage() {
           <p className="muted" style={{ fontSize: 12.5, margin: "0 0 16px" }}>Who is this account for?</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button
-              type="button" className="btn" onClick={() => chooseCategory("firm")}
-              style={{ flex: "1 1 180px", padding: "16px 14px", textAlign: "left" }}
+              type="button" onClick={() => chooseCategory("firm")}
+              style={{
+                flex: "1 1 180px", padding: "16px 14px", textAlign: "left", cursor: "pointer",
+                background: "var(--teal-soft)", border: "1px solid var(--teal)", borderLeft: "4px solid var(--teal)", borderRadius: 8,
+              }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Firm User</div>
+              <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--teal)" }}>Firm User</div>
               <div className="muted" style={{ fontSize: 12 }}>Someone who works AT AL TAX SERVICE — Admin or Staff.</div>
             </button>
             <button
-              type="button" className="btn" onClick={() => chooseCategory("client")}
-              style={{ flex: "1 1 180px", padding: "16px 14px", textAlign: "left" }}
+              type="button" onClick={() => chooseCategory("client")}
+              style={{
+                flex: "1 1 180px", padding: "16px 14px", textAlign: "left", cursor: "pointer",
+                background: "var(--blue-soft)", border: "1px solid var(--blue)", borderLeft: "4px solid var(--blue)", borderRadius: 8,
+              }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Client User</div>
+              <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--blue)" }}>Client User</div>
               <div className="muted" style={{ fontSize: 12 }}>A client business's own login, or a login for one of their employees.</div>
             </button>
           </div>
