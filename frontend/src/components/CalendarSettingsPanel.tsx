@@ -4,6 +4,7 @@ import { useToast } from "./Toast";
 import { useNotify } from "./ConfirmProvider";
 import { ErrorBanner } from "./ErrorBanner";
 import { useSmsStatus } from "../hooks/useSmsStatus";
+import { StaffScheduleEditor } from "./StaffScheduleEditor";
 
 interface AppointmentType {
   appointmentTypeId: string;
@@ -317,6 +318,87 @@ function PushNotificationsCard() {
   );
 }
 
+interface StaffRow { user_id: string; name: string; email: string; role: string; bookable_publicly: boolean }
+
+/**
+ * Direct owner request, 2026-09-16: staff members can work different hours
+ * from each other (e.g. two owner-principals with different schedules), and
+ * a client booking through the public scheduler needs to only ever be
+ * offered a specific person's REAL open times — not the firm-wide default.
+ * Both the per-person on/off switch (bookable_publicly) and each person's
+ * own Working Hours override already existed, but were only reachable from
+ * Users & Access, buried in a row-actions dropdown — nowhere near the
+ * Calendar page an admin would actually think to look for "who's bookable
+ * and when." This surfaces both, together, right here.
+ */
+function StaffAvailabilityManager() {
+  const notify = useNotify();
+  const [staff, setStaff] = useState<StaffRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [scheduleEdit, setScheduleEdit] = useState<{ userId: string; name: string } | null>(null);
+
+  function load() {
+    api.get<{ users: StaffRow[] }>("/users")
+      .then((res) => setStaff(res.users.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase()))))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load staff."));
+  }
+  useEffect(load, []);
+
+  async function handleToggleBookable(u: StaffRow) {
+    setBusyId(u.user_id);
+    try {
+      await api.patch(`/users/${u.user_id}/bookable`, { bookablePublicly: !u.bookable_publicly });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not update this person's booking visibility.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (error) return <p className="muted" style={{ fontSize: 13, color: "var(--red)" }}>{error}</p>;
+
+  return (
+    <div className="field">
+      <label>Staff Availability</label>
+      <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>
+        Turn a person on or off the public scheduler entirely, and set each person's own Working Hours — a client
+        who picks a specific staff member only ever sees THAT person's real open times, not the firm default above.
+      </p>
+      <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+        {!staff ? (
+          <div className="muted" style={{ padding: 12, fontSize: 13 }}>Loading…</div>
+        ) : staff.length === 0 ? (
+          <div className="muted" style={{ padding: 12, fontSize: 13 }}>No admin or staff accounts yet.</div>
+        ) : (
+          staff.map((u) => (
+            <div key={u.user_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{u.name}</div>
+                <div className="muted" style={{ fontSize: 11.5 }}>{u.email}</div>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
+                <input
+                  type="checkbox" checked={u.bookable_publicly} disabled={busyId === u.user_id}
+                  onChange={() => handleToggleBookable(u)}
+                />
+                Bookable
+              </label>
+              <button type="button" className="ghost-button btn-sm" onClick={() => setScheduleEdit({ userId: u.user_id, name: u.name })}>
+                Working Hours
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      {scheduleEdit && (
+        <StaffScheduleEditor userId={scheduleEdit.userId} name={scheduleEdit.name} onClose={() => setScheduleEdit(null)} onSaved={load} />
+      )}
+    </div>
+  );
+}
+
 /**
  * Calendar Settings (admin-only) — controls what the public /book page and the
  * "+ New Appointment" default offer: which weekdays are bookable, business
@@ -377,6 +459,8 @@ export function CalendarSettingsPanel({ onClose }: { onClose?: () => void } = {}
       </p>
 
       <PushNotificationsCard />
+
+      <StaffAvailabilityManager />
 
       <div className="field">
         <label>Bookable Days</label>

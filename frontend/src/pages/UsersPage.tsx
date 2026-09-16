@@ -6,6 +6,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { StaffScheduleEditor } from "../components/StaffScheduleEditor";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -14,25 +15,6 @@ const EMPTY_FORM = {
 
 const ROLE_FILTER_OPTIONS = ["Admin", "Staff", "Client", "Employee"];
 const STATUS_FILTER_OPTIONS = ["Active", "Inactive"];
-
-// Appointment-booking working-hours override, per staff member (v3_staff_schedules,
-// sql/144) — null on any field means "use the firm's default," same override
-// philosophy as Calendar Settings' own dayHours (CalendarSettingsPanel.tsx).
-interface DayHours { startHour: number | null; endHour: number | null }
-interface StaffSchedule {
-  bookableWeekdays: Record<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat", boolean | null>;
-  dayHours: Record<"sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat", DayHours>;
-}
-const SCHEDULE_WEEKDAYS: { key: keyof StaffSchedule["bookableWeekdays"]; label: string }[] = [
-  { key: "mon", label: "Mon" }, { key: "tue", label: "Tue" }, { key: "wed", label: "Wed" }, { key: "thu", label: "Thu" },
-  { key: "fri", label: "Fri" }, { key: "sat", label: "Sat" }, { key: "sun", label: "Sun" },
-];
-const SCHEDULE_HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
-function fmtScheduleHour(h: number): string {
-  const period = h < 12 ? "AM" : "PM";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:00 ${period}`;
-}
 
 function inviteStatus(u: PortalUser): string {
   if (!u.active) return "Inactive";
@@ -79,16 +61,11 @@ export function UsersPage() {
   const [preparerEdit, setPreparerEdit] = useState<{ userId: string; name: string; ptin: string; cafNumber: string } | null>(null);
   const [preparerSaving, setPreparerSaving] = useState(false);
   const [preparerError, setPreparerError] = useState<string | null>(null);
-  const [scheduleEdit, setScheduleEdit] = useState<{ userId: string; name: string; schedule: StaffSchedule } | null>(null);
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleEdit, setScheduleEdit] = useState<{ userId: string; name: string } | null>(null);
 
   useEscapeToClose(() => setPreparerEdit(null), Boolean(preparerEdit));
   const preparerPanelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(preparerPanelRef, Boolean(preparerEdit));
-  useEscapeToClose(() => setScheduleEdit(null), Boolean(scheduleEdit));
-  const schedulePanelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(schedulePanelRef, Boolean(scheduleEdit));
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -196,30 +173,8 @@ export function UsersPage() {
     }
   }
 
-  async function openScheduleEdit(u: PortalUser) {
-    setScheduleError(null);
-    try {
-      const res = await api.get<{ schedule: StaffSchedule }>(`/users/${u.user_id}/schedule`);
-      setScheduleEdit({ userId: u.user_id, name: u.name, schedule: res.schedule });
-    } catch (err) {
-      await notify(err instanceof ApiError ? err.message : "Could not load this person's schedule.");
-    }
-  }
-
-  async function handleSaveSchedule(e: FormEvent) {
-    e.preventDefault();
-    if (!scheduleEdit) return;
-    setScheduleSaving(true);
-    setScheduleError(null);
-    try {
-      await api.post(`/users/${scheduleEdit.userId}/schedule`, { schedule: scheduleEdit.schedule });
-      setScheduleEdit(null);
-      load();
-    } catch (err) {
-      setScheduleError(err instanceof ApiError ? err.message : "Could not save this schedule.");
-    } finally {
-      setScheduleSaving(false);
-    }
+  function openScheduleEdit(u: PortalUser) {
+    setScheduleEdit({ userId: u.user_id, name: u.name });
   }
 
   async function handleAction(userId: string, action: string) {
@@ -365,81 +320,7 @@ export function UsersPage() {
       )}
 
       {scheduleEdit && (
-        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setScheduleEdit(null))(); }}>
-          <div ref={schedulePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="schedule-title" style={{ width: "min(560px, 100%)" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 id="schedule-title">Working Hours — {scheduleEdit.name}</h2>
-              <button className="btn btn-sm" onClick={() => setScheduleEdit(null)}>Close</button>
-            </div>
-            <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
-              Controls when {scheduleEdit.name} shows up as available for appointment booking. Every day uses the
-              firm's default (set on the Calendar page's Settings tab) unless overridden here.
-            </p>
-            <form onSubmit={handleSaveSchedule}>
-              {scheduleError && <ErrorBanner error={scheduleError} />}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {SCHEDULE_WEEKDAYS.map((w) => {
-                  const bookableOverride = scheduleEdit.schedule.bookableWeekdays[w.key];
-                  const dh = scheduleEdit.schedule.dayHours[w.key];
-                  const isCustomHours = dh.startHour !== null && dh.endHour !== null;
-                  return (
-                    <div key={w.key} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ width: 38, fontSize: 13, fontWeight: 600 }}>{w.label}</span>
-                      <select
-                        aria-label={`${w.label} bookable`}
-                        value={bookableOverride === null ? "default" : bookableOverride ? "yes" : "no"}
-                        onChange={(e) => {
-                          const v = e.target.value === "default" ? null : e.target.value === "yes";
-                          setScheduleEdit((s) => s && { ...s, schedule: { ...s.schedule, bookableWeekdays: { ...s.schedule.bookableWeekdays, [w.key]: v } } });
-                        }}
-                        style={{ fontSize: 12.5 }}
-                      >
-                        <option value="default">Firm default</option>
-                        <option value="yes">Works this day</option>
-                        <option value="no">Not bookable</option>
-                      </select>
-                      {bookableOverride !== false && (
-                        <>
-                          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
-                            <input
-                              type="checkbox"
-                              checked={isCustomHours}
-                              onChange={(e) => {
-                                const nextHours: DayHours = e.target.checked ? { startHour: 9, endHour: 17 } : { startHour: null, endHour: null };
-                                setScheduleEdit((s) => s && { ...s, schedule: { ...s.schedule, dayHours: { ...s.schedule.dayHours, [w.key]: nextHours } } });
-                              }}
-                            />
-                            Custom hours
-                          </label>
-                          {isCustomHours && (
-                            <>
-                              <select
-                                aria-label={`${w.label} start time`}
-                                value={dh.startHour ?? 9}
-                                onChange={(e) => setScheduleEdit((s) => s && { ...s, schedule: { ...s.schedule, dayHours: { ...s.schedule.dayHours, [w.key]: { ...s.schedule.dayHours[w.key], startHour: Number(e.target.value) } } } })}
-                              >
-                                {SCHEDULE_HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtScheduleHour(h)}</option>)}
-                              </select>
-                              <span className="muted" style={{ fontSize: 12 }}>to</span>
-                              <select
-                                aria-label={`${w.label} end time`}
-                                value={dh.endHour ?? 17}
-                                onChange={(e) => setScheduleEdit((s) => s && { ...s, schedule: { ...s.schedule, dayHours: { ...s.schedule.dayHours, [w.key]: { ...s.schedule.dayHours[w.key], endHour: Number(e.target.value) } } } })}
-                              >
-                                {SCHEDULE_HOUR_OPTIONS.map((h) => <option key={h} value={h}>{fmtScheduleHour(h)}</option>)}
-                              </select>
-                            </>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <button type="submit" className="btn btn-primary" disabled={scheduleSaving} style={{ marginTop: 14 }}>{scheduleSaving ? "Saving…" : "Save"}</button>
-            </form>
-          </div>
-        </div>
+        <StaffScheduleEditor userId={scheduleEdit.userId} name={scheduleEdit.name} onClose={() => setScheduleEdit(null)} onSaved={load} />
       )}
 
       {showForm && createCategory === null && (

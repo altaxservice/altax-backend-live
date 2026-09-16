@@ -666,3 +666,24 @@ usersRouter.post("/:userId/schedule", requireAuth, requireRole("admin"), asyncHa
 
   res.json({ ok: true });
 }));
+
+/**
+ * Whether this admin/staff member shows up as a person a client can pick on
+ * the public appointment scheduler — a narrow, single-column PATCH so the
+ * Calendar Settings "Staff Availability" list can flip it without resending
+ * every other field on the user (the general POST / upsert route requires
+ * the full record; reusing it for a one-field toggle would risk silently
+ * clearing name/role/etc. on any caller that only sent this one field).
+ */
+usersRouter.patch("/:userId/bookable", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id, name, bookable_publicly FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+
+  const bookablePublicly = Boolean(req.body?.bookablePublicly);
+  await query(`UPDATE altax.v3_users SET bookable_publicly = $2, updated_at = now() WHERE user_id = $1`, [userId, bookablePublicly]);
+  await logAudit("Staff", "EDIT", userId, "BookablePublicly", String(user.bookable_publicly), String(bookablePublicly),
+    `${user.name}'s public-booking visibility ${bookablePublicly ? "enabled" : "disabled"} by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, userId, bookablePublicly });
+}));
