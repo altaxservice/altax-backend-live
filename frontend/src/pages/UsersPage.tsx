@@ -446,11 +446,26 @@ export function UsersPage() {
           <div className="field">
             <label htmlFor="u-role">Role</label>
             <select id="u-role" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
-              <option value="Admin">Admin</option>
-              <option value="Staff">Staff</option>
-              <option value="Client">Client</option>
-              <option value="Employee">Employee</option>
+              <option value="Admin">Admin — firm owner/manager</option>
+              <option value="Staff">Staff — a person you hire to work at the firm</option>
+              <option value="Client">Client — a business the firm serves</option>
+              <option value="Employee">Employee — belongs to a CLIENT, not the firm</option>
             </select>
+            {/* Direct owner concern, 2026-09-16: "Staff" (a firm hire) and
+                "Employee" (a client business's own worker, e.g. their payroll
+                self-service login) sound alike but are unrelated — the option
+                labels above disambiguate at the point of picking, and this
+                confirms it again once picked, before Save is even reachable. */}
+            {form.role === "Staff" && (
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                This creates a firm team member's own login (Users &amp; Access, task assignment, etc.) — for hiring a new employee of AL TAX SERVICE.
+              </p>
+            )}
+            {form.role === "Employee" && (
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                This creates a payroll/document self-service login for someone who works for one of your CLIENTS — not a firm hire. If you're adding a new staff member to AL TAX SERVICE itself, pick "Staff" instead.
+              </p>
+            )}
           </div>
           {form.role === "Client" && (
             <div className="field">
@@ -498,13 +513,13 @@ export function UsersPage() {
       {users && (
         <div style={{ display: "grid", gap: 16 }}>
           <UserGroup
-            title="Firm Users" users={filteredUsers.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase()))}
+            title="Firm Users (Admin & Staff)" users={filteredUsers.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase()))}
             onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete}
             onEditPreparer={(u) => setPreparerEdit({ userId: u.user_id, name: u.name, ptin: u.ptin || "", cafNumber: u.caf_number || "" })}
             onEditSchedule={openScheduleEdit}
           />
-          <UserGroup title="Client Users" users={filteredUsers.filter((u) => u.role.toLowerCase() === "client")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
-          <UserGroup title="Employee Users" users={filteredUsers.filter((u) => u.role.toLowerCase() === "employee")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
+          <UserGroup title="Client Users (Portal Access)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "client")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
+          <UserGroup title="Employee Users (Belong to a Client, Not the Firm)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "employee")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
         </div>
       )}
     </div>
