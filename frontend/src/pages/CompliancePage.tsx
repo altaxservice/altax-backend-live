@@ -10,16 +10,23 @@ interface WispMeta {
   myAcknowledgment: { acknowledged: boolean; acknowledgedAt: string | null };
   roster?: WispRosterRow[];
 }
+interface WispVersionRow { version: string; fileSize: number; createdAt: string; createdBy: string | null; acknowledgedCount: number }
+interface WispHistory { totalStaff: number; versions: WispVersionRow[] }
 
 /**
  * The firm's Written Information Security Plan — required under IRS Pub. 4557
  * and the FTC Safeguards Rule for every paid tax preparer. Open to Admin AND
  * Staff (unlike Firm Settings, which is admin-only) since every staff member
- * needs to read and acknowledge it, not just admins. Generated fresh from the
- * firm's own profile + these settings on every view/download, so it's never
- * stale. An admin can see who still hasn't acknowledged, edit the named
- * coordinators, and mark it reviewed (which bumps the version and requires
- * everyone to re-acknowledge).
+ * needs to read and acknowledge it, not just admins.
+ *
+ * Every version is a FROZEN PDF snapshot, not a live-regenerated one — an
+ * acknowledgment always points at the exact document someone read, so a
+ * later edit to the policy text can never silently change what an earlier
+ * acknowledgment appears to cover (see ensureWispSnapshot in
+ * compliance.routes.ts). An admin can see who still hasn't acknowledged the
+ * current version, edit the named coordinators, mark the plan reviewed
+ * (which freezes a new version and requires everyone to re-acknowledge), and
+ * pull up any past version as proof of what was signed off on and when.
  */
 export function CompliancePage() {
   const { user } = useAuth();
@@ -27,6 +34,7 @@ export function CompliancePage() {
   const confirm = useConfirm();
   const isAdmin = user?.role === "admin";
   const [meta, setMeta] = useState<WispMeta | null>(null);
+  const [history, setHistory] = useState<WispHistory | null>(null);
   const [coordinatorNames, setCoordinatorNames] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -35,15 +43,21 @@ export function CompliancePage() {
       .then((res) => { setMeta(res); setCoordinatorNames(res.coordinatorNames); })
       .catch(() => {});
   }
-  useEffect(load, []);
+  function loadHistory() {
+    api.get<WispHistory>("/compliance/wisp/history").then(setHistory).catch(() => {});
+  }
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (user?.role === "admin") loadHistory(); }, [user?.role]);
 
-  async function handleView(mode: "view" | "download") {
-    setBusy(mode);
+  async function handleView(mode: "view" | "download", version?: string) {
+    const busyKey = version ? `${mode}-${version}` : mode;
+    setBusy(busyKey);
+    const path = version ? `/compliance/wisp/pdf?version=${version}` : "/compliance/wisp/pdf";
     try {
-      if (mode === "view") await viewFile("/compliance/wisp/pdf");
-      else await downloadFile("/compliance/wisp/pdf", "WISP.pdf");
+      if (mode === "view") await viewFile(path);
+      else await downloadFile(path, version ? `WISP_${version}.pdf` : "WISP.pdf");
     } catch {
-      toast("Could not generate the WISP PDF.");
+      toast("Could not open the WISP PDF.");
     } finally {
       setBusy(null);
     }
@@ -85,8 +99,9 @@ export function CompliancePage() {
     setBusy("review");
     try {
       await api.patch("/compliance/wisp/settings", { markReviewedToday: true });
-      toast("WISP marked reviewed today. Staff will be asked to re-acknowledge.");
+      toast("WISP marked reviewed today — a new version is frozen and staff will be asked to re-acknowledge.");
       load();
+      loadHistory();
     } catch {
       toast("Could not update the review date.");
     } finally {
@@ -100,8 +115,8 @@ export function CompliancePage() {
     <div>
       <p className="muted" style={{ marginBottom: 20, maxWidth: 640 }}>
         The firm's Written Information Security Plan (WISP) — required for every paid tax preparer under IRS
-        Publication 4557 and the FTC Safeguards Rule (16 CFR Part 314). Generated from the firm's current profile,
-        so it's always up to date.
+        Publication 4557 and the FTC Safeguards Rule (16 CFR Part 314). Each version below is a permanently frozen
+        document — acknowledging it creates a timestamped proof record of exactly what was read and signed off on.
       </p>
 
       <div className="card" style={{ maxWidth: 560 }}>
@@ -176,6 +191,35 @@ export function CompliancePage() {
           </>
         )}
       </div>
+
+      {isAdmin && history && (
+        <div className="card" style={{ maxWidth: 560, marginTop: 16 }}>
+          <h2 style={{ fontSize: 15, margin: "0 0 4px" }}>Version History</h2>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+            Every past version is kept exactly as it was frozen — proof of what each acknowledgment actually covered.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {history.versions.map((v) => (
+              <div key={v.version} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                <div>
+                  <div><strong>{v.version}</strong> {v.version === meta.lastReviewedDate && <span className="muted">(current)</span>}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    Frozen {new Date(v.createdAt).toLocaleDateString()} by {v.createdBy || "system"} · {v.acknowledgedCount}/{history.totalStaff} acknowledged
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="btn btn-sm" onClick={() => handleView("view", v.version)} disabled={busy === `view-${v.version}`}>
+                    {busy === `view-${v.version}` ? "…" : "View"}
+                  </button>
+                  <button type="button" className="btn btn-sm" onClick={() => handleView("download", v.version)} disabled={busy === `download-${v.version}`}>
+                    {busy === `download-${v.version}` ? "…" : "Download"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
