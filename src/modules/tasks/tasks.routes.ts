@@ -507,6 +507,21 @@ function missingCompletionEvidence(task: { payment_required?: boolean; paid_date
 }
 
 /**
+ * QC gate, direct owner request 2026-09-16: a task sitting at "Ready for
+ * Review" can't jump straight to Completed until someone has actually
+ * called POST /:taskId/review (which stamps reviewed_by/reviewed_at) — a
+ * second set of eyes has to touch it first. Only applies to a task that was
+ * actually staged for review; a task that never entered that status isn't
+ * held to it, matching missingCompletionEvidence's "only what's actually
+ * relevant to this task" philosophy rather than a blanket requirement.
+ */
+function missingReview(oldStatus: unknown, task: { reviewed_by?: unknown }): string | null {
+  if (String(oldStatus || "").trim().toLowerCase() !== "ready for review") return null;
+  if (task.reviewed_by) return null;
+  return `This task must be reviewed (use "Mark Reviewed") before marking this task Completed.`;
+}
+
+/**
  * Moves a task row from v3_tasks into v3_archived_tasks (same columns plus
  * ArchivedAt/ArchivedBy/ArchiveReason) and removes it from the live table.
  * Ported behavior: legacy auto-archives a task the moment its status becomes
@@ -521,12 +536,12 @@ export async function archiveTask(taskId: string, reason: string, archivedBy: st
        (task_id, client_id, client_name, service_line, task_name, period, frequency, agency_due_date,
         staff_due_date, status, assigned_to, payment_required, payment_amount, filed_date, paid_date,
         confirmation_number, portal_name, portal_url, notes, source_system, source_record_id,
-        archived_at, archived_by, archive_reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,now(),$22,$23)`,
+        reviewed_by, reviewed_at, archived_at, archived_by, archive_reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,now(),$24,$25)`,
     [task.task_id, task.client_id, task.client_name, task.service_line, task.task_name, task.period, task.frequency,
       task.agency_due_date, task.staff_due_date, task.status, task.assigned_to, task.payment_required, task.payment_amount,
       task.filed_date, task.paid_date, task.confirmation_number, task.portal_name, task.portal_url, task.notes,
-      task.source_system, task.source_record_id, archivedBy, reason]
+      task.source_system, task.source_record_id, task.reviewed_by, task.reviewed_at, archivedBy, reason]
   );
   await query(`DELETE FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
   // An archived/completed task shouldn't still trigger a "your payment is
@@ -574,6 +589,8 @@ tasksRouter.patch("/:taskId", requireAuth, requireRole("admin", "staff"), asyncH
     const merged = { ...old, ...fields };
     const evidenceError = missingCompletionEvidence(merged);
     if (evidenceError) return res.status(400).json({ error: evidenceError });
+    const reviewError = missingReview(old.status, merged);
+    if (reviewError) return res.status(400).json({ error: reviewError });
   }
 
   const setClause = Object.keys(fields).map((col, i) => `${col} = $${i + 2}`).join(", ");
@@ -821,6 +838,39 @@ tasksRouter.post("/:taskId/void", requireAuth, requireRole("admin", "staff"), as
   await logAudit("Tasks", "VOID", taskId, "Status", old.status || "", "Void", `Task voided by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, taskId, status: "Void" });
+}));
+
+/**
+ * Marks a task reviewed — a real second set of eyes, distinct from just
+ * picking a status. Stamps who and when server-side (never client-supplied,
+ * unlike every other task field) so it can't be spoofed. Doesn't change
+ * status itself — a task can be reviewed at any point in its life; the QC
+ * gate this unblocks (missingReview, above) only cares that reviewed_by is
+ * set by the time someone tries to complete a task that passed through
+ * "Ready for Review". Self-review is allowed (a 2-3 person firm can't
+ * always have a second reviewer available) but flagged in the response so
+ * the frontend can show a soft warning rather than silently pretending a
+ * real second review happened.
+ */
+tasksRouter.post("/:taskId/review", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { taskId } = req.params;
+  const old = await queryOne<any>(`SELECT * FROM altax.v3_tasks WHERE task_id = $1`, [taskId]);
+  if (!old) return res.status(404).json({ error: "Task not found." });
+
+  if (!(await canAccessTask(req.user!, old))) {
+    return res.status(403).json({ error: "You do not have access to this task." });
+  }
+
+  await query(
+    `UPDATE altax.v3_tasks SET reviewed_by = $2, reviewed_at = now(), updated_at = now(), updated_by = $2 WHERE task_id = $1`,
+    [taskId, req.user!.email]
+  );
+  await logAudit("Tasks", "REVIEW", taskId, "ReviewedBy", old.reviewed_by || "", req.user!.email,
+    `Task marked reviewed by ${req.user!.email}.`, req.user!.email);
+
+  const aliases = await getUserAliases(req.user!.email);
+  const selfReview = isAssignedToUser(old.assigned_to, aliases);
+  res.json({ ok: true, taskId, reviewedBy: req.user!.email, selfReview });
 }));
 
 /**

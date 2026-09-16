@@ -206,6 +206,21 @@ export function TaskDetailPage() {
     }
   }
 
+  async function handleMarkReviewed() {
+    if (!taskId) return;
+    try {
+      const res = await api.post<{ ok: boolean; selfReview: boolean }>(`/tasks/${taskId}/review`, {});
+      load();
+      if (res.selfReview) {
+        await notify("Marked reviewed. Note: you reviewed your own assigned task — for a real second set of eyes, have someone else review it when possible.");
+      } else {
+        await notify("Marked reviewed.");
+      }
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark this task reviewed.");
+    }
+  }
+
   async function handleVoid() {
     if (!taskId) return;
     const reason = await promptFor({ title: "Void task", message: "Reason for voiding this task?" });
@@ -250,6 +265,11 @@ export function TaskDetailPage() {
             <StatusBadge status={task.status} />
             <Link to={`/clients/${task.client_id}`} className="muted">{task.client_name}</Link>
           </div>
+          {task.reviewed_by && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              ✓ Reviewed by {task.reviewed_by}{task.reviewed_at ? ` on ${new Date(task.reviewed_at).toLocaleDateString()}` : ""}
+            </div>
+          )}
           <LabelChips labels={taskLabels} onRemove={canEdit ? unassignLabel : undefined} />
           {canEdit && (
             <LabelPicker allLabels={allLabels} assignedIds={new Set(taskLabels.map((l) => l.label_id))} onAdd={assignLabel} />
@@ -273,6 +293,9 @@ export function TaskDetailPage() {
             )}
             {isAdmin && <button className="btn" onClick={() => setShowNoteModal(true)}>+ Note</button>}
             {isAdmin && <button className="btn" onClick={() => setShowLogModal(true)}>+ Log Work</button>}
+            {String(task.status || "").toLowerCase() === "ready for review" && !task.reviewed_by && (
+              <button className="btn btn-primary" onClick={handleMarkReviewed}>Mark Reviewed</button>
+            )}
             {!editing && <button className="btn" onClick={() => setEditing(true)}>Edit</button>}
             <button className="btn btn-danger" onClick={handleVoid}>Void</button>
             {isAdmin && <button className="btn btn-danger" onClick={handleDelete}>Delete</button>}

@@ -940,7 +940,7 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
   taskStatuses: { label: "Task Statuses", values: [
     "Not Started", "In Progress", "In Process", "Waiting Docs", "Waiting on Client", "Pending", "Preparation",
     "Submitted", "In Review", "Inspection Phase", "Additional Information Required", "Fee Due", "Approved",
-    "Completed", "Closed", "Archived", "Void",
+    "Ready for Review", "Completed", "Closed", "Archived", "Void",
   ] },
   invoiceStatuses: { label: "Invoice Statuses", values: ["Unpaid", "Partial", "Paid", "Void"] },
   documentStatuses: { label: "Document Request Statuses", values: ["Requested", "Open", "Waiting on Client", "Received", "Completed", "Closed", "Void"] },

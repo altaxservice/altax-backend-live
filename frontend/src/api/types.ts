@@ -135,6 +135,8 @@ export interface Task {
   portal_name: string | null;
   portal_url: string | null;
   notes: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
   updated_at: string | null;
   updated_by: string | null;
   file_count?: number;
