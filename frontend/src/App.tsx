@@ -35,6 +35,7 @@ import { SecurityPage } from "./pages/SecurityPage";
 import { FixCenterPage } from "./pages/FixCenterPage";
 import { MaintenanceManualPage } from "./pages/MaintenanceManualPage";
 import { FirmSettingsPage } from "./pages/FirmSettingsPage";
+import { CompliancePage } from "./pages/CompliancePage";
 import { FirmReportPage } from "./pages/FirmReportPage";
 import { FirmPortalsPage } from "./pages/FirmPortalsPage";
 import { ListSettingsPage } from "./pages/ListSettingsPage";
@@ -128,6 +129,7 @@ function App() {
               <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
                 <Route path="/fix-center" element={<FixCenterPage />} />
                 <Route path="/suggestions" element={<SuggestionsPage />} />
+                <Route path="/compliance" element={<CompliancePage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin"]} />}>
                 <Route path="/maintenance-manual" element={<MaintenanceManualPage />} />

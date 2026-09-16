@@ -65,6 +65,7 @@ import { appointmentsRouter, runAppointmentReminders, runAppointmentAutoComplete
 import { runPaymentDueReminders } from "./common/paymentReminders";
 import { runDailyBackupEmail } from "./common/autoBackup";
 import { firmSettingsRouter } from "./modules/firmSettings/firmSettings.routes";
+import { complianceRouter } from "./modules/compliance/compliance.routes";
 import { appointmentSettingsRouter } from "./modules/appointmentSettings/appointmentSettings.routes";
 import { pushSubscriptionsRouter } from "./modules/pushSubscriptions/pushSubscriptions.routes";
 import { contractsRouter } from "./modules/contracts/contracts.routes";
@@ -373,6 +374,7 @@ app.use("/public/appointments", publicAppointmentsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/appointments", appointmentsRouter);
 app.use("/firm-settings", firmSettingsRouter);
+app.use("/compliance", complianceRouter);
 app.use("/appointment-settings", appointmentSettingsRouter);
 app.use("/push", pushSubscriptionsRouter);
 app.use("/contracts", contractsRouter);
