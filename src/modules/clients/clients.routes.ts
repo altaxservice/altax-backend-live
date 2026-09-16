@@ -2889,6 +2889,28 @@ clientsRouter.post("/", requireAuth, requireRole("admin", "staff"), asyncHandler
     await autoGenerateContracts(clientId, body.services, body.services, req.user!.email);
   }
 
+  // Client Experience & Onboarding, direct owner request 2026-09-16: every
+  // new client gets an automatic welcome message confirming their point of
+  // contact and what to expect — previously nothing fired at all on
+  // creation. Best-effort: a missing email, an unassigned client, or a send
+  // failure never blocks client creation itself.
+  const welcomeEmail = String(body.email || "").trim();
+  if (welcomeEmail) {
+    try {
+      const { resolveAssigneeContact } = await import("../reminders/reminders.routes");
+      const { welcomeClientEmailHtml } = await import("../../common/emailTemplate");
+      const [contact, firmProfile] = await Promise.all([
+        body.assignedTo ? resolveAssigneeContact(String(body.assignedTo)) : Promise.resolve(null),
+        getFirmProfile(),
+      ]);
+      const html = await wrapEmailHtml(
+        welcomeClientEmailHtml(body.clientName, contact, firmProfile.phone, body.preferredLanguage),
+        req
+      );
+      await sendEmail({ to: welcomeEmail, subject: `Welcome to AL TAX SERVICE, ${body.clientName}`, html });
+    } catch { /* best-effort — never block client creation */ }
+  }
+
   res.status(201).json({ ok: true, clientId });
 }));
 

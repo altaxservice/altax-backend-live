@@ -100,3 +100,57 @@ export function portalInviteEmailHtml(name: string, link: string): string {
   <p>ينتهي هذا الرابط خلال 7 أيام.</p>
 </div>`;
 }
+
+/**
+ * New-client welcome email body — direct owner request 2026-09-16, the
+ * "Client Experience & Onboarding" gap from the CEO review: a new client
+ * previously got no automated confirmation of who they'd be working with
+ * or what to expect. Language selection mirrors communications.routes.ts's
+ * communicationBodyForPreference exactly (English preference shows only
+ * the English block; Arabic and Both both show both, just reordered) so
+ * this behaves consistently with every other client communication in the
+ * app. `contact` is null when the client has no assigned staff member yet
+ * (resolveAssigneeContact found nothing) — the copy degrades to a generic
+ * "your AL TAX SERVICE team" rather than showing a broken/blank contact.
+ */
+export function welcomeClientEmailHtml(
+  clientName: string,
+  contact: { name: string; email: string; phone: string | null } | null,
+  firmPhone: string,
+  preferredLanguage: unknown
+): string {
+  const name = escapeHtml(clientName);
+  const contactLine = contact
+    ? `<strong>${escapeHtml(contact.name)}</strong> — ${escapeHtml(contact.email)}${contact.phone ? ` · ${escapeHtml(contact.phone)}` : ""}`
+    : "your AL TAX SERVICE team — we'll confirm your dedicated contact shortly";
+  const contactLineAr = contact
+    ? `<strong>${escapeHtml(contact.name)}</strong> — ${escapeHtml(contact.email)}${contact.phone ? ` · ${escapeHtml(contact.phone)}` : ""}`
+    : "فريق AL TAX SERVICE — سنؤكد لكم جهة الاتصال المخصصة لكم قريباً";
+
+  const english = `<div dir="ltr" style="text-align:left;">
+  <p>Welcome to AL TAX SERVICE, ${name}!</p>
+  <p>We're glad to be working with you. Your point of contact: ${contactLine}.</p>
+  <p><strong>What to expect in your first month:</strong></p>
+  <ul>
+    <li>We'll reach out directly if we need any documents from you.</li>
+    <li>You'll get a reminder ahead of every filing deadline — nothing falls through the cracks.</li>
+    <li>Questions anytime — just reply to this email${firmPhone ? ` or call us at ${escapeHtml(firmPhone)}` : ""}.</li>
+  </ul>
+</div>`;
+
+  const arabic = `<div dir="rtl" style="text-align:right;">
+  <p>مرحباً بكم في AL TAX SERVICE، ${name}!</p>
+  <p>يسعدنا العمل معكم. جهة الاتصال الخاصة بكم: ${contactLineAr}.</p>
+  <p><strong>ما يمكن توقعه خلال الشهر الأول:</strong></p>
+  <ul>
+    <li>سنتواصل معكم مباشرة إذا احتجنا إلى أي مستندات منكم.</li>
+    <li>ستصلكم رسالة تذكير قبل كل موعد تقديم نهائي — لن يفوتكم أي موعد.</li>
+    <li>لأي استفسار، يمكنكم الرد على هذا البريد الإلكتروني${firmPhone ? ` أو الاتصال بنا على ${escapeHtml(firmPhone)}` : ""}.</li>
+  </ul>
+</div>`;
+
+  const pref = String(preferredLanguage || "Both").toLowerCase();
+  if (pref.includes("english")) return english;
+  if (pref.includes("arabic") || pref.includes("عرب")) return `${arabic}<hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">${english}`;
+  return `${english}<hr style="border:none; border-top:1px solid #e5e7eb; margin:16px 0;">${arabic}`;
+}

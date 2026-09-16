@@ -92,6 +92,17 @@ export async function resolveAssigneeEmail(assignedTo: string): Promise<string |
   return email;
 }
 
+/** Same resolution as resolveAssigneeEmail, but for a one-off "who is this person" lookup (e.g. a welcome email) rather than a hot digest-sweep loop — uncached, and returns name/phone too. */
+export async function resolveAssigneeContact(assignedTo: string): Promise<{ name: string; email: string; phone: string | null } | null> {
+  const norm = normalizeText(assignedTo);
+  if (!norm) return null;
+  const row = await queryOne<any>(
+    `SELECT name, email, phone FROM altax.v3_users WHERE active = true AND (lower(email) = $1 OR lower(name) = $1 OR lower(user_id) = $1) LIMIT 1`,
+    [norm]
+  );
+  return row ? { name: row.name || row.email, email: row.email, phone: row.phone || null } : null;
+}
+
 /**
  * Attempts a real email send, then always writes the communication log row
  * regardless of send success — same pattern as sendChannel() in
