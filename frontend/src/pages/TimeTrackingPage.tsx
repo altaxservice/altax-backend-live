@@ -9,6 +9,7 @@ import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useStickyState } from "../utils/listState";
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { fmtDateOnly } from "../utils/date";
 
 // A punch left open this long is very unlikely to be a real still-working
 // shift — almost always someone forgot to tap out. Flagged, not auto-closed:
@@ -348,7 +349,7 @@ export function TimeTrackingPage() {
                 const canDelete = !e.billed && (isAdmin || (isOwner && e.status === "Submitted"));
                 return (
                   <tr key={e.time_entry_id}>
-                    <td>{e.entry_date}</td>
+                    <td>{fmtDateOnly(e.entry_date)}</td>
                     {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_name || e.user_email}</td>}
                     <td>{e.client_name || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: "right" }}>{Number(e.hours).toFixed(2)}</td>
