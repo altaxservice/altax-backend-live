@@ -1,5 +1,11 @@
 import { query } from "../config/db";
 
+/** Real incident, 2026-09-17: v3_audit_log.note is VARCHAR(255) — a caller passing a longer note (easy to do with a descriptive message) crashed the whole action with a raw Postgres error instead of just logging a shorter note. Truncating here, once, protects every caller instead of relying on each one to remember the limit. */
+function clampNote(note: string): string {
+  const s = String(note ?? "");
+  return s.length > 255 ? `${s.slice(0, 252)}...` : s;
+}
+
 /** Ported from v3LogAudit_(module, action, recordId, field, oldValue, newValue, note). */
 export async function logAudit(
   moduleName: string,
@@ -15,7 +21,7 @@ export async function logAudit(
     `INSERT INTO altax.v3_audit_log
       (logged_at, user_email, module, action, record_id, field, old_value, new_value, note)
      VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8)`,
-    [userEmail || "system", moduleName, action, recordId, field, oldValue, newValue, note]
+    [userEmail || "system", moduleName, action, recordId, field, oldValue, newValue, clampNote(note)]
   );
 }
 
