@@ -7,7 +7,6 @@ import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useToast } from "../components/Toast";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useStickyState } from "../utils/listState";
-import type { Client } from "../api/types";
 
 interface TimeEntry {
   time_entry_id: string;
@@ -24,15 +23,100 @@ interface TimeEntry {
   invoice_id: string | null;
 }
 
+interface OpenPunch { punch_id: string; user_id: string; name: string; clock_in_at: string; device_label: string | null }
+
 const money = (n: number | string | null | undefined) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
+
+function elapsed(sinceIso: string, nowMs: number): string {
+  const ms = Math.max(0, nowMs - new Date(sinceIso).getTime());
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 /**
- * Staff time tracking, with an optional billable rate per entry so approved
- * hours can be rolled into a real client invoice (see the "Create Invoice
- * from Unbilled Time" button on ClientDetailPage.tsx's Billing tab, which
- * bills whatever's Approved+billable+unbilled here). No frontend page existed
- * for the time-tracking backend before this — entries were reachable only via
- * direct API calls.
+ * Live "who's in / who's out" board — admin-only, same GET /kiosk/open-punches
+ * data KioskSettingsPage's plain "Force Clock Out" list already used, just
+ * surfaced here with real presence and a live clock instead of buried in the
+ * kiosk admin console.
+ */
+function ClockedInBoard() {
+  const notify = useNotify();
+  const toast = useToast();
+  const confirmDialog = useConfirm();
+  const [punches, setPunches] = useState<OpenPunch[] | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  function load() {
+    api.get<{ punches: OpenPunch[] }>("/kiosk/open-punches").then((r) => setPunches(r.punches)).catch(() => setPunches([]));
+  }
+  useEffect(() => {
+    load();
+    const poll = setInterval(load, 15000);
+    return () => clearInterval(poll);
+  }, []);
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  async function handleForceClockOut(p: OpenPunch) {
+    const ok = await confirmDialog({ title: "Clock out", message: `Close ${p.name}'s open punch right now? Their hours will be recorded up to this moment.`, confirmLabel: "Clock Out Now" });
+    if (!ok) return;
+    try {
+      await api.post(`/kiosk/punches/${p.punch_id}/close`, { clockOutAt: new Date().toISOString() });
+      toast(`${p.name} clocked out.`);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not close this punch.");
+    }
+  }
+
+  const clockStr = new Date(now).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+
+  return (
+    <div className="card" style={{ marginBottom: 16, overflow: "hidden", background: "linear-gradient(180deg, var(--teal-soft) 0%, var(--paper) 140px)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 10px" }}>
+        <div>
+          <strong style={{ fontSize: 15 }}>Kiosk — Live Clock In / Out</strong>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {punches === null ? "Loading…" : punches.length === 0 ? "Everyone's clocked out." : `${punches.length} clocked in right now`}
+          </div>
+        </div>
+        <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 20, fontWeight: 600, color: "var(--teal)" }}>{clockStr}</div>
+      </div>
+      {punches && punches.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "4px 16px 16px" }}>
+          {punches.map((p) => (
+            <div key={p.punch_id} style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", background: "var(--paper)", minWidth: 220 }}>
+              <div style={{ position: "relative", width: 36, height: 36, borderRadius: "50%", background: "var(--teal-soft)", color: "var(--teal)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                {initials(p.name)}
+                <span style={{ position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: "50%", background: "var(--green)", border: "2px solid var(--paper)" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                <div className="muted" style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
+                  since {new Date(p.clock_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(p.clock_in_at, now)}
+                </div>
+              </div>
+              <button type="button" className="ghost-button btn-sm" onClick={() => handleForceClockOut(p)} title="Clock out now">Clock Out</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Staff time tracking: the live kiosk clock in/out board, plus the record of
+ * every hour worked (kiosk-recorded and manually logged internal time alike).
+ * Billable hours against a specific client are logged from that client's own
+ * Billing tab instead (ClientDetailPage.tsx) — right next to "Create Invoice
+ * from Unbilled Time", which is what actually consumes them — rather than
+ * from a generic client dropdown here.
  */
 export function TimeTrackingPage() {
   const confirmDialog = useConfirm();
@@ -41,7 +125,6 @@ export function TimeTrackingPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
-  const [clients, setClients] = useState<Client[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -54,11 +137,8 @@ export function TimeTrackingPage() {
   const [period, setPeriod] = useState(activeViewDates());
 
   const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [clientId, setClientId] = useState("");
   const [hours, setHours] = useState("");
   const [description, setDescription] = useState("");
-  const [billable, setBillable] = useState(false);
-  const [hourlyRate, setHourlyRate] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -70,7 +150,6 @@ export function TimeTrackingPage() {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [userFilter]);
-  useEffect(() => { api.get<{ clients: Client[] }>("/clients").then((r) => setClients(r.clients)).catch(() => {}); }, []);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -99,14 +178,10 @@ export function TimeTrackingPage() {
     const h = Number(hours);
     if (!entryDate) return setFormError("Date is required.");
     if (!Number.isFinite(h) || h <= 0) return setFormError("Hours must be a positive number.");
-    if (billable && (!Number(hourlyRate) || Number(hourlyRate) <= 0)) return setFormError("Enter an hourly rate for billable time.");
     setSaving(true);
     try {
-      await api.post("/time-tracking/entries", {
-        entryDate, clientId: clientId || undefined, hours: h, description: description.trim() || undefined,
-        billable: billable && Boolean(clientId), hourlyRate: billable ? Number(hourlyRate) : undefined,
-      });
-      setHours(""); setDescription(""); setBillable(false); setHourlyRate("");
+      await api.post("/time-tracking/entries", { entryDate, hours: h, description: description.trim() || undefined });
+      setHours(""); setDescription("");
       load();
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Could not log this entry.");
@@ -143,9 +218,12 @@ export function TimeTrackingPage() {
 
   return (
     <div>
+      {isAdmin && <ClockedInBoard />}
+
       <div style={{ marginBottom: 16 }}>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Log hours against a client to bill them for it, or leave the client blank for internal time.
+          Kiosk clock-ins/outs land here automatically. Use this to log internal time that isn't tied to a client —
+          for billable client work, log it from that client's own Billing tab instead.
         </p>
       </div>
 
@@ -153,13 +231,6 @@ export function TimeTrackingPage() {
         <div className="field" style={{ margin: 0 }}>
           <label htmlFor="tt-entry-date">Date</label>
           <input id="tt-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
-        </div>
-        <div className="field" style={{ margin: 0, minWidth: 200 }}>
-          <label htmlFor="tt-client">Client (optional)</label>
-          <select id="tt-client" value={clientId} onChange={(e) => { setClientId(e.target.value); if (!e.target.value) setBillable(false); }}>
-            <option value="">Internal / no client</option>
-            {clients.map((c) => <option key={c.client_id} value={c.client_id}>{c.client_name}</option>)}
-          </select>
         </div>
         <div className="field" style={{ margin: 0, maxWidth: 100 }}>
           <label htmlFor="tt-hours">Hours</label>
@@ -169,20 +240,6 @@ export function TimeTrackingPage() {
           <label htmlFor="tt-description">Description</label>
           <input id="tt-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What did you work on?" />
         </div>
-        {clientId && (
-          <>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-              <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
-              Billable
-            </label>
-            {billable && (
-              <div className="field" style={{ margin: 0, maxWidth: 120 }}>
-                <label htmlFor="tt-hourly-rate">Rate/hr</label>
-                <input id="tt-hourly-rate" type="number" step="0.01" min="0" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
-              </div>
-            )}
-          </>
-        )}
         <button className="btn btn-primary" disabled={saving} onClick={handleSubmit}>{saving ? "Saving…" : "Log Time"}</button>
       </div>
       {formError && <ErrorBanner error={formError} />}

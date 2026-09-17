@@ -3742,6 +3742,7 @@ function ClientBillingSection({ client }: { client: Client }) {
   const navigate = useNavigate();
   const confirmDialog = useConfirm();
   const notify = useNotify();
+  const toast = useToast();
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [statementBusy, setStatementBusy] = useState<"view" | "download" | "print" | null>(null);
   const [unbilledTime, setUnbilledTime] = useState<{ count: number; amount: number } | null>(null);
@@ -3751,6 +3752,13 @@ function ClientBillingSection({ client }: { client: Client }) {
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [recurringEditing, setRecurringEditing] = useState<Partial<RecurringBilling> | null>(null);
   const [openingRecurring, setOpeningRecurring] = useState(false);
+  const [showTimeForm, setShowTimeForm] = useState(false);
+  const [timeDate, setTimeDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [timeHours, setTimeHours] = useState("");
+  const [timeDescription, setTimeDescription] = useState("");
+  const [timeRate, setTimeRate] = useState("");
+  const [timeSaving, setTimeSaving] = useState(false);
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ invoices: Invoice[] }>("/billing/invoices")
@@ -3827,6 +3835,27 @@ function ClientBillingSection({ client }: { client: Client }) {
     }
   }
 
+  async function handleLogTime() {
+    setTimeError(null);
+    const h = Number(timeHours);
+    if (!Number.isFinite(h) || h <= 0) return setTimeError("Hours must be a positive number.");
+    const rateGiven = Number(timeRate) > 0;
+    setTimeSaving(true);
+    try {
+      await api.post("/time-tracking/entries", {
+        entryDate: timeDate, clientId, hours: h, description: timeDescription.trim() || undefined,
+        billable: rateGiven, hourlyRate: rateGiven ? Number(timeRate) : undefined,
+      });
+      toast("Time logged.");
+      setTimeHours(""); setTimeDescription("");
+      loadUnbilledTime();
+    } catch (err) {
+      setTimeError(err instanceof ApiError ? err.message : "Could not log this time.");
+    } finally {
+      setTimeSaving(false);
+    }
+  }
+
   async function handleStatement(mode: "view" | "download" | "print") {
     setStatementBusy(mode);
     try {
@@ -3856,6 +3885,7 @@ function ClientBillingSection({ client }: { client: Client }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input type="text" placeholder="Search invoices…" value={invoiceSearch} onChange={(e) => setInvoiceSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
           <button className="btn btn-sm btn-primary" onClick={() => setShowInvoiceModal(true)}>Create Invoice</button>
+          <button className="btn btn-sm" onClick={() => setShowTimeForm((v) => !v)}>{showTimeForm ? "Cancel" : "Log Time"}</button>
           <button className="btn btn-sm" disabled={openingRecurring} onClick={openRecurringBillingModal}>{openingRecurring ? "Checking…" : "Set Up Recurring Billing"}</button>
           {Boolean(unbilledTime?.count) && (
             <button className="btn btn-sm btn-primary" disabled={creatingFromTime} onClick={handleCreateFromTime}>
@@ -3867,6 +3897,28 @@ function ClientBillingSection({ client }: { client: Client }) {
           <button className="btn btn-sm" disabled={statementBusy !== null} onClick={() => handleStatement("print")}>{statementBusy === "print" ? "Printing…" : "Print Statement"}</button>
         </div>
       </div>
+      {showTimeForm && (
+        <div style={{ padding: 16, borderBottom: "1px solid var(--line)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", background: "var(--surface)" }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label htmlFor="cb-time-date">Date</label>
+            <input id="cb-time-date" type="date" value={timeDate} onChange={(e) => setTimeDate(e.target.value)} />
+          </div>
+          <div className="field" style={{ margin: 0, maxWidth: 100 }}>
+            <label htmlFor="cb-time-hours">Hours</label>
+            <input id="cb-time-hours" type="number" step="0.25" min="0" value={timeHours} onChange={(e) => setTimeHours(e.target.value)} />
+          </div>
+          <div className="field" style={{ margin: 0, maxWidth: 120 }}>
+            <label htmlFor="cb-time-rate">Rate/hr (optional)</label>
+            <input id="cb-time-rate" type="number" step="0.01" min="0" value={timeRate} onChange={(e) => setTimeRate(e.target.value)} placeholder="Internal" />
+          </div>
+          <div className="field" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+            <label htmlFor="cb-time-description">Description</label>
+            <input id="cb-time-description" value={timeDescription} onChange={(e) => setTimeDescription(e.target.value)} placeholder="What was the work?" />
+          </div>
+          <button className="btn btn-primary btn-sm" disabled={timeSaving} onClick={handleLogTime}>{timeSaving ? "Saving…" : "Save"}</button>
+          {timeError && <div style={{ flexBasis: "100%" }}><ErrorBanner error={timeError} /></div>}
+        </div>
+      )}
       {!invoices ? (
         <p className="muted" style={{ padding: 16, textAlign: "center" }}>Loading…</p>
       ) : (
