@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -7,6 +7,14 @@ import { useConfirm, useNotify } from "../components/ConfirmProvider";
 import { useToast } from "../components/Toast";
 import { FilterBar, exportCsv, activeViewDates } from "../components/FilterBar";
 import { useStickyState } from "../utils/listState";
+import { useEscapeToClose } from "../hooks/useEscapeToClose";
+import { useFocusTrap } from "../hooks/useFocusTrap";
+
+// A punch left open this long is very unlikely to be a real still-working
+// shift — almost always someone forgot to tap out. Flagged, not auto-closed:
+// only an admin closing it (Force Clock Out) should ever decide the actual
+// end time, since guessing one would record the wrong hours.
+const FORGOT_CLOCKOUT_HOURS = 10;
 
 interface TimeEntry {
   time_entry_id: string;
@@ -76,6 +84,7 @@ function ClockedInBoard() {
   }
 
   const clockStr = new Date(now).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  const stuckCount = (punches || []).filter((p) => (now - new Date(p.clock_in_at).getTime()) / 3600000 >= FORGOT_CLOCKOUT_HOURS).length;
 
   return (
     <div className="card" style={{ marginBottom: 16, overflow: "hidden", background: "linear-gradient(180deg, var(--teal-soft) 0%, var(--paper) 140px)" }}>
@@ -84,27 +93,33 @@ function ClockedInBoard() {
           <strong style={{ fontSize: 15 }}>Kiosk — Live Clock In / Out</strong>
           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
             {punches === null ? "Loading…" : punches.length === 0 ? "Everyone's clocked out." : `${punches.length} clocked in right now`}
+            {stuckCount > 0 && <span style={{ color: "var(--amber)", fontWeight: 600 }}> · {stuckCount} may have forgotten to clock out</span>}
           </div>
         </div>
         <div style={{ fontVariantNumeric: "tabular-nums", fontSize: 20, fontWeight: 600, color: "var(--teal)" }}>{clockStr}</div>
       </div>
       {punches && punches.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "4px 16px 16px" }}>
-          {punches.map((p) => (
-            <div key={p.punch_id} style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", background: "var(--paper)", minWidth: 220 }}>
-              <div style={{ position: "relative", width: 36, height: 36, borderRadius: "50%", background: "var(--teal-soft)", color: "var(--teal)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                {initials(p.name)}
-                <span style={{ position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: "50%", background: "var(--green)", border: "2px solid var(--paper)" }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                <div className="muted" style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
-                  since {new Date(p.clock_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(p.clock_in_at, now)}
+          {punches.map((p) => {
+            const hoursIn = (now - new Date(p.clock_in_at).getTime()) / 3600000;
+            const stuck = hoursIn >= FORGOT_CLOCKOUT_HOURS;
+            return (
+              <div key={p.punch_id} style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${stuck ? "var(--amber)" : "var(--line)"}`, borderRadius: 12, padding: "10px 12px", background: "var(--paper)", minWidth: 220 }}>
+                <div style={{ position: "relative", width: 36, height: 36, borderRadius: "50%", background: stuck ? "var(--amber-soft)" : "var(--teal-soft)", color: stuck ? "var(--amber)" : "var(--teal)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                  {initials(p.name)}
+                  <span style={{ position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: "50%", background: stuck ? "var(--amber)" : "var(--green)", border: "2px solid var(--paper)" }} />
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                  <div className="muted" style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
+                    since {new Date(p.clock_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(p.clock_in_at, now)}
+                  </div>
+                  {stuck && <div style={{ fontSize: 11, color: "var(--amber)", fontWeight: 600, marginTop: 1 }}>Forgot to clock out?</div>}
+                </div>
+                <button type="button" className="ghost-button btn-sm" onClick={() => handleForceClockOut(p)} title="Clock out now">Clock Out</button>
               </div>
-              <button type="button" className="ghost-button btn-sm" onClick={() => handleForceClockOut(p)} title="Clock out now">Clock Out</button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -142,6 +157,7 @@ export function TimeTrackingPage() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
 
   function load(): Promise<void> {
     const qs = isAdmin && userFilter ? `?userEmail=${encodeURIComponent(userFilter)}` : "";
@@ -173,6 +189,18 @@ export function TimeTrackingPage() {
     if (q) rows = rows.filter((e) => [e.description, e.client_name, e.user_name, e.user_email].some((v) => String(v || "").toLowerCase().includes(q)));
     return [...rows].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   }, [entries, period, statusFilter, billableFilter, search]);
+
+  const hoursByStaff = useMemo(() => {
+    const totals = new Map<string, { email: string; name: string; hours: number }>();
+    for (const e of filtered) {
+      const key = e.user_email;
+      const existing = totals.get(key);
+      const hours = Number(e.hours) || 0;
+      if (existing) existing.hours += hours;
+      else totals.set(key, { email: key, name: e.user_name || e.user_email, hours });
+    }
+    return Array.from(totals.values()).sort((a, b) => b.hours - a.hours);
+  }, [filtered]);
 
   async function handleSubmit() {
     setFormError(null);
@@ -273,6 +301,24 @@ export function TimeTrackingPage() {
         <div className="metric"><div className="metric-label">Approved, Unbilled &amp; Billable</div><div className="metric-value">{billableUnbilled.length}</div></div>
       </div>
 
+      {isAdmin && hoursByStaff.length > 0 && (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <strong style={{ fontSize: 14 }}>Hours by Staff</strong>
+          <div className="muted" style={{ fontSize: 12, margin: "2px 0 12px" }}>For the entries shown above.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {hoursByStaff.map((s) => (
+              <div key={s.email} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 160, fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</div>
+                <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--surface)", overflow: "hidden" }}>
+                  <div style={{ width: `${hoursByStaff[0].hours > 0 ? (s.hours / hoursByStaff[0].hours) * 100 : 0}%`, height: "100%", background: "var(--teal)", borderRadius: 4 }} />
+                </div>
+                <div style={{ width: 56, textAlign: "right", fontSize: 12.5, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{s.hours.toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {entries === null && !error && <div className="spinner-wrap">Loading time entries…</div>}
 
       {entries !== null && (
@@ -318,6 +364,7 @@ export function TimeTrackingPage() {
                             <button className="btn btn-sm" onClick={() => handleDecision(e.time_entry_id, "reject")}>Reject</button>
                           </>
                         )}
+                        {canDelete && <button className="btn btn-sm" onClick={() => setEditingEntry(e)}>Edit</button>}
                         {canDelete && <button className="btn btn-sm" onClick={() => handleDelete(e.time_entry_id)}>Delete</button>}
                       </div>
                     </td>
@@ -332,6 +379,79 @@ export function TimeTrackingPage() {
         </div>
       </div>
       )}
+
+      {editingEntry && (
+        <EditTimeEntryModal
+          entry={editingEntry}
+          onClose={() => setEditingEntry(null)}
+          onDone={() => { setEditingEntry(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditTimeEntryModal({ entry, onClose, onDone }: { entry: TimeEntry; onClose: () => void; onDone: () => void }) {
+  useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
+  const [entryDate, setEntryDate] = useState(entry.entry_date.slice(0, 10));
+  const [hours, setHours] = useState(String(entry.hours));
+  const [description, setDescription] = useState(entry.description || "");
+  const [billable, setBillable] = useState(entry.billable);
+  const [hourlyRate, setHourlyRate] = useState(entry.hourly_rate != null ? String(entry.hourly_rate) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h <= 0) return setError("Hours must be a positive number.");
+    if (entry.client_id && billable && (!Number(hourlyRate) || Number(hourlyRate) <= 0)) return setError("Enter an hourly rate for billable time.");
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/time-tracking/entries/${entry.time_entry_id}`, {
+        entryDate, hours: h, description: description.trim() || undefined,
+        billable: entry.client_id ? billable : undefined,
+        hourlyRate: entry.client_id && billable ? Number(hourlyRate) : undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save this entry.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-time-entry-title" style={{ width: "min(480px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="edit-time-entry-title">Edit Time Entry</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+        {error && <ErrorBanner error={error} />}
+        <div className="form-grid">
+          <div className="field"><label htmlFor="ete-date">Date</label><input id="ete-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
+          <div className="field"><label htmlFor="ete-hours">Hours</label><input id="ete-hours" type="number" step="0.25" min="0" value={hours} onChange={(e) => setHours(e.target.value)} /></div>
+        </div>
+        <div className="field"><label htmlFor="ete-description">Description</label><input id="ete-description" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+        {entry.client_id && (
+          <>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
+              Billable to {entry.client_name}
+            </label>
+            {billable && (
+              <div className="field" style={{ maxWidth: 140 }}>
+                <label htmlFor="ete-rate">Rate/hr</label>
+                <input id="ete-rate" type="number" step="0.01" min="0" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+              </div>
+            )}
+          </>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleSave}>{saving ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
     </div>
   );
 }
