@@ -68,6 +68,8 @@ import { PublicMdFilingPage } from "./pages/PublicMdFilingPage";
 import { PublicAnnualReportPage } from "./pages/PublicAnnualReportPage";
 import { PublicMdUiPage } from "./pages/PublicMdUiPage";
 import { PublicForm941Page } from "./pages/PublicForm941Page";
+import { KioskPage } from "./pages/KioskPage";
+import { KioskSettingsPage } from "./pages/KioskSettingsPage";
 
 function App() {
   return (
@@ -94,6 +96,8 @@ function App() {
           <Route path="/public/annual-report/:token" element={<PublicAnnualReportPage />} />
           <Route path="/public/md-ui/:token" element={<PublicMdUiPage />} />
           <Route path="/public/form941/:token" element={<PublicForm941Page />} />
+          <Route path="/kiosk/:token" element={<KioskPage />} />
+          <Route path="/kiosk" element={<KioskPage />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -116,6 +120,7 @@ function App() {
                 <Route path="/firm-settings" element={<FirmSettingsPage />} />
                 <Route path="/firm-report" element={<FirmReportPage />} />
                 <Route path="/firm-portals" element={<FirmPortalsPage />} />
+                <Route path="/kiosk-settings" element={<KioskSettingsPage />} />
                 <Route path="/list-settings" element={<ListSettingsPage />} />
                 <Route path="/document-checklists" element={<DocumentChecklistsPage />} />
               </Route>

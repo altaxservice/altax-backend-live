@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
-  LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2,
+  LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2, TabletSmartphone,
   PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen,
   type LucideProps,
 } from "lucide-react";
@@ -91,6 +91,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog },
   { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck },
   { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
+  { to: "/kiosk-settings", label: "Time Clock Kiosk", roles: ["admin"], group: "Firm", icon: TabletSmartphone },
   { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench },
   { to: "/compliance", label: "Compliance", roles: ["admin", "staff"], group: "Firm", icon: ShieldAlert },
   { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp },
@@ -137,6 +138,7 @@ const TITLES: Record<string, string> = {
   "/suggestions": "Suggestions",
   "/document-checklists": "Document Checklists",
   "/firm-portals": "Portal Credentials",
+  "/kiosk-settings": "Time Clock Kiosk",
   "/guide": "Guide",
   "/my-business": "My Business",
   "/agreements": "Agreements",
