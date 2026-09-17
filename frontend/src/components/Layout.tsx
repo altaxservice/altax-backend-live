@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ListChecks, Calendar, Clock, Workflow, ClipboardCheck, FileText, Kanban,
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2, TabletSmartphone,
-  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen,
+  PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen, HandCoins,
   type LucideProps,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -34,7 +34,7 @@ import { APP_NAME, COPYRIGHT, FIRM_LEGAL_NAME } from "../utils/branding";
 // showsTaskPanel below. Clicking a task row now selects it (no
 // navigation) so the panel appears right there on the list; the task's
 // own name is still a real link to its detail page.
-const CLIENT_PANEL_ROUTES = ["/documents", "/billing", "/accounting", "/reports", "/communications", "/clients"];
+const CLIENT_PANEL_ROUTES = ["/documents", "/accounting", "/reports", "/communications", "/clients"];
 
 function showsTaskPanel(pathname: string): boolean {
   return pathname === "/tasks" || pathname.startsWith("/tasks/");
@@ -73,6 +73,7 @@ const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[];
   { to: "/subscription-plans", label: "Subscription Plans", roles: ["admin", "staff"], group: "Tools", icon: Layers },
   { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator },
   { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard },
+  { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
   { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature },
   { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark },
@@ -112,6 +113,7 @@ const TITLES: Record<string, string> = {
   "/calendar": "Calendar",
   "/time-tracking": "Time Tracking",
   "/billing": "Billing",
+  "/tax-payments": "Client Tax Payments",
   "/documents": "Documents",
   "/my-tax-forms": "My Tax Forms",
   "/users": "Users & Access",

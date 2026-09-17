@@ -71,7 +71,6 @@ export function InvoicesListPage() {
   const [recurringModal, setRecurringModal] = useState<{ editing?: Partial<RecurringBilling> } | null>(null);
   const [running, setRunning] = useState(false);
 
-  const taxTrackingRef = useRef<HTMLDivElement>(null);
   const [statementClientId, setStatementClientId] = useState("");
   const [statementStart, setStatementStart] = useState("");
   const [statementEnd, setStatementEnd] = useState("");
@@ -398,8 +397,8 @@ export function InvoicesListPage() {
       {canManage && (
         <div className="portal-banner" style={{ margin: "16px 0" }}>
           <div className="topbar-eyebrow">Billing Workspace</div>
-          <h2>Firm invoices and client tax payments</h2>
-          <p>Firm invoices and invoice payments are separate from client tax payment tracking for the selected period.</p>
+          <h2>Firm invoices</h2>
+          <p>What the firm bills clients and what clients have paid. Looking for what clients owe tax agencies instead? That's on Client Tax Payments.</p>
           <div className="quick-actions" style={{ marginTop: 12 }}>
             <button className="action-button" type="button" onClick={() => setShowCreateInvoice(true)}>Create Invoice</button>
             <button className="ghost-button" type="button" onClick={() => setShowSalesReceipt(true)}>Sales Receipt</button>
@@ -429,10 +428,10 @@ export function InvoicesListPage() {
             <div className="metric-value">{fmtMoney(kpis.paidThisPeriod)}</div>
             <div className="metric-note">{kpis.paidCount} firm payment(s)</div>
           </button>
-          <button type="button" className="metric metric-clickable" onClick={() => taxTrackingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+          <button type="button" className="metric metric-clickable" onClick={() => navigate(`/tax-payments?start=${period.start}&end=${period.end}`)}>
             <div className="metric-label">Client Tax Due</div>
             <div className="metric-value">{fmtMoney(kpis.clientTaxDue)}</div>
-            <div className="metric-note">{kpis.taxCount} tax tracking row(s)</div>
+            <div className="metric-note">{kpis.taxCount} tax tracking row(s) — Client Tax Payments →</div>
           </button>
         </div>
       )}
@@ -631,36 +630,6 @@ export function InvoicesListPage() {
           </div>
           </div>
           {filteredFirmPayments.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{(firmPayments || []).length ? "No payments match." : "No firm invoice payments for this period."}</p>}
-        </div>
-      )}
-
-      {canManage && (
-        <div ref={taxTrackingRef} className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}>
-            <strong style={{ fontSize: 14 }}>Client Tax Payment Tracking</strong>
-            <span className="muted" style={{ fontSize: 12 }}>{scopedTaxRows.length} tax payment rows</span>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-          <div className="table-scroll">
-          <table>
-            <thead><tr><th scope="col">Payment / Due</th><th scope="col">Client</th><th scope="col">Related Task</th><th scope="col">Due / Paid</th><th scope="col">Expected</th><th scope="col">Paid</th><th scope="col">Status</th></tr></thead>
-            <tbody>
-              {scopedTaxRows.map((r) => (
-                <tr key={r.task_id} data-row-id={r.task_id} tabIndex={0} onClick={() => navigate(`/tasks/${r.task_id}`)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/tasks/${r.task_id}`); } }}>
-                  <td>{r.task_name}</td>
-                  <td className="muted">{r.client_name}</td>
-                  <td className="muted">{r.task_name}</td>
-                  <td className="muted">{fmtDate(r.paid_date || r.agency_due_date)}</td>
-                  <td>{fmtMoney(r.payment_amount)}</td>
-                  <td className="muted">{r.paid_date ? "Yes" : "No"}</td>
-                  <td><StatusBadge status={r.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-          </div>
-          {scopedTaxRows.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No client tax payment rows for this period.</p>}
         </div>
       )}
 

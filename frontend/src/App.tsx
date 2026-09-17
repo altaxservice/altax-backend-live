@@ -22,6 +22,7 @@ import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { DocumentsListPage } from "./pages/DocumentsListPage";
 import { DocumentDetailPage } from "./pages/DocumentDetailPage";
 import { InvoicesListPage } from "./pages/InvoicesListPage";
+import { ClientTaxPaymentsPage } from "./pages/ClientTaxPaymentsPage";
 import { PayrollAgentPage } from "./pages/PayrollAgentPage";
 import { InvoiceDetailPage } from "./pages/InvoiceDetailPage";
 import { CommunicationsPage } from "./pages/CommunicationsPage";
@@ -146,6 +147,7 @@ function App() {
                 <Route path="/billing/:invoiceId" element={<InvoiceDetailPage />} />
               </Route>
               <Route element={<ProtectedRoute roles={["admin", "staff"]} />}>
+                <Route path="/tax-payments" element={<ClientTaxPaymentsPage />} />
                 <Route path="/labels" element={<LabelsPage />} />
                 <Route path="/clients" element={<ClientsListPage />} />
                 <Route path="/clients/:clientId" element={<ClientDetailPage />} />
