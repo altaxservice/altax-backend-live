@@ -20,6 +20,64 @@ function useClock(): string {
 }
 
 /**
+ * Real owner question, 2026-09-17: "Add to Home Screen"/"Install app" reads
+ * whatever's in <head> at the moment it's tapped — this app is one shared
+ * index.html for every route, so without this, the kiosk would get the same
+ * icon as the full admin app (confusing on a shared device) and would still
+ * open inside the browser's normal chrome (address bar visible) instead of a
+ * clean, full-screen "dedicated terminal" feel.
+ *
+ * Covers BOTH platforms, since the device could be either (direct owner
+ * note): the apple-mobile-web-app-* meta tags + apple-touch-icon link drive
+ * iOS Safari's behavior; Android/Chrome instead reads whichever manifest the
+ * <link rel="manifest"> tag points at. Critically, the app's main manifest
+ * has start_url:"/dashboard" — installing from here with THAT manifest still
+ * attached would create a home-screen icon that opens the main admin app,
+ * not the kiosk. Swapping the manifest link to a separate kiosk-manifest.
+ * webmanifest (start_url:"/kiosk", its own icons) fixes that. Every swap
+ * restores the ORIGINAL value on unmount (not just removes it), so the
+ * tags VitePWA already injects for the main app are untouched everywhere else.
+ */
+function useKioskHomeScreenTags() {
+  useEffect(() => {
+    const prevTitle = document.title;
+    const created: HTMLElement[] = [];
+    const restoreAttrs: { el: Element; attr: string; prev: string | null }[] = [];
+
+    function setAttr(el: Element, attr: string, value: string) {
+      restoreAttrs.push({ el, attr, prev: el.getAttribute(attr) });
+      el.setAttribute(attr, value);
+    }
+    function upsertMeta(name: string, content: string) {
+      let el = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+      if (!el) { el = document.createElement("meta"); el.setAttribute("name", name); document.head.appendChild(el); created.push(el); return; }
+      setAttr(el, "content", content);
+    }
+
+    document.title = "Time Clock";
+    upsertMeta("apple-mobile-web-app-capable", "yes");
+    upsertMeta("apple-mobile-web-app-title", "Time Clock");
+    upsertMeta("apple-mobile-web-app-status-bar-style", "black-translucent");
+    upsertMeta("mobile-web-app-capable", "yes");
+    upsertMeta("theme-color", "#0b6b6b");
+
+    const iconLink = document.querySelector('link[rel="apple-touch-icon"]');
+    if (iconLink) setAttr(iconLink, "href", "/icons/kiosk-apple-touch-icon.png");
+
+    // VitePWA injects this as <link rel="manifest">; swapping its href is
+    // what makes Android's "Install app" pick up the kiosk-specific manifest.
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    if (manifestLink) setAttr(manifestLink, "href", "/kiosk-manifest.webmanifest");
+
+    return () => {
+      document.title = prevTitle;
+      restoreAttrs.reverse().forEach(({ el, attr, prev }) => { if (prev === null) el.removeAttribute(attr); else el.setAttribute(attr, prev); });
+      created.forEach((el) => el.remove());
+    };
+  }, []);
+}
+
+/**
  * Time Clock Kiosk — direct owner request 2026-09-17. Meant to live open,
  * full-screen, on a shared tablet/computer at the office. Deliberately has
  * no normal login: the DEVICE authenticates with its own long token (saved
@@ -34,6 +92,7 @@ export function KioskPage() {
   const { token: tokenFromUrl } = useParams();
   const navigate = useNavigate();
   const clock = useClock();
+  useKioskHomeScreenTags();
 
   const [deviceToken, setDeviceToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [roster, setRoster] = useState<RosterResponse | null>(null);

@@ -119,6 +119,10 @@ export function KioskSettingsPage() {
             <input readOnly value={kioskUrl} style={{ flex: 1, fontSize: 12.5 }} onFocus={(e) => e.target.select()} />
             <button type="button" className="btn btn-sm" onClick={() => { navigator.clipboard.writeText(kioskUrl); toast("Link copied."); }}>Copy</button>
           </div>
+          <p className="muted" style={{ fontSize: 12, margin: "10px 0 0" }}>
+            On the iPad: open this link in Safari, tap the Share icon, then <strong>"Add to Home Screen."</strong> That gives it its own
+            clock icon and opens full-screen with no Safari address bar — just a bookmark won't do either of those.
+          </p>
           <button type="button" className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setNewDeviceToken(null)}>Done</button>
         </div>
       )}
