@@ -193,7 +193,7 @@ export function KioskPage() {
       <KioskShell clock={clock}>
         <div style={{ textAlign: "center", width: 320 }}>
           <h1 style={{ fontSize: 26, marginBottom: 4 }}>{selected.name}</h1>
-          <p style={{ opacity: 0.7, marginBottom: 20 }}>{selected.clockedIn ? "Enter your PIN to clock out" : "Enter your PIN to clock in"}</p>
+          <p style={{ fontSize: 18, opacity: 0.75, marginBottom: 20 }}>{selected.clockedIn ? "Enter your PIN to clock out" : "Enter your PIN to clock in"}</p>
           <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 20 }}>
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} style={{

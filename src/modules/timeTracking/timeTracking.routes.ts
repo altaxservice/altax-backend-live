@@ -75,14 +75,21 @@ timeTrackingRouter.get("/entries", asyncHandler(async (req: AuthedRequest, res: 
 
   const conditions: string[] = [];
   const params: any[] = [];
-  if (filterEmail) { params.push(filterEmail); conditions.push(`user_email = $${params.length}`); }
+  if (filterEmail) { params.push(filterEmail); conditions.push(`t.user_email = $${params.length}`); }
   const start = String(req.query.start || "").trim();
   const end = String(req.query.end || "").trim();
-  if (start) { params.push(start); conditions.push(`entry_date >= $${params.length}::date`); }
-  if (end) { params.push(end); conditions.push(`entry_date <= $${params.length}::date`); }
+  if (start) { params.push(start); conditions.push(`t.entry_date >= $${params.length}::date`); }
+  if (end) { params.push(end); conditions.push(`t.entry_date <= $${params.length}::date`); }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const rows = await query<any>(`SELECT * FROM altax.v3_time_entries ${where} ORDER BY entry_date DESC, created_at DESC`, params);
+  const rows = await query<any>(
+    `SELECT t.*, u.name AS user_name
+       FROM altax.v3_time_entries t
+       LEFT JOIN altax.v3_users u ON lower(u.email) = lower(t.user_email)
+       ${where}
+      ORDER BY t.entry_date DESC, t.created_at DESC`,
+    params
+  );
   res.json({ timeEntries: rows });
 }));
 

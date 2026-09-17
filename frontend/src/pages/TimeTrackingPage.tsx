@@ -11,6 +11,7 @@ import { useStickyState } from "../utils/listState";
 interface TimeEntry {
   time_entry_id: string;
   user_email: string;
+  user_name: string | null;
   entry_date: string;
   client_id: string | null;
   client_name: string | null;
@@ -169,7 +170,7 @@ export function TimeTrackingPage() {
     if (billableFilter === "billable") rows = rows.filter((e) => e.billable);
     if (billableFilter === "internal") rows = rows.filter((e) => !e.billable);
     const q = search.trim().toLowerCase();
-    if (q) rows = rows.filter((e) => [e.description, e.client_name, e.user_email].some((v) => String(v || "").toLowerCase().includes(q)));
+    if (q) rows = rows.filter((e) => [e.description, e.client_name, e.user_name, e.user_email].some((v) => String(v || "").toLowerCase().includes(q)));
     return [...rows].sort((a, b) => b.entry_date.localeCompare(a.entry_date));
   }, [entries, period, statusFilter, billableFilter, search]);
 
@@ -302,7 +303,7 @@ export function TimeTrackingPage() {
                 return (
                   <tr key={e.time_entry_id}>
                     <td>{e.entry_date}</td>
-                    {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_email}</td>}
+                    {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_name || e.user_email}</td>}
                     <td>{e.client_name || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: "right" }}>{Number(e.hours).toFixed(2)}</td>
                     <td className="muted" style={{ fontSize: 12 }}>{e.description || "—"}</td>
