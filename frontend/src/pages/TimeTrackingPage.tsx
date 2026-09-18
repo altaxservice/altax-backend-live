@@ -47,6 +47,60 @@ function elapsed(sinceIso: string, nowMs: number): string {
 }
 
 /**
+ * "Clock in from your desk" — no PIN, no shared tablet, since you're already
+ * signed in as yourself. Visible to admin and staff alike (unlike the live
+ * board below, which is an admin-only view of everyone). Feeds the exact
+ * same punch/hours pipeline as the kiosk, so it shows up on the board and in
+ * Time Entries automatically. Staff asked for this directly, 2026-09-17.
+ */
+function SelfClockButton({ onPunched }: { onPunched: () => void }) {
+  const notify = useNotify();
+  const [status, setStatus] = useState<{ clockedIn: boolean; since: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  function load() {
+    api.get<{ clockedIn: boolean; since: string | null }>("/kiosk/self/status").then(setStatus).catch(() => {});
+  }
+  useEffect(load, []);
+  useEffect(() => {
+    if (!status?.clockedIn) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [status?.clockedIn]);
+
+  async function handleClick() {
+    setBusy(true);
+    try {
+      await api.post<{ action: "clock-in" | "clock-out" }>("/kiosk/self/punch", {});
+      load();
+      onPunched();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not clock in/out.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  return (
+    <div className="card" style={{ padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ fontSize: 13.5 }}>
+        {status.clockedIn ? (
+          <>You're <strong style={{ color: "var(--green)" }}>clocked in</strong> <span className="muted">· since {new Date(status.since!).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(status.since!, now)}</span></>
+        ) : (
+          <span className="muted">You're clocked out.</span>
+        )}
+      </div>
+      <button type="button" className={status.clockedIn ? "btn btn-sm" : "btn btn-sm btn-primary"} disabled={busy} onClick={handleClick}>
+        {busy ? "Working…" : status.clockedIn ? "Clock Out" : "Clock In"}
+      </button>
+    </div>
+  );
+}
+
+/**
  * Live "who's in / who's out" board — admin-only, same GET /kiosk/open-punches
  * data KioskSettingsPage's plain "Force Clock Out" list already used, just
  * surfaced here with real presence and a live clock instead of buried in the
@@ -113,7 +167,7 @@ function ClockedInBoard() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
                   <div className="muted" style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
-                    since {new Date(p.clock_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(p.clock_in_at, now)}
+                    since {new Date(p.clock_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · {elapsed(p.clock_in_at, now)}{p.device_label ? ` · ${p.device_label}` : ""}
                   </div>
                   {stuck && <div style={{ fontSize: 11, color: "var(--amber)", fontWeight: 600, marginTop: 1 }}>Forgot to clock out?</div>}
                 </div>
@@ -248,6 +302,7 @@ export function TimeTrackingPage() {
 
   return (
     <div>
+      <SelfClockButton onPunched={load} />
       {isAdmin && <ClockedInBoard />}
 
       <div style={{ marginBottom: 16 }}>

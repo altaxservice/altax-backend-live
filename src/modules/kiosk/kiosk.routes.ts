@@ -82,10 +82,50 @@ kioskRouter.post("/users/:userId/pin", requireAuth, requireRole("admin"), asyncH
   res.json({ ok: true });
 }));
 
+/** Am I currently clocked in? Backs the self-service Clock In/Out button on Time Tracking. */
+kioskRouter.get("/self/status", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const punch = await queryOne<any>(
+    `SELECT clock_in_at FROM altax.v3_kiosk_punches WHERE user_id = $1 AND clock_out_at IS NULL ORDER BY clock_in_at DESC LIMIT 1`,
+    [req.user!.sub]
+  );
+  res.json({ clockedIn: Boolean(punch), since: punch?.clock_in_at || null });
+}));
+
+/**
+ * Self-service clock in/out for someone already signed into the real app —
+ * no PIN, no shared device. device_id is left null (nullable by design, see
+ * 159_kiosk_time_clock.sql) so this is distinguishable from a physical kiosk
+ * punch while feeding the exact same open-punch/hours pipeline, so it shows
+ * up on the live board and Time Entries with no separate code path. Lets
+ * someone at their own desk skip walking to the shared tablet — staff asked
+ * for this directly, 2026-09-17.
+ */
+kioskRouter.post("/self/punch", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const userId = req.user!.sub;
+  const openPunch = await queryOne<any>(
+    `SELECT punch_id, clock_in_at FROM altax.v3_kiosk_punches WHERE user_id = $1 AND clock_out_at IS NULL ORDER BY clock_in_at DESC LIMIT 1`,
+    [userId]
+  );
+
+  if (openPunch) {
+    const { closePunchAndRecordHours } = await import("./kioskPunch");
+    const { hoursAdded } = await closePunchAndRecordHours(
+      { punch_id: openPunch.punch_id, user_id: userId, clock_in_at: openPunch.clock_in_at },
+      new Date(),
+      "Web clock-out"
+    );
+    return res.json({ ok: true, action: "clock-out", hoursThisPunch: hoursAdded, at: new Date().toISOString() });
+  }
+
+  const punchId = `PUNCH-${idSuffix()}`;
+  await query(`INSERT INTO altax.v3_kiosk_punches (punch_id, user_id, device_id, clock_in_at) VALUES ($1,$2,NULL,now())`, [punchId, userId]);
+  res.json({ ok: true, action: "clock-in", at: new Date().toISOString() });
+}));
+
 /** Admin view of everyone currently clocked in, and how long — the "did someone forget to clock out" check. */
 kioskRouter.get("/open-punches", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const rows = await query<any>(
-    `SELECT p.punch_id, p.user_id, u.name, p.clock_in_at, p.device_id, d.label AS device_label
+    `SELECT p.punch_id, p.user_id, u.name, p.clock_in_at, p.device_id, COALESCE(d.label, 'Self-service') AS device_label
        FROM altax.v3_kiosk_punches p
        JOIN altax.v3_users u ON u.user_id = p.user_id
        LEFT JOIN altax.v3_kiosk_devices d ON d.device_id = p.device_id
