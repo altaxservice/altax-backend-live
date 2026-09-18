@@ -82,10 +82,21 @@ timeTrackingRouter.get("/entries", asyncHandler(async (req: AuthedRequest, res: 
   if (end) { params.push(end); conditions.push(`t.entry_date <= $${params.length}::date`); }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // LATERAL + LIMIT 1, not a plain join on email: email isn't guaranteed
+  // unique in v3_users (confirmed live, 2026-09-18 — two rows share
+  // almabarihesham@gmail.com, one active and one stale/deactivated), and a
+  // plain join fanned every entry for that email into duplicate rows with
+  // double-counted hours. Prefer the active account's name when more than
+  // one row matches.
   const rows = await query<any>(
     `SELECT t.*, u.name AS user_name
        FROM altax.v3_time_entries t
-       LEFT JOIN altax.v3_users u ON lower(u.email) = lower(t.user_email)
+       LEFT JOIN LATERAL (
+         SELECT name FROM altax.v3_users
+          WHERE lower(email) = lower(t.user_email)
+          ORDER BY active DESC, created_at DESC
+          LIMIT 1
+       ) u ON true
        ${where}
       ORDER BY t.entry_date DESC, t.created_at DESC`,
     params
