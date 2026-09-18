@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Calculator } from "lucide-react";
+import { Calculator, Search } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { api, ApiError, setAuthToken } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
@@ -96,6 +96,17 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
             aria-controls="primary-sidebar"
             onClick={onMenuClick}
           >☰</button>
+          <button
+            type="button"
+            className="btn topbar-cmdk-hint"
+            title="Search everything — clients, tasks, invoices, and pages (⌘K)"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
+            style={{ display: "flex", alignItems: "center", gap: 6, alignSelf: "center" }}
+          >
+            <Search size={15} strokeWidth={2} aria-hidden="true" />
+            <span>{t("header.search")}</span>
+            <kbd>⌘K</kbd>
+          </button>
           <div>
             {/* Clients/employees get their own portal name here — "OPERATIONS
                 DASHBOARD" and the "client workspace" subline are firm-internal
@@ -142,14 +153,6 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
               <button type="button" className="btn" onClick={handleSearch}>{t("header.searchAll")}</button>
             </div>
           </div>
-          <button
-            type="button"
-            className="btn topbar-cmdk-hint"
-            title="Quick search everything (⌘K)"
-            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
-          >
-            <kbd>⌘K</kbd>
-          </button>
           {isPreparer && (
             <button
               type="button"
