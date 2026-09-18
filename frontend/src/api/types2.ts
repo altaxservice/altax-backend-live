@@ -45,6 +45,8 @@ export interface PortalUser {
   bookable_publicly: boolean;
   /** What the firm pays this person per hour -- admin-set only, separate from a client-billable rate. */
   hourly_rate: string | number | null;
+  /** The v3_employees record this person is linked to for payroll export from Time Tracking, if any. */
+  payroll_employee_id: string | null;
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;

@@ -3,6 +3,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
+import { createSinglePaycheck } from "../accounting/accounting.routes";
 
 /**
  * Staff time tracking + leave requests — Phase 9, a genuinely new feature (no
@@ -189,6 +190,45 @@ timeTrackingRouter.post("/entries/:timeEntryId/reject", requireRole("admin"), as
     `Time entry rejected by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true, timeEntryId, status: "Rejected" });
+}));
+
+/**
+ * Sends tracked hours + the person's own hourly rate straight into the real
+ * paycheck engine (see accounting.routes.ts's createSinglePaycheck) for
+ * whichever v3_employees record they're linked to (POST /users/:id/link-
+ * payroll) -- the same withholding/tax math a client's own employee gets,
+ * nothing recomputed here. Creates a draft paycheck for review; nothing is
+ * finalized or paid out by this call alone. Rate is always sent explicitly
+ * from v3_users.hourly_rate rather than left for the employee record's own
+ * pay_rate to supply, so there's one source of truth for what Time Tracking
+ * showed as "estimated pay" and what the paycheck actually uses.
+ */
+timeTrackingRouter.post("/export-payroll", requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const userId = String(req.body?.userId || "").trim();
+  const regularHours = Number(req.body?.regularHours);
+  const payDate = String(req.body?.payDate || "").trim();
+  if (!userId) return res.status(400).json({ error: "userId is required." });
+  if (!Number.isFinite(regularHours) || regularHours <= 0) return res.status(400).json({ error: "regularHours must be a positive number." });
+  if (!payDate) return res.status(400).json({ error: "Pay date is required." });
+
+  const user = await queryOne<any>(`SELECT user_id, name, hourly_rate, payroll_employee_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "User not found." });
+  if (!user.payroll_employee_id) return res.status(400).json({ error: `${user.name} isn't linked to a payroll employee record yet -- link them from Users & Access first.` });
+  if (user.hourly_rate == null) return res.status(400).json({ error: `${user.name} has no hourly rate set -- set one from Users & Access first.` });
+
+  const employee = await queryOne<any>(`SELECT employee_id, client_id, employee_name FROM altax.v3_employees WHERE employee_id = $1`, [user.payroll_employee_id]);
+  if (!employee) return res.status(400).json({ error: "The linked payroll employee record no longer exists." });
+
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [employee.client_id]);
+  if (!client) return res.status(404).json({ error: "The linked client record no longer exists." });
+
+  const result = await createSinglePaycheck(client, employee.employee_name, { regularHours, regularRate: Number(user.hourly_rate), payDate }, req.user!.email);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  await logAudit("Time Tracking", "EXPORT_PAYROLL", userId, "", "", String(regularHours),
+    `${regularHours}h exported to payroll (paycheck ${result.paycheckId}) by ${req.user!.email}.`, req.user!.email);
+
+  res.status(201).json({ ...result, employeeId: employee.employee_id });
 }));
 
 // ---- Leave Requests ----

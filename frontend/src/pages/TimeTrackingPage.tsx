@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorBanner } from "../components/ErrorBanner";
@@ -34,6 +35,7 @@ interface TimeEntry {
 }
 
 interface OpenPunch { punch_id: string; user_id: string; name: string; clock_in_at: string; device_label: string | null }
+interface StaffUser { user_id: string; name: string; email: string; role: string; hourly_rate: string | number | null; payroll_employee_id: string | null }
 
 const money = (n: number | string | null | undefined) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "?";
@@ -197,6 +199,7 @@ function ClockedInBoard() {
  * from a generic client dropdown here.
  */
 export function TimeTrackingPage() {
+  const navigate = useNavigate();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const toast = useToast();
@@ -205,7 +208,7 @@ export function TimeTrackingPage() {
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState("");
-  const [staffList, setStaffList] = useState<{ user_id: string; name: string; email: string; role: string; hourly_rate: string | number | null }[]>([]);
+  const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   // Sticky like every other list page — same reasoning: leaving this page and
@@ -221,6 +224,7 @@ export function TimeTrackingPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  const [exportingFor, setExportingFor] = useState<{ userId: string; name: string; hours: number; rate: number } | null>(null);
 
   function load(): Promise<void> {
     const qs = isAdmin && userFilter ? `?userEmail=${encodeURIComponent(userFilter)}` : "";
@@ -232,7 +236,7 @@ export function TimeTrackingPage() {
   useEffect(() => { load(); }, [userFilter]);
   useEffect(() => {
     if (!isAdmin) return;
-    api.get<{ users: { user_id: string; name: string; email: string; role: string; hourly_rate: string | number | null }[] }>("/users")
+    api.get<{ users: StaffUser[] }>("/users")
       .then((r) => setStaffList(r.users.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,7 +265,7 @@ export function TimeTrackingPage() {
   }, [entries, period, statusFilter, billableFilter, search]);
 
   const hoursByStaff = useMemo(() => {
-    const rateByEmail = new Map(staffList.map((u) => [u.email, u.hourly_rate != null ? Number(u.hourly_rate) : null]));
+    const staffByEmail = new Map(staffList.map((u) => [u.email, u]));
     const totals = new Map<string, { email: string; name: string; hours: number }>();
     for (const e of filtered) {
       const key = e.user_email;
@@ -272,8 +276,15 @@ export function TimeTrackingPage() {
     }
     return Array.from(totals.values())
       .map((s) => {
-        const rate = rateByEmail.get(s.email);
-        return { ...s, estPay: rate != null && Number.isFinite(rate) ? s.hours * rate : null };
+        const staffUser = staffByEmail.get(s.email);
+        const rate = staffUser?.hourly_rate != null ? Number(staffUser.hourly_rate) : null;
+        return {
+          ...s,
+          estPay: rate != null && Number.isFinite(rate) ? s.hours * rate : null,
+          rate,
+          userId: staffUser?.user_id || null,
+          payrollEmployeeId: staffUser?.payroll_employee_id || null,
+        };
       })
       .sort((a, b) => b.hours - a.hours);
   }, [filtered, staffList]);
@@ -396,6 +407,17 @@ export function TimeTrackingPage() {
                 <div style={{ width: 80, textAlign: "right", fontSize: 12, fontVariantNumeric: "tabular-nums" }} className="muted">
                   {s.estPay != null ? money(s.estPay) : ""}
                 </div>
+                <div style={{ width: 100 }}>
+                  {s.estPay != null && s.rate != null && s.userId && s.hours > 0 && (
+                    s.payrollEmployeeId ? (
+                      <button type="button" className="ghost-button btn-sm" onClick={() => setExportingFor({ userId: s.userId!, name: s.name, hours: s.hours, rate: s.rate! })}>
+                        Export to Payroll
+                      </button>
+                    ) : (
+                      <span className="muted" style={{ fontSize: 11 }}>Not linked to payroll</span>
+                    )
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -475,6 +497,60 @@ export function TimeTrackingPage() {
           onDone={() => { setEditingEntry(null); load(); }}
         />
       )}
+
+      {exportingFor && (
+        <ExportPayrollModal
+          target={exportingFor}
+          onClose={() => setExportingFor(null)}
+          onDone={(employeeId) => { setExportingFor(null); navigate(`/employees/${employeeId}`); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExportPayrollModal({ target, onClose, onDone }: { target: { userId: string; name: string; hours: number; rate: number }; onClose: () => void; onDone: (employeeId: string) => void }) {
+  useEscapeToClose(onClose);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(panelRef);
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const grossPay = target.hours * target.rate;
+
+  async function handleExport() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.post<{ employeeId: string; paycheckId: string; netPay: number }>("/time-tracking/export-payroll", {
+        userId: target.userId, regularHours: target.hours, payDate,
+      });
+      onDone(res.employeeId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not export this to payroll.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={panelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="export-payroll-title" style={{ width: "min(440px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header"><h2 id="export-payroll-title">Export to Payroll — {target.name}</h2><button className="btn btn-sm" onClick={onClose}>Close</button></div>
+        {error && <ErrorBanner error={error} />}
+        <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+          Creates a draft paycheck — {target.hours.toFixed(2)} hrs × {money(target.rate)}/hr = <strong>{money(grossPay)}</strong> gross.
+          Taxes and withholding are calculated automatically, same as any other paycheck. Nothing is paid out; review it on the employee's page before finalizing.
+        </p>
+        <div className="field">
+          <label htmlFor="ep-pay-date">Pay Date</label>
+          <input id="ep-pay-date" type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={saving} onClick={handleExport}>{saving ? "Exporting…" : "Export to Payroll"}</button>
+        </div>
+      </div>
     </div>
   );
 }

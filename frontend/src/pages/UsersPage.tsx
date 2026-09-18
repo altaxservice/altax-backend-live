@@ -7,6 +7,7 @@ import { useConfirm, usePrompt, useNotify } from "../components/ConfirmProvider"
 import { useEscapeToClose } from "../hooks/useEscapeToClose";
 import { useFocusTrap } from "../hooks/useFocusTrap";
 import { StaffScheduleEditor } from "../components/StaffScheduleEditor";
+import { US_STATES } from "../utils/clientOptions";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
@@ -65,6 +66,9 @@ export function UsersPage() {
   const [rateEdit, setRateEdit] = useState<{ userId: string; name: string; hourlyRate: string } | null>(null);
   const [rateSaving, setRateSaving] = useState(false);
   const [rateError, setRateError] = useState<string | null>(null);
+  const [payrollLinkEdit, setPayrollLinkEdit] = useState<{ userId: string; name: string; state: string } | null>(null);
+  const [payrollLinkSaving, setPayrollLinkSaving] = useState(false);
+  const [payrollLinkError, setPayrollLinkError] = useState<string | null>(null);
 
   useEscapeToClose(() => setPreparerEdit(null), Boolean(preparerEdit));
   const preparerPanelRef = useRef<HTMLDivElement>(null);
@@ -72,6 +76,9 @@ export function UsersPage() {
   useEscapeToClose(() => setRateEdit(null), Boolean(rateEdit));
   const ratePanelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(ratePanelRef, Boolean(rateEdit));
+  useEscapeToClose(() => setPayrollLinkEdit(null), Boolean(payrollLinkEdit));
+  const payrollLinkPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(payrollLinkPanelRef, Boolean(payrollLinkEdit));
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -196,6 +203,22 @@ export function UsersPage() {
       setRateError(err instanceof ApiError ? err.message : "Could not save this rate.");
     } finally {
       setRateSaving(false);
+    }
+  }
+
+  async function handleSavePayrollLink(e: FormEvent) {
+    e.preventDefault();
+    if (!payrollLinkEdit) return;
+    setPayrollLinkSaving(true);
+    setPayrollLinkError(null);
+    try {
+      await api.post(`/users/${payrollLinkEdit.userId}/link-payroll`, { state: payrollLinkEdit.state.trim() });
+      setPayrollLinkEdit(null);
+      load();
+    } catch (err) {
+      setPayrollLinkError(err instanceof ApiError ? err.message : "Could not link this person to payroll.");
+    } finally {
+      setPayrollLinkSaving(false);
     }
   }
 
@@ -364,6 +387,32 @@ export function UsersPage() {
         </div>
       )}
 
+      {payrollLinkEdit && (
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setPayrollLinkEdit(null))(); }}>
+          <div ref={payrollLinkPanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-link-title" style={{ width: "min(420px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="payroll-link-title">Link to Payroll — {payrollLinkEdit.name}</h2>
+              <button className="btn btn-sm" onClick={() => setPayrollLinkEdit(null)}>Close</button>
+            </div>
+            <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+              Creates a bare payroll employee record for {payrollLinkEdit.name} under the firm's own client account, so Time
+              Tracking's hours can export into a real paycheck. Just name and state for now — SSN, W-4, and address still
+              need to be filled in from that employee's own page before their first real paycheck.
+            </p>
+            <form onSubmit={handleSavePayrollLink}>
+              {payrollLinkError && <ErrorBanner error={payrollLinkError} />}
+              <div className="field">
+                <label htmlFor="pl-state">Work State</label>
+                <select id="pl-state" value={payrollLinkEdit.state} onChange={(e) => setPayrollLinkEdit((p) => p && { ...p, state: e.target.value })}>
+                  {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={payrollLinkSaving}>{payrollLinkSaving ? "Linking…" : "Link to Payroll"}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {scheduleEdit && (
         <StaffScheduleEditor userId={scheduleEdit.userId} name={scheduleEdit.name} onClose={() => setScheduleEdit(null)} onSaved={load} />
       )}
@@ -511,6 +560,7 @@ export function UsersPage() {
             onEditPreparer={(u) => setPreparerEdit({ userId: u.user_id, name: u.name, ptin: u.ptin || "", cafNumber: u.caf_number || "" })}
             onEditSchedule={openScheduleEdit}
             onEditRate={(u) => setRateEdit({ userId: u.user_id, name: u.name, hourlyRate: u.hourly_rate != null ? String(u.hourly_rate) : "" })}
+            onLinkPayroll={(u) => setPayrollLinkEdit({ userId: u.user_id, name: u.name, state: "MD" })}
           />
           <UserGroup title="Client Users (Portal Access)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "client")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
           <UserGroup title="Employee Users (Belong to a Client, Not the Firm)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "employee")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
@@ -520,7 +570,7 @@ export function UsersPage() {
   );
 }
 
-function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer, onEditSchedule, onEditRate }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void; onEditSchedule?: (u: PortalUser) => void; onEditRate?: (u: PortalUser) => void }) {
+function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer, onEditSchedule, onEditRate, onLinkPayroll }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void; onEditSchedule?: (u: PortalUser) => void; onEditRate?: (u: PortalUser) => void; onLinkPayroll?: (u: PortalUser) => void }) {
   if (users.length === 0) return null;
   return (
     <div className="command-panel">
@@ -570,6 +620,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
                         else if (v === "preparer-info") onEditPreparer?.(u);
                         else if (v === "schedule") onEditSchedule?.(u);
                         else if (v === "hourly-rate") onEditRate?.(u);
+                        else if (v === "link-payroll") onLinkPayroll?.(u);
                         else onAction(u.user_id, v);
                       }}
                       style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", fontSize: 12 }}
@@ -589,6 +640,8 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
                       {onEditSchedule && <option value="schedule">Working Hours</option>}
                       {/* Firm users only — compensation, meaningless for a client/employee portal account. Admin-only, unlike PTIN/CAF above; this isn't something the person sets for themselves. */}
                       {onEditRate && <option value="hourly-rate">Hourly Rate</option>}
+                      {/* Firm users only — one-time setup so Time Tracking can export their hours into a real paycheck. A no-op once already linked. */}
+                      {onLinkPayroll && <option value="link-payroll">{u.payroll_employee_id ? "Linked to Payroll ✓" : "Link to Payroll"}</option>}
                       <option value="delete-user">Delete User</option>
                     </select>
                     {u.active && <button className="btn btn-sm btn-danger" onClick={() => onDeactivate(u.user_id)}>Deactivate</button>}

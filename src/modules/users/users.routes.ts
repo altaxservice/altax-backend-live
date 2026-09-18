@@ -79,7 +79,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     `SELECT user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
             reminder_preference, active, last_login, must_reset_password, invite_expires,
             (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite,
-            pending_email, pending_email_expires, ptin, caf_number, bookable_publicly, hourly_rate
+            pending_email, pending_email_expires, ptin, caf_number, bookable_publicly, hourly_rate, payroll_employee_id
        FROM altax.v3_users
       ORDER BY name ASC`
   );
@@ -647,6 +647,55 @@ usersRouter.post("/:userId/hourly-rate", requireAuth, requireRole("admin"), asyn
   await logAudit("Staff", "EDIT_HOURLY_RATE", userId, "", "", hourlyRate != null ? String(hourlyRate) : "", `Hourly rate updated by ${req.user!.email}.`, req.user!.email);
 
   res.json({ ok: true });
+}));
+
+function idSuffix(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${ts}-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
+}
+
+/**
+ * Links this admin/staff account to a v3_employees record under the firm's
+ * own self-client, so Time Tracking's hours can export into the real
+ * paycheck engine (see POST /time-tracking/export-payroll). Bare record
+ * only -- name and state, same as any brand-new employee -- everything else
+ * (SSN, W4, address) still gets filled in via the normal Employee page,
+ * never fabricated here. No-op (returns the existing link) if already linked.
+ */
+usersRouter.post("/:userId/link-payroll", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id, name, payroll_employee_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+  if (user.payroll_employee_id) return res.json({ ok: true, employeeId: user.payroll_employee_id, alreadyLinked: true });
+
+  const state = String(req.body?.state || "MD").trim();
+  if (!state) return res.status(400).json({ error: "State is required." });
+
+  // The firm's own client record -- matched by name AND by having a real
+  // active login already pointed at it (assigned_client_id), not just name,
+  // since a stray same-named duplicate client record with no real login
+  // behind it should never silently become where staff payroll lives.
+  const selfClient = await queryOne<any>(
+    `SELECT c.client_id, c.client_name FROM altax.v3_clients c
+      WHERE c.client_name ILIKE 'AL TAX SERVICE%'
+        AND EXISTS (SELECT 1 FROM altax.v3_users u WHERE u.assigned_client_id = c.client_id AND u.active = true)
+      LIMIT 1`
+  );
+  if (!selfClient) return res.status(400).json({ error: "Could not find the firm's own client record to link payroll under. Set that up first." });
+
+  const employeeId = `EMP-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_employees
+       (employee_id, client_id, client_name, employee_name, state, pay_type, worker_type, status, source_system, source_record_id)
+     VALUES ($1,$2,$3,$4,$5,'Hourly','Employee','Active','Node Web App',$1)`,
+    [employeeId, selfClient.client_id, selfClient.client_name, user.name, state]
+  );
+  await query(`UPDATE altax.v3_users SET payroll_employee_id = $2, updated_at = now() WHERE user_id = $1`, [userId, employeeId]);
+  await logAudit("Staff", "LINK_PAYROLL", userId, "", "", employeeId, `Linked to payroll employee ${employeeId} under ${selfClient.client_name} by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true, employeeId });
 }));
 
 usersRouter.post("/:userId/preparer-info", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
