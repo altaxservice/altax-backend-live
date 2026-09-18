@@ -289,6 +289,11 @@ export function TimeTrackingPage() {
       .sort((a, b) => b.hours - a.hours);
   }, [filtered, staffList]);
 
+  // Same staffList, keyed for a per-row lookup in the Time Entries table below
+  // — the person's own wage rate, distinct from e.hourly_rate (the
+  // client-billable rate, only ever set on billable entries).
+  const wageRateByEmail = useMemo(() => new Map(staffList.map((u) => [u.email, u.hourly_rate != null ? Number(u.hourly_rate) : null])), [staffList]);
+
   async function handleSubmit() {
     setFormError(null);
     const h = Number(hours);
@@ -445,6 +450,7 @@ export function TimeTrackingPage() {
                 {isAdmin && <th scope="col">Staff</th>}
                 <th scope="col">Client</th>
                 <th scope="col" style={{ textAlign: "right" }}>Hours</th>
+                {isAdmin && <th scope="col" style={{ textAlign: "right" }}>Wage</th>}
                 <th scope="col">Description</th>
                 <th scope="col" style={{ textAlign: "right" }}>Rate</th>
                 <th scope="col">Status</th>
@@ -456,12 +462,24 @@ export function TimeTrackingPage() {
               {filtered.map((e) => {
                 const isOwner = e.user_email === user?.email;
                 const canDelete = !e.billed && (isAdmin || (isOwner && e.status === "Submitted"));
+                const wageRate = wageRateByEmail.get(e.user_email);
+                const grossWage = wageRate != null ? Number(e.hours) * wageRate : null;
                 return (
                   <tr key={e.time_entry_id}>
                     <td>{fmtDateOnly(e.entry_date)}</td>
                     {isAdmin && <td className="muted" style={{ fontSize: 12 }}>{e.user_name || e.user_email}</td>}
                     <td>{e.client_name || <span className="muted">—</span>}</td>
                     <td style={{ textAlign: "right" }}>{Number(e.hours).toFixed(2)}</td>
+                    {isAdmin && (
+                      <td style={{ textAlign: "right" }}>
+                        {grossWage != null ? (
+                          <>
+                            <div style={{ fontWeight: 600 }}>{money(grossWage)}</div>
+                            <div className="muted" style={{ fontSize: 11 }}>@ {money(wageRate)}/hr</div>
+                          </>
+                        ) : <span className="muted">—</span>}
+                      </td>
+                    )}
                     <td className="muted" style={{ fontSize: 12 }}>{e.description || "—"}</td>
                     <td style={{ textAlign: "right" }}>{e.billable ? money(e.hourly_rate) : "—"}</td>
                     <td><StatusBadge status={e.status} /></td>
@@ -482,7 +500,7 @@ export function TimeTrackingPage() {
                 );
               })}
               {!filtered.length && (
-                <tr><td colSpan={isAdmin ? 9 : 7} className="muted" style={{ textAlign: "center", padding: 24 }}>{entries?.length ? "No entries match." : "No time entries yet."}</td></tr>
+                <tr><td colSpan={isAdmin ? 10 : 8} className="muted" style={{ textAlign: "center", padding: 24 }}>{entries?.length ? "No entries match." : "No time entries yet."}</td></tr>
               )}
             </tbody>
           </table>

@@ -11,7 +11,7 @@ import { US_STATES } from "../utils/clientOptions";
 
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
-  assignedClientId: "", assignedEmployeeId: "", reminderPreference: "Email", bookablePublicly: true,
+  assignedClientId: "", assignedEmployeeId: "", reminderPreference: "Email", bookablePublicly: true, hourlyRate: "",
 };
 
 const ROLE_FILTER_OPTIONS = ["Admin", "Staff", "Client", "Employee"];
@@ -106,6 +106,7 @@ export function UsersPage() {
       userId: u.user_id, email: u.email, name: u.name, role: u.role, phone: u.phone || "", active: u.active,
       assignedClientId: u.assigned_client_id || "", assignedEmployeeId: u.assigned_employee_id || "",
       reminderPreference: u.reminder_preference || "Email", bookablePublicly: u.bookable_publicly,
+      hourlyRate: u.hourly_rate != null ? String(u.hourly_rate) : "",
     });
     setShowForm(true);
     setCreateCategory("edit");
@@ -528,6 +529,19 @@ export function UsersPage() {
             <input id="u-active" type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} style={{ width: "auto" }} />
             <label htmlFor="u-active" style={{ textTransform: "none", fontSize: 13 }}>Active</label>
           </div>
+          {(form.role === "Admin" || form.role === "Staff") && (
+            <div className="field">
+              <label htmlFor="u-hourly-rate">Hourly Work Rate</label>
+              <input
+                id="u-hourly-rate" type="number" step="0.01" min="0" placeholder="Leave blank to hide estimated pay"
+                value={form.hourlyRate} onChange={(e) => setForm((f) => ({ ...f, hourlyRate: e.target.value }))}
+              />
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+                What the firm pays this person per hour — shown as estimated/gross pay on Time Tracking. Separate from any
+                client-billable rate, and only visible to admins.
+              </p>
+            </div>
+          )}
           {(form.role === "Admin" || form.role === "Staff") && (
             <div className="field">
               <div style={{ flexDirection: "row", alignItems: "center", gap: 8, display: "flex" }}>

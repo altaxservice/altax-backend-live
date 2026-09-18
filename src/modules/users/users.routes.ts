@@ -209,10 +209,29 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
   const bookablePublicly = body.bookablePublicly === undefined
     ? (existing ? Boolean(existing.bookable_publicly) : true)
     : Boolean(body.bookablePublicly);
+
+  // Only Admin/Staff have a wage rate at all -- the form only shows this field
+  // for that category, but guard server-side too so a Client/Employee save
+  // can never carry one over from a stale form state.
+  let hourlyRate: number | null = existing ? existing.hourly_rate : null;
+  if (["admin", "staff"].includes(roleKey)) {
+    if (body.hourlyRate !== undefined) {
+      if (body.hourlyRate === null || body.hourlyRate === "") {
+        hourlyRate = null;
+      } else {
+        const parsed = Number(body.hourlyRate);
+        if (!Number.isFinite(parsed) || parsed < 0) return res.status(400).json({ error: "Hourly rate must be a positive number." });
+        hourlyRate = parsed;
+      }
+    }
+  } else {
+    hourlyRate = null;
+  }
+
   const params = [
     finalUserId, email, name, requestedRole, phone, assignedClientId || null, assignedEmployeeId || null,
     reminderPreference, active, inviteTokenToStore, inviteExpiresToStore, mustResetToStore,
-    "Node Web App", userId || email, bookablePublicly,
+    "Node Web App", userId || email, bookablePublicly, hourlyRate,
   ];
 
   if (existing) {
@@ -231,6 +250,7 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
          email = $2, name = $3, role = $4, phone = $5, assigned_client_id = $6, assigned_employee_id = $7,
          reminder_preference = $8, active = $9, invite_token = $10, invite_expires = $11,
          must_reset_password = $12, source_system = $13, source_record_id = $14, bookable_publicly = $15,
+         hourly_rate = $16,
          token_version = token_version + ${identityChanged ? "1" : "0"}, updated_at = now()
        WHERE user_id = $1`,
       params
@@ -243,8 +263,8 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
       `INSERT INTO altax.v3_users
          (user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
           reminder_preference, active, invite_token, invite_expires, must_reset_password,
-          source_system, source_record_id, bookable_publicly)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          source_system, source_record_id, bookable_publicly, hourly_rate)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       params
     );
     await logAudit("Staff", "CREATE", finalUserId, "", "", email,
