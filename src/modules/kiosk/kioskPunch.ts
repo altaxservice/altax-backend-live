@@ -27,7 +27,13 @@ export async function closePunchAndRecordHours(
 ): Promise<{ hoursAdded: number; timeEntryId: string }> {
   const clockInAt = new Date(punch.clock_in_at);
   const hoursAdded = Math.max(0, Math.round(((clockOutAt.getTime() - clockInAt.getTime()) / 3600000) * 100) / 100);
-  const entryDate = clockInAt.toISOString().slice(0, 10);
+  // Real incident, 2026-09-18: a 9:26 PM Eastern clock-in is already 1:26 AM
+  // UTC the next day, so a naive toISOString().slice(0,10) silently recorded
+  // an evening punch under tomorrow's date. Read the calendar date in the
+  // firm's own timezone instead (same convention as appointments/reminders
+  // elsewhere in this codebase) so it matches the day the person actually
+  // worked, not whatever day UTC happened to be at that moment.
+  const entryDate = clockInAt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
   const user = await queryOne<any>(`SELECT email FROM altax.v3_users WHERE user_id = $1`, [punch.user_id]);
   const userEmail = user?.email || punch.user_id;
