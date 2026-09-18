@@ -79,7 +79,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     `SELECT user_id, email, name, role, phone, assigned_client_id, assigned_employee_id,
             reminder_preference, active, last_login, must_reset_password, invite_expires,
             (invite_token IS NOT NULL AND invite_token <> '') AS has_pending_invite,
-            pending_email, pending_email_expires, ptin, caf_number, bookable_publicly
+            pending_email, pending_email_expires, ptin, caf_number, bookable_publicly, hourly_rate
        FROM altax.v3_users
       ORDER BY name ASC`
   );
@@ -626,6 +626,29 @@ usersRouter.post("/:userId/cancel-email-change", requireAuth, requireRole("admin
  * the admin's edit form didn't happen to carry the current values along.
  * This route touches only these two columns, so it can never do that.
  */
+/**
+ * What AL TAX pays this person per hour -- separate from a client-billable
+ * rate (v3_time_entries.hourly_rate), which is what a CLIENT is charged.
+ * Admin-only and deliberately not self-editable, unlike PTIN/CAF above --
+ * this is compensation data, not a credential the person themselves owns.
+ */
+usersRouter.post("/:userId/hourly-rate", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { userId } = req.params;
+  const user = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE user_id = $1`, [userId]);
+  if (!user) return res.status(404).json({ error: "Portal user not found." });
+
+  const raw = req.body?.hourlyRate;
+  let hourlyRate: number | null = null;
+  if (raw !== undefined && raw !== null && raw !== "") {
+    hourlyRate = Number(raw);
+    if (!Number.isFinite(hourlyRate) || hourlyRate < 0) return res.status(400).json({ error: "Hourly rate must be a positive number." });
+  }
+  await query(`UPDATE altax.v3_users SET hourly_rate = $2, updated_at = now() WHERE user_id = $1`, [userId, hourlyRate]);
+  await logAudit("Staff", "EDIT_HOURLY_RATE", userId, "", "", hourlyRate != null ? String(hourlyRate) : "", `Hourly rate updated by ${req.user!.email}.`, req.user!.email);
+
+  res.json({ ok: true });
+}));
+
 usersRouter.post("/:userId/preparer-info", requireAuth, requireRole("admin"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { userId } = req.params;
   const user = await queryOne<any>(`SELECT user_id FROM altax.v3_users WHERE user_id = $1`, [userId]);

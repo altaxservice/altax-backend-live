@@ -43,6 +43,8 @@ export interface PortalUser {
   ptin: string | null;
   caf_number: string | null;
   bookable_publicly: boolean;
+  /** What the firm pays this person per hour -- admin-set only, separate from a client-billable rate. */
+  hourly_rate: string | number | null;
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;

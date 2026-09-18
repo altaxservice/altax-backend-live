@@ -205,7 +205,7 @@ export function TimeTrackingPage() {
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState("");
-  const [staffList, setStaffList] = useState<{ user_id: string; name: string; email: string; role: string }[]>([]);
+  const [staffList, setStaffList] = useState<{ user_id: string; name: string; email: string; role: string; hourly_rate: string | number | null }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   // Sticky like every other list page — same reasoning: leaving this page and
@@ -232,7 +232,7 @@ export function TimeTrackingPage() {
   useEffect(() => { load(); }, [userFilter]);
   useEffect(() => {
     if (!isAdmin) return;
-    api.get<{ users: { user_id: string; name: string; email: string; role: string }[] }>("/users")
+    api.get<{ users: { user_id: string; name: string; email: string; role: string; hourly_rate: string | number | null }[] }>("/users")
       .then((r) => setStaffList(r.users.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,6 +261,7 @@ export function TimeTrackingPage() {
   }, [entries, period, statusFilter, billableFilter, search]);
 
   const hoursByStaff = useMemo(() => {
+    const rateByEmail = new Map(staffList.map((u) => [u.email, u.hourly_rate != null ? Number(u.hourly_rate) : null]));
     const totals = new Map<string, { email: string; name: string; hours: number }>();
     for (const e of filtered) {
       const key = e.user_email;
@@ -269,8 +270,13 @@ export function TimeTrackingPage() {
       if (existing) existing.hours += hours;
       else totals.set(key, { email: key, name: e.user_name || e.user_email, hours });
     }
-    return Array.from(totals.values()).sort((a, b) => b.hours - a.hours);
-  }, [filtered]);
+    return Array.from(totals.values())
+      .map((s) => {
+        const rate = rateByEmail.get(s.email);
+        return { ...s, estPay: rate != null && Number.isFinite(rate) ? s.hours * rate : null };
+      })
+      .sort((a, b) => b.hours - a.hours);
+  }, [filtered, staffList]);
 
   async function handleSubmit() {
     setFormError(null);
@@ -387,9 +393,17 @@ export function TimeTrackingPage() {
                   <div style={{ width: `${hoursByStaff[0].hours > 0 ? (s.hours / hoursByStaff[0].hours) * 100 : 0}%`, height: "100%", background: "var(--teal)", borderRadius: 4 }} />
                 </div>
                 <div style={{ width: 56, textAlign: "right", fontSize: 12.5, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{s.hours.toFixed(2)}</div>
+                <div style={{ width: 80, textAlign: "right", fontSize: 12, fontVariantNumeric: "tabular-nums" }} className="muted">
+                  {s.estPay != null ? money(s.estPay) : ""}
+                </div>
               </div>
             ))}
           </div>
+          {hoursByStaff.every((s) => s.estPay == null) && (
+            <p className="muted" style={{ fontSize: 11.5, margin: "10px 0 0" }}>
+              Set an hourly rate from Users &amp; Access to see estimated pay here.
+            </p>
+          )}
         </div>
       )}
 

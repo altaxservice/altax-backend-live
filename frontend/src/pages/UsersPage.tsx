@@ -62,10 +62,16 @@ export function UsersPage() {
   const [preparerSaving, setPreparerSaving] = useState(false);
   const [preparerError, setPreparerError] = useState<string | null>(null);
   const [scheduleEdit, setScheduleEdit] = useState<{ userId: string; name: string } | null>(null);
+  const [rateEdit, setRateEdit] = useState<{ userId: string; name: string; hourlyRate: string } | null>(null);
+  const [rateSaving, setRateSaving] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
 
   useEscapeToClose(() => setPreparerEdit(null), Boolean(preparerEdit));
   const preparerPanelRef = useRef<HTMLDivElement>(null);
   useFocusTrap(preparerPanelRef, Boolean(preparerEdit));
+  useEscapeToClose(() => setRateEdit(null), Boolean(rateEdit));
+  const ratePanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(ratePanelRef, Boolean(rateEdit));
 
   function load(): Promise<void> {
     return api.get<{ users: PortalUser[] }>("/users")
@@ -175,6 +181,22 @@ export function UsersPage() {
 
   function openScheduleEdit(u: PortalUser) {
     setScheduleEdit({ userId: u.user_id, name: u.name });
+  }
+
+  async function handleSaveRate(e: FormEvent) {
+    e.preventDefault();
+    if (!rateEdit) return;
+    setRateSaving(true);
+    setRateError(null);
+    try {
+      await api.post(`/users/${rateEdit.userId}/hourly-rate`, { hourlyRate: rateEdit.hourlyRate.trim() || undefined });
+      setRateEdit(null);
+      load();
+    } catch (err) {
+      setRateError(err instanceof ApiError ? err.message : "Could not save this rate.");
+    } finally {
+      setRateSaving(false);
+    }
   }
 
   async function handleAction(userId: string, action: string) {
@@ -314,6 +336,29 @@ export function UsersPage() {
                 <input id="pi-caf" value={preparerEdit.cafNumber} onChange={(e) => setPreparerEdit((p) => p && { ...p, cafNumber: e.target.value })} />
               </div>
               <button type="submit" className="btn btn-primary" disabled={preparerSaving}>{preparerSaving ? "Saving…" : "Save"}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {rateEdit && (
+        <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setRateEdit(null))(); }}>
+          <div ref={ratePanelRef} className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="rate-title" style={{ width: "min(380px, 100%)" }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="rate-title">Hourly Rate — {rateEdit.name}</h2>
+              <button className="btn btn-sm" onClick={() => setRateEdit(null)}>Close</button>
+            </div>
+            <p className="muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>
+              What the firm pays {rateEdit.name} per hour worked — shown as estimated pay on Time Tracking's Hours by Staff.
+              Separate from any client-billable rate, and only visible to admins.
+            </p>
+            <form onSubmit={handleSaveRate}>
+              {rateError && <ErrorBanner error={rateError} />}
+              <div className="field">
+                <label htmlFor="rt-rate">Rate/hr</label>
+                <input id="rt-rate" type="number" step="0.01" min="0" placeholder="Leave blank to hide estimated pay" value={rateEdit.hourlyRate} onChange={(e) => setRateEdit((r) => r && { ...r, hourlyRate: e.target.value })} />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={rateSaving}>{rateSaving ? "Saving…" : "Save"}</button>
             </form>
           </div>
         </div>
@@ -465,6 +510,7 @@ export function UsersPage() {
             onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete}
             onEditPreparer={(u) => setPreparerEdit({ userId: u.user_id, name: u.name, ptin: u.ptin || "", cafNumber: u.caf_number || "" })}
             onEditSchedule={openScheduleEdit}
+            onEditRate={(u) => setRateEdit({ userId: u.user_id, name: u.name, hourlyRate: u.hourly_rate != null ? String(u.hourly_rate) : "" })}
           />
           <UserGroup title="Client Users (Portal Access)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "client")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
           <UserGroup title="Employee Users (Belong to a Client, Not the Firm)" users={filteredUsers.filter((u) => u.role.toLowerCase() === "employee")} onEdit={startEdit} onDeactivate={handleDeactivate} onAction={handleAction} onDelete={handleDelete} />
@@ -474,7 +520,7 @@ export function UsersPage() {
   );
 }
 
-function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer, onEditSchedule }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void; onEditSchedule?: (u: PortalUser) => void }) {
+function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onEditPreparer, onEditSchedule, onEditRate }: { title: string; users: PortalUser[]; onEdit: (u: PortalUser) => void; onDeactivate: (id: string) => void; onAction: (id: string, action: string) => void; onDelete: (id: string, name: string) => void; onEditPreparer?: (u: PortalUser) => void; onEditSchedule?: (u: PortalUser) => void; onEditRate?: (u: PortalUser) => void }) {
   if (users.length === 0) return null;
   return (
     <div className="command-panel">
@@ -523,6 +569,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
                         if (v === "delete-user") onDelete(u.user_id, u.name);
                         else if (v === "preparer-info") onEditPreparer?.(u);
                         else if (v === "schedule") onEditSchedule?.(u);
+                        else if (v === "hourly-rate") onEditRate?.(u);
                         else onAction(u.user_id, v);
                       }}
                       style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", fontSize: 12 }}
@@ -540,6 +587,8 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
                       {onEditPreparer && <option value="preparer-info">Edit PTIN / CAF Number</option>}
                       {/* Firm users only, same reasoning — a client/employee portal account never takes appointments. */}
                       {onEditSchedule && <option value="schedule">Working Hours</option>}
+                      {/* Firm users only — compensation, meaningless for a client/employee portal account. Admin-only, unlike PTIN/CAF above; this isn't something the person sets for themselves. */}
+                      {onEditRate && <option value="hourly-rate">Hourly Rate</option>}
                       <option value="delete-user">Delete User</option>
                     </select>
                     {u.active && <button className="btn btn-sm btn-danger" onClick={() => onDeactivate(u.user_id)}>Deactivate</button>}
