@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, User, ListChecks, Receipt, FolderOpen, Users } from "lucide-react";
+import { Search, User, ListChecks, Receipt, FolderOpen, Users, Compass } from "lucide-react";
 import { api, ApiError } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { useSelectedClient } from "../context/SelectedClientContext";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import { NAV_ITEMS } from "./Layout";
 
 interface ClientHit { client_id: string; client_name: string; email: string | null; phone: string | null; status: string | null }
 interface TaskHit { task_id: string; task_name: string; client_id: string; client_name: string; status: string; agency_due_date: string | null }
@@ -53,12 +55,32 @@ function buildRows(results: SearchResults, navigate: ReturnType<typeof useNaviga
 }
 
 /**
+ * Sidebar pages, matched instantly (no network round-trip) against a page's
+ * label AND its `keywords` (Layout.tsx) — "I don't remember what it's called"
+ * is the whole reason keywords exist, so a page you'd describe as "clock in
+ * thing" or "wages" still turns up even though neither word is in its label.
+ */
+function buildPageRows(query: string, role: string | undefined, navigate: ReturnType<typeof useNavigate>): Row[] {
+  const q = query.toLowerCase();
+  return NAV_ITEMS
+    .filter((item) => !item.roles || (role && item.roles.includes(role)))
+    .filter((item) => item.label.toLowerCase().includes(q) || (item.keywords || []).some((k) => k.toLowerCase().includes(q)))
+    .map((item) => ({
+      key: `page-${item.to}`, group: "Pages", icon: Compass, title: item.label, subtitle: item.group || "",
+      go: () => navigate(item.to),
+    }));
+}
+
+/**
  * ⌘K / Ctrl+K command palette — sits on top of the same GET /search endpoint the
  * topbar's "Search All" already uses, so this isn't a second search implementation,
- * just a faster way to reach the first one without leaving the keyboard.
+ * just a faster way to reach the first one without leaving the keyboard. Also
+ * matches sidebar pages themselves (buildPageRows above), which that endpoint
+ * never covered — this was the only way to jump straight to a page by name.
  */
 export function CommandPalette() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { setSelectedClient } = useSelectedClient();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -111,7 +133,12 @@ export function CommandPalette() {
     return () => clearTimeout(handle);
   }, [query, open]);
 
-  const rows = results ? buildRows(results, navigate, setSelectedClient) : [];
+  const q = query.trim();
+  // Pages come first — matched locally, no debounce needed, and "jump to a
+  // page" is usually the faster intent than "find a specific record."
+  const pageRows = useMemo(() => (q.length >= 2 ? buildPageRows(q, user?.role, navigate) : []), [q, user?.role, navigate]);
+  const dataRows = results ? buildRows(results, navigate, setSelectedClient) : [];
+  const rows = [...pageRows, ...dataRows];
 
   function activate(row: Row) {
     row.go();
@@ -131,7 +158,6 @@ export function CommandPalette() {
 
   if (!open) return null;
 
-  const q = query.trim();
   let lastGroup: string | undefined;
 
   return (
@@ -144,7 +170,7 @@ export function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search clients, tasks, invoices, documents, employees…"
+            placeholder="Search pages, clients, tasks, invoices, documents, employees…"
             style={{ flex: 1, border: "none", outline: "none", fontSize: 15, background: "transparent", color: "var(--ink)" }}
             aria-activedescendant={rows[activeIndex] ? `cmdk-option-${activeIndex}` : undefined}
           />

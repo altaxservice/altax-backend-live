@@ -5,6 +5,7 @@ import {
   Receipt, Calculator, CreditCard, BookOpen, BarChart3, FolderOpen, FileSpreadsheet, MessageSquare,
   LayoutTemplate, UserCog, ShieldCheck, ShieldAlert, KeyRound, Wrench, Settings, ListTree, ClipboardList, LifeBuoy, Zap, Tag, Building2, TabletSmartphone,
   PanelLeftClose, PanelLeft, FileSignature, Landmark, Lightbulb, TrendingUp, Layers, Mail, Globe, StickyNote, NotebookPen, HandCoins,
+  ChevronDown, ChevronRight,
   type LucideProps,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -56,52 +57,58 @@ function showsClientPanel(pathname: string): boolean {
 // group: rendered as a section label above the first item in each group — see
 // showGroupLabels below for why it only kicks in once the list is long enough
 // to actually need it (admin/staff), not for client/employee's short list.
-const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string; icon: ComponentType<LucideProps> }[] = [
-  { to: "/dashboard", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard },
-  { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users },
-  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks },
-  { to: "/notes", label: "Notes", roles: ["admin", "staff"], group: "Work", icon: StickyNote },
-  { to: "/daily-log", label: "Daily Log", roles: ["admin", "staff"], group: "Work", icon: NotebookPen },
-  { to: "/labels", label: "Labels", roles: ["admin", "staff"], group: "Work", icon: Tag },
-  { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar },
-  { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock },
-  { to: "/rules", label: "Task Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow },
-  { to: "/haccp", label: "Health Permits", roles: ["admin", "staff"], group: "Work", icon: ClipboardCheck },
-  { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools", icon: FileText },
-  { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools", icon: Kanban },
-  { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools", icon: Receipt },
-  { to: "/subscription-plans", label: "Subscription Plans", roles: ["admin", "staff"], group: "Tools", icon: Layers },
-  { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator },
-  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard },
-  { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins },
+// `keywords` back plain-language ways someone might describe a page without
+// remembering its exact sidebar label — matched by the command palette
+// (CommandPalette.tsx) alongside the label itself, so "clock in" finds "Time
+// Clock Kiosk" and "wages" finds "Payroll Agent" even though neither word
+// appears in the label. Not exhaustive; add to a page's list as a real search
+// miss turns up, same as the sidebar itself grows.
+export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: string[]; group?: string; icon: ComponentType<LucideProps>; keywords?: string[] }[] = [
+  { to: "/dashboard", label: "Command Center", navKey: "nav.commandCenter", icon: LayoutDashboard, keywords: ["home", "dashboard", "overview"] },
+  { to: "/clients", label: "Clients", roles: ["admin", "staff"], group: "Clients", icon: Users, keywords: ["customers", "accounts", "businesses"] },
+  { to: "/tasks", label: "Tasks", roles: ["admin", "staff"], group: "Work", icon: ListChecks, keywords: ["to-do", "todo", "deadlines", "work items"] },
+  { to: "/notes", label: "Notes", roles: ["admin", "staff"], group: "Work", icon: StickyNote, keywords: ["memo", "sticky note"] },
+  { to: "/daily-log", label: "Daily Log", roles: ["admin", "staff"], group: "Work", icon: NotebookPen, keywords: ["journal", "activity log"] },
+  { to: "/labels", label: "Labels", roles: ["admin", "staff"], group: "Work", icon: Tag, keywords: ["tags", "categories"] },
+  { to: "/calendar", label: "Calendar", roles: ["admin", "staff"], group: "Work", icon: Calendar, keywords: ["appointments", "schedule", "booking"] },
+  { to: "/time-tracking", label: "Time Tracking", roles: ["admin", "staff"], group: "Work", icon: Clock, keywords: ["hours", "clock in", "clock out", "timesheet", "kiosk", "punch", "wages", "pay rate"] },
+  { to: "/rules", label: "Task Rules", roles: ["admin", "staff"], group: "Work", icon: Workflow, keywords: ["automation", "recurring tasks", "workflow"] },
+  { to: "/haccp", label: "Health Permits", roles: ["admin", "staff"], group: "Work", icon: ClipboardCheck, keywords: ["haccp", "food safety", "inspections", "permits"] },
+  { to: "/estimates", label: "Estimates", roles: ["admin", "staff"], group: "Tools", icon: FileText, keywords: ["quotes", "proposals"] },
+  { to: "/pipeline", label: "Pipeline", roles: ["admin", "staff"], group: "Tools", icon: Kanban, keywords: ["deals", "leads", "crm", "sales"] },
+  { to: "/fee-schedule", label: "Fee Schedule", roles: ["admin", "staff"], group: "Tools", icon: Receipt, keywords: ["pricing", "rates", "price list", "how much we charge"] },
+  { to: "/subscription-plans", label: "Subscription Plans", roles: ["admin", "staff"], group: "Tools", icon: Layers, keywords: ["tiers", "packages", "membership"] },
+  { to: "/calculators", label: "Calculators", roles: ["admin", "staff"], group: "Tools", icon: Calculator, keywords: ["math", "tools"] },
+  { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard, keywords: ["invoices", "payments", "ar", "money owed", "who owes"] },
+  { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins, keywords: ["sales tax", "filings", "tax due"] },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
-  { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature },
-  { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark },
-  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen },
-  { to: "/payroll-agent", label: "Payroll Agent", roles: ["admin", "staff"], group: "Money", icon: Zap },
-  { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money", icon: BarChart3 },
-  { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication", icon: FolderOpen },
-  { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"], icon: FileSpreadsheet },
-  { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication", icon: MessageSquare },
-  { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication", icon: LayoutTemplate },
-  { to: "/newsletter", label: "Newsletter", roles: ["admin", "staff"], group: "Client Communication", icon: Mail },
+  { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature, keywords: ["contracts"] },
+  { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark, keywords: ["gov forms"] },
+  { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen, keywords: ["books", "bookkeeping", "gl", "journal entries", "sales input"] },
+  { to: "/payroll-agent", label: "Payroll Agent", roles: ["admin", "staff"], group: "Money", icon: Zap, keywords: ["paychecks", "wages", "salary", "pay run", "employees"] },
+  { to: "/reports", label: "Reports", roles: ["admin", "staff"], group: "Money", icon: BarChart3, keywords: ["analytics", "kpis"] },
+  { to: "/documents", label: "Documents", navKey: "nav.documents", group: "Client Communication", icon: FolderOpen, keywords: ["files", "uploads"] },
+  { to: "/my-tax-forms", label: "My Tax Forms", navKey: "nav.myTaxForms", roles: ["employee"], icon: FileSpreadsheet, keywords: ["w4", "w9"] },
+  { to: "/communications", label: "Communications", navKey: "nav.communications", group: "Client Communication", icon: MessageSquare, keywords: ["messages", "emails", "texts", "sms"] },
+  { to: "/templates", label: "Templates", roles: ["admin", "staff"], group: "Client Communication", icon: LayoutTemplate, keywords: ["email templates", "canned responses"] },
+  { to: "/newsletter", label: "Newsletter", roles: ["admin", "staff"], group: "Client Communication", icon: Mail, keywords: ["email blast", "marketing email"] },
   // Moved out of the Clients group and renamed from "Portal Access" — this page manages
   // Firm/Staff/Admin accounts too, not just client portal logins, so filing it under
   // "Clients" (and calling it something that sounds client-only) undersold and
   // misfiled it. It belongs with the other firm-administration pages.
-  { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog },
-  { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck },
-  { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound },
-  { to: "/kiosk-settings", label: "Time Clock Kiosk", roles: ["admin"], group: "Firm", icon: TabletSmartphone },
-  { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench },
-  { to: "/compliance", label: "Compliance", roles: ["admin", "staff"], group: "Firm", icon: ShieldAlert },
-  { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp },
-  { to: "/website-analytics", label: "Website Analytics", roles: ["admin", "staff"], group: "Firm", icon: Globe },
-  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings },
-  { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree },
-  { to: "/suggestions", label: "Suggestions", roles: ["admin", "staff"], group: "Firm", icon: Lightbulb },
-  { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm", icon: ClipboardList },
-  { to: "/guide", label: "Guide", navKey: "nav.guide", icon: LifeBuoy },
+  { to: "/users", label: "Users & Access", roles: ["admin"], group: "Firm", icon: UserCog, keywords: ["staff accounts", "logins", "permissions", "team", "hourly rate", "new user"] },
+  { to: "/security", label: "Security", roles: ["admin"], group: "Firm", icon: ShieldCheck, keywords: ["2fa", "passwords", "audit log"] },
+  { to: "/firm-portals", label: "Portal Credentials", roles: ["admin"], group: "Firm", icon: KeyRound, keywords: ["eftps", "md tax connect", "agency logins"] },
+  { to: "/kiosk-settings", label: "Time Clock Kiosk", roles: ["admin"], group: "Firm", icon: TabletSmartphone, keywords: ["clock in", "clock out", "punch clock", "attendance", "pin"] },
+  { to: "/fix-center", label: "Fix Center", roles: ["admin", "staff"], group: "Firm", icon: Wrench, keywords: ["diagnostics", "errors", "health check", "troubleshoot"] },
+  { to: "/compliance", label: "Compliance", roles: ["admin", "staff"], group: "Firm", icon: ShieldAlert, keywords: ["wisp", "security plan", "pub 4557"] },
+  { to: "/firm-report", label: "Firm Report", roles: ["admin"], group: "Firm", icon: TrendingUp, keywords: ["business health", "compliance score", "p&l", "staff capacity"] },
+  { to: "/website-analytics", label: "Website Analytics", roles: ["admin", "staff"], group: "Firm", icon: Globe, keywords: ["traffic", "visitors", "web stats"] },
+  { to: "/firm-settings", label: "Firm Settings", roles: ["admin"], group: "Firm", icon: Settings, keywords: ["logo", "firm name", "address", "branding"] },
+  { to: "/list-settings", label: "List Settings", roles: ["admin"], group: "Firm", icon: ListTree, keywords: ["dropdown options", "custom fields"] },
+  { to: "/suggestions", label: "Suggestions", roles: ["admin", "staff"], group: "Firm", icon: Lightbulb, keywords: ["feedback", "ideas"] },
+  { to: "/document-checklists", label: "Document Checklists", roles: ["admin"], group: "Firm", icon: ClipboardList, keywords: ["required docs"] },
+  { to: "/guide", label: "Guide", navKey: "nav.guide", icon: LifeBuoy, keywords: ["help", "how to", "tutorial"] },
 ];
 
 const TITLES: Record<string, string> = {
@@ -213,6 +220,23 @@ export function Layout() {
   }, []);
   const sidebarRailActive = sidebarCollapsed && isDesktopWidth;
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  // Per-group collapse — Firm alone runs 11 items, so letting an admin fold
+  // away groups they don't touch daily shortens the list without removing
+  // anything. A group the current page belongs to is force-expanded below
+  // (collapsedGroups.has(...) check gets && item.group !== activeGroup), so
+  // collapsing a group can never hide the page you're actually standing on.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("altax_sidebar_collapsed_groups") || "[]")); } catch { return new Set(); }
+  });
+  function toggleGroup(group: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      localStorage.setItem("altax_sidebar_collapsed_groups", JSON.stringify(Array.from(next)));
+      return next;
+    });
+  }
+  const activeGroup = visibleNav.find((item) => location.pathname === item.to || location.pathname.startsWith(`${item.to}/`))?.group;
   // Notes sidebar badge — refetched whenever the route changes so leaving the
   // Notes page after reading/resolving things (or another tab's action)
   // updates the count without a manual refresh or a dedicated poll.
@@ -287,10 +311,26 @@ export function Layout() {
             const label = item.navKey ? t(item.navKey) : item.label;
             const showLabel = showGroupLabels && item.group && item.group !== lastGroup && !sidebarRailActive;
             lastGroup = item.group;
+            // Gated on showGroupLabels too — client/employee never see group
+            // headers (or a way to toggle them), so a stale collapsed-group
+            // flag left in this browser's localStorage from an earlier admin
+            // session must never silently hide a page from them.
+            const groupCollapsed = Boolean(showGroupLabels && !sidebarRailActive && item.group && collapsedGroups.has(item.group) && item.group !== activeGroup);
             return (
               <Fragment key={item.to}>
-                {showLabel && <div className="nav-group-label">{item.group}</div>}
-                <NavLink
+                {showLabel && (
+                  <button
+                    type="button"
+                    className="nav-group-label"
+                    onClick={() => toggleGroup(item.group!)}
+                    style={{ display: "flex", alignItems: "center", gap: 4, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}
+                    aria-expanded={!groupCollapsed}
+                  >
+                    {groupCollapsed ? <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" /> : <ChevronDown size={11} strokeWidth={2.5} aria-hidden="true" />}
+                    {item.group}
+                  </button>
+                )}
+                {groupCollapsed ? null : <NavLink
                   to={item.to} end={item.to === "/dashboard"}
                   className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
                   title={sidebarRailActive ? label : undefined}
@@ -307,7 +347,7 @@ export function Layout() {
                       {openNotesCount}
                     </span>
                   )}
-                </NavLink>
+                </NavLink>}
               </Fragment>
             );
           })}
