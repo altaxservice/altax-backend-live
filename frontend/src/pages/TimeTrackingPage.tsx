@@ -205,6 +205,7 @@ export function TimeTrackingPage() {
   const [entries, setEntries] = useState<TimeEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userFilter, setUserFilter] = useState("");
+  const [staffList, setStaffList] = useState<{ user_id: string; name: string; email: string; role: string }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   // Sticky like every other list page — same reasoning: leaving this page and
@@ -229,6 +230,13 @@ export function TimeTrackingPage() {
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [userFilter]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get<{ users: { user_id: string; name: string; email: string; role: string }[] }>("/users")
+      .then((r) => setStaffList(r.users.filter((u) => ["admin", "staff"].includes(u.role.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name))))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -338,8 +346,11 @@ export function TimeTrackingPage() {
 
       {isAdmin && (
         <div className="field" style={{ maxWidth: 260, marginBottom: 12 }}>
-          <label htmlFor="tt-user-filter">Filter by Staff Email</label>
-          <input id="tt-user-filter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} placeholder="Leave blank for everyone" />
+          <label htmlFor="tt-user-filter">Filter by Staff</label>
+          <select id="tt-user-filter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+            <option value="">Everyone</option>
+            {staffList.map((u) => <option key={u.user_id} value={u.email}>{u.name}</option>)}
+          </select>
         </div>
       )}
 
