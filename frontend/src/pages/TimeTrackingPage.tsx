@@ -62,7 +62,14 @@ function SelfClockButton({ onPunched }: { onPunched: () => void }) {
   function load() {
     api.get<{ clockedIn: boolean; since: string | null }>("/kiosk/self/status").then(setStatus).catch(() => {});
   }
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    // Someone can clock in/out from the shared kiosk tablet too — poll so this
+    // bar doesn't sit stale (e.g. "Clock In" still showing after they already
+    // clocked in on the physical device) until a manual page reload.
+    const poll = setInterval(load, 15000);
+    return () => clearInterval(poll);
+  }, []);
   useEffect(() => {
     if (!status?.clockedIn) return;
     const tick = setInterval(() => setNow(Date.now()), 1000);
