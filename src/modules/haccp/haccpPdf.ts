@@ -28,6 +28,12 @@ const TEAL = rgb(0.043, 0.42, 0.42);
 const TEAL_TINT = rgb(0.93, 0.97, 0.97);
 
 const CCP_LABEL_RE = /^(CCP & EQUIPMENT|MONITORING|CORRECTIVE ACTION|VERIFICATION):\s*/;
+const CCP_FIELD_ORDER = ["CCP & EQUIPMENT", "MONITORING", "CORRECTIVE ACTION", "VERIFICATION"];
+const CCP_COLUMN_LABELS = ["CCP Procedures & Equipment", "Monitoring", "Corrective Action", "Verification"];
+// Bolds a short lead-in phrase ("Approved Food Sources.") before the rest of a
+// numbered general-handling line — same pattern haccpDocx.ts already uses, so
+// the two formats read the same way instead of the PDF being the plainer one.
+const LEAD_IN_RE = /^(\d+\.\s*)?([A-Z][A-Za-z0-9 &/'-]{2,50}[.:])\s+(.+)$/;
 
 function fmtDate(v: unknown): string {
   if (!v) return new Date().toLocaleDateString(undefined, { timeZone: "UTC" });
@@ -250,6 +256,21 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   drawFooter(c, font, data.businessName, data.jurisdiction, "Page 1", docTypeLabel);
   let pageNum = 1;
 
+  // Shared by the Menu table and the CCP tables below — starts a fresh page
+  // (redrawing the footer) whenever the next block of content wouldn't fit,
+  // so every table-drawing helper can just ask for the room it needs instead
+  // of repeating this same page-break check inline everywhere.
+  function ensurePdfSpace(neededH: number): boolean {
+    if (y + neededH > PAGE_H - 60) {
+      pageNum += 1;
+      ({ page, c } = newPage(doc, font, bold, data.businessName));
+      y = 56;
+      drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
+      return true;
+    }
+    return false;
+  }
+
   // ---- Menu & Equipment checklist (its own page, up front, with a business-info recap banner) — only when actually requested ----
   if (hasMenuEquipment) {
   ({ page, c } = newPage(doc, font, bold, data.businessName));
@@ -273,36 +294,41 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
     c.text(L, y, "(none selected)", { size: 9.5, color: MUTED });
     y += 16;
   }
-  // Two-column checklist with a small solid-square marker per item, instead
-  // of one plain "- item" column — a business with a real menu (a full-size
-  // restaurant can easily run 80-100+ items once real dish names are added,
-  // not just the ~35 generic master categories) used to print as several
-  // pages of a bare single-column list. Category header gets a light tint
-  // band so a long menu still reads as sectioned, not a wall of text.
-  const colGapMenu = 24;
-  const colWidthMenu = (R - L - 28 - colGapMenu) / 2;
-  const leftColX = L + 14;
-  const rightColX = leftColX + colWidthMenu + colGapMenu;
+  // A real bordered 2-column table with a full-width gray category-header
+  // row per section — matches the reference plan's own Menu page and
+  // haccpDocx.ts's menuTable(), instead of a borderless checkbox checklist.
+  // Still 2 items per row (not 1) for the same reason the old layout was:
+  // a full-size restaurant's real menu can run 80-100+ items once real dish
+  // names are added on top of the ~35 generic master categories.
+  const menuColW = (R - L) / 2;
+  function menuCategoryRow(category: string) {
+    ensurePdfSpace(20);
+    c.rect(L, y, R - L, 18, TEAL_TINT);
+    c.text(L + (R - L) / 2, y + 12, category.toUpperCase(), { size: 9.5, bold: true, color: TEAL, align: "center" });
+    y += 18;
+    c.line(L, y, R, y, INK, 0.75);
+  }
+  function menuItemRow(leftItem: string | undefined, rightItem: string | undefined) {
+    const leftLines = leftItem ? wrapText(leftItem, bold, 9, menuColW - 20) : [];
+    const rightLines = rightItem ? wrapText(rightItem, bold, 9, menuColW - 20) : [];
+    const rowLines = Math.max(leftLines.length, rightLines.length, 1);
+    const rowH = rowLines * 12 + 10;
+    ensurePdfSpace(rowH);
+    const rowTop = y;
+    leftLines.forEach((line, li) => c.text(L + menuColW / 2, rowTop + 14 + li * 12, line, { size: 9, bold: true, align: "center" }));
+    rightLines.forEach((line, li) => c.text(L + menuColW + menuColW / 2, rowTop + 14 + li * 12, line, { size: 9, bold: true, align: "center" }));
+    y += rowH;
+    // Left, middle, and right vertical rules for this row — drawn per row
+    // (rather than one tall rect spanning the whole category, which a page
+    // break partway through a category would have cut off cleanly anyway).
+    c.line(L, rowTop, L, y, LINE, 0.75);
+    c.line(L + menuColW, rowTop, L + menuColW, y, LINE, 0.75);
+    c.line(R, rowTop, R, y, LINE, 0.75);
+    c.line(L, y, R, y, LINE, 0.75);
+  }
   for (const group of data.menuGroups) {
-    if (y > PAGE_H - 70) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-    c.rect(L, y, R - L, 16, TEAL_TINT);
-    c.text(L + 8, y + 11, group.category, { size: 9.5, bold: true, color: TEAL });
-    y += 24;
-    for (let i = 0; i < group.items.length; i += 2) {
-      const leftItem = group.items[i];
-      const rightItem = group.items[i + 1];
-      const leftLines = wrapText(leftItem, font, 9, colWidthMenu - 14);
-      const rightLines = rightItem ? wrapText(rightItem, font, 9, colWidthMenu - 14) : [];
-      const rowLines = Math.max(leftLines.length, rightLines.length || 1);
-      if (y + rowLines * 12 > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-      c.checkbox(leftColX, y - 7);
-      leftLines.forEach((line, li) => c.text(leftColX + 12, y + li * 12, line, { size: 9 }));
-      if (rightItem) {
-        c.checkbox(rightColX, y - 7);
-        rightLines.forEach((line, li) => c.text(rightColX + 12, y + li * 12, line, { size: 9 }));
-      }
-      y += rowLines * 12 + 4;
-    }
+    menuCategoryRow(group.category);
+    for (let i = 0; i < group.items.length; i += 2) menuItemRow(group.items[i], group.items[i + 1]);
     y += 10;
   }
   }
@@ -314,47 +340,116 @@ export async function generateHaccpPdf(data: HaccpPdfData): Promise<Uint8Array> 
   pageNum += 1;
   drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel);
 
-  const paragraphs = (data.renderedBody || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  for (const para of paragraphs) {
-    const rawLines = para.split("\n");
-    for (const rawLine of rawLines) {
-      const isSectionHeader = /^[A-Z][A-Z0-9 &().,/'-]{3,}$/.test(rawLine) && rawLine === rawLine.toUpperCase();
-      const ccpLabelMatch = rawLine.match(CCP_LABEL_RE);
-
-      if (isSectionHeader) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-        y += 6;
-        c.text(L, y, rawLine, { size: 11.5, bold: true, color: TEAL });
-        y += 8;
-        c.line(L, y, R, y, LINE, 0.75);
-        y += 14;
-        continue;
-      }
-
-      if (ccpLabelMatch) {
-        const label = ccpLabelMatch[1] + ": ";
-        const rest = rawLine.slice(ccpLabelMatch[0].length);
-        const labelW = bold.widthOfTextAtSize(pdfSafeText(label), 9.5);
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-        c.text(L, y, label, { size: 9.5, bold: true });
-        const wrapped = wrapText(rest, font, 9.5, maxWidth - labelW);
-        wrapped.forEach((line, i) => {
-          if (i > 0 && y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-          c.text(i === 0 ? L + labelW : L + 14, y, line, { size: 9.5 });
-          y += 13;
-        });
-        continue;
-      }
-
-      const isSubHeader = /^Process \d/i.test(rawLine.trim());
-      for (const wrapped of wrapText(rawLine, font, 9.5, maxWidth)) {
-        if (y > PAGE_H - 60) { pageNum += 1; ({ page, c } = newPage(doc, font, bold, data.businessName)); y = 56; drawFooter(c, font, data.businessName, data.jurisdiction, `Page ${pageNum}`, docTypeLabel); }
-        c.text(L, y, wrapped, isSubHeader ? { size: 10, bold: true, color: TEAL } : { size: 9.5 });
-        y += 13;
-      }
-    }
-    y += 9;
+  // Real bordered 4-column table for CCP quads — matches haccpDocx.ts's
+  // renderBody(), which already parses these exact same label-prefixed lines
+  // into a Table; the PDF (what actually gets printed and handed to a health
+  // inspector) used to draw them as stacked "LABEL: text" paragraphs instead,
+  // which is the "temperature table" formatting Baltimore City Health flagged.
+  const ccpColW = maxWidth / CCP_FIELD_ORDER.length;
+  const ccpCellPad = 5;
+  const ccpLineH = 10.5;
+  const ccpFontSize = 8;
+  function drawCcpHeaderRow() {
+    ensurePdfSpace(24);
+    c.rect(L, y, maxWidth, 20, TEAL_TINT);
+    CCP_COLUMN_LABELS.forEach((label, i) => {
+      c.text(L + i * ccpColW + ccpColW / 2, y + 13, label, { size: 8, bold: true, color: TEAL, align: "center" });
+    });
+    y += 20;
+    for (let i = 0; i <= CCP_FIELD_ORDER.length; i++) c.line(L + i * ccpColW, y - 20, L + i * ccpColW, y, i === 0 || i === CCP_FIELD_ORDER.length ? INK : LINE, 0.75);
+    c.line(L, y - 20, R, y - 20, INK, 1);
+    c.line(L, y, R, y, INK, 1);
   }
+  function drawCcpTable(rows: Record<string, string>[]) {
+    if (!rows.length) return;
+    y += 4;
+    drawCcpHeaderRow();
+    for (const row of rows) {
+      const cellLines = CCP_FIELD_ORDER.map((key) => wrapText(row[key] || "", font, ccpFontSize, ccpColW - ccpCellPad * 2));
+      const rowLineCount = Math.max(...cellLines.map((l) => l.length), 1);
+      const rowH = rowLineCount * ccpLineH + ccpCellPad * 2;
+      if (ensurePdfSpace(rowH)) drawCcpHeaderRow();
+      const rowTop = y;
+      cellLines.forEach((lines, i) => {
+        lines.forEach((line, li) => c.text(L + i * ccpColW + ccpCellPad, rowTop + ccpCellPad + 7 + li * ccpLineH, line, { size: ccpFontSize }));
+      });
+      y += rowH;
+      for (let i = 0; i <= CCP_FIELD_ORDER.length; i++) c.line(L + i * ccpColW, rowTop, L + i * ccpColW, y, LINE, 0.75);
+      c.line(L, y, R, y, LINE, 0.75);
+    }
+    y += 12;
+  }
+
+  let pendingCcpRow: Record<string, string> = {};
+  let pendingCcpRows: Record<string, string>[] = [];
+  function flushCcpRow() {
+    if (Object.keys(pendingCcpRow).length) { pendingCcpRows.push(pendingCcpRow); pendingCcpRow = {}; }
+  }
+  function flushCcpTable() {
+    flushCcpRow();
+    if (pendingCcpRows.length) drawCcpTable(pendingCcpRows);
+    pendingCcpRows = [];
+  }
+
+  // Flat line-by-line pass over the WHOLE body (not paragraph-batched) — same
+  // as haccpDocx.ts's renderBody(). A blank line is just spacing, not a table
+  // boundary, so two CCP quads separated only by a blank line still merge
+  // into one table; only a Process/Section header line (or the body ending)
+  // actually closes it.
+  for (const rawLine of (data.renderedBody || "").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) { y += 7; continue; }
+
+    const ccpLabelMatch = line.match(CCP_LABEL_RE);
+    if (ccpLabelMatch) {
+      pendingCcpRow[ccpLabelMatch[1]] = line.slice(ccpLabelMatch[0].length);
+      continue;
+    }
+    flushCcpTable();
+
+    const isSectionHeader = /^[A-Z][A-Z0-9 &().,/'-]{3,}$/.test(line) && line === line.toUpperCase();
+    if (isSectionHeader) {
+      ensurePdfSpace(30);
+      y += 6;
+      c.text(L, y, line, { size: 11.5, bold: true, color: TEAL });
+      y += 8;
+      c.line(L, y, R, y, LINE, 0.75);
+      y += 14;
+      continue;
+    }
+
+    const isSubHeader = /^Process \d/i.test(line);
+    if (isSubHeader) {
+      ensurePdfSpace(20);
+      c.text(L, y, line, { size: 10, bold: true, color: TEAL });
+      y += 15;
+      continue;
+    }
+
+    const leadMatch = line.match(LEAD_IN_RE);
+    if (leadMatch) {
+      const [, numPrefix, lead, rest] = leadMatch;
+      const prefixText = `${numPrefix || ""}${lead} `;
+      const prefixW = bold.widthOfTextAtSize(pdfSafeText(prefixText), 9.5);
+      ensurePdfSpace(16);
+      c.text(L, y, numPrefix || "", { size: 9.5 });
+      c.text(L + bold.widthOfTextAtSize(pdfSafeText(numPrefix || ""), 9.5), y, `${lead} `, { size: 9.5, bold: true, color: TEAL });
+      const wrapped = wrapText(rest, font, 9.5, maxWidth - prefixW);
+      wrapped.forEach((wline, i) => {
+        if (i > 0) ensurePdfSpace(13);
+        c.text(i === 0 ? L + prefixW : L + 14, y, wline, { size: 9.5 });
+        y += 13;
+      });
+      continue;
+    }
+
+    for (const wrapped of wrapText(line, font, 9.5, maxWidth)) {
+      ensurePdfSpace(13);
+      c.text(L, y, wrapped, { size: 9.5 });
+      y += 13;
+    }
+  }
+  flushCcpTable();
   }
 
   // ---- Equipment List — true final section, matching the Word doc, always
