@@ -237,11 +237,13 @@ export const GENERAL_HANDLING_BODY = `B. GENERAL FOOD HANDLING INFORMATION AND P
 1. Approved Food Sources. All food is purchased from licensed and approved suppliers and certified distributors.
 2. Cross-Contamination Prevention. Raw meats are stored on lower shelves, ready-to-eat foods on upper shelves. Separate utensils and gloves are used for raw and ready-to-eat items.
 3. Thawing Procedure. All frozen foods are thawed under refrigeration at or below 41°F.
-4. Advance Preparation. No potentially hazardous foods are prepared more than 24 hours in advance unless properly cooled and stored under refrigeration.
-5. Off-Premises Distribution. {{offPremisesClause}}
-6. Cold Storage Requirements. Refrigerated foods (meats, salads, dairy) are held at or below 41°F.
-7. Special Processes. No reduced-oxygen packaging (ROP), sushi preparation, curing, or similar specialized processes are conducted at this facility unless separately approved by the health department.
-8. Time-Only Control / Pooled Eggs. Not used at this facility unless separately documented and approved.
+4. Cooling Method. Potentially hazardous foods that require cooling are cooled using an ice bath, shallow pans, and/or rapid-chill refrigeration — from 135°F to 70°F within 2 hours, and from 70°F to 41°F within an additional 4 hours (or to 41°F within 4 hours total for cold-service items that never leave refrigeration).
+5. Advance Preparation. No potentially hazardous foods are prepared more than 24 hours in advance unless properly cooled and stored under refrigeration.
+6. Pre-Packaged Reheating for Hot-Holding. Commercially processed, pre-packaged potentially hazardous foods that are reheated for hot-holding are reheated within 2 hours to at least 135°F for 15 seconds before being placed on hot-hold.
+7. Off-Premises Distribution. {{offPremisesClause}}
+8. Cold Storage Requirements. Refrigerated foods (meats, salads, dairy) are held at or below 41°F.
+9. Special Processes. No reduced-oxygen packaging (ROP), sous vide, smoking, curing, fermenting, dehydration, sushi preparation, or similar specialized processes are conducted at this facility unless separately approved by the health department.
+10. Time-Only Control / Pooled Eggs. Not used at this facility unless separately documented and approved.
 
 RECORDKEEPING. Temperature logs and sanitation checklists are completed and maintained on-site, and are available for review by the health inspector at all times.
 
