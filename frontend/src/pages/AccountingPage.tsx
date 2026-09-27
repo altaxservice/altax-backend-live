@@ -4366,9 +4366,23 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [yearFilter, setYearFilter] = useState("");
 
   const jeSearchQ = search.trim().toLowerCase();
+  // A search that's mostly digits (typed with or without "$"/commas, e.g.
+  // "7985" or "$7,985.00") also matches against line amounts formatted to
+  // two decimals — so searching an amount works the same as searching text,
+  // without needing a separate "amount" field to fill in.
+  const jeAmountQ = search.replace(/[^0-9.]/g, "");
   const visibleEntries = entries
     .filter((e) => !yearFilter || String(e.entryDate || "").slice(0, 4) === yearFilter)
-    .filter((e) => !jeSearchQ || [e.description, e.ref, e.journalEntryId, ...(e.lines || []).map((l: any) => `${l.account} ${l.notes || ""}`)].some((v) => String(v || "").toLowerCase().includes(jeSearchQ)));
+    .filter((e) => {
+      if (!jeSearchQ) return true;
+      const textMatch = [e.description, e.ref, e.journalEntryId, ...(e.lines || []).map((l: any) => `${l.account} ${l.notes || ""}`)]
+        .some((v) => String(v || "").toLowerCase().includes(jeSearchQ));
+      const amountMatch = jeAmountQ.length > 0 && (e.lines || []).some((l: any) => {
+        const debit = Number(l.debit) || 0, credit = Number(l.credit) || 0;
+        return (debit && debit.toFixed(2).includes(jeAmountQ)) || (credit && credit.toFixed(2).includes(jeAmountQ));
+      });
+      return textMatch || amountMatch;
+    });
 
   return (
     // Stacked for the same reason as Contractors: the entry history and its
@@ -4447,7 +4461,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
               <option value="">All years</option>
               {jeYears.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo…" style={{ maxWidth: 220 }} />
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo, amount…" style={{ maxWidth: 240 }} />
           </div>
         }
       >
@@ -4515,23 +4529,46 @@ function ManualJeTab({ clientId }: { clientId: string }) {
         <div className="scroll-list">
           <div className="table-scroll">
           <table>
-            {/* This panel is the narrow half of a two-column grid, so Ref and the
-                line count ride under their neighbours rather than owning columns. */}
-            <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col" style={{ textAlign: "right" }}>Total</th></tr></thead>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Account</th>
+                <th scope="col">Description</th>
+                <th scope="col" style={{ textAlign: "right" }}>Total</th>
+                {isAdmin && <th scope="col"></th>}
+              </tr>
+            </thead>
             <tbody>
-              {visibleEntries.map((e) => (
-                <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
-                  <td>
-                    <div>{fmtDate(e.entryDate)}</div>
-                    <div className="muted" style={{ fontSize: 11 }}>{e.lines.length} line(s)</div>
-                  </td>
-                  <td>
-                    <div>{e.description || "—"}</div>
-                    <div className="muted" style={{ fontSize: 11 }}>{e.ref || e.journalEntryId}</div>
-                  </td>
-                  <td style={{ textAlign: "right" }}>{fmtMoney(jeTotal(e, "debit"))}</td>
-                </tr>
-              ))}
+              {visibleEntries.map((e) => {
+                const acctNames = Array.from(new Set((e.lines || []).map((l: any) => l.account).filter(Boolean))) as string[];
+                return (
+                  <tr key={e.journalEntryId} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setViewingJe(e)} onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setViewingJe(e); } }}>
+                    <td>
+                      <div>{fmtDate(e.entryDate)}</div>
+                      <div className="muted" style={{ fontSize: 11 }}>{e.ref || e.journalEntryId}</div>
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {acctNames.slice(0, 3).join(", ")}{acctNames.length > 3 ? ` +${acctNames.length - 3} more` : ""}
+                    </td>
+                    <td>{e.description || <span className="muted">—</span>}</td>
+                    <td style={{ textAlign: "right" }}>{fmtMoney(jeTotal(e, "debit"))}</td>
+                    {isAdmin && (
+                      <td>
+                        {/* One click from the list, not routed through opening the entry first —
+                            still gated by the same typed-DELETE confirmation as Delete This Entry. */}
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          title="Delete this entry"
+                          onClick={(ev) => { ev.stopPropagation(); handleDeleteJe(e); }}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           </div>
