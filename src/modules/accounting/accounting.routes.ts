@@ -2090,6 +2090,44 @@ accountingRouter.post("/journal-entries/:journalEntryId/delete", requireAuth, re
   res.json({ ok: true, journalEntryId, linesRemoved: lines.length, glLinesRemoved: removedGl.length });
 }));
 
+/**
+ * Manual JE templates — firm-wide (v3_coa is one shared chart of accounts
+ * across every client, so a template's account names apply to any client).
+ * Stores account/memo structure only, never amounts; the amount is different
+ * every time a recurring entry (bad-debt write-off, monthly depreciation,
+ * accrual reversal) actually gets posted.
+ */
+accountingRouter.get("/je-templates", requireAuth, requireRole("admin", "staff"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query(`SELECT * FROM altax.v3_je_templates ORDER BY name ASC`);
+  res.json({ templates: rows });
+}));
+
+accountingRouter.post("/je-templates", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const name = String(body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Template name is required." });
+  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+  const lines = rawLines
+    .map((line: any) => ({ account: String(line.account || "").trim(), memo: String(line.memo || "").trim() }))
+    .filter((line: any) => line.account);
+  if (lines.length < 2) return res.status(400).json({ error: "A template needs at least two lines." });
+  const descriptionTemplate = String(body.descriptionTemplate || "").trim() || null;
+  const templateId = `JET-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_je_templates (template_id, name, description_template, lines, created_by)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [templateId, name, descriptionTemplate, JSON.stringify(lines), req.user!.email]
+  );
+  res.status(201).json({ ok: true, templateId });
+}));
+
+accountingRouter.post("/je-templates/:templateId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { templateId } = req.params;
+  const removed = await query(`DELETE FROM altax.v3_je_templates WHERE template_id = $1 RETURNING template_id`, [templateId]);
+  if (removed.length === 0) return res.status(404).json({ error: "Template not found." });
+  res.json({ ok: true });
+}));
+
 /** List every employee/contractor across all clients — admin-only. Powers the Assigned Employee picker on Portal Access's Add/Edit User form. */
 accountingRouter.get("/employees", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
   const rows = await query(

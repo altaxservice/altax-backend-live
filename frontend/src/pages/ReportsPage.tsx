@@ -9,6 +9,7 @@ import { CLIENT_MESSAGE_HANDOFF_KEY, thisQuarterRange } from "./CommunicationsPa
 import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
+import { fmtDateOnly as fmtDate } from "../utils/date";
 
 // AR Aging and MD Annual Report moved out entirely (direct owner request,
 // 2026-08-26) — both are firm-wide, all-clients reports, and living here
@@ -133,6 +134,10 @@ export function ReportsPage() {
   // Reflected in the URL (see changeTab below) so a report tab is
   // bookmarkable/shareable and survives browser back/forward, not just
   // whatever tab happened to be clicked last.
+  // Which P&L/Period-Snapshot account row is drilled into, if any — cleared
+  // whenever the tab or period changes so a stale breakdown doesn't linger
+  // under a now-unrelated statement.
+  const [drillAccount, setDrillAccount] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get("tab");
     return (TABS as readonly string[]).includes(t || "") ? (t as Tab) : "Financial Overview";
@@ -295,6 +300,15 @@ export function ReportsPage() {
       return d >= from && d <= to;
     });
   }, [entries, from, to]);
+
+  useEffect(() => { setDrillAccount(null); }, [tab, clientId, from, to]);
+
+  const drillRows = useMemo(() => {
+    if (!drillAccount) return [];
+    return filtered
+      .filter((e) => (e.account || "Unclassified") === drillAccount)
+      .sort((a, b) => String(b.entry_date || "").localeCompare(String(a.entry_date || "")));
+  }, [drillAccount, filtered]);
 
   const client = clients.find((c) => c.client_id === clientId);
 
@@ -803,15 +817,15 @@ export function ReportsPage() {
                 <div className="command-panel-header"><h2 className="command-panel-title">Profit and Loss</h2><div className="command-panel-note">{from} – {to}</div></div>
                 <div style={{ padding: 16 }}>
                   <SectionLabel>Income</SectionLabel>
-                  {income.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.credit - v.debit)} />)}
+                  {income.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.credit - v.debit)} onClick={() => setDrillAccount(acct)} />)}
                   <Row label="Total Income" value={fmtMoney(totalIncome)} bold />
                   <SectionLabel>Cost of Goods Sold</SectionLabel>
                   {cogs.length === 0 && <p className="muted" style={{ fontSize: 12, margin: "4px 0" }}>No activity in this section for the selected period.</p>}
-                  {cogs.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} />)}
+                  {cogs.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillAccount(acct)} />)}
                   <Row label="Total Cost of Goods Sold" value={fmtMoney(totalCogs)} bold />
                   <Row label="Gross Profit" value={fmtMoney(grossProfit)} bold />
                   <SectionLabel>Expenses</SectionLabel>
-                  {expenses.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} />)}
+                  {expenses.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillAccount(acct)} />)}
                   <Row label="Total Expenses" value={fmtMoney(totalExpenses)} bold />
                   <Row label="Net Income" value={fmtMoney(netIncome)} bold accent />
                 </div>
@@ -829,12 +843,15 @@ export function ReportsPage() {
                   <thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead>
                   <tbody>
                     {Array.from(byAccount.entries()).map(([acct, v]) => (
-                      <tr key={acct}><td>{acct}</td><td>{fmtMoney(v.debit)}</td><td>{fmtMoney(v.credit)}</td></tr>
+                      <tr key={acct} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setDrillAccount(acct)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrillAccount(acct); } }}>
+                        <td>{acct}</td><td>{fmtMoney(v.debit)}</td><td>{fmtMoney(v.credit)}</td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
                 </div>
               </div>
+              {drillAccount && <AccountDrillDown account={drillAccount} rows={drillRows} clientId={clientId} onClose={() => setDrillAccount(null)} />}
             </div>
           )}
 
@@ -1233,11 +1250,97 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", margin: "14px 0 4px" }}>{children}</div>;
 }
 
-function Row({ label, value, bold, accent }: { label: string; value: string; bold?: boolean; accent?: boolean }) {
+function Row({ label, value, bold, accent, onClick }: { label: string; value: string; bold?: boolean; accent?: boolean; onClick?: () => void }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 13, fontWeight: bold ? 800 : 500, color: accent ? "var(--teal)" : "var(--ink)", borderTop: bold ? "1px solid var(--line)" : "none" }}>
+    <div
+      style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: 13, fontWeight: bold ? 800 : 500, color: accent ? "var(--teal)" : "var(--ink)", borderTop: bold ? "1px solid var(--line)" : "none", cursor: onClick ? "pointer" : undefined }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+    >
       <span>{label}</span>
       <span>{value}</span>
+    </div>
+  );
+}
+
+/** Which Accounting tab to jump to for a GL entry's source when it isn't a Manual JE (no per-record deep link yet — this lands on the right tab, not the exact record). */
+const SOURCE_TAB: Record<string, string> = {
+  "Sales Input": "Sales",
+  "Payroll": "Payroll",
+  "Contractor Payment": "Contractors",
+  "Fixed Asset Purchase": "Fixed Assets",
+  "Fixed Asset Depreciation": "Fixed Assets",
+  "Bank Reconciliation": "Bank Rec",
+};
+
+/**
+ * Shows exactly which GL entries make up one P&L/Period-Snapshot account
+ * total for the current period, so "why is this number what it is" has an
+ * answer besides re-deriving it from the raw ledger by hand. Manual-JE-sourced
+ * rows link straight into that entry's edit view; other sources (Sales,
+ * Payroll, Billing, …) don't have a per-record deep link yet, so they link to
+ * the owning tab instead — still faster than hunting for it unaided.
+ */
+function AccountDrillDown({ account, rows, clientId, onClose }: { account: string; rows: any[]; clientId: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const totalDebit = rows.reduce((s, r) => s + (Number(r.debit) || 0), 0);
+  const totalCredit = rows.reduce((s, r) => s + (Number(r.credit) || 0), 0);
+  return (
+    <div className="command-panel" style={{ gridColumn: "1 / -1" }}>
+      <div className="command-panel-header">
+        <div>
+          <h2 className="command-panel-title">{account}</h2>
+          <div className="command-panel-note">{rows.length} GL entr{rows.length === 1 ? "y" : "ies"} · Debits {fmtMoney(totalDebit)} · Credits {fmtMoney(totalCredit)}</div>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th scope="col">Date</th><th scope="col">Source</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th><th scope="col">Notes</th><th scope="col"></th></tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const isManualJe = r.source === "Manual JE";
+              const otherTab = SOURCE_TAB[r.source];
+              return (
+                <tr key={r.gl_entry_id}>
+                  <td>{fmtDate(r.entry_date)}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{r.source || "—"}</td>
+                  <td style={{ textAlign: "right" }}>{Number(r.debit) ? fmtMoney(r.debit) : "—"}</td>
+                  <td style={{ textAlign: "right" }}>{Number(r.credit) ? fmtMoney(r.credit) : "—"}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{r.notes || "—"}</td>
+                  <td>
+                    {isManualJe && r.ref && (
+                      <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent("Manual JE")}&openJe=${encodeURIComponent(r.ref)}`)}>
+                        Open in Manual JE
+                      </button>
+                    )}
+                    {!isManualJe && otherTab && (
+                      <button type="button" className="btn btn-sm" onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent(otherTab)}`)}>
+                        Go to {otherTab}
+                      </button>
+                    )}
+                    {!isManualJe && r.source === "Billing" && (
+                      <button type="button" className="btn btn-sm" onClick={() => navigate("/billing")}>Go to Billing</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 16 }}>No GL entries found for this account in the selected period.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ padding: "0 16px 16px" }}>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent("Manual JE")}&newLineAccount=${encodeURIComponent(account)}`)}
+        >
+          + Add Entry for This Account
+        </button>
+      </div>
     </div>
   );
 }

@@ -3958,6 +3958,96 @@ function jeTotal(entry: any, side: "debit" | "credit"): number {
   return (entry?.lines || []).reduce((sum: number, l: any) => sum + Number(l[side] || 0), 0);
 }
 
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Type-to-search account field, replacing a plain <select> — with 80+ active
+ * accounts in the shared COA, scrolling a dropdown is slower than typing a
+ * few letters. Recently-used names (from this client's own entry history)
+ * float to the top of the list. Also accepts a multi-cell paste (e.g. a
+ * tab-separated block copied straight out of Excel) and hands the parsed
+ * rows up to the caller instead of dumping raw text into the field.
+ */
+function AccountCombo({
+  value, onChange, accounts, recentNames, onPasteRows, id, required,
+}: {
+  value: string; onChange: (v: string) => void; accounts: CoaAccount[]; recentNames: string[];
+  onPasteRows?: (rows: string[][]) => void; id?: string; required?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const [highlight, setHighlight] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setQuery(value); }, [value]);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const activeNames = accounts.filter((a) => a.active).map((a) => a.account_name);
+  const q = query.trim().toLowerCase();
+  const recentMatch = recentNames.filter((n) => activeNames.includes(n) && (!q || n.toLowerCase().includes(q)));
+  const rest = (q ? activeNames.filter((n) => n.toLowerCase().includes(q)) : activeNames).filter((n) => !recentMatch.includes(n));
+  const options = [...recentMatch, ...rest].slice(0, 40);
+
+  function choose(name: string) {
+    onChange(name);
+    setQuery(name);
+    setOpen(false);
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    if (!onPasteRows || !/[\t\n]/.test(text)) return;
+    e.preventDefault();
+    const rows = text.split(/\r?\n/).filter((r) => r.trim().length > 0).map((r) => r.split("\t"));
+    if (rows.length) onPasteRows(rows);
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        id={id}
+        required={required}
+        value={query}
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); setHighlight(0); }}
+        onPaste={handlePaste}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setHighlight((h) => Math.min(h + 1, options.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter" && open && options[highlight]) { e.preventDefault(); choose(options[highlight]); }
+          else if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="Type to search…"
+        autoComplete="off"
+      />
+      {open && options.length > 0 && (
+        <div style={{ position: "absolute", zIndex: 20, top: "100%", left: 0, right: 0, maxHeight: 220, overflowY: "auto", marginTop: 2, background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 8, boxShadow: "var(--shadow)", padding: 4 }}>
+          {options.map((name, i) => (
+            <div
+              key={name}
+              onMouseDown={(e) => { e.preventDefault(); choose(name); }}
+              onMouseEnter={() => setHighlight(i)}
+              style={{ padding: "6px 8px", borderRadius: 4, cursor: "pointer", fontSize: 13, background: i === highlight ? "var(--teal-soft)" : "transparent", display: "flex", justifyContent: "space-between" }}
+            >
+              <span>{name}</span>
+              {recentMatch.includes(name) && <span className="muted" style={{ fontSize: 11 }}>recent</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManualJeTab({ clientId }: { clientId: string }) {
   const promptFor = usePrompt();
   const notify = useNotify();
@@ -3966,7 +4056,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
-  const [entryDate, setEntryDate] = useState("");
+  // Defaults to today rather than blank — the common case is posting for
+  // "now", and it's left alone (not reset) after a successful post so a
+  // batch of same-day entries doesn't need re-picking the date each time.
+  const [entryDate, setEntryDate] = useState(todayStr());
   const [ref, setRef] = useState("");
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
@@ -3981,10 +4074,27 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [entries, setEntries] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
   const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 0.01;
+
+  // Recently-used accounts on THIS client's own entries (already loaded for
+  // the history panel below), most-recent-entry-first since the backend
+  // already returns them ordered that way — surfaced at the top of the
+  // Account combobox instead of making every entry a scroll through 80+ names.
+  const recentAccountNames = useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+    for (const e of entries) {
+      for (const l of e.lines || []) {
+        if (l.account && !seen.has(l.account)) { seen.add(l.account); list.push(l.account); }
+      }
+    }
+    return list.slice(0, 8);
+  }, [entries]);
 
   function updateLine(i: number, patch: Partial<{ account: string; debit: string; credit: string; memo: string }>) {
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -3993,13 +4103,123 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     setLines((ls) => ls.filter((_, idx) => idx !== i));
   }
 
+  /**
+   * A pasted block from Excel (tab-separated columns, one row per line) fills
+   * lines starting at `startIndex` instead of dumping raw text into one field
+   * — columns map to Account / Debit / Credit / Memo, the same left-to-right
+   * order as the form. Extra pasted rows extend the line list; a paste that's
+   * shorter than the remaining lines only touches the rows it actually covers.
+   */
+  function handlePasteRows(startIndex: number, rows: string[][]) {
+    setLines((ls) => {
+      const next = [...ls];
+      rows.forEach((cols, offset) => {
+        const idx = startIndex + offset;
+        const [account = "", debit = "", credit = "", memo = ""] = cols.map((c) => c.trim());
+        const patch = { account, debit: debit.replace(/[^0-9.]/g, ""), credit: credit.replace(/[^0-9.]/g, ""), memo };
+        if (idx < next.length) next[idx] = { ...next[idx], ...patch };
+        else next.push(patch);
+      });
+      return next;
+    });
+  }
+
+  /**
+   * Fills whatever the LAST line still needs to bring the whole entry into
+   * balance — the common case is a 2-line entry where the first line's
+   * amount is already typed and the second just mirrors it. Replaces the
+   * last line's own amounts entirely (rather than adding on top) so clicking
+   * it twice is a no-op instead of doubling up.
+   */
+  function handleBalanceLastLine() {
+    setLines((ls) => {
+      if (ls.length < 2) return ls;
+      const lastIdx = ls.length - 1;
+      const last = ls[lastIdx];
+      const debitExcl = ls.reduce((s, l, idx) => s + (idx === lastIdx ? 0 : Number(l.debit) || 0), 0);
+      const creditExcl = ls.reduce((s, l, idx) => s + (idx === lastIdx ? 0 : Number(l.credit) || 0), 0);
+      const diff = Math.round((debitExcl - creditExcl) * 100) / 100;
+      const patched = diff > 0 ? { debit: "", credit: String(diff) } : diff < 0 ? { debit: String(-diff), credit: "" } : { debit: "", credit: "" };
+      return ls.map((l, idx) => (idx === lastIdx ? { ...last, ...patched } : l));
+    });
+  }
+
   function loadHistory() {
     api.get<{ entries: any[] }>(`/accounting/journal-entries/${clientId}`).then((r) => setEntries(r.entries)).catch(() => {});
   }
+  function loadTemplates() {
+    api.get<{ templates: any[] }>("/accounting/je-templates").then((r) => setTemplates(r.templates)).catch(() => {});
+  }
   useEffect(() => {
     api.get<{ accounts: CoaAccount[] }>("/accounting/coa").then((r) => setAccounts(r.accounts)).catch(() => {});
+    loadTemplates();
   }, []);
   useEffect(loadHistory, [clientId]);
+
+  // Deep-links from the Reports page's P&L/Period-Snapshot drill-down land
+  // here as ?openJe=<id> (open that specific past entry) or
+  // ?newLineAccount=<name> (prefill a fresh line with that account) — both
+  // one-shot: consumed once, then stripped from the URL so a later refresh
+  // or Back doesn't re-trigger them.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const openJe = searchParams.get("openJe");
+    if (!openJe || entries.length === 0) return;
+    const found = entries.find((e) => e.journalEntryId === openJe);
+    if (found) setViewingJe(found);
+    setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("openJe"); return next; }, { replace: true });
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, searchParams]);
+  useEffect(() => {
+    const newLineAccount = searchParams.get("newLineAccount");
+    if (!newLineAccount) return;
+    setLines((ls) => (ls[0].account ? ls : ls.map((l, i) => (i === 0 ? { ...l, account: newLineAccount } : l))));
+    setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("newLineAccount"); return next; }, { replace: true });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  function applyTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    const tpl = templates.find((t) => t.template_id === templateId);
+    if (!tpl) return;
+    setLines((tpl.lines || []).map((l: any) => ({ account: l.account || "", debit: "", credit: "", memo: l.memo || "" })));
+    if (tpl.description_template && !description) setDescription(tpl.description_template);
+  }
+
+  async function handleSaveTemplate() {
+    const usableLines = lines.filter((l) => l.account);
+    if (usableLines.length < 2) {
+      await notify("Add at least two lines with an account chosen before saving a template.");
+      return;
+    }
+    const name = await promptFor({ title: "Save as template", message: "Name this template (e.g. \"Bad Debt Write-Off\"):", placeholder: "Template name" });
+    if (!name) return;
+    try {
+      await api.post("/accounting/je-templates", {
+        name, descriptionTemplate: description, lines: usableLines.map((l) => ({ account: l.account, memo: l.memo })),
+      });
+      loadTemplates();
+      await notify(`Template "${name}" saved.`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this template.");
+    }
+  }
+
+  async function handleDeleteTemplate() {
+    if (!selectedTemplateId) return;
+    const tpl = templates.find((t) => t.template_id === selectedTemplateId);
+    const ok = await promptFor({ title: "Delete template", message: `Delete the template "${tpl?.name || selectedTemplateId}"? This cannot be undone. Type DELETE to confirm.`, placeholder: "DELETE" });
+    if (String(ok || "").trim().toUpperCase() !== "DELETE") return;
+    try {
+      await api.post(`/accounting/je-templates/${selectedTemplateId}/delete`, {});
+      setSelectedTemplateId("");
+      loadTemplates();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not delete this template.");
+    }
+  }
 
   /**
    * Journal entries delete whole, never line-by-line: a half-deleted entry would
@@ -4035,6 +4255,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
    * the original intact rather than losing both.
    */
   function startEditJe(entry: any) {
+    setSelectedTemplateId("");
     setEntryDate(entry.entryDate ? String(entry.entryDate).slice(0, 10) : "");
     setRef(entry.ref || "");
     setDescription(entry.description || "");
@@ -4054,8 +4275,36 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  /**
+   * Prefills the form from a past entry as a brand-new one — same accounts
+   * and memos, dated today, with a fresh auto-generated Reference. Unlike
+   * startEditJe, replacingJeId is never set: posting creates an additional
+   * entry rather than replacing the one duplicated from.
+   */
+  function startDuplicateJe(entry: any) {
+    setSelectedTemplateId("");
+    setEntryDate(todayStr());
+    setRef("");
+    setDescription(entry.description || "");
+    setNotes("");
+    setLines(
+      (entry.lines || []).map((l: any) => ({
+        account: l.account || "",
+        debit: Number(l.debit) ? String(l.debit) : "",
+        credit: Number(l.credit) ? String(l.credit) : "",
+        memo: l.notes || "",
+      }))
+    );
+    setReplacingJeId(null);
+    setViewingJe(null);
+    setError(null);
+    setSuccess(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function cancelEditJe() {
     setReplacingJeId(null);
+    setSelectedTemplateId("");
     setLines([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
     setDescription("");
     setRef("");
@@ -4085,8 +4334,17 @@ function ManualJeTab({ clientId }: { clientId: string }) {
       } else {
         setSuccess(`Journal entry ${res.jeId} posted (${res.lines} lines).`);
       }
-      setLines([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
-      setDescription("");
+      // Re-applies the selected template's account/memo structure instead of
+      // a blank 2-line form — posting several entries off the same template
+      // (e.g. bad-debt write-offs for a batch of clients) only needs a new
+      // amount typed each time, not the accounts re-picked too.
+      const tpl = selectedTemplateId ? templates.find((t) => t.template_id === selectedTemplateId) : null;
+      setLines(
+        tpl
+          ? (tpl.lines || []).map((l: any) => ({ account: l.account || "", debit: "", credit: "", memo: l.memo || "" }))
+          : [{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]
+      );
+      setDescription(tpl?.description_template || "");
       setRef("");
       setNotes("");
       loadHistory();
@@ -4097,10 +4355,20 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     }
   }
 
+  // Entries accumulate across every year the client's been on the books, and
+  // a free-text search alone doesn't help when you just want "this year's
+  // entries" — a plain year filter narrows the list before search even runs.
+  const jeYears = useMemo(() => {
+    const years = new Set<string>();
+    for (const e of entries) if (e.entryDate) years.add(String(e.entryDate).slice(0, 4));
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }, [entries]);
+  const [yearFilter, setYearFilter] = useState("");
+
   const jeSearchQ = search.trim().toLowerCase();
-  const visibleEntries = jeSearchQ
-    ? entries.filter((e) => [e.description, e.ref, e.journalEntryId, ...(e.lines || []).map((l: any) => `${l.account} ${l.notes || ""}`)].some((v) => String(v || "").toLowerCase().includes(jeSearchQ)))
-    : entries;
+  const visibleEntries = entries
+    .filter((e) => !yearFilter || String(e.entryDate || "").slice(0, 4) === yearFilter)
+    .filter((e) => !jeSearchQ || [e.description, e.ref, e.journalEntryId, ...(e.lines || []).map((l: any) => `${l.account} ${l.notes || ""}`)].some((v) => String(v || "").toLowerCase().includes(jeSearchQ)));
 
   return (
     // Stacked for the same reason as Contractors: the entry history and its
@@ -4116,6 +4384,19 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           )}
           {error && <ErrorBanner error={error} />}
           {success && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>{success}</div>}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+            <div className="field" style={{ margin: 0, minWidth: 220 }}>
+              <label htmlFor="acct-cej-template">Template</label>
+              <select id="acct-cej-template" value={selectedTemplateId} onChange={(e) => applyTemplate(e.target.value)}>
+                <option value="">None — start blank</option>
+                {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.name}</option>)}
+              </select>
+            </div>
+            {selectedTemplateId && (
+              <button type="button" className="btn btn-sm btn-danger" style={{ marginTop: 18 }} onClick={handleDeleteTemplate}>Delete Template</button>
+            )}
+            <button type="button" className="btn btn-sm" style={{ marginTop: 18 }} onClick={handleSaveTemplate}>Save Lines as Template</button>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <div className="field"><label htmlFor="acct-cej-entry-date">Entry Date</label><input id="acct-cej-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
             <div className="field"><label htmlFor="acct-cej-ref">Reference</label><input id="acct-cej-ref" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Auto if left blank" /></div>
@@ -4126,13 +4407,14 @@ function ManualJeTab({ clientId }: { clientId: string }) {
             <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.5fr auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
               <div className="field" style={{ margin: 0 }}>
                 <label>Account</label>
-                <select required value={line.account} onChange={(e) => updateLine(i, { account: e.target.value })}>
-                  <option value="">Choose…</option>
-                  {line.account && !accounts.some((a) => a.active && a.account_name === line.account) && (
-                    <option value={line.account}>{line.account} (Inactive)</option>
-                  )}
-                  {accounts.filter((a) => a.active).map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
-                </select>
+                <AccountCombo
+                  value={line.account}
+                  onChange={(v) => updateLine(i, { account: v })}
+                  accounts={accounts}
+                  recentNames={recentAccountNames}
+                  onPasteRows={(rows) => handlePasteRows(i, rows)}
+                  required
+                />
               </div>
               {/* A line with both Debit and Credit filled isn't a real entry — it's
                   a self-canceling no-op that still passes the overall balance
@@ -4146,6 +4428,9 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           ))}
           <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
             <button type="button" className="btn btn-sm" onClick={() => setLines((ls) => [...ls, { account: "", debit: "", credit: "", memo: "" }])}>+ Add Line</button>
+            {!balanced && totalDebit + totalCredit > 0 && (
+              <button type="button" className="btn btn-sm" onClick={handleBalanceLastLine} title="Fill the last line with whatever amount balances the entry">⚖ Balance Last Line</button>
+            )}
           </div>
           <div className="muted" style={{ marginBottom: 12, fontSize: 13 }}>
             Debits {fmtMoney(totalDebit)} · Credits {fmtMoney(totalCredit)} · {balanced ? <span style={{ color: "var(--green)", fontWeight: 700 }}>Balanced</span> : <span style={{ color: "var(--red)", fontWeight: 700 }}>Out of balance</span>}
@@ -4155,8 +4440,16 @@ function ManualJeTab({ clientId }: { clientId: string }) {
       </Panel>
       <Panel
         title="Recent Manual Entries"
-        note={`${entries.length} entries`}
-        action={<input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo…" style={{ maxWidth: 220 }} />}
+        note={`${visibleEntries.length} of ${entries.length} entries`}
+        action={
+          <div style={{ display: "flex", gap: 8 }}>
+            <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} style={{ maxWidth: 110 }}>
+              <option value="">All years</option>
+              {jeYears.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo…" style={{ maxWidth: 220 }} />
+          </div>
+        }
       >
         {/* Row click opens the full entry, matching how Sales rows behave. */}
         {viewingJe && (
@@ -4193,16 +4486,24 @@ function ManualJeTab({ clientId }: { clientId: string }) {
                 </tbody>
               </table>
             </div>
-            {isAdmin ? (
-              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-              <button type="button" className="btn btn-sm btn-primary" onClick={() => startEditJe(viewingJe)}>
-                Edit This Entry
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {/* Duplicate only ever posts a new entry (the normal create route) — no
+                  delete step involved, so unlike Edit/Delete it's safe for staff too. */}
+              <button type="button" className="btn btn-sm" onClick={() => startDuplicateJe(viewingJe)}>
+                Duplicate
               </button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteJe(viewingJe)}>
-                Delete This Entry
-              </button>
-              </div>
-            ) : (
+              {isAdmin && (
+                <>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={() => startEditJe(viewingJe)}>
+                    Edit This Entry
+                  </button>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteJe(viewingJe)}>
+                    Delete This Entry
+                  </button>
+                </>
+              )}
+            </div>
+            {!isAdmin && (
               // Editing/deleting a manual JE deletes-then-reposts under the hood, and
               // that delete step is admin-only server-side — a staff user hitting this
               // would post the replacement, then 403 on removing the original, leaving
@@ -4235,7 +4536,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </table>
           </div>
         </div>
-        {visibleEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{entries.length === 0 ? "No manual entries posted yet." : "No entries match that search."}</p>}
+        {visibleEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{entries.length === 0 ? "No manual entries posted yet." : "No entries match that search/year filter."}</p>}
       </Panel>
     </div>
   );
