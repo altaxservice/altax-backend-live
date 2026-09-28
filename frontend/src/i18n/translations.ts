@@ -32,6 +32,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "header.searchPlaceholder": { en: "Client, task, invoice", ar: "عميل، مهمة، فاتورة" },
   "header.searchAll": { en: "Search All", ar: "بحث شامل" },
   "header.changePassword": { en: "Change Password", ar: "تغيير كلمة المرور" },
+  "header.switchBusiness": { en: "Switch Business", ar: "تبديل المنشأة" },
   "header.enable2fa": { en: "Enable 2FA", ar: "تفعيل التحقق بخطوتين" },
   "header.2faOn": { en: "2FA: On", ar: "التحقق بخطوتين: مفعّل" },
   "header.signOut": { en: "Sign Out", ar: "تسجيل الخروج" },
@@ -324,7 +325,6 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.tab.sales": { en: "Daily Sales", ar: "المبيعات اليومية" },
   "books.tab.purchases": { en: "Purchases & Expenses", ar: "المشتريات والمصاريف" },
   "books.tab.pl": { en: "My Income & Expenses", ar: "دخلي ومصاريفي" },
-  "books.business.switcher": { en: "Business", ar: "المنشأة" },
 
   "books.status.pending": { en: "Pending review", ar: "بانتظار المراجعة" },
   "books.status.approved": { en: "Approved", ar: "معتمد" },

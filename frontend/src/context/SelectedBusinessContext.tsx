@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { api } from "../api/client";
 
 const STORAGE_KEY = "altax_selected_business";
 
@@ -18,10 +19,32 @@ interface SelectedBusinessContextValue {
 const SelectedBusinessContext = createContext<SelectedBusinessContextValue | undefined>(undefined);
 
 export function SelectedBusinessProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const linkedClients = user?.linkedClients || [];
   const [clientId, setClientId] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY));
   const [clientName, setClientName] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY + "_name"));
+
+  // linkedClients is only computed at login and then cached in the stored
+  // session — a client whose tab was already open when staff linked a new
+  // business to them would never see the switcher appear without this.
+  // Re-fetches the current list on mount/user-change and merges it into the
+  // stored session (only when it actually changed) rather than forcing a
+  // full logout/login just to pick up a staff-side change.
+  useEffect(() => {
+    if (!user || user.role !== "client") return;
+    let cancelled = false;
+    api.get<{ linkedClients: { clientId: string; clientName: string }[] }>("/auth/linked-clients")
+      .then((r) => {
+        if (cancelled) return;
+        const current = user.linkedClients || [];
+        const changed = current.length !== r.linkedClients.length
+          || r.linkedClients.some((l, i) => l.clientId !== current[i]?.clientId || l.clientName !== current[i]?.clientName);
+        if (changed) updateUser({ linkedClients: r.linkedClients });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.userId]);
 
   // Re-anchor whenever the logged-in user changes (login, logout, switching
   // portals in another tab) — a stored selection from a previous login must

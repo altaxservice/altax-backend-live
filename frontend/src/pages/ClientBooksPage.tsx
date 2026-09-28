@@ -58,7 +58,7 @@ function StatusPill({ status, t }: { status: DraftStatus; t: (k: string) => stri
 export function ClientBooksPage() {
   const { user } = useAuth();
   const { t, dir } = useLanguage();
-  const { clientId: businessId, linkedClients, setSelectedBusiness } = useSelectedBusiness();
+  const { clientId: businessId } = useSelectedBusiness();
   const clientId = businessId || user?.clientId || "";
   const [tab, setTab] = useState<Tab>("sales");
   const [categories, setCategories] = useState<SalesCategory[]>([]);
@@ -83,23 +83,6 @@ export function ClientBooksPage() {
   return (
     <div dir={dir}>
       <p className="muted" style={{ margin: "0 0 20px", maxWidth: 760 }}>{t("books.intro")}</p>
-      {linkedClients.length > 1 && (
-        <div className="field" style={{ maxWidth: 320, marginBottom: 20 }}>
-          <label htmlFor="cb-business-switcher">{t("books.business.switcher")}</label>
-          <select
-            id="cb-business-switcher"
-            value={clientId}
-            onChange={(e) => {
-              const next = linkedClients.find((l) => l.clientId === e.target.value);
-              setSelectedBusiness(e.target.value, next?.clientName || null);
-            }}
-          >
-            {linkedClients.map((l) => (
-              <option key={l.clientId} value={l.clientId}>{l.clientName}</option>
-            ))}
-          </select>
-        </div>
-      )}
       <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((tb) => (
           <button

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Calculator, Search } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { api, ApiError, setAuthToken } from "../api/client";
 import { useLanguage } from "../context/LanguageContext";
 import { APP_NAME } from "../utils/branding";
@@ -14,6 +15,7 @@ const EYEBROW = "OPERATIONS DASHBOARD";
 
 export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenuClick?: () => void; menuOpen?: boolean }) {
   const { user, logout } = useAuth();
+  const { clientId: activeBusinessId, clientName: activeBusinessName, linkedClients, setSelectedBusiness } = useSelectedBusiness();
   const navigate = useNavigate();
   const { lang, setLang, t, dir } = useLanguage();
   const [search, setSearch] = useState("");
@@ -168,13 +170,30 @@ export function Header({ title, onMenuClick, menuOpen }: { title: string; onMenu
           <div style={{ position: "relative" }} ref={userMenuRef}>
             <button type="button" className="topbar-user-btn" onClick={() => setShowUserMenu((v) => !v)}>
               <div>
-                <div className="topbar-user-name">{user?.name || user?.email}</div>
+                <div className="topbar-user-name">{(user?.role === "client" && activeBusinessName) || user?.name || user?.email}</div>
                 <div className="topbar-user-role">{user?.role?.toUpperCase()}</div>
               </div>
               <span className="topbar-user-caret" aria-hidden="true">{showUserMenu ? "▴" : "▾"}</span>
             </button>
             {showUserMenu && (
               <div className="topbar-user-dropdown">
+                {linkedClients.length > 1 && (
+                  <>
+                    <div className="topbar-user-dropdown-label">{t("header.switchBusiness")}</div>
+                    {linkedClients.map((b) => (
+                      <button
+                        key={b.clientId}
+                        type="button"
+                        aria-current={b.clientId === activeBusinessId}
+                        style={b.clientId === activeBusinessId ? { fontWeight: 700, color: "var(--teal)" } : undefined}
+                        onClick={() => { setSelectedBusiness(b.clientId, b.clientName); setShowUserMenu(false); }}
+                      >
+                        {b.clientId === activeBusinessId ? "✓ " : ""}{b.clientName}
+                      </button>
+                    ))}
+                    <div className="topbar-user-dropdown-divider" />
+                  </>
+                )}
                 <button type="button" onClick={() => { setShowUserMenu(false); setShowPasswordModal(true); }}>{t("header.changePassword")}</button>
                 <button type="button" onClick={() => { setShowUserMenu(false); setShowTotpModal(true); }}>
                   {user?.totpEnabled ? t("header.2faOn") : t("header.enable2fa")}

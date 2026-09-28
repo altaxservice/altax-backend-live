@@ -52,6 +52,7 @@ export interface PortalUser {
   overdue_count?: number;
   /** Every business this client-role login is linked to (v3_user_clients); empty for non-client roles. */
   linked_client_ids?: string[];
+  linked_client_names?: string[];
   [key: string]: unknown;
 }
 

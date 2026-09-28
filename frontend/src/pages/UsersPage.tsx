@@ -659,7 +659,7 @@ function UserGroup({ title, users, onEdit, onDeactivate, onAction, onDelete, onE
                   </td>
                   <td onClick={() => onEdit(u)}>
                     <span className="badge">{u.role}</span>
-                    <div className="muted" style={{ fontSize: 11 }}>{u.assignment_label || "Firm-wide"}</div>
+                    <div className="muted" style={{ fontSize: 11 }} title={u.assignment_label || undefined}>{u.assignment_label || "Firm-wide"}</div>
                   </td>
                   <td onClick={() => onEdit(u)} style={{ color: inviteStatusColor(status), fontWeight: inviteStatusColor(status) ? 600 : undefined }}>{status}</td>
                   <td className="muted" onClick={() => onEdit(u)}>{u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}</td>

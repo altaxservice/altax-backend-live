@@ -800,6 +800,32 @@ authRouter.post("/confirm-email-change", codeLimiter, asyncHandler(async (req: R
 }));
 
 /**
+ * Real bug, found live 2026-09-28: linkedClients (the business-switcher list)
+ * is only ever computed at login (buildAuthSuccess) and cached in the
+ * frontend's stored session — so a client whose login was already open when
+ * staff linked a second business to them never sees the switcher appear,
+ * even though canAccessClient already grants them access to it server-side.
+ * This lets the frontend re-fetch just this list on demand (e.g. on every
+ * page load) and merge it into the stored session via updateUser(), without
+ * forcing a full logout/login. Client role only — employees/staff/admin
+ * don't have a linkedClients concept.
+ */
+authRouter.get("/linked-clients", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const rows = await query<{ client_id: string; client_name: string }>(
+    `SELECT uc.client_id, c.client_name FROM altax.v3_user_clients uc
+       JOIN altax.v3_clients c ON c.client_id = uc.client_id
+      WHERE uc.user_id = $1 AND (c.status IS NULL OR lower(c.status) NOT IN ('inactive', 'archived'))
+      ORDER BY c.client_name ASC`,
+    [req.user!.sub]
+  );
+  const linkedClients = rows.map((r) => ({ clientId: r.client_id, clientName: r.client_name }));
+  if (req.user!.clientId && !linkedClients.some((l) => l.clientId === req.user!.clientId)) {
+    linkedClients.unshift({ clientId: req.user!.clientId, clientName: req.user!.clientId });
+  }
+  res.json({ linkedClients });
+}));
+
+/**
  * Preparer credentials (PTIN / CAF number) — self-service for admin AND
  * staff, unlike the rest of Users & Access which is admin-only. These are
  * the individual staff member's own IRS-issued numbers (Form 2848 requires

@@ -121,11 +121,15 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     const roleKey = normalizeText(u.role);
     let assignmentLabel = "Firm-wide";
     const linkedClientIds = roleKey === "client" ? (linkedClientIdsByUser.get(u.user_id) || []) : [];
+    const linkedClientNames = linkedClientIds.map((id) => clientNameById.get(id) || id);
     if (roleKey === "client" && u.assigned_client_id) {
       const name = clientNameById.get(u.assigned_client_id);
       const base = name ? `${name} (${u.assigned_client_id})` : u.assigned_client_id;
-      const extra = linkedClientIds.filter((id: string) => id !== u.assigned_client_id).length;
-      assignmentLabel = extra > 0 ? `${base} +${extra} more` : base;
+      // Named, not just counted — "+1 more" told an admin nothing about
+      // WHICH business was linked without opening Edit; direct owner
+      // feedback, 2026-09-28.
+      const others = linkedClientNames.filter((n, i) => linkedClientIds[i] !== u.assigned_client_id);
+      assignmentLabel = others.length > 0 ? `${base} + ${others.join(", ")}` : base;
     } else if (roleKey === "employee" && u.assigned_employee_id) {
       const emp = employeeById.get(u.assigned_employee_id);
       assignmentLabel = emp ? `${emp.employee_name} (${emp.employee_id}) - ${emp.client_name}` : u.assigned_employee_id;
@@ -148,7 +152,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
       }
     }
 
-    return { ...u, assignment_label: assignmentLabel, open_count: open, overdue_count: overdue, linked_client_ids: linkedClientIds };
+    return { ...u, assignment_label: assignmentLabel, open_count: open, overdue_count: overdue, linked_client_ids: linkedClientIds, linked_client_names: linkedClientNames };
   });
 
   res.json({ users: enriched });
