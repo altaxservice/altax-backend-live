@@ -2304,13 +2304,29 @@ accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, async
 
   const body = req.body || {};
   const saleDate = body.saleDate ? String(body.saleDate).trim() : pgDateStr(draft.sale_date);
+  // Same duplicate-date guard POST applies at creation — editing a draft
+  // onto a date that already has a different entry is exactly as much a
+  // likely double-entry as creating a fresh one there.
+  if (saleDate !== pgDateStr(draft.sale_date) && !body.confirmDuplicate) {
+    const existing = await queryOne<any>(
+      `SELECT draft_id FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND sale_date = $2 AND status != 'Dismissed' AND draft_id != $3 LIMIT 1`,
+      [draft.client_id, saleDate, draftId]
+    );
+    if (existing) return res.status(409).json({ error: "You already have sales logged for that date.", duplicate: true });
+  }
   const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : draft.category_lines;
   const preview = await previewSalesDraftTax(draft.client_id, client.state, rawLines);
   const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
-  await query(
-    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, updated_at=now() WHERE draft_id=$1`,
+  // AND status='Pending' here (not just the SELECT check above) closes the
+  // race where staff approve this exact draft in between that check and
+  // this write — the UPDATE then simply matches zero rows instead of
+  // silently overwriting fields on a draft that's already been posted.
+  const updated = await query(
+    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, updated_at=now()
+     WHERE draft_id=$1 AND status='Pending' RETURNING draft_id`,
     [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null]
   );
+  if (updated.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be edited." });
   res.json({ ok: true });
 }));
 
@@ -2321,9 +2337,25 @@ accountingRouter.post("/client-books/sales-drafts/:draftId/delete", requireAuth,
   const client = await requireClientBooksAccess(req, res, draft.client_id);
   if (!client) return;
   if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be deleted." });
-  await query(`DELETE FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  const deleted = await query(`DELETE FROM altax.v3_client_sales_drafts WHERE draft_id = $1 AND status='Pending' RETURNING draft_id`, [draftId]);
+  if (deleted.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be deleted." });
   res.json({ ok: true });
 }));
+
+/**
+ * A purchase draft's account is free text from the client, unlike sales
+ * categories (validated by foreign key). Without this, a crafted request
+ * could name any account at all — including Sales Revenue or an equity
+ * account — and staff's Client Submissions view has no reason to expect
+ * that, so a bulk-approve could post it without a second look.
+ */
+async function isValidPurchaseAccount(account: string): Promise<boolean> {
+  const row = await queryOne<any>(
+    `SELECT 1 FROM altax.v3_coa WHERE account_name = $1 AND active = true AND account_type IN ('Expense','COGS')`,
+    [account]
+  );
+  return Boolean(row);
+}
 
 accountingRouter.post("/client-books/purchase-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
@@ -2334,6 +2366,7 @@ accountingRouter.post("/client-books/purchase-drafts", requireAuth, asyncHandler
   if (!purchaseDate) return res.status(400).json({ error: "Date is required." });
   const account = String(body.account || "").trim();
   if (!account) return res.status(400).json({ error: "Choose what this expense was for." });
+  if (!(await isValidPurchaseAccount(account))) return res.status(400).json({ error: "Choose a category from the list." });
   const amount = money(body.amount);
   if (!amount || amount < 0) return res.status(400).json({ error: "Enter an amount greater than zero." });
 
@@ -2373,14 +2406,18 @@ accountingRouter.patch("/client-books/purchase-drafts/:draftId", requireAuth, as
   const body = req.body || {};
   const amount = body.amount !== undefined ? money(body.amount) : draft.amount;
   if (!amount || amount < 0) return res.status(400).json({ error: "Enter an amount greater than zero." });
-  await query(
+  const account = String(body.account || draft.account).trim();
+  if (!account) return res.status(400).json({ error: "Choose what this expense was for." });
+  if (!(await isValidPurchaseAccount(account))) return res.status(400).json({ error: "Choose a category from the list." });
+  const updated = await query(
     `UPDATE altax.v3_client_purchase_drafts
        SET purchase_date=$2, vendor_name=$3, description=$4, account=$5, amount=$6, paid_by_card=$7, notes=$8, updated_at=now()
-     WHERE draft_id=$1`,
+     WHERE draft_id=$1 AND status='Pending' RETURNING draft_id`,
     [draftId, body.purchaseDate ? String(body.purchaseDate).trim() : pgDateStr(draft.purchase_date), String(body.vendorName ?? draft.vendor_name ?? "").trim() || null,
-      String(body.description ?? draft.description ?? "").trim() || null, String(body.account || draft.account).trim(), amount,
+      String(body.description ?? draft.description ?? "").trim() || null, account, amount,
       body.paidByCard !== undefined ? Boolean(body.paidByCard) : draft.paid_by_card, String(body.notes ?? draft.notes ?? "").trim() || null]
   );
+  if (updated.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be edited." });
   res.json({ ok: true });
 }));
 
@@ -2391,7 +2428,8 @@ accountingRouter.post("/client-books/purchase-drafts/:draftId/delete", requireAu
   const client = await requireClientBooksAccess(req, res, draft.client_id);
   if (!client) return;
   if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be deleted." });
-  await query(`DELETE FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  const deleted = await query(`DELETE FROM altax.v3_client_purchase_drafts WHERE draft_id = $1 AND status='Pending' RETURNING draft_id`, [draftId]);
+  if (deleted.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be deleted." });
   res.json({ ok: true });
 }));
 
@@ -2425,7 +2463,7 @@ async function computeClientBooksPl(clientId: string, from: string, to: string) 
   const totalExpenses = money(Array.from(byAccount.values()).reduce((s, v) => s + v, 0));
   return {
     totalIncome, totalExpenses, netIncome: money(totalIncome - totalExpenses),
-    expensesByAccount: Array.from(byAccount.entries()).map(([account, amount]) => ({ account, amount })),
+    expensesByAccount: Array.from(byAccount.entries()).map(([account, amount]) => ({ account, amount })).sort((a, b) => a.account.localeCompare(b.account)),
     pendingSalesCount: salesRows.filter((r) => r.status === "Pending").length,
     pendingPurchasesCount: purchaseRows.filter((r) => r.status === "Pending").length,
   };
@@ -2466,9 +2504,15 @@ accountingRouter.get("/client-books/pl-pdf", requireAuth, asyncHandler(async (re
 /**
  * Staff review queue — everything a client submitted for one client,
  * defaulting to Pending. `anomaly` flags a sales draft whose gross_sales is
- * more than 2x or under half this client's trailing-60-day APPROVED average
- * for the same weekday (real posted history, not other pending drafts) —
- * a nudge to double-check before approving, not a hard block.
+ * more than 2x or under 40% of the plain average of this client's own
+ * v3_sales_input rows (real posted history, not other pending drafts) from
+ * the last 60 days — a nudge to double-check before approving, not a hard
+ * block. Deliberately simple (no weekday-matching, no awareness of what
+ * period each historical row represents): if this client's posted sales
+ * rows are themselves daily, the average is a reasonable daily baseline; if
+ * staff instead post weekly/monthly totals into v3_sales_input for this
+ * client, every daily submission will legitimately look "under 40%" of that
+ * average and the flag stops being useful for them specifically.
  */
 accountingRouter.get("/client-books/:clientId/submissions", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;

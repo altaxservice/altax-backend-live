@@ -306,8 +306,9 @@ export async function generateClientBooksPlPdf(data: ClientBooksPlReportData): P
   let y = drawHeader(c, data.client, "MY INCOME & EXPENSES", `${fmtDate(data.from)} - ${fmtDate(data.to)}`, profile.firmName);
 
   const L = 48, W = PAGE_W - 96;
+  const anyPending = data.pendingSalesCount > 0 || data.pendingPurchasesCount > 0;
   c.rect(L, y - 14, W, 34, TEAL_TINT);
-  c.text(L + 10, y, "This reflects what you submitted online — it has not been reviewed yet.", { size: 9, bold: true, color: TEAL });
+  c.text(L + 10, y, anyPending ? "This includes entries you submitted online that are still pending review." : "This reflects entries you submitted online, all reviewed and approved.", { size: 9, bold: true, color: TEAL });
   y += 12;
   c.text(L + 10, y, "Your accountant confirms the final numbers once each entry is reviewed and approved.", { size: 8.5, color: MUTED });
   y += 28;
@@ -318,7 +319,18 @@ export async function generateClientBooksPlPdf(data: ClientBooksPlReportData): P
 
   y = sectionLabel(c, y, "Expenses");
   if (!data.expensesByAccount.length) y = emptyNote(c, y);
-  for (const e of data.expensesByAccount) y = row(c, y, e.account, money(e.amount), { indent: true });
+  // This is a single un-paginated page (no re-page loop like the payroll
+  // report has) — cap defensively rather than let a long account list run
+  // into the footer. The firm's whole Expense/COGS chart of accounts is
+  // well under this today, so in practice this only ever bites if the COA
+  // grows substantially.
+  const CLIENT_BOOKS_EXPENSE_ROW_CAP = 30;
+  const shownExpenses = data.expensesByAccount.slice(0, CLIENT_BOOKS_EXPENSE_ROW_CAP);
+  for (const e of shownExpenses) y = row(c, y, e.account, money(e.amount), { indent: true });
+  if (data.expensesByAccount.length > CLIENT_BOOKS_EXPENSE_ROW_CAP) {
+    c.text(60, y, `+ ${data.expensesByAccount.length - CLIENT_BOOKS_EXPENSE_ROW_CAP} more categories — see the full list in Client Submissions.`, { size: 8.5, color: MUTED });
+    y += 14;
+  }
   y = row(c, y + 2, `Total Expenses${data.pendingPurchasesCount ? ` (${data.pendingPurchasesCount} pending review)` : ""}`, money(data.totalExpenses), { bold: true });
   y += 10;
 
