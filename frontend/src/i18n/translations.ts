@@ -363,6 +363,8 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.common.deleteConfirm": { en: "Delete this entry? This cannot be undone.", ar: "هل تريد حذف هذا الإدخال؟ لا يمكن التراجع عن ذلك." },
   "books.common.onlyPendingEditable": { en: "Only entries still pending review can be edited or deleted.", ar: "لا يمكن تعديل أو حذف سوى الإدخالات التي ما زالت بانتظار المراجعة." },
   "books.common.print": { en: "Print Report", ar: "طباعة التقرير" },
+  "books.common.viewPdf": { en: "View PDF", ar: "عرض PDF" },
+  "books.common.downloadPdf": { en: "Download PDF", ar: "تنزيل PDF" },
 
   "books.pl.title": { en: "My Income & Expenses", ar: "دخلي ومصاريفي" },
   "books.pl.disclaimer": { en: "This reflects what you've entered so far. Your accountant confirms the final numbers once each entry is reviewed and approved.", ar: "تعكس هذه الأرقام ما أدخلته حتى الآن. يقوم محاسبك بتأكيد الأرقام النهائية بعد مراجعة كل إدخال واعتماده." },

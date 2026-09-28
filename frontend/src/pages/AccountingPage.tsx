@@ -4624,10 +4624,12 @@ function ManualJeTab({ clientId }: { clientId: string }) {
 interface ClientSalesDraft {
   draft_id: string; sale_date: string; category_lines: { categoryId: string; categoryName: string; taxableAmount: number | string }[];
   gross_sales: number | string; notes: string | null; status: string; anomaly: boolean; clientAverageGross: number | string | null;
+  submitted_by: string | null; submitted_at: string | null;
 }
 interface ClientPurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
   account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: string;
+  submitted_by: string | null; submitted_at: string | null;
 }
 
 /**
@@ -4648,12 +4650,18 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
   const [selectedSales, setSelectedSales] = useState<Set<string>>(new Set());
   const [selectedPurchases, setSelectedPurchases] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [viewingSale, setViewingSale] = useState<ClientSalesDraft | null>(null);
+  const [viewingPurchase, setViewingPurchase] = useState<ClientPurchaseDraft | null>(null);
 
   function load() {
     if (!clientId) return;
     api.get<{ salesDrafts: ClientSalesDraft[]; purchaseDrafts: ClientPurchaseDraft[] }>(
       `/accounting/client-books/${clientId}/submissions?status=${statusFilter}`
-    ).then((r) => { setSalesDrafts(r.salesDrafts); setPurchaseDrafts(r.purchaseDrafts); setSelectedSales(new Set()); setSelectedPurchases(new Set()); }).catch(() => {});
+    ).then((r) => {
+      setSalesDrafts(r.salesDrafts); setPurchaseDrafts(r.purchaseDrafts);
+      setSelectedSales(new Set()); setSelectedPurchases(new Set());
+      setViewingSale(null); setViewingPurchase(null);
+    }).catch(() => {});
   }
   useEffect(load, [clientId, statusFilter]);
 
@@ -4752,6 +4760,42 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
           <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approveSalesBulk}>Approve Selected ({selectedSales.size})</button>
         ) : undefined}
       >
+        {viewingSale && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <strong>Daily Sales — {fmtDate(viewingSale.sale_date)}</strong>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Submitted by {viewingSale.submitted_by || "client"}{viewingSale.submitted_at ? ` · ${fmtDate(viewingSale.submitted_at)}` : ""}
+                </div>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setViewingSale(null)}>Close</button>
+            </div>
+            {viewingSale.anomaly && (
+              <div className="card" style={{ margin: "10px 0", borderColor: "var(--amber)", background: "var(--amber-soft)", color: "var(--amber)", fontWeight: 700, fontSize: 13 }}>
+                ⚠ Unusual — this client's trailing average is {fmtMoney(viewingSale.clientAverageGross)}
+              </div>
+            )}
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th scope="col">Sales Category</th><th scope="col" style={{ textAlign: "right" }}>Amount</th></tr></thead>
+                <tbody>
+                  {(viewingSale.category_lines || []).map((l, i) => (
+                    <tr key={i}><td>{l.categoryName}</td><td style={{ textAlign: "right" }}>{fmtMoney(l.taxableAmount)}</td></tr>
+                  ))}
+                  <tr><td style={{ fontWeight: 700 }}>Gross Sales</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtMoney(viewingSale.gross_sales)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            {viewingSale.notes && <p style={{ marginTop: 10, fontSize: 13 }}><strong>Notes:</strong> {viewingSale.notes}</p>}
+            {statusFilter === "Pending" && (
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(viewingSale.draft_id)}>Approve</button>
+                <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(viewingSale.draft_id)}>Dismiss</button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="table-scroll">
           <table>
             <thead>
@@ -4765,9 +4809,9 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             </thead>
             <tbody>
               {salesDrafts.map((d) => (
-                <tr key={d.draft_id} style={d.anomaly ? { background: "var(--amber-soft)" } : undefined}>
+                <tr key={d.draft_id} style={d.anomaly ? { background: "var(--amber-soft)", cursor: "pointer" } : { cursor: "pointer" }} onClick={() => setViewingSale(d)}>
                   {statusFilter === "Pending" && (
-                    <td><input type="checkbox" checked={selectedSales.has(d.draft_id)} onChange={() => toggle(selectedSales, setSelectedSales, d.draft_id)} /></td>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedSales.has(d.draft_id)} onChange={() => toggle(selectedSales, setSelectedSales, d.draft_id)} /></td>
                   )}
                   <td>{fmtDate(d.sale_date)}</td>
                   <td className="muted" style={{ fontSize: 12 }}>
@@ -4780,13 +4824,16 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
                     )}
                   </td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(d.gross_sales)}</td>
-                  <td>
-                    {statusFilter === "Pending" && (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(d.draft_id)}>Approve</button>
-                        <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(d.draft_id)}>Dismiss</button>
-                      </div>
-                    )}
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" className="btn btn-sm" onClick={() => setViewingSale(d)}>View</button>
+                      {statusFilter === "Pending" && (
+                        <>
+                          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(d.draft_id)}>Approve</button>
+                          <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(d.draft_id)}>Dismiss</button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -4803,6 +4850,33 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
           <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approvePurchasesBulk}>Approve Selected ({selectedPurchases.size})</button>
         ) : undefined}
       >
+        {viewingPurchase && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <strong>Purchase/Expense — {fmtDate(viewingPurchase.purchase_date)}</strong>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Submitted by {viewingPurchase.submitted_by || "client"}{viewingPurchase.submitted_at ? ` · ${fmtDate(viewingPurchase.submitted_at)}` : ""}
+                </div>
+              </div>
+              <button type="button" className="btn btn-sm" onClick={() => setViewingPurchase(null)}>Close</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12, fontSize: 13 }}>
+              <div><span className="muted">Vendor:</span> {viewingPurchase.vendor_name || "—"}</div>
+              <div><span className="muted">Account:</span> {viewingPurchase.account}</div>
+              <div><span className="muted">Amount:</span> {fmtMoney(viewingPurchase.amount)}</div>
+              <div><span className="muted">Paid by:</span> {viewingPurchase.paid_by_card ? "Card" : "Cash"}</div>
+            </div>
+            {viewingPurchase.description && <p style={{ marginTop: 10, fontSize: 13 }}><strong>What it was for:</strong> {viewingPurchase.description}</p>}
+            {viewingPurchase.notes && <p style={{ marginTop: 4, fontSize: 13 }}><strong>Notes:</strong> {viewingPurchase.notes}</p>}
+            {statusFilter === "Pending" && (
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(viewingPurchase.draft_id)}>Approve</button>
+                <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(viewingPurchase.draft_id)}>Dismiss</button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="table-scroll">
           <table>
             <thead>
@@ -4818,22 +4892,25 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             </thead>
             <tbody>
               {purchaseDrafts.map((d) => (
-                <tr key={d.draft_id}>
+                <tr key={d.draft_id} style={{ cursor: "pointer" }} onClick={() => setViewingPurchase(d)}>
                   {statusFilter === "Pending" && (
-                    <td><input type="checkbox" checked={selectedPurchases.has(d.draft_id)} onChange={() => toggle(selectedPurchases, setSelectedPurchases, d.draft_id)} /></td>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedPurchases.has(d.draft_id)} onChange={() => toggle(selectedPurchases, setSelectedPurchases, d.draft_id)} /></td>
                   )}
                   <td>{fmtDate(d.purchase_date)}</td>
                   <td>{d.vendor_name || "—"}</td>
                   <td className="muted" style={{ fontSize: 12 }}>{d.account}{d.paid_by_card ? " · Card" : ""}</td>
                   <td className="muted" style={{ fontSize: 12 }}>{d.description || "—"}</td>
                   <td style={{ textAlign: "right" }}>{fmtMoney(d.amount)}</td>
-                  <td>
-                    {statusFilter === "Pending" && (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(d.draft_id)}>Approve</button>
-                        <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(d.draft_id)}>Dismiss</button>
-                      </div>
-                    )}
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button type="button" className="btn btn-sm" onClick={() => setViewingPurchase(d)}>View</button>
+                      {statusFilter === "Pending" && (
+                        <>
+                          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(d.draft_id)}>Approve</button>
+                          <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(d.draft_id)}>Dismiss</button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

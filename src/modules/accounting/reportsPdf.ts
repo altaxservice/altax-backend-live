@@ -279,6 +279,57 @@ export async function generatePLPdf(data: PLReportData): Promise<Uint8Array> {
   return doc.save();
 }
 
+export interface ClientBooksPlReportData {
+  client: ReportClientInfo;
+  from: string; to: string;
+  totalIncome: number; totalExpenses: number; netIncome: number;
+  expensesByAccount: { account: string; amount: number }[];
+  pendingSalesCount: number; pendingPurchasesCount: number;
+}
+
+/**
+ * The client portal's "My Income & Expenses" — deliberately NOT generatePLPdf:
+ * this is built entirely from the client's own My Books submissions (see
+ * accounting.routes.ts's computeClientBooksPl), pending or approved alike,
+ * never the real GL. The disclaimer banner and footer note exist so this
+ * can never be mistaken for the firm's actual P&L once printed or saved.
+ * English-only like every other PDF here — see this file's header comment
+ * on why pdf-lib can't safely render Arabic.
+ */
+export async function generateClientBooksPlPdf(data: ClientBooksPlReportData): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  setPdfTitle(doc, [data.client.clientName, "My Income & Expenses", `${fmtDate(data.from)} to ${fmtDate(data.to)}`]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { c } = await newPage(doc, font, bold);
+  const profile = await getFirmProfile();
+  let y = drawHeader(c, data.client, "MY INCOME & EXPENSES", `${fmtDate(data.from)} - ${fmtDate(data.to)}`, profile.firmName);
+
+  const L = 48, W = PAGE_W - 96;
+  c.rect(L, y - 14, W, 34, TEAL_TINT);
+  c.text(L + 10, y, "This reflects what you submitted online — it has not been reviewed yet.", { size: 9, bold: true, color: TEAL });
+  y += 12;
+  c.text(L + 10, y, "Your accountant confirms the final numbers once each entry is reviewed and approved.", { size: 8.5, color: MUTED });
+  y += 28;
+
+  y = sectionLabel(c, y, "Income");
+  y = row(c, y, `Total Income${data.pendingSalesCount ? ` (${data.pendingSalesCount} pending review)` : ""}`, money(data.totalIncome), { bold: true });
+  y += 10;
+
+  y = sectionLabel(c, y, "Expenses");
+  if (!data.expensesByAccount.length) y = emptyNote(c, y);
+  for (const e of data.expensesByAccount) y = row(c, y, e.account, money(e.amount), { indent: true });
+  y = row(c, y + 2, `Total Expenses${data.pendingPurchasesCount ? ` (${data.pendingPurchasesCount} pending review)` : ""}`, money(data.totalExpenses), { bold: true });
+  y += 10;
+
+  c.line(48, y, PAGE_W - 48, y, INK, 1);
+  y += 16;
+  y = row(c, y, "Net Income", money(data.netIncome), { bold: true, accent: true });
+
+  drawFooter(c, profile.firmName, "Client-submitted figures pending accountant review — not a substitute for filed tax returns.");
+  return doc.save();
+}
+
 export interface BalanceSheetReportData {
   client: ReportClientInfo | null;
   from: string; to: string;

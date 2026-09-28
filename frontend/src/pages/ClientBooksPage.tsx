@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
 import type { CoaAccount } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
 import { useLanguage, Num } from "../context/LanguageContext";
@@ -424,6 +424,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
 
 function MyPLTab({ clientId }: { clientId: string }) {
   const { t } = useLanguage();
+  const toast = useToast();
   const [from, setFrom] = useState(monthStartStr());
   const [to, setTo] = useState(todayStr());
   const [data, setData] = useState<{
@@ -437,11 +438,26 @@ function MyPLTab({ clientId }: { clientId: string }) {
     api.get<typeof data>(`/accounting/client-books/pl-preview?clientId=${clientId}&from=${from}&to=${to}`).then(setData).catch(() => {});
   }, [clientId, from, to]);
 
+  const pdfPath = `/accounting/client-books/pl-pdf?clientId=${clientId}&from=${from}&to=${to}`;
+  async function handleViewPdf() {
+    try { await viewFile(pdfPath); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not open the PDF."); }
+  }
+  async function handleDownloadPdf() {
+    try { await downloadFile(pdfPath, "income-expenses.pdf"); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not download the PDF."); }
+  }
+  async function handlePrintPdf() {
+    try { await printFile(pdfPath); } catch (err) { toast(err instanceof ApiError ? err.message : "Could not print the PDF."); }
+  }
+
   return (
-    <div className="command-panel" id="cb-pl-print-area">
+    <div className="command-panel">
       <div className="command-panel-header">
         <h2 className="command-panel-title">{t("books.pl.title")}</h2>
-        <button type="button" className="btn btn-sm" onClick={() => window.print()}>{t("books.common.print")}</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-sm" onClick={handleViewPdf}>{t("books.common.viewPdf")}</button>
+          <button type="button" className="btn btn-sm" onClick={handleDownloadPdf}>{t("books.common.downloadPdf")}</button>
+          <button type="button" className="btn btn-sm" onClick={handlePrintPdf}>{t("books.common.print")}</button>
+        </div>
       </div>
       <div style={{ padding: 16 }}>
         <p className="muted" style={{ marginBottom: 14 }}>{t("books.pl.disclaimer")}</p>

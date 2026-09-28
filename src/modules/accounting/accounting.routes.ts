@@ -12,6 +12,7 @@ import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
 import { fixedAssetsRouter } from "./fixedAssets.routes";
+import { generateClientBooksPlPdf } from "./reportsPdf";
 
 /**
  * Accounting module — Phase 7. Tax Rates and Chart of Accounts are pure reference
@@ -2384,12 +2385,12 @@ accountingRouter.post("/client-books/purchase-drafts/:draftId/delete", requireAu
  * built for. Once approved, the same amounts also exist for real in
  * v3_sales_input/v3_gl_entries, but this view doesn't read from there.
  */
-accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const clientId = String(req.query.clientId || "").trim();
-  const client = await requireClientBooksAccess(req, res, clientId);
-  if (!client) return;
-  const from = String(req.query.from || "").trim();
-  const to = String(req.query.to || "").trim();
+/**
+ * Shared by the JSON preview route and the PDF route below — one aggregation,
+ * so the numbers on screen and the numbers on the downloaded PDF can never
+ * drift apart.
+ */
+async function computeClientBooksPl(clientId: string, from: string, to: string) {
   const salesRows = await query<any>(
     `SELECT sale_date, gross_sales, status FROM altax.v3_client_sales_drafts
      WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR sale_date >= $2::date) AND ($3 = '' OR sale_date <= $3::date)`,
@@ -2404,12 +2405,44 @@ accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async
   const byAccount = new Map<string, number>();
   for (const r of purchaseRows) byAccount.set(r.account, money((byAccount.get(r.account) || 0) + Number(r.amount || 0)));
   const totalExpenses = money(Array.from(byAccount.values()).reduce((s, v) => s + v, 0));
-  res.json({
+  return {
     totalIncome, totalExpenses, netIncome: money(totalIncome - totalExpenses),
     expensesByAccount: Array.from(byAccount.entries()).map(([account, amount]) => ({ account, amount })),
     pendingSalesCount: salesRows.filter((r) => r.status === "Pending").length,
     pendingPurchasesCount: purchaseRows.filter((r) => r.status === "Pending").length,
+  };
+}
+
+accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const from = String(req.query.from || "").trim();
+  const to = String(req.query.to || "").trim();
+  res.json(await computeClientBooksPl(clientId, from, to));
+}));
+
+/** Real, downloadable PDF of the client's own income/expense summary — same numbers as the on-screen preview, not a browser print-to-PDF of the page chrome. */
+accountingRouter.get("/client-books/pl-pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const from = String(req.query.from || "").trim();
+  const to = String(req.query.to || "").trim();
+  const pl = await computeClientBooksPl(clientId, from, to);
+  const fullClient = decryptClientPii(await queryOne<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`, [clientId]
+  ));
+  const pdfBytes = await generateClientBooksPlPdf({
+    client: {
+      clientId: fullClient.client_id, clientName: fullClient.client_name, ein: fullClient.ein,
+      address: fullClient.address, state: fullClient.state, salesTaxFrequency: fullClient.sales_tax_frequency,
+    },
+    from, to, ...pl,
   });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${fullClient.client_name.replace(/[^a-zA-Z0-9]+/g, "-")}-income-expenses.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 }));
 
 /**
