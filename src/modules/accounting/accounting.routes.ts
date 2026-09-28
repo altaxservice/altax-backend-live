@@ -2214,6 +2214,21 @@ async function previewSalesDraftTax(clientId: string, clientState: string | null
   return { lines: computed.lines, totalTax: computed.totalTax, grossSales };
 }
 
+/**
+ * Live tax preview for the client's not-yet-saved Daily Sales form — calls the
+ * exact same previewSalesDraftTax() (and therefore the same lookupRate(),
+ * including any client-specific rate override) that submission and approval
+ * both use, so what the client sees typing never drifts from what gets saved.
+ */
+accountingRouter.post("/client-books/sales-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const preview = await previewSalesDraftTax(clientId, client.state, Array.isArray(body.categoryLines) ? body.categoryLines : []);
+  res.json(preview);
+}));
+
 accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const body = req.body || {};
   const clientId = String(body.clientId || "").trim();
