@@ -4056,6 +4056,17 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   const [lines, setLines] = useState([{ account: "", debit: "", credit: "", memo: "" }, { account: "", debit: "", credit: "", memo: "" }]);
   const [viewingJe, setViewingJe] = useState<any | null>(null);
   const [replacingJeId, setReplacingJeId] = useState<string | null>(null);
+  // Remembered per-browser so a preparer who mostly reviews history isn't
+  // stuck scrolling past a full posting form every time this tab opens.
+  // Forced open (see startEditJe/startDuplicateJe/newLineAccount below)
+  // whenever something actually needs the form visible.
+  const [formOpen, setFormOpen] = useState(() => {
+    try { return localStorage.getItem("manualJeFormOpen") !== "false"; } catch { return true; }
+  });
+  function setFormOpenPersist(open: boolean) {
+    setFormOpen(open);
+    try { localStorage.setItem("manualJeFormOpen", String(open)); } catch { /* private browsing, etc. */ }
+  }
   // Defaults to today rather than blank — the common case is posting for
   // "now", and it's left alone (not reset) after a successful post so a
   // batch of same-day entries doesn't need re-picking the date each time.
@@ -4174,6 +4185,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   useEffect(() => {
     const newLineAccount = searchParams.get("newLineAccount");
     if (!newLineAccount) return;
+    setFormOpen(true);
     setLines((ls) => (ls[0].account ? ls : ls.map((l, i) => (i === 0 ? { ...l, account: newLineAccount } : l))));
     setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("newLineAccount"); return next; }, { replace: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -4255,6 +4267,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
    * the original intact rather than losing both.
    */
   function startEditJe(entry: any) {
+    setFormOpen(true);
     setSelectedTemplateId("");
     setEntryDate(entry.entryDate ? String(entry.entryDate).slice(0, 10) : "");
     setRef(entry.ref || "");
@@ -4282,6 +4295,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
    * entry rather than replacing the one duplicated from.
    */
   function startDuplicateJe(entry: any) {
+    setFormOpen(true);
     setSelectedTemplateId("");
     setEntryDate(todayStr());
     setRef("");
@@ -4395,7 +4409,18 @@ function ManualJeTab({ clientId }: { clientId: string }) {
     // Stacked for the same reason as Contractors: the entry history and its
     // expanded detail card need the full width, not a ~366px column.
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-      <Panel title={replacingJeId ? "Edit Journal Entry" : "Manual Journal Entry"} note={replacingJeId ? "Saving replaces the original entry" : "Debits must equal credits"}>
+      <Panel
+        title={replacingJeId ? "Edit Journal Entry" : "Manual Journal Entry"}
+        note={replacingJeId ? "Saving replaces the original entry" : "Debits must equal credits"}
+        action={
+          !replacingJeId && (
+            <button type="button" className="btn btn-sm" onClick={() => setFormOpenPersist(!formOpen)}>
+              {formOpen ? "Collapse" : "+ New Entry"}
+            </button>
+          )
+        }
+      >
+        {(formOpen || replacingJeId) && (
         <form onSubmit={handleSubmit} style={{ padding: 16 }}>
           {replacingJeId && (
             <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)", fontSize: 13 }}>
@@ -4405,18 +4430,23 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           )}
           {error && <ErrorBanner error={error} />}
           {success && <div className="card" style={{ marginBottom: 14, borderColor: "var(--teal)" }}>{success}</div>}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
-            <div className="field" style={{ margin: 0, minWidth: 220 }}>
-              <label htmlFor="acct-cej-template">Template</label>
-              <select id="acct-cej-template" value={selectedTemplateId} onChange={(e) => applyTemplate(e.target.value)}>
-                <option value="">None — start blank</option>
-                {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.name}</option>)}
-              </select>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="field" style={{ margin: 0, minWidth: 240 }}>
+                <label htmlFor="acct-cej-template">Start from a saved template (optional)</label>
+                <select id="acct-cej-template" value={selectedTemplateId} onChange={(e) => applyTemplate(e.target.value)}>
+                  <option value="">No template — blank entry</option>
+                  {templates.map((t) => <option key={t.template_id} value={t.template_id}>{t.name}</option>)}
+                </select>
+              </div>
+              {selectedTemplateId && (
+                <button type="button" className="btn btn-sm btn-danger" style={{ marginTop: 18 }} onClick={handleDeleteTemplate}>Delete Template</button>
+              )}
+              <button type="button" className="btn btn-sm" style={{ marginTop: 18 }} onClick={handleSaveTemplate}>Save Current Lines as Template</button>
             </div>
-            {selectedTemplateId && (
-              <button type="button" className="btn btn-sm btn-danger" style={{ marginTop: 18 }} onClick={handleDeleteTemplate}>Delete Template</button>
-            )}
-            <button type="button" className="btn btn-sm" style={{ marginTop: 18 }} onClick={handleSaveTemplate}>Save Lines as Template</button>
+            <p className="muted" style={{ fontSize: 11, margin: "6px 0 0" }}>
+              A template remembers which accounts and memo to use for an entry you post often (like a recurring write-off) — it fills those in for you; you still type the amount each time.
+            </p>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <div className="field"><label htmlFor="acct-cej-entry-date">Entry Date</label><input id="acct-cej-entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></div>
@@ -4458,6 +4488,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </div>
           <button type="submit" className="btn btn-primary" disabled={saving || !balanced}>{saving ? "Posting…" : "Post Journal Entry"}</button>
         </form>
+        )}
       </Panel>
       <Panel
         title="Recent Manual Entries"
@@ -4472,6 +4503,9 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </div>
         }
       >
+        <p className="muted" style={{ fontSize: 11, margin: "0 16px 10px" }}>
+          Search also matches a dollar amount (e.g. "7985" or "$7,985.00") or a date (e.g. "12/31/2025" or "1231") — not just the description, reference, or memo.
+        </p>
         {/* Row click opens the full entry, matching how Sales rows behave. */}
         {viewingJe && (
           <div className="card" style={{ margin: 16 }}>
