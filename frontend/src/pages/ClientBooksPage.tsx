@@ -92,7 +92,7 @@ export function ClientBooksPage() {
 }
 
 function DailySalesTab({ clientId, categories }: { clientId: string; categories: SalesCategory[] }) {
-  const { t, dir } = useLanguage();
+  const { t } = useLanguage();
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [saleDate, setSaleDate] = useState(todayStr());
@@ -191,7 +191,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
           </div>
           <div className="table-scroll">
             <table>
-              <thead><tr><th scope="col">{t("books.sales.categoryCol")}</th><th scope="col" style={{ textAlign: dir === "rtl" ? "left" : "right" }}>{t("books.sales.amountCol")}</th></tr></thead>
+              <thead><tr><th scope="col">{t("books.sales.categoryCol")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.amountCol")}</th></tr></thead>
               <tbody>
                 {categories.map((c) => (
                   <tr key={c.category_id}>
@@ -201,7 +201,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
                         type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00"
                         value={amounts[c.category_id] || ""}
                         onChange={(e) => setAmounts((a) => ({ ...a, [c.category_id]: e.target.value }))}
-                        style={{ textAlign: dir === "rtl" ? "left" : "right", maxWidth: 140 }}
+                        style={{ textAlign: "right", maxWidth: 140 }}
                       />
                     </td>
                   </tr>
@@ -232,12 +232,12 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
         <div className="command-panel-header"><h2 className="command-panel-title">{t("books.sales.recentTitle")}</h2></div>
         <div className="table-scroll">
           <table>
-            <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: dir === "rtl" ? "left" : "right" }}>{t("books.sales.grossTotal")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
+            <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.grossTotal")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
             <tbody>
               {drafts.map((d) => (
                 <tr key={d.draft_id}>
                   <td><Num>{d.sale_date.slice(0, 10)}</Num></td>
-                  <td style={{ textAlign: dir === "rtl" ? "left" : "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
+                  <td style={{ textAlign: "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
                   <td><StatusPill status={d.status} t={t} /></td>
                   <td>
                     {d.status === "Pending" && (
@@ -259,7 +259,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
 }
 
 function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId: string; accounts: CoaAccount[]; vendors: string[]; onVendorAdded: () => void }) {
-  const { t, dir } = useLanguage();
+  const { t } = useLanguage();
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [purchaseDate, setPurchaseDate] = useState(todayStr());
@@ -355,7 +355,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="cb-p-account">{t("books.purchases.accountLabel")}</label>
               <select id="cb-p-account" value={account} onChange={(e) => setAccount(e.target.value)}>
-                <option value="">—</option>
+                <option value="">{t("books.purchases.accountPlaceholder")}</option>
                 {accounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
               </select>
             </div>
@@ -390,7 +390,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
                 <th scope="col">{t("books.purchases.dateLabel")}</th>
                 <th scope="col">{t("books.purchases.vendorLabel")}</th>
                 <th scope="col">{t("books.purchases.accountLabel")}</th>
-                <th scope="col" style={{ textAlign: dir === "rtl" ? "left" : "right" }}>{t("books.purchases.amountLabel")}</th>
+                <th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th>
                 <th scope="col"></th>
                 <th scope="col"></th>
               </tr>
@@ -400,8 +400,8 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
                 <tr key={d.draft_id}>
                   <td><Num>{d.purchase_date.slice(0, 10)}</Num></td>
                   <td>{d.vendor_name || "—"}</td>
-                  <td className="muted" style={{ fontSize: 12 }}>{d.account}</td>
-                  <td style={{ textAlign: dir === "rtl" ? "left" : "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
+                  <td className="muted">{d.account}</td>
+                  <td style={{ textAlign: "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
                   <td><StatusPill status={d.status} t={t} /></td>
                   <td>
                     {d.status === "Pending" && (
@@ -423,7 +423,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
 }
 
 function MyPLTab({ clientId }: { clientId: string }) {
-  const { t, dir } = useLanguage();
+  const { t } = useLanguage();
   const [from, setFrom] = useState(monthStartStr());
   const [to, setTo] = useState(todayStr());
   const [data, setData] = useState<{
@@ -444,7 +444,7 @@ function MyPLTab({ clientId }: { clientId: string }) {
         <button type="button" className="btn btn-sm" onClick={() => window.print()}>{t("books.common.print")}</button>
       </div>
       <div style={{ padding: 16 }}>
-        <p className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{t("books.pl.disclaimer")}</p>
+        <p className="muted" style={{ marginBottom: 14 }}>{t("books.pl.disclaimer")}</p>
         <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="cb-pl-from">{t("books.pl.fromLabel")}</label>
@@ -472,10 +472,10 @@ function MyPLTab({ clientId }: { clientId: string }) {
             {data.expensesByAccount.length > 0 && (
               <div className="table-scroll" style={{ marginTop: 16 }}>
                 <table>
-                  <thead><tr><th scope="col">{t("books.purchases.accountLabel")}</th><th scope="col" style={{ textAlign: dir === "rtl" ? "left" : "right" }}>{t("books.purchases.amountLabel")}</th></tr></thead>
+                  <thead><tr><th scope="col">{t("books.purchases.accountLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th></tr></thead>
                   <tbody>
                     {data.expensesByAccount.map((r) => (
-                      <tr key={r.account}><td>{r.account}</td><td style={{ textAlign: dir === "rtl" ? "left" : "right" }}><Num>{fmtMoney(r.amount)}</Num></td></tr>
+                      <tr key={r.account}><td>{r.account}</td><td style={{ textAlign: "right" }}><Num>{fmtMoney(r.amount)}</Num></td></tr>
                     ))}
                   </tbody>
                 </table>

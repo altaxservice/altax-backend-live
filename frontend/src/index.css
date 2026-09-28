@@ -527,6 +527,19 @@ th { background: var(--surface); color: var(--muted); font-weight: 800; text-tra
 .table-scroll thead th { position: sticky; top: 0; z-index: 1; }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--teal); }
+
+/* ---- Arabic (RTL) legibility pass ----
+   Most of this firm's clients read Arabic, and the compact 11px uppercase
+   label/header treatment above was sized for Latin text — Arabic has no
+   case distinction, so the same size reads noticeably smaller and flatter.
+   table/th/td above also hardcode text-align: left, a physical value that
+   never flips for RTL, so every table in the app was left-aligned even
+   inside an Arabic page. Scoped entirely to [dir="rtl"], so no English or
+   staff/admin page (which never sets dir="rtl") is affected. */
+[dir="rtl"] th, [dir="rtl"] td { text-align: right; }
+[dir="rtl"] th { font-size: 12.5px; text-transform: none; letter-spacing: normal; }
+[dir="rtl"] .field label { font-size: 13px; text-transform: none; letter-spacing: normal; }
+[dir="rtl"] .field input, [dir="rtl"] .field select, [dir="rtl"] .field textarea { font-size: 14px; }
 tr:last-child td { border-bottom: none; }
 /* Very light zebra striping — makes it easier to track a row across a wide table
    without a magnifying-glass level of contrast; hover (below, later in source so

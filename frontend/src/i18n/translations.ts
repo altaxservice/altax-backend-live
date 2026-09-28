@@ -346,6 +346,7 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.purchases.vendorPlaceholder": { en: "Who did you pay?", ar: "لمن دفعت؟" },
   "books.purchases.descriptionLabel": { en: "What was this for?", ar: "ما هو سبب هذا المصروف؟" },
   "books.purchases.accountLabel": { en: "Category", ar: "الفئة" },
+  "books.purchases.accountPlaceholder": { en: "Choose a category…", ar: "اختر فئة…" },
   "books.purchases.amountLabel": { en: "Amount", ar: "المبلغ" },
   "books.purchases.paidByCard": { en: "Paid by credit/debit card (not cash)", ar: "تم الدفع ببطاقة ائتمان/خصم (وليس نقداً)" },
   "books.purchases.save": { en: "Save Purchase/Expense", ar: "حفظ المشتريات/المصروف" },
