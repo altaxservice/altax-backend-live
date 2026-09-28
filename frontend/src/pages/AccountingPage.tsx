@@ -27,9 +27,9 @@ import { AnnualReportSection } from "../components/AnnualReportSection";
 import { MdUiSection } from "../components/MdUiSection";
 import { Form941Section } from "../components/Form941Section";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -141,6 +141,7 @@ export function AccountingPage() {
       {tab === "Form 941" && clientId && <Form941Section clientId={clientId} />}
       {tab === "Contractors" && clientId && <ContractorsTab clientId={clientId} clientState={client?.state} />}
       {tab === "Manual JE" && clientId && <ManualJeTab clientId={clientId} />}
+      {tab === "Client Submissions" && clientId && <ClientSubmissionsTab clientId={clientId} />}
       {tab === "Fixed Assets" && clientId && <FixedAssetsTab clientId={clientId} />}
       {tab === "GL" && clientId && (
         <GlTab clientId={clientId} initialRef={searchParams.get("ref")} initialAccount={searchParams.get("account")} />
@@ -4615,6 +4616,231 @@ function ManualJeTab({ clientId }: { clientId: string }) {
           </div>
         </div>
         {visibleEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{entries.length === 0 ? "No manual entries posted yet." : "No entries match that search/year filter."}</p>}
+      </Panel>
+    </div>
+  );
+}
+
+interface ClientSalesDraft {
+  draft_id: string; sale_date: string; category_lines: { categoryId: string; categoryName: string; taxableAmount: number | string }[];
+  gross_sales: number | string; notes: string | null; status: string; anomaly: boolean; clientAverageGross: number | string | null;
+}
+interface ClientPurchaseDraft {
+  draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
+  account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: string;
+}
+
+/**
+ * Client Submissions — a client's own self-entered Daily Sales / Purchases
+ * (My Books, client role) staged here for review. Approving calls the exact
+ * same createSalesInputRecord/createManualJournalEntry path a staff-entered
+ * Sales or Manual JE record would, so once approved it's indistinguishable
+ * from one you typed yourself. `anomaly` flags a sales submission whose
+ * total is way off this client's own trailing 60-day approved average — a
+ * nudge to double-check before approving, not a hard block.
+ */
+function ClientSubmissionsTab({ clientId }: { clientId: string }) {
+  const notify = useNotify();
+  const promptFor = usePrompt();
+  const [statusFilter, setStatusFilter] = useState("Pending");
+  const [salesDrafts, setSalesDrafts] = useState<ClientSalesDraft[]>([]);
+  const [purchaseDrafts, setPurchaseDrafts] = useState<ClientPurchaseDraft[]>([]);
+  const [selectedSales, setSelectedSales] = useState<Set<string>>(new Set());
+  const [selectedPurchases, setSelectedPurchases] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    if (!clientId) return;
+    api.get<{ salesDrafts: ClientSalesDraft[]; purchaseDrafts: ClientPurchaseDraft[] }>(
+      `/accounting/client-books/${clientId}/submissions?status=${statusFilter}`
+    ).then((r) => { setSalesDrafts(r.salesDrafts); setPurchaseDrafts(r.purchaseDrafts); setSelectedSales(new Set()); setSelectedPurchases(new Set()); }).catch(() => {});
+  }
+  useEffect(load, [clientId, statusFilter]);
+
+  function toggle(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSet(next);
+  }
+
+  async function approveSales(draftId: string) {
+    setBusy(true);
+    try {
+      await api.post(`/accounting/client-books/sales-drafts/${draftId}/approve`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not approve this submission.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function approveSalesBulk() {
+    if (selectedSales.size === 0) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ results: { draftId: string; ok: boolean; error?: string }[] }>(
+        "/accounting/client-books/sales-drafts/approve-bulk", { draftIds: Array.from(selectedSales) }
+      );
+      const failed = res.results.filter((r) => !r.ok);
+      load();
+      if (failed.length) await notify(`${res.results.length - failed.length} approved, ${failed.length} failed: ${failed.map((f) => f.error).join("; ")}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function dismissSales(draftId: string) {
+    const reason = await promptFor({ title: "Dismiss submission", message: "Why isn't this being used? (optional)", required: false });
+    if (reason === null) return;
+    try {
+      await api.post(`/accounting/client-books/sales-drafts/${draftId}/dismiss`, { reason });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not dismiss this submission.");
+    }
+  }
+
+  async function approvePurchase(draftId: string) {
+    setBusy(true);
+    try {
+      await api.post(`/accounting/client-books/purchase-drafts/${draftId}/approve`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not approve this submission.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function approvePurchasesBulk() {
+    if (selectedPurchases.size === 0) return;
+    setBusy(true);
+    try {
+      const res = await api.post<{ results: { draftId: string; ok: boolean; error?: string }[] }>(
+        "/accounting/client-books/purchase-drafts/approve-bulk", { draftIds: Array.from(selectedPurchases) }
+      );
+      const failed = res.results.filter((r) => !r.ok);
+      load();
+      if (failed.length) await notify(`${res.results.length - failed.length} approved, ${failed.length} failed: ${failed.map((f) => f.error).join("; ")}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function dismissPurchase(draftId: string) {
+    const reason = await promptFor({ title: "Dismiss submission", message: "Why isn't this being used? (optional)", required: false });
+    if (reason === null) return;
+    try {
+      await api.post(`/accounting/client-books/purchase-drafts/${draftId}/dismiss`, { reason });
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not dismiss this submission.");
+    }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 160 }}>
+          <option value="Pending">Pending</option>
+          <option value="Approved">Approved</option>
+          <option value="Dismissed">Dismissed</option>
+        </select>
+      </div>
+
+      <Panel
+        title="Client-Submitted Daily Sales"
+        note={`${salesDrafts.length} ${statusFilter.toLowerCase()}`}
+        action={statusFilter === "Pending" && selectedSales.size > 0 ? (
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approveSalesBulk}>Approve Selected ({selectedSales.size})</button>
+        ) : undefined}
+      >
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {statusFilter === "Pending" && <th scope="col"></th>}
+                <th scope="col">Date</th>
+                <th scope="col">Breakdown</th>
+                <th scope="col" style={{ textAlign: "right" }}>Gross Sales</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {salesDrafts.map((d) => (
+                <tr key={d.draft_id} style={d.anomaly ? { background: "var(--amber-soft)" } : undefined}>
+                  {statusFilter === "Pending" && (
+                    <td><input type="checkbox" checked={selectedSales.has(d.draft_id)} onChange={() => toggle(selectedSales, setSelectedSales, d.draft_id)} /></td>
+                  )}
+                  <td>{fmtDate(d.sale_date)}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>
+                    {(d.category_lines || []).map((l) => `${l.categoryName}: ${fmtMoney(l.taxableAmount)}`).join(" · ")}
+                    {d.notes && <div>{d.notes}</div>}
+                    {d.anomaly && (
+                      <div style={{ color: "var(--amber)", fontWeight: 700 }}>
+                        ⚠ Unusual — this client's trailing average is {fmtMoney(d.clientAverageGross)}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(d.gross_sales)}</td>
+                  <td>
+                    {statusFilter === "Pending" && (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(d.draft_id)}>Approve</button>
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(d.draft_id)}>Dismiss</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {salesDrafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing here.</p>}
+      </Panel>
+
+      <Panel
+        title="Client-Submitted Purchases & Expenses"
+        note={`${purchaseDrafts.length} ${statusFilter.toLowerCase()}`}
+        action={statusFilter === "Pending" && selectedPurchases.size > 0 ? (
+          <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approvePurchasesBulk}>Approve Selected ({selectedPurchases.size})</button>
+        ) : undefined}
+      >
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {statusFilter === "Pending" && <th scope="col"></th>}
+                <th scope="col">Date</th>
+                <th scope="col">Vendor</th>
+                <th scope="col">Account</th>
+                <th scope="col">Description</th>
+                <th scope="col" style={{ textAlign: "right" }}>Amount</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {purchaseDrafts.map((d) => (
+                <tr key={d.draft_id}>
+                  {statusFilter === "Pending" && (
+                    <td><input type="checkbox" checked={selectedPurchases.has(d.draft_id)} onChange={() => toggle(selectedPurchases, setSelectedPurchases, d.draft_id)} /></td>
+                  )}
+                  <td>{fmtDate(d.purchase_date)}</td>
+                  <td>{d.vendor_name || "—"}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{d.account}{d.paid_by_card ? " · Card" : ""}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{d.description || "—"}</td>
+                  <td style={{ textAlign: "right" }}>{fmtMoney(d.amount)}</td>
+                  <td>
+                    {statusFilter === "Pending" && (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(d.draft_id)}>Approve</button>
+                        <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(d.draft_id)}>Dismiss</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {purchaseDrafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Nothing here.</p>}
       </Panel>
     </div>
   );
