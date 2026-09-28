@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError, openAnyFile, downloadAnyFile, printAnyFile } from "../api/client";
 import type { DocumentRequest, DocumentUpload, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage } from "../context/LanguageContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
@@ -68,6 +69,7 @@ function FilesCell({ request, onRemove }: { request: DocumentRequest; onRemove?:
 
 export function DocumentsListPage() {
   const { user } = useAuth();
+  const { clientId: activeBusinessId } = useSelectedBusiness();
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const { setSelectedClient } = useSelectedClient();
@@ -101,12 +103,17 @@ export function DocumentsListPage() {
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   function loadRequests(): Promise<void> {
-    return api.get<{ requests: DocumentRequest[] }>("/documents/requests")
+    // A client login can be linked to several businesses now — their own
+    // document list must follow whichever one is selected in the header
+    // switcher, not always their login's default business.
+    const qs = user?.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
+    return api.get<{ requests: DocumentRequest[] }>(`/documents/requests${qs}`)
       .then((res) => setRequests(res.requests))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load document requests."));
   }
   function loadUploads(): Promise<void> {
-    return api.get<{ uploads: DocumentUpload[] }>("/documents/uploads")
+    const qs = user?.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
+    return api.get<{ uploads: DocumentUpload[] }>(`/documents/uploads${qs}`)
       .then((res) => setUploads(res.uploads))
       .catch(() => setUploads([]));
   }
@@ -114,7 +121,7 @@ export function DocumentsListPage() {
     return Promise.all([loadRequests(), loadUploads()]).then(() => {});
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [activeBusinessId]);
   useEffect(() => { if (canManage) api.get<WebOptions>("/system/options").then(setOptions).catch(() => {}); }, [canManage]);
   useEffect(() => {
     if (!scopedClientId) { setScopedClientName(null); return; }

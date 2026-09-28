@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile, printFile, openAnyFile, buildFil
 import type { Client, Task, Appointment } from "../api/types";
 import type { DocumentRequest, Invoice, WebOptions } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
 import { FilterBar, exportCsv } from "../components/FilterBar";
@@ -791,6 +792,7 @@ function InvoiceRows({ invoices, empty, clientNames }: { invoices: Invoice[]; em
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const { clientId: activeBusinessId } = useSelectedBusiness();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [docs, setDocs] = useState<DocumentRequest[]>([]);
@@ -801,20 +803,25 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   function load(): Promise<void> {
+    // A client login can be linked to several businesses now — everything
+    // this dashboard shows for that role must follow whichever one is
+    // currently selected in the header switcher, not always the login's
+    // default business.
+    const qs = user?.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
     return Promise.all([
       api.get<{ tasks: Task[] }>("/tasks"),
       api.get<{ clients: Client[] }>("/clients").catch(() => ({ clients: [] })),
-      api.get<{ requests: DocumentRequest[] }>("/documents/requests").catch(() => ({ requests: [] })),
-      api.get<{ invoices: Invoice[] }>("/billing/invoices").catch(() => ({ invoices: [] })),
-      api.get<{ rows: ClientTaxRow[] }>("/billing/client-tax-payments").catch(() => ({ rows: [] })),
-      api.get<{ appointments: MyAppointment[] }>("/appointments/mine").catch(() => ({ appointments: [] })),
+      api.get<{ requests: DocumentRequest[] }>(`/documents/requests${qs}`).catch(() => ({ requests: [] })),
+      api.get<{ invoices: Invoice[] }>(`/billing/invoices${qs}`).catch(() => ({ invoices: [] })),
+      api.get<{ rows: ClientTaxRow[] }>(`/billing/client-tax-payments${qs}`).catch(() => ({ rows: [] })),
+      api.get<{ appointments: MyAppointment[] }>(`/appointments/mine${qs}`).catch(() => ({ appointments: [] })),
     ])
       .then(([t, c, d, i, tx, ap]) => { setTasks(t.tasks); setClients(c.clients); setDocs(d.requests); setInvoices(i.invoices); setTaxRows(tx.rows); setAppointments(ap.appointments); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load dashboard data."))
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeBusinessId]);
 
   if (error) return <ErrorBanner error={error} />;
   if (loading) return <div className="spinner-wrap">Loading…</div>;
@@ -1277,27 +1284,30 @@ function MyServicesRows({ tasks, empty }: { tasks: MyServiceTask[]; empty: strin
 
 function ClientCommand({ docs, invoices, taxRows, appointments }: { docs: DocumentRequest[]; invoices: Invoice[]; taxRows: ClientTaxRow[]; appointments: MyAppointment[] }) {
   const { user } = useAuth();
+  const { clientId: activeBusinessId, clientName: activeBusinessName } = useSelectedBusiness();
   const navigate = useNavigate();
   const { t, dir, lang } = useLanguage();
   const [notices, setNotices] = useState<AccountNotice[]>([]);
   const [services, setServices] = useState<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>({ active: [], recentlyCompleted: [] });
   useEffect(() => {
-    api.get<{ notices: AccountNotice[] }>("/clients/notices/mine").then((res) => setNotices(res.notices)).catch(() => {});
-    api.get<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>("/tasks/mine").then(setServices).catch(() => {});
-  }, []);
+    const qs = activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
+    api.get<{ notices: AccountNotice[] }>(`/clients/notices/mine${qs}`).then((res) => setNotices(res.notices)).catch(() => {});
+    api.get<{ active: MyServiceTask[]; recentlyCompleted: MyServiceTask[] }>(`/tasks/mine${qs}`).then(setServices).catch(() => {});
+  }, [activeBusinessId]);
   const openDocs = docs.filter((d) => !["closed", "completed"].includes(String(d.status || "").toLowerCase()));
   const openInvoices = invoices.filter((i) => !["paid", "void"].includes(String(i.status || "").toLowerCase()));
   const unpaidTaxRows = taxRows.filter((r) => !r.paid_date);
   const balanceDue = openInvoices.reduce((sum, i) => sum + Number(i.balance_due || 0), 0);
   const taxDue = unpaidTaxRows.reduce((sum, r) => sum + Number(r.payment_amount || 0), 0);
-  const clientNames = new Map(user?.clientId ? [[user.clientId, user.clientName || "My Account"]] as [string, string][] : []);
+  const activeId = activeBusinessId || user?.clientId;
+  const clientNames = new Map(activeId ? [[activeId, activeBusinessName || user?.clientName || "My Account"]] as [string, string][] : []);
 
   return (
     <div dir={dir}>
       <div className="portal-banner">
         <div>
           <div className="eyebrow" style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{t("dashboard.client.eyebrow")}</div>
-          <h2>{user?.clientName || t("dashboard.client.myAccount")}</h2>
+          <h2>{activeBusinessName || user?.clientName || t("dashboard.client.myAccount")}</h2>
           <p>{t("dashboard.client.intro")}</p>
         </div>
         <div className="quick-actions">

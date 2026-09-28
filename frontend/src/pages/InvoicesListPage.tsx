@@ -4,6 +4,7 @@ import { api, ApiError, downloadFile, viewFile, printFile, buildFilename } from 
 import type { Invoice, Payment, RecurringBilling } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ActionMenu } from "../components/ActionMenu";
@@ -39,6 +40,7 @@ interface TaxRow {
 
 export function InvoicesListPage() {
   const { user } = useAuth();
+  const { clientId: activeBusinessId } = useSelectedBusiness();
   const { t, dir } = useLanguage();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -82,7 +84,11 @@ export function InvoicesListPage() {
   const isAdmin = user?.role === "admin";
 
   function loadInvoices(): Promise<void> {
-    return api.get<{ invoices: Invoice[] }>("/billing/invoices").then((r) => setInvoices(r.invoices)).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load invoices."));
+    // A client login can be linked to several businesses now — their own
+    // invoice list must follow whichever one is selected in the header
+    // switcher, not always their login's default business.
+    const qs = user?.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "";
+    return api.get<{ invoices: Invoice[] }>(`/billing/invoices${qs}`).then((r) => setInvoices(r.invoices)).catch((err) => setError(err instanceof ApiError ? err.message : "Could not load invoices."));
   }
   function loadSchedules(): Promise<void> {
     return canManage ? api.get<{ schedules: RecurringBilling[] }>("/billing/recurring").then((r) => setSchedules(r.schedules)).catch(() => {}) : Promise.resolve();
@@ -94,14 +100,16 @@ export function InvoicesListPage() {
   }
   function loadTaxRows(): Promise<void> {
     if (user?.role === "employee") return Promise.resolve();
-    const qs = canManage ? `?start=${period.start}&end=${period.end}` : "";
+    const qs = canManage
+      ? `?start=${period.start}&end=${period.end}`
+      : (user?.role === "client" && activeBusinessId ? `?clientId=${encodeURIComponent(activeBusinessId)}` : "");
     return api.get<{ rows: TaxRow[] }>(`/billing/client-tax-payments${qs}`).then((r) => setTaxRows(r.rows)).catch(() => {});
   }
   function loadAll(): Promise<void> {
     return Promise.all([loadInvoices(), loadSchedules(), loadFirmPayments(), loadTaxRows()]).then(() => {});
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [activeBusinessId]);
   useEffect(() => { loadFirmPayments(); loadTaxRows(); }, [period.start, period.end]);
   useEffect(() => {
     if (canManage) api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
