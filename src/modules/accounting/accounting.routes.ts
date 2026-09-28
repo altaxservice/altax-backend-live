@@ -2178,6 +2178,24 @@ accountingRouter.post("/je-templates/:templateId/delete", requireAuth, requireRo
  * admin/staff (so a preparer can enter on a client's behalf) and for a
  * client only on their own client_id.
  */
+/**
+ * A DATE column (sale_date, purchase_date) comes back from node-postgres as a
+ * JS Date object, not a string — this project has no global type-parser
+ * override for OID 1082. Plain `String(dateValue)` produces
+ * "Tue Sep 15 2026 00:00:00 GMT-0400 (...)", which Postgres's date parser
+ * rejects outright ("time zone ... not recognized") the moment that value is
+ * fed back into another query (approval posting the draft's own date, or a
+ * PATCH that edits a draft without touching its date). toISOString().slice
+ * is timezone-safe here because node-postgres parses a DATE column as UTC
+ * midnight for that calendar day, so the UTC slice is exactly the stored
+ * "YYYY-MM-DD" with no drift. Confirmed live against the dev DB, 2026-09-28:
+ * every approval was actually failing and silently reverting to Pending.
+ */
+function pgDateStr(v: unknown): string {
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v || "").trim().slice(0, 10);
+}
+
 async function requireClientBooksAccess(req: AuthedRequest, res: Response, clientId: string): Promise<{ client_id: string; client_name: string; state: string | null } | null> {
   if (!clientId) { res.status(400).json({ error: "Client is required." }); return null; }
   if (req.user!.role === "employee") { res.status(403).json({ error: "Not available for this account type." }); return null; }
@@ -2285,7 +2303,7 @@ accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, async
   if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be edited." });
 
   const body = req.body || {};
-  const saleDate = String(body.saleDate || draft.sale_date).trim();
+  const saleDate = body.saleDate ? String(body.saleDate).trim() : pgDateStr(draft.sale_date);
   const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : draft.category_lines;
   const preview = await previewSalesDraftTax(draft.client_id, client.state, rawLines);
   const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
@@ -2359,7 +2377,7 @@ accountingRouter.patch("/client-books/purchase-drafts/:draftId", requireAuth, as
     `UPDATE altax.v3_client_purchase_drafts
        SET purchase_date=$2, vendor_name=$3, description=$4, account=$5, amount=$6, paid_by_card=$7, notes=$8, updated_at=now()
      WHERE draft_id=$1`,
-    [draftId, String(body.purchaseDate || draft.purchase_date).trim(), String(body.vendorName ?? draft.vendor_name ?? "").trim() || null,
+    [draftId, body.purchaseDate ? String(body.purchaseDate).trim() : pgDateStr(draft.purchase_date), String(body.vendorName ?? draft.vendor_name ?? "").trim() || null,
       String(body.description ?? draft.description ?? "").trim() || null, String(body.account || draft.account).trim(), amount,
       body.paidByCard !== undefined ? Boolean(body.paidByCard) : draft.paid_by_card, String(body.notes ?? draft.notes ?? "").trim() || null]
   );
@@ -2492,23 +2510,31 @@ async function approveSalesDraft(draftId: string, approverEmail: string, overrid
   );
   if (!claimed) throw new ValidationError("This submission is no longer pending (already approved or dismissed).");
 
-  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
-  const categoryLines = overrides?.categoryLines || claimed.category_lines;
-  // createSalesInputRecord takes grossSales literally rather than deriving it
-  // from categoryLines (see computeCategoryLinesTax) — must be computed fresh
-  // here so it matches whichever lines (original or staff-overridden) are
-  // about to be posted, not left at a stale or zero value.
-  const preview = await previewSalesDraftTax(claimed.client_id, client.state, categoryLines);
   try {
+    const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
+    if (!client) throw new ValidationError("Client not found.");
+    const categoryLines = overrides?.categoryLines || claimed.category_lines;
+    // createSalesInputRecord takes grossSales literally rather than deriving it
+    // from categoryLines (see computeCategoryLinesTax) — must be computed fresh
+    // here so it matches whichever lines (original or staff-overridden) are
+    // about to be posted, not left at a stale or zero value.
+    const preview = await previewSalesDraftTax(claimed.client_id, client.state, categoryLines);
+    // A fixed, draft-derived idempotency key means a retry after a partial
+    // failure below (e.g. the resulting_sale_id UPDATE throws after the sale
+    // itself was already committed) re-uses the same sale instead of
+    // double-posting — createSalesInputRecord's own idempotency store
+    // returns the original result instead of creating a second one.
     const result = await createSalesInputRecord(
-      client, { saleDate: claimed.sale_date, grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines },
-      approverEmail, "Client Portal"
+      client, { saleDate: pgDateStr(claimed.sale_date), grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines },
+      approverEmail, "Client Portal", `client-sales-draft-${draftId}`
     );
     await query(`UPDATE altax.v3_client_sales_drafts SET resulting_sale_id = $2 WHERE draft_id = $1`, [draftId, result.saleId]);
     return result;
   } catch (err) {
     // Roll the claim back so a real posting failure doesn't strand the draft
-    // in an "Approved" state with nothing actually posted behind it.
+    // in an "Approved" state with nothing actually posted behind it. Safe to
+    // retry from Pending even if the sale itself already posted, since the
+    // idempotency key above prevents a second real posting.
     await query(`UPDATE altax.v3_client_sales_drafts SET status = 'Pending', approved_by = NULL, approved_at = NULL WHERE draft_id = $1`, [draftId]);
     throw err;
   }
@@ -2566,19 +2592,24 @@ async function approvePurchaseDraft(draftId: string, approverEmail: string, over
   );
   if (!claimed) throw new ValidationError("This submission is no longer pending (already approved or dismissed).");
 
-  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
-  const account = overrides?.account || claimed.account;
-  const amount = money(overrides?.amount ?? claimed.amount);
-  const offsetAccount = claimed.paid_by_card ? "Credit Card Payable" : "Cash";
-  const description = claimed.vendor_name ? `${claimed.vendor_name}${claimed.description ? " — " + claimed.description : ""}` : (claimed.description || "Purchase/expense");
   try {
+    const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
+    if (!client) throw new ValidationError("Client not found.");
+    const account = overrides?.account || claimed.account;
+    const amount = money(overrides?.amount ?? claimed.amount);
+    // "Paid by card" means a real credit card (a liability paid off later) —
+    // a debit card is an immediate outflow from the bank account, same as
+    // cash, so it must NOT post here too. The client-facing checkbox is
+    // worded "credit card" specifically for this reason (see books.purchases.paidByCard).
+    const offsetAccount = claimed.paid_by_card ? "Credit Card Payable" : "Cash";
+    const description = claimed.vendor_name ? `${claimed.vendor_name}${claimed.description ? " — " + claimed.description : ""}` : (claimed.description || "Purchase/expense");
     const result = await createManualJournalEntry(
       client,
       {
-        entryDate: claimed.purchase_date, description, notes: claimed.notes,
+        entryDate: pgDateStr(claimed.purchase_date), description, notes: claimed.notes,
         lines: [{ account, debit: amount, credit: 0, memo: claimed.vendor_name || "" }, { account: offsetAccount, debit: 0, credit: amount, memo: "" }],
       },
-      approverEmail, "Client Portal"
+      approverEmail, "Client Portal", `client-purchase-draft-${draftId}`
     );
     await query(`UPDATE altax.v3_client_purchase_drafts SET resulting_je_id = $2 WHERE draft_id = $1`, [draftId, result.jeId]);
     return result;
