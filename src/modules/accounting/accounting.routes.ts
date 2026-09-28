@@ -1926,46 +1926,54 @@ accountingRouter.patch("/contractor-payments/:contractorPaymentId", requireAuth,
  * double-entry validation: at least two lines, debits must equal credits (to the
  * cent). No money is computed, only checked for balance.
  */
-accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const clientId = String(body.clientId || "").trim();
-  if (!clientId) return res.status(400).json({ error: "Client is required." });
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!client) return res.status(404).json({ error: "Client not found." });
+export interface CreateJeLineInput { account: string; debit: number | string; credit: number | string; memo?: string }
+export interface CreateJeParams {
+  entryDate?: string; ref?: string; description?: string; notes?: string; lines: CreateJeLineInput[];
+}
 
-  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+/**
+ * Inserts one manual journal entry (header lines + GL postings) and audit-logs it.
+ * Extracted from POST /journal-entries so both a staff member's own entry and a
+ * client-submitted purchase/expense approved into a real JE (see
+ * POST /client-books/purchase-drafts/:id/approve) go through the exact same
+ * validation and posting logic — same reasoning as createSalesInputRecord above.
+ */
+export async function createManualJournalEntry(
+  client: { client_id: string; client_name: string },
+  params: CreateJeParams,
+  createdByEmail: string,
+  sourceSystem: string = "Node Web App",
+  idempotencyKey: string | null = null
+) {
+  const rawLines = Array.isArray(params.lines) ? params.lines : [];
   const lines = rawLines
-    .map((line: any) => ({
+    .map((line) => ({
       account: String(line.account || "").trim(), debit: money(line.debit), credit: money(line.credit),
       memo: String(line.memo || "").trim(),
     }))
-    .filter((line: any) => line.account && (line.debit || line.credit));
+    .filter((line) => line.account && (line.debit || line.credit));
 
-  if (lines.length < 2) return res.status(400).json({ error: "A journal entry needs at least two lines." });
+  if (lines.length < 2) throw new ValidationError("A journal entry needs at least two lines.");
   // A negative debit/credit pair can still net to a balanced-looking entry (debits
   // == credits to the cent) while silently decrementing both a debited and a
   // credited account instead of incrementing them — the balance check alone can't
   // catch this, only rejecting negative values outright can.
-  if (lines.some((l: any) => l.debit < 0 || l.credit < 0)) {
-    return res.status(400).json({ error: "Journal entry lines cannot have a negative debit or credit amount." });
+  if (lines.some((l) => l.debit < 0 || l.credit < 0)) {
+    throw new ValidationError("Journal entry lines cannot have a negative debit or credit amount.");
   }
 
-  const totalDebit = money(lines.reduce((sum: number, l: any) => sum + l.debit, 0));
-  const totalCredit = money(lines.reduce((sum: number, l: any) => sum + l.credit, 0));
-  if (!totalDebit || !totalCredit) return res.status(400).json({ error: "Journal entry must include debit and credit lines." });
+  const totalDebit = money(lines.reduce((sum, l) => sum + l.debit, 0));
+  const totalCredit = money(lines.reduce((sum, l) => sum + l.credit, 0));
+  if (!totalDebit || !totalCredit) throw new ValidationError("Journal entry must include debit and credit lines.");
   if (Math.abs(totalDebit - totalCredit) > 0.009) {
-    return res.status(400).json({ error: `Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, credits: ${totalCredit.toFixed(2)}.` });
+    throw new ValidationError(`Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, credits: ${totalCredit.toFixed(2)}.`);
   }
 
   const jeId = `JE-${idSuffix()}`;
-  const entryDate = String(body.entryDate || "").trim() || null;
-  const ref = String(body.ref || jeId).trim();
-  const description = String(body.description || "").trim() || null;
-  const notes = String(body.notes || "").trim() || null;
-  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  const entryDate = String(params.entryDate || "").trim() || null;
+  const ref = String(params.ref || jeId).trim();
+  const description = String(params.description || "").trim() || null;
+  const notes = String(params.notes || "").trim() || null;
 
   let isDuplicate = false;
   let duplicateResponse: any = null;
@@ -1985,9 +1993,9 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
         `INSERT INTO altax.v3_manual_je
            (jeid, client_id, client_name, entry_date, ref, description, account, debit, credit, notes,
             source_system, source_record_id, journal_entry_id, line_no)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Node Web App',$11,$11,$12)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$13,$11,$11,$12)`,
         [lineId, client.client_id, client.client_name, entryDate, ref, description, line.account, line.debit,
-          line.credit, line.memo || notes || description, jeId, i + 1]
+          line.credit, line.memo || notes || description, jeId, i + 1, sourceSystem]
       );
       // GL linkage always uses the system-generated jeId, never the user's free-text
       // Reference — Reference is only stored on v3_manual_je for display. Editing an
@@ -2010,13 +2018,34 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
   // fails honestly instead of fabricating success when reserved=false has
   // no saved response yet.
   if (isDuplicate) {
-    if (duplicateResponse) return res.status(200).json(duplicateResponse);
-    return res.status(409).json({ error: "This journal entry submission is already being processed. Wait a moment, then check Recent Manual Entries before retrying." });
+    if (duplicateResponse) return { ...duplicateResponse, isDuplicate: true };
+    throw new ValidationError("This journal entry submission is already being processed. Wait a moment, then check Recent Manual Entries before retrying.");
   }
 
-  await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", "Manual journal entry created from web app.", req.user!.email);
+  await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", `Manual journal entry created by ${createdByEmail}.`, createdByEmail);
 
-  res.status(201).json({ ok: true, jeId, lines: lines.length, totalDebit, totalCredit });
+  return { ok: true, jeId, lines: lines.length, totalDebit, totalCredit };
+}
+
+accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  let result: Awaited<ReturnType<typeof createManualJournalEntry>>;
+  try {
+    result = await createManualJournalEntry(client, body, req.user!.email, "Node Web App", idempotencyKey);
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(err.message.includes("already being processed") ? 409 : 400).json({ error: err.message });
+    throw err;
+  }
+  res.status(result.isDuplicate ? 200 : 201).json(result);
 }));
 
 /**
@@ -2125,6 +2154,448 @@ accountingRouter.post("/je-templates/:templateId/delete", requireAuth, requireRo
   const { templateId } = req.params;
   const removed = await query(`DELETE FROM altax.v3_je_templates WHERE template_id = $1 RETURNING template_id`, [templateId]);
   if (removed.length === 0) return res.status(404).json({ error: "Template not found." });
+  res.json({ ok: true });
+}));
+
+/**
+ * Client Portal — Daily Sales & Purchases (self-service, staged for review).
+ *
+ * A client can log their own daily sales (by the same tax categories staff
+ * already use) and purchases/expenses, see their own running P&L built
+ * purely from what THEY entered, and edit/delete anything still Pending.
+ * Nothing here ever touches v3_sales_input, v3_manual_je, or v3_gl_entries
+ * directly — approval (further below, admin/staff-only) calls the exact
+ * same createSalesInputRecord()/createManualJournalEntry() a staff member's
+ * own entry would, so an approved submission is indistinguishable from a
+ * staff-entered one. Modeled on Bank Rec's v3_je_drafts Pending/Approved/
+ * Dismissed pattern for the same reason: one proven review workflow.
+ *
+ * Client-callable routes below intentionally have no requireRole — like
+ * clients.routes.ts's business-intake routes, they reject "employee"
+ * explicitly (an employee has no client_id of their own to scope to) and
+ * otherwise lean on canAccessClient, which already returns true for
+ * admin/staff (so a preparer can enter on a client's behalf) and for a
+ * client only on their own client_id.
+ */
+async function requireClientBooksAccess(req: AuthedRequest, res: Response, clientId: string): Promise<{ client_id: string; client_name: string; state: string | null } | null> {
+  if (!clientId) { res.status(400).json({ error: "Client is required." }); return null; }
+  if (req.user!.role === "employee") { res.status(403).json({ error: "Not available for this account type." }); return null; }
+  if (!(await canAccessClient(req.user!, clientId))) { res.status(403).json({ error: "You do not have access to this client." }); return null; }
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) { res.status(404).json({ error: "Client not found." }); return null; }
+  return client;
+}
+
+/** Everything the client-facing Daily Sales / Purchases form needs in one call. */
+accountingRouter.get("/client-books/options", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const categories = client.state
+    ? await query(`SELECT * FROM altax.v3_sales_tax_categories WHERE active = true AND (state = $1 OR state IS NULL) ORDER BY display_order, category_name`, [client.state])
+    : await query(`SELECT * FROM altax.v3_sales_tax_categories WHERE active = true ORDER BY display_order, category_name`);
+  const accounts = await query(`SELECT * FROM altax.v3_coa WHERE active = true AND account_type IN ('Expense','COGS') ORDER BY account_name`);
+  const vendorRows = await query<{ vendor_name: string }>(
+    `SELECT DISTINCT vendor_name FROM altax.v3_client_purchase_drafts WHERE client_id = $1 AND vendor_name IS NOT NULL AND vendor_name != '' ORDER BY vendor_name LIMIT 50`,
+    [clientId]
+  );
+  res.json({ categories, accounts, vendors: vendorRows.map((r) => r.vendor_name), state: client.state });
+}));
+
+/**
+ * Same tax math as POST /sales's real insert, but read-only — powers the
+ * client's live "estimated tax" preview as they type, and is reused (see
+ * below) to show current numbers on every list/PL-preview call instead of
+ * trusting a number frozen at submission time.
+ */
+async function previewSalesDraftTax(clientId: string, clientState: string | null, categoryLines: SalesCategoryLineInput[]) {
+  const computed = await computeCategoryLinesTax(Array.isArray(categoryLines) ? categoryLines : [], clientId, clientState);
+  const grossSales = money(computed.lines.reduce((s, l) => s + l.taxableAmount, 0));
+  return { lines: computed.lines, totalTax: computed.totalTax, grossSales };
+}
+
+/**
+ * Live tax preview for the client's not-yet-saved Daily Sales form — calls the
+ * exact same previewSalesDraftTax() (and therefore the same lookupRate(),
+ * including any client-specific rate override) that submission and approval
+ * both use, so what the client sees typing never drifts from what gets saved.
+ */
+accountingRouter.post("/client-books/sales-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const preview = await previewSalesDraftTax(clientId, client.state, Array.isArray(body.categoryLines) ? body.categoryLines : []);
+  res.json(preview);
+}));
+
+accountingRouter.post("/client-books/sales-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const saleDate = String(body.saleDate || "").trim();
+  if (!saleDate) return res.status(400).json({ error: "Date is required." });
+  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : [];
+  if (!rawLines.some((l) => money(l.taxableAmount) > 0)) return res.status(400).json({ error: "Enter at least one sales amount." });
+
+  // A same-date draft (Pending or already Approved) usually means a duplicate
+  // double-entry, not a genuine second day of sales — confirmDuplicate lets
+  // the client say "yes, this is really a second entry for this date."
+  if (!body.confirmDuplicate) {
+    const existing = await queryOne<any>(
+      `SELECT draft_id FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND sale_date = $2 AND status != 'Dismissed' LIMIT 1`,
+      [clientId, saleDate]
+    );
+    if (existing) return res.status(409).json({ error: "You already logged sales for this date.", duplicate: true });
+  }
+
+  const preview = await previewSalesDraftTax(clientId, client.state, rawLines);
+  const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
+  const draftId = `CSD-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_client_sales_drafts (draft_id, client_id, client_name, sale_date, category_lines, gross_sales, notes, submitted_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [draftId, clientId, client.client_name, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes || "").trim() || null, req.user!.email]
+  );
+  await logAudit("Accounting", "CLIENT_SALES_DRAFT_SUBMITTED", draftId, "", "", String(preview.grossSales),
+    `Daily sales submitted via client portal by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, draftId });
+}));
+
+accountingRouter.get("/client-books/sales-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const rows = await query<any>(
+    `SELECT * FROM altax.v3_client_sales_drafts WHERE client_id = $1 ORDER BY sale_date DESC, submitted_at DESC LIMIT 200`,
+    [clientId]
+  );
+  const previews = await Promise.all(rows.map((r) => previewSalesDraftTax(clientId, client.state, r.category_lines || [])));
+  res.json({ drafts: rows.map((r, i) => ({ ...r, computedTax: previews[i].totalTax })) });
+}));
+
+accountingRouter.patch("/client-books/sales-drafts/:draftId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT * FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  const client = await requireClientBooksAccess(req, res, draft.client_id);
+  if (!client) return;
+  if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be edited." });
+
+  const body = req.body || {};
+  const saleDate = String(body.saleDate || draft.sale_date).trim();
+  const rawLines: SalesCategoryLineInput[] = Array.isArray(body.categoryLines) ? body.categoryLines : draft.category_lines;
+  const preview = await previewSalesDraftTax(draft.client_id, client.state, rawLines);
+  const categoryLines = preview.lines.map((l) => ({ categoryId: l.categoryId, categoryName: l.categoryName, taxableAmount: l.taxableAmount }));
+  await query(
+    `UPDATE altax.v3_client_sales_drafts SET sale_date=$2, category_lines=$3, gross_sales=$4, notes=$5, updated_at=now() WHERE draft_id=$1`,
+    [draftId, saleDate, JSON.stringify(categoryLines), preview.grossSales, String(body.notes ?? draft.notes ?? "").trim() || null]
+  );
+  res.json({ ok: true });
+}));
+
+accountingRouter.post("/client-books/sales-drafts/:draftId/delete", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT * FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  const client = await requireClientBooksAccess(req, res, draft.client_id);
+  if (!client) return;
+  if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be deleted." });
+  await query(`DELETE FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  res.json({ ok: true });
+}));
+
+accountingRouter.post("/client-books/purchase-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const purchaseDate = String(body.purchaseDate || "").trim();
+  if (!purchaseDate) return res.status(400).json({ error: "Date is required." });
+  const account = String(body.account || "").trim();
+  if (!account) return res.status(400).json({ error: "Choose what this expense was for." });
+  const amount = money(body.amount);
+  if (!amount || amount < 0) return res.status(400).json({ error: "Enter an amount greater than zero." });
+
+  const draftId = `CPD-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_client_purchase_drafts
+       (draft_id, client_id, client_name, purchase_date, vendor_name, description, account, amount, paid_by_card, notes, submitted_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [draftId, clientId, client.client_name, purchaseDate, String(body.vendorName || "").trim() || null,
+      String(body.description || "").trim() || null, account, amount, Boolean(body.paidByCard),
+      String(body.notes || "").trim() || null, req.user!.email]
+  );
+  await logAudit("Accounting", "CLIENT_PURCHASE_DRAFT_SUBMITTED", draftId, "", "", String(amount),
+    `Purchase/expense submitted via client portal by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, draftId });
+}));
+
+accountingRouter.get("/client-books/purchase-drafts", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const rows = await query<any>(
+    `SELECT * FROM altax.v3_client_purchase_drafts WHERE client_id = $1 ORDER BY purchase_date DESC, submitted_at DESC LIMIT 200`,
+    [clientId]
+  );
+  res.json({ drafts: rows });
+}));
+
+accountingRouter.patch("/client-books/purchase-drafts/:draftId", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT * FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  const client = await requireClientBooksAccess(req, res, draft.client_id);
+  if (!client) return;
+  if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be edited." });
+
+  const body = req.body || {};
+  const amount = body.amount !== undefined ? money(body.amount) : draft.amount;
+  if (!amount || amount < 0) return res.status(400).json({ error: "Enter an amount greater than zero." });
+  await query(
+    `UPDATE altax.v3_client_purchase_drafts
+       SET purchase_date=$2, vendor_name=$3, description=$4, account=$5, amount=$6, paid_by_card=$7, notes=$8, updated_at=now()
+     WHERE draft_id=$1`,
+    [draftId, String(body.purchaseDate || draft.purchase_date).trim(), String(body.vendorName ?? draft.vendor_name ?? "").trim() || null,
+      String(body.description ?? draft.description ?? "").trim() || null, String(body.account || draft.account).trim(), amount,
+      body.paidByCard !== undefined ? Boolean(body.paidByCard) : draft.paid_by_card, String(body.notes ?? draft.notes ?? "").trim() || null]
+  );
+  res.json({ ok: true });
+}));
+
+accountingRouter.post("/client-books/purchase-drafts/:draftId/delete", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT * FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  const client = await requireClientBooksAccess(req, res, draft.client_id);
+  if (!client) return;
+  if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be deleted." });
+  await query(`DELETE FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  res.json({ ok: true });
+}));
+
+/**
+ * The client's own P&L preview — built ENTIRELY from their own submissions
+ * (Pending and Approved alike), never from the real GL. This is deliberate:
+ * it's what the client told their accountant, available immediately, not an
+ * audited figure — see the "before it hits our system" framing this was
+ * built for. Once approved, the same amounts also exist for real in
+ * v3_sales_input/v3_gl_entries, but this view doesn't read from there.
+ */
+accountingRouter.get("/client-books/pl-preview", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const from = String(req.query.from || "").trim();
+  const to = String(req.query.to || "").trim();
+  const salesRows = await query<any>(
+    `SELECT sale_date, gross_sales, status FROM altax.v3_client_sales_drafts
+     WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR sale_date >= $2::date) AND ($3 = '' OR sale_date <= $3::date)`,
+    [clientId, from, to]
+  );
+  const purchaseRows = await query<any>(
+    `SELECT purchase_date, account, amount, status FROM altax.v3_client_purchase_drafts
+     WHERE client_id = $1 AND status != 'Dismissed' AND ($2 = '' OR purchase_date >= $2::date) AND ($3 = '' OR purchase_date <= $3::date)`,
+    [clientId, from, to]
+  );
+  const totalIncome = money(salesRows.reduce((s, r) => s + Number(r.gross_sales || 0), 0));
+  const byAccount = new Map<string, number>();
+  for (const r of purchaseRows) byAccount.set(r.account, money((byAccount.get(r.account) || 0) + Number(r.amount || 0)));
+  const totalExpenses = money(Array.from(byAccount.values()).reduce((s, v) => s + v, 0));
+  res.json({
+    totalIncome, totalExpenses, netIncome: money(totalIncome - totalExpenses),
+    expensesByAccount: Array.from(byAccount.entries()).map(([account, amount]) => ({ account, amount })),
+    pendingSalesCount: salesRows.filter((r) => r.status === "Pending").length,
+    pendingPurchasesCount: purchaseRows.filter((r) => r.status === "Pending").length,
+  });
+}));
+
+/**
+ * Staff review queue — everything a client submitted for one client,
+ * defaulting to Pending. `anomaly` flags a sales draft whose gross_sales is
+ * more than 2x or under half this client's trailing-60-day APPROVED average
+ * for the same weekday (real posted history, not other pending drafts) —
+ * a nudge to double-check before approving, not a hard block.
+ */
+accountingRouter.get("/client-books/:clientId/submissions", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const status = String(req.query.status || "Pending").trim();
+
+  const salesDrafts = await query<any>(
+    `SELECT * FROM altax.v3_client_sales_drafts WHERE client_id = $1 AND status = $2 ORDER BY sale_date DESC`,
+    [clientId, status]
+  );
+  const purchaseDrafts = await query<any>(
+    `SELECT * FROM altax.v3_client_purchase_drafts WHERE client_id = $1 AND status = $2 ORDER BY purchase_date DESC`,
+    [clientId, status]
+  );
+
+  const avgRow = await queryOne<{ avg_gross: string; sample_size: string }>(
+    `SELECT AVG(gross_sales) AS avg_gross, COUNT(*) AS sample_size FROM altax.v3_sales_input
+     WHERE client_id = $1 AND sale_date >= now() - interval '60 days'`,
+    [clientId]
+  );
+  const avgGross = Number(avgRow?.avg_gross) || 0;
+  const sampleSize = Number(avgRow?.sample_size) || 0;
+  const salesWithFlags = salesDrafts.map((d) => {
+    const gross = Number(d.gross_sales) || 0;
+    const anomaly = sampleSize >= 5 && avgGross > 0 && (gross > avgGross * 2 || gross < avgGross * 0.4);
+    return { ...d, anomaly, clientAverageGross: sampleSize >= 5 ? money(avgGross) : null };
+  });
+
+  res.json({ salesDrafts: salesWithFlags, purchaseDrafts });
+}));
+
+async function approveSalesDraft(draftId: string, approverEmail: string, overrides?: { categoryLines?: SalesCategoryLineInput[] }) {
+  // Atomic claim first — a second concurrent approve-bulk click can never
+  // process the same draft twice, same technique as Bank Rec's je_drafts.
+  const claimed = await queryOne<any>(
+    `UPDATE altax.v3_client_sales_drafts SET status = 'Approved', approved_by = $2, approved_at = now(), staff_overrides = $3, updated_at = now()
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING *`,
+    [draftId, approverEmail, overrides ? JSON.stringify(overrides) : null]
+  );
+  if (!claimed) throw new ValidationError("This submission is no longer pending (already approved or dismissed).");
+
+  const client = await queryOne<any>(`SELECT client_id, client_name, state FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
+  const categoryLines = overrides?.categoryLines || claimed.category_lines;
+  // createSalesInputRecord takes grossSales literally rather than deriving it
+  // from categoryLines (see computeCategoryLinesTax) — must be computed fresh
+  // here so it matches whichever lines (original or staff-overridden) are
+  // about to be posted, not left at a stale or zero value.
+  const preview = await previewSalesDraftTax(claimed.client_id, client.state, categoryLines);
+  try {
+    const result = await createSalesInputRecord(
+      client, { saleDate: claimed.sale_date, grossSales: preview.grossSales, adjustments: 0, notes: claimed.notes, categoryLines },
+      approverEmail, "Client Portal"
+    );
+    await query(`UPDATE altax.v3_client_sales_drafts SET resulting_sale_id = $2 WHERE draft_id = $1`, [draftId, result.saleId]);
+    return result;
+  } catch (err) {
+    // Roll the claim back so a real posting failure doesn't strand the draft
+    // in an "Approved" state with nothing actually posted behind it.
+    await query(`UPDATE altax.v3_client_sales_drafts SET status = 'Pending', approved_by = NULL, approved_at = NULL WHERE draft_id = $1`, [draftId]);
+    throw err;
+  }
+}
+
+accountingRouter.post("/client-books/sales-drafts/:draftId/approve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  try {
+    const result = await approveSalesDraft(draftId, req.user!.email, req.body?.overrides);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+}));
+
+accountingRouter.post("/client-books/sales-drafts/approve-bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ids: string[] = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
+  const results: { draftId: string; ok: boolean; error?: string }[] = [];
+  for (const draftId of ids) {
+    try {
+      const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+      if (!draft || !(await canAccessClient(req.user!, draft.client_id))) { results.push({ draftId, ok: false, error: "Not accessible." }); continue; }
+      await approveSalesDraft(draftId, req.user!.email);
+      results.push({ draftId, ok: true });
+    } catch (err) {
+      results.push({ draftId, ok: false, error: err instanceof ValidationError ? err.message : "Could not approve this submission." });
+    }
+  }
+  res.json({ results });
+}));
+
+accountingRouter.post("/client-books/sales-drafts/:draftId/dismiss", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_sales_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  const claimed = await queryOne<any>(
+    `UPDATE altax.v3_client_sales_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now()
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id`,
+    [draftId, req.user!.email, String(req.body?.reason || "").trim() || null]
+  );
+  if (!claimed) return res.status(400).json({ error: "This submission is no longer pending." });
+  res.json({ ok: true });
+}));
+
+async function approvePurchaseDraft(draftId: string, approverEmail: string, overrides?: { account?: string; amount?: number }) {
+  const claimed = await queryOne<any>(
+    `UPDATE altax.v3_client_purchase_drafts SET status = 'Approved', approved_by = $2, approved_at = now(), staff_overrides = $3, updated_at = now()
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING *`,
+    [draftId, approverEmail, overrides ? JSON.stringify(overrides) : null]
+  );
+  if (!claimed) throw new ValidationError("This submission is no longer pending (already approved or dismissed).");
+
+  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [claimed.client_id]);
+  const account = overrides?.account || claimed.account;
+  const amount = money(overrides?.amount ?? claimed.amount);
+  const offsetAccount = claimed.paid_by_card ? "Credit Card Payable" : "Cash";
+  const description = claimed.vendor_name ? `${claimed.vendor_name}${claimed.description ? " — " + claimed.description : ""}` : (claimed.description || "Purchase/expense");
+  try {
+    const result = await createManualJournalEntry(
+      client,
+      {
+        entryDate: claimed.purchase_date, description, notes: claimed.notes,
+        lines: [{ account, debit: amount, credit: 0, memo: claimed.vendor_name || "" }, { account: offsetAccount, debit: 0, credit: amount, memo: "" }],
+      },
+      approverEmail, "Client Portal"
+    );
+    await query(`UPDATE altax.v3_client_purchase_drafts SET resulting_je_id = $2 WHERE draft_id = $1`, [draftId, result.jeId]);
+    return result;
+  } catch (err) {
+    await query(`UPDATE altax.v3_client_purchase_drafts SET status = 'Pending', approved_by = NULL, approved_at = NULL WHERE draft_id = $1`, [draftId]);
+    throw err;
+  }
+}
+
+accountingRouter.post("/client-books/purchase-drafts/:draftId/approve", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  try {
+    const result = await approvePurchaseDraft(draftId, req.user!.email, req.body?.overrides);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+}));
+
+accountingRouter.post("/client-books/purchase-drafts/approve-bulk", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ids: string[] = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
+  const results: { draftId: string; ok: boolean; error?: string }[] = [];
+  for (const draftId of ids) {
+    try {
+      const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+      if (!draft || !(await canAccessClient(req.user!, draft.client_id))) { results.push({ draftId, ok: false, error: "Not accessible." }); continue; }
+      await approvePurchaseDraft(draftId, req.user!.email);
+      results.push({ draftId, ok: true });
+    } catch (err) {
+      results.push({ draftId, ok: false, error: err instanceof ValidationError ? err.message : "Could not approve this submission." });
+    }
+  }
+  res.json({ results });
+}));
+
+accountingRouter.post("/client-books/purchase-drafts/:draftId/dismiss", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { draftId } = req.params;
+  const draft = await queryOne<any>(`SELECT client_id FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [draftId]);
+  if (!draft) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, draft.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  const claimed = await queryOne<any>(
+    `UPDATE altax.v3_client_purchase_drafts SET status = 'Dismissed', dismissed_by = $2, dismissed_at = now(), dismissed_reason = $3, updated_at = now()
+     WHERE draft_id = $1 AND status = 'Pending' RETURNING draft_id`,
+    [draftId, req.user!.email, String(req.body?.reason || "").trim() || null]
+  );
+  if (!claimed) return res.status(400).json({ error: "This submission is no longer pending." });
   res.json({ ok: true });
 }));
 

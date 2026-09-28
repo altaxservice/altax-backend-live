@@ -62,6 +62,7 @@ import { PublicContractPage } from "./pages/PublicContractPage";
 import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 import { MyBusinessPage } from "./pages/MyBusinessPage";
+import { ClientBooksPage } from "./pages/ClientBooksPage";
 import { AgreementsPage } from "./pages/AgreementsPage";
 import { GovFilingsPage } from "./pages/GovFilingsPage";
 import { PublicEftpsDepositPage } from "./pages/PublicEftpsDepositPage";
@@ -112,6 +113,7 @@ function App() {
               </Route>
               <Route element={<ProtectedRoute roles={["client"]} />}>
                 <Route path="/my-business" element={<MyBusinessPage />} />
+                <Route path="/my-books" element={<ClientBooksPage />} />
                 <Route path="/agreements" element={<AgreementsPage />} />
                 <Route path="/gov-filings" element={<GovFilingsPage />} />
               </Route>

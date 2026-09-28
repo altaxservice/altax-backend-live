@@ -82,6 +82,7 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
   { to: "/billing", label: "Billing", navKey: "nav.billing", roles: ["admin", "staff", "client"], group: "Money", icon: CreditCard, keywords: ["invoices", "payments", "ar", "money owed", "who owes"] },
   { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins, keywords: ["sales tax", "filings", "tax due"] },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
+  { to: "/my-books", label: "My Books", navKey: "nav.myBooks", roles: ["client"], icon: NotebookPen, keywords: ["sales", "purchases", "expenses", "p&l", "income"] },
   { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature, keywords: ["contracts"] },
   { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark, keywords: ["gov forms"] },
   { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen, keywords: ["books", "bookkeeping", "gl", "journal entries", "sales input"] },
@@ -150,6 +151,7 @@ const TITLES: Record<string, string> = {
   "/kiosk-settings": "Time Clock Kiosk",
   "/guide": "Guide",
   "/my-business": "My Business",
+  "/my-books": "My Books",
   "/agreements": "Agreements",
   "/gov-filings": "Government Filings",
 };
@@ -164,6 +166,7 @@ const TITLE_KEYS: Record<string, string> = {
   "/guide": "nav.guide",
   "/my-tax-forms": "nav.myTaxForms",
   "/my-business": "nav.myBusiness",
+  "/my-books": "nav.myBooks",
   "/agreements": "nav.agreements",
   "/gov-filings": "nav.govFilings",
 };
