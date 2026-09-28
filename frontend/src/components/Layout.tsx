@@ -16,6 +16,7 @@ import { ClientContextPanel } from "./ClientContextPanel";
 import { TaskContextPanel } from "./TaskContextPanel";
 import { IdleTimeout } from "./IdleTimeout";
 import { useSelectedClient } from "../context/SelectedClientContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useSelectedTask } from "../context/SelectedTaskContext";
 import { useLanguage } from "../context/LanguageContext";
 import { FirmLogo } from "./FirmLogo";
@@ -196,6 +197,7 @@ const PORTAL_LABELS: Record<string, string> = {
 
 export function Layout() {
   const { user } = useAuth();
+  const { clientId: activeBusinessId, linkedClients, setSelectedBusiness } = useSelectedBusiness();
   const location = useLocation();
   const { clientId } = useSelectedClient();
   const { taskId } = useSelectedTask();
@@ -313,6 +315,29 @@ export function Layout() {
             {sidebarCollapsed ? <PanelLeft size={15} /> : <PanelLeftClose size={15} />}
           </button>
         </div>
+        {/* One switch for the whole portal, always visible while navigating —
+            direct owner request, 2026-09-28: the header chip alone meant a
+            client could lose track of which business they were in while
+            working deep in a page like Documents. Only rendered when there's
+            actually more than one linked business (t("nav.myBusinesses")'s
+            own page still exists for the side-by-side P&L view). */}
+        {user?.role === "client" && linkedClients.length > 1 && !sidebarRailActive && (
+          <div className="sidebar-business-switcher">
+            <label htmlFor="sidebar-business-select">{t("header.switchBusiness")}</label>
+            <select
+              id="sidebar-business-select"
+              value={activeBusinessId || ""}
+              onChange={(e) => {
+                const next = linkedClients.find((l) => l.clientId === e.target.value);
+                setSelectedBusiness(e.target.value, next?.clientName || null);
+              }}
+            >
+              {linkedClients.map((b) => (
+                <option key={b.clientId} value={b.clientId}>{b.clientName}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {canCreate && (
           <button type="button" className="btn btn-primary create-launch" onClick={() => setShowCreate(true)} title="Create">
             {sidebarRailActive ? "+" : "+ Create"}

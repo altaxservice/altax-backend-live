@@ -693,6 +693,32 @@ tbody tr:hover { background: var(--surface); cursor: pointer; }
 }
 .brand-name { font-size: 16px; font-weight: 800; }
 .brand-subtitle { margin-top: 2px; color: #b8c2d0; font-size: 11px; font-weight: 700; }
+.sidebar-business-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 16px;
+  margin-top: -6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.sidebar-business-switcher label {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #96a3b4;
+}
+.sidebar-business-switcher select {
+  width: 100%;
+  background: var(--nav-soft);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.sidebar-business-switcher select:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
 /* flex:1 + min-height:0 lets this scroll independently inside the fixed-height
    sidebar once the nav list (now 20+ items) is taller than the viewport — without
    it, overflowing items rendered past the sidebar's bottom edge, onto the white
