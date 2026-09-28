@@ -4659,6 +4659,91 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
   const [queueLoading, setQueueLoading] = useState(true);
   const [queueError, setQueueError] = useState(false);
 
+  // Lets staff correct a client's submission before approving — same
+  // categories/accounts the client saw when submitting (client-books/options,
+  // not the staff-only /accounting/sales-categories list), same PATCH
+  // endpoints the client's own edit form already uses (requireClientBooksAccess
+  // allows staff via canAccessClient, so no backend change was needed).
+  const [categories, setCategories] = useState<SalesTaxCategory[]>([]);
+  const [accounts, setAccounts] = useState<CoaAccount[]>([]);
+  useEffect(() => {
+    if (!clientId) return;
+    api.get<{ categories: SalesTaxCategory[]; accounts: CoaAccount[] }>(`/accounting/client-books/options?clientId=${clientId}`)
+      .then((r) => { setCategories(r.categories); setAccounts(r.accounts); })
+      .catch(() => {});
+  }, [clientId]);
+
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [editSaleDate, setEditSaleDate] = useState("");
+  const [editSaleAmounts, setEditSaleAmounts] = useState<Record<string, string>>({});
+  const [editSaleNotes, setEditSaleNotes] = useState("");
+  const [savingSaleEdit, setSavingSaleEdit] = useState(false);
+
+  function startEditSale(d: ClientSalesDraft) {
+    setViewingSale(d);
+    setEditingSaleId(d.draft_id);
+    setEditSaleDate(d.sale_date.slice(0, 10));
+    const amounts: Record<string, string> = {};
+    for (const l of d.category_lines || []) amounts[l.categoryId] = String(l.taxableAmount);
+    setEditSaleAmounts(amounts);
+    setEditSaleNotes(d.notes || "");
+  }
+  function cancelEditSale() { setEditingSaleId(null); }
+  async function saveEditSale(draftId: string) {
+    const categoryLines = Object.entries(editSaleAmounts).filter(([, v]) => Number(v) > 0).map(([categoryId, v]) => ({ categoryId, taxableAmount: Number(v) }));
+    if (categoryLines.length === 0) { await notify("Enter at least one sales amount."); return; }
+    setSavingSaleEdit(true);
+    try {
+      await api.patch(`/accounting/client-books/sales-drafts/${draftId}`, { saleDate: editSaleDate, categoryLines, notes: editSaleNotes, confirmDuplicate: true });
+      setEditingSaleId(null);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this correction.");
+    } finally {
+      setSavingSaleEdit(false);
+    }
+  }
+
+  const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
+  const [editPurchaseDate, setEditPurchaseDate] = useState("");
+  const [editPurchaseVendor, setEditPurchaseVendor] = useState("");
+  const [editPurchaseDescription, setEditPurchaseDescription] = useState("");
+  const [editPurchaseAccount, setEditPurchaseAccount] = useState("");
+  const [editPurchaseAmount, setEditPurchaseAmount] = useState("");
+  const [editPurchasePaidByCard, setEditPurchasePaidByCard] = useState(false);
+  const [editPurchaseNotes, setEditPurchaseNotes] = useState("");
+  const [savingPurchaseEdit, setSavingPurchaseEdit] = useState(false);
+
+  function startEditPurchase(d: ClientPurchaseDraft) {
+    setViewingPurchase(d);
+    setEditingPurchaseId(d.draft_id);
+    setEditPurchaseDate(d.purchase_date.slice(0, 10));
+    setEditPurchaseVendor(d.vendor_name || "");
+    setEditPurchaseDescription(d.description || "");
+    setEditPurchaseAccount(d.account);
+    setEditPurchaseAmount(String(d.amount));
+    setEditPurchasePaidByCard(d.paid_by_card);
+    setEditPurchaseNotes(d.notes || "");
+  }
+  function cancelEditPurchase() { setEditingPurchaseId(null); }
+  async function saveEditPurchase(draftId: string) {
+    if (!editPurchaseAccount) { await notify("Choose what this expense was for."); return; }
+    if (!Number(editPurchaseAmount) || Number(editPurchaseAmount) <= 0) { await notify("Enter an amount greater than zero."); return; }
+    setSavingPurchaseEdit(true);
+    try {
+      await api.patch(`/accounting/client-books/purchase-drafts/${draftId}`, {
+        purchaseDate: editPurchaseDate, vendorName: editPurchaseVendor, description: editPurchaseDescription,
+        account: editPurchaseAccount, amount: Number(editPurchaseAmount), paidByCard: editPurchasePaidByCard, notes: editPurchaseNotes,
+      });
+      setEditingPurchaseId(null);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this correction.");
+    } finally {
+      setSavingPurchaseEdit(false);
+    }
+  }
+
   function load() {
     if (!clientId) return;
     setQueueLoading(true);
@@ -4669,6 +4754,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
       setSalesDrafts(r.salesDrafts); setPurchaseDrafts(r.purchaseDrafts);
       setSelectedSales(new Set()); setSelectedPurchases(new Set());
       setViewingSale(null); setViewingPurchase(null);
+      setEditingSaleId(null); setEditingPurchaseId(null);
     }).catch(() => setQueueError(true))
       .finally(() => setQueueLoading(false));
   }
@@ -4784,7 +4870,56 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
           <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approveSalesBulk}>Approve Selected ({selectedSales.size})</button>
         ) : undefined}
       >
-        {viewingSale && (
+        {viewingSale && editingSaleId === viewingSale.draft_id && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <strong>Correcting Daily Sales — {fmtDate(viewingSale.sale_date)}</strong>
+              <button type="button" className="btn btn-sm" onClick={cancelEditSale}>Cancel</button>
+            </div>
+            <div className="field" style={{ maxWidth: 220, marginTop: 12 }}>
+              <label htmlFor="acs-edit-sale-date">Date</label>
+              <input id="acs-edit-sale-date" type="date" value={editSaleDate} onChange={(e) => setEditSaleDate(e.target.value)} />
+            </div>
+            <div className="table-scroll" style={{ marginTop: 10 }}>
+              <table>
+                <thead><tr><th scope="col">Sales Category</th><th scope="col" style={{ textAlign: "right" }}>Amount</th></tr></thead>
+                <tbody>
+                  {categories.map((c) => (
+                    <tr key={c.category_id}>
+                      <td>{c.category_name}</td>
+                      <td>
+                        <input
+                          type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00"
+                          aria-label={`${c.category_name} — amount`}
+                          value={editSaleAmounts[c.category_id] || ""}
+                          onChange={(e) => setEditSaleAmounts((a) => ({ ...a, [c.category_id]: e.target.value }))}
+                          style={{ textAlign: "right", maxWidth: 140 }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{ fontWeight: 700 }}>Gross Sales</td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>
+                      {fmtMoney(Object.values(editSaleAmounts).reduce((s, v) => s + (Number(v) || 0), 0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label htmlFor="acs-edit-sale-notes">Notes</label>
+              <input id="acs-edit-sale-notes" value={editSaleNotes} onChange={(e) => setEditSaleNotes(e.target.value)} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn btn-sm btn-primary" disabled={savingSaleEdit} onClick={() => saveEditSale(viewingSale.draft_id)}>
+                {savingSaleEdit ? "Saving…" : "Save Correction"}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={cancelEditSale}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {viewingSale && editingSaleId !== viewingSale.draft_id && (
           <div className="card" style={{ margin: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div>
@@ -4815,6 +4950,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             {statusFilter === "Pending" && (
               <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                 <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(viewingSale.draft_id)}>Approve</button>
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => startEditSale(viewingSale)}>Edit</button>
                 <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(viewingSale.draft_id)}>Dismiss</button>
               </div>
             )}
@@ -4862,6 +4998,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
                         {statusFilter === "Pending" && (
                           <>
                             <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approveSales(d.draft_id)}>Approve</button>
+                            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => startEditSale(d)}>Edit</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissSales(d.draft_id)}>Dismiss</button>
                           </>
                         )}
@@ -4883,7 +5020,54 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
           <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={approvePurchasesBulk}>Approve Selected ({selectedPurchases.size})</button>
         ) : undefined}
       >
-        {viewingPurchase && (
+        {viewingPurchase && editingPurchaseId === viewingPurchase.draft_id && (
+          <div className="card" style={{ margin: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <strong>Correcting Purchase/Expense — {fmtDate(viewingPurchase.purchase_date)}</strong>
+              <button type="button" className="btn btn-sm" onClick={cancelEditPurchase}>Cancel</button>
+            </div>
+            <div className="form-grid" style={{ marginTop: 12 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="acs-edit-p-date">Date</label>
+                <input id="acs-edit-p-date" type="date" value={editPurchaseDate} onChange={(e) => setEditPurchaseDate(e.target.value)} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="acs-edit-p-vendor">Vendor</label>
+                <input id="acs-edit-p-vendor" value={editPurchaseVendor} onChange={(e) => setEditPurchaseVendor(e.target.value)} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="acs-edit-p-account">Account</label>
+                <select id="acs-edit-p-account" value={editPurchaseAccount} onChange={(e) => setEditPurchaseAccount(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {accounts.map((a) => <option key={a.account_id} value={a.account_name}>{a.account_name}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="acs-edit-p-amount">Amount</label>
+                <input id="acs-edit-p-amount" type="number" step="0.01" min="0" inputMode="decimal" value={editPurchaseAmount} onChange={(e) => setEditPurchaseAmount(e.target.value)} />
+              </div>
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label htmlFor="acs-edit-p-desc">Description</label>
+              <input id="acs-edit-p-desc" value={editPurchaseDescription} onChange={(e) => setEditPurchaseDescription(e.target.value)} />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0", fontSize: 13 }}>
+              <input type="checkbox" checked={editPurchasePaidByCard} onChange={(e) => setEditPurchasePaidByCard(e.target.checked)} />
+              Paid by credit card (not cash or debit card)
+            </label>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label htmlFor="acs-edit-p-notes">Notes</label>
+              <input id="acs-edit-p-notes" value={editPurchaseNotes} onChange={(e) => setEditPurchaseNotes(e.target.value)} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn btn-sm btn-primary" disabled={savingPurchaseEdit} onClick={() => saveEditPurchase(viewingPurchase.draft_id)}>
+                {savingPurchaseEdit ? "Saving…" : "Save Correction"}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={cancelEditPurchase}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {viewingPurchase && editingPurchaseId !== viewingPurchase.draft_id && (
           <div className="card" style={{ margin: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div>
@@ -4910,6 +5094,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             {statusFilter === "Pending" && (
               <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                 <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(viewingPurchase.draft_id)}>Approve</button>
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => startEditPurchase(viewingPurchase)}>Edit</button>
                 <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(viewingPurchase.draft_id)}>Dismiss</button>
               </div>
             )}
@@ -4953,6 +5138,7 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
                         {statusFilter === "Pending" && (
                           <>
                             <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(d.draft_id)}>Approve</button>
+                            <button type="button" className="btn btn-sm" disabled={busy} onClick={() => startEditPurchase(d)}>Edit</button>
                             <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={() => dismissPurchase(d.draft_id)}>Dismiss</button>
                           </>
                         )}
