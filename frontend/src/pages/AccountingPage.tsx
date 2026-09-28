@@ -4371,6 +4371,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
   // two decimals — so searching an amount works the same as searching text,
   // without needing a separate "amount" field to fill in.
   const jeAmountQ = search.replace(/[^0-9.]/g, "");
+  // Same idea for dates: strip everything but digits from both the query and
+  // the entry's date, so "12/31/2025", "12-31-2025", or just "1231" all match
+  // regardless of which separators (if any) were typed.
+  const jeDateDigits = search.replace(/[^0-9]/g, "");
   const visibleEntries = entries
     .filter((e) => !yearFilter || String(e.entryDate || "").slice(0, 4) === yearFilter)
     .filter((e) => {
@@ -4381,7 +4385,10 @@ function ManualJeTab({ clientId }: { clientId: string }) {
         const debit = Number(l.debit) || 0, credit = Number(l.credit) || 0;
         return (debit && debit.toFixed(2).includes(jeAmountQ)) || (credit && credit.toFixed(2).includes(jeAmountQ));
       });
-      return textMatch || amountMatch;
+      const formattedDate = fmtDate(e.entryDate) || "";
+      const dateMatch = formattedDate.toLowerCase().includes(jeSearchQ)
+        || (jeDateDigits.length >= 2 && formattedDate.replace(/[^0-9]/g, "").includes(jeDateDigits));
+      return textMatch || amountMatch || dateMatch;
     });
 
   return (
@@ -4461,7 +4468,7 @@ function ManualJeTab({ clientId }: { clientId: string }) {
               <option value="">All years</option>
               {jeYears.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo, amount…" style={{ maxWidth: 240 }} />
+            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description, ref, memo, amount, date…" style={{ maxWidth: 260 }} />
           </div>
         }
       >
