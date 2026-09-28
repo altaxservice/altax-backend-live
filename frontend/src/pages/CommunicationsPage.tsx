@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import type { Communication } from "../api/types2";
 import type { Client } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { exportCsv } from "../components/FilterBar";
@@ -213,7 +214,9 @@ function RunRemindersButton({ onDone }: { onDone: () => void }) {
 export function CommunicationsPage() {
   const { user } = useAuth();
   const { t, dir } = useLanguage();
+  const { clientId: selectedBusinessId } = useSelectedBusiness();
   const canManage = user?.role === "admin" || user?.role === "staff";
+  const activeClientId = user?.role === "client" ? (selectedBusinessId || user.clientId || "") : (user?.clientId || "");
   const roleHeader = user?.role === "employee"
     ? { title: t("communications.employee.title"), note: t("communications.employee.note") }
     : user?.role === "client"
@@ -231,7 +234,8 @@ export function CommunicationsPage() {
   const [activeTab, setActiveTab] = useState<"bulk" | "staff">("bulk");
 
   function load(): Promise<void> {
-    return api.get<{ communications: Communication[] }>("/communications")
+    const qs = user?.role === "client" && activeClientId ? `?clientId=${encodeURIComponent(activeClientId)}` : "";
+    return api.get<{ communications: Communication[] }>(`/communications${qs}`)
       .then((res) => setComms(res.communications))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load communications."));
   }
@@ -239,7 +243,8 @@ export function CommunicationsPage() {
   useEffect(() => {
     load();
     if (canManage) api.get<{ clients: Client[] }>("/clients").then((res) => setClients(res.clients)).catch(() => {});
-  }, [canManage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, activeClientId]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -321,7 +326,7 @@ export function CommunicationsPage() {
       {comms !== null && !canManage && user && (
         <SelfMessages
           role={user.role}
-          clientId={user.clientId || ""}
+          clientId={activeClientId}
           clientEmail={user.email}
           messages={comms}
           onSent={load}

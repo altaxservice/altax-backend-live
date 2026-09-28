@@ -4633,7 +4633,7 @@ interface ClientSalesDraft {
 interface ClientPurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
   account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: string;
-  submitted_by: string | null; submitted_at: string | null;
+  submitted_by: string | null; submitted_at: string | null; receipt_count?: number;
 }
 
 /**
@@ -4715,6 +4715,17 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
       load();
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not dismiss this submission.");
+    }
+  }
+
+  async function viewPurchaseReceipt(draftId: string) {
+    try {
+      const res = await api.get<{ uploads: { upload_id: string }[] }>(`/documents/uploads?purchaseDraftId=${draftId}`);
+      const latest = res.uploads[0];
+      if (!latest) { await notify("No receipt on file for this entry."); return; }
+      await viewFile(`/documents/uploads/${latest.upload_id}/download`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not open the receipt.");
     }
   }
 
@@ -4891,6 +4902,11 @@ function ClientSubmissionsTab({ clientId }: { clientId: string }) {
             </div>
             {viewingPurchase.description && <p style={{ marginTop: 10, fontSize: 13 }}><strong>What it was for:</strong> {viewingPurchase.description}</p>}
             {viewingPurchase.notes && <p style={{ marginTop: 4, fontSize: 13 }}><strong>Notes:</strong> {viewingPurchase.notes}</p>}
+            {!!viewingPurchase.receipt_count && (
+              <button type="button" className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => viewPurchaseReceipt(viewingPurchase.draft_id)}>
+                📎 View Receipt{viewingPurchase.receipt_count > 1 ? ` (${viewingPurchase.receipt_count})` : ""}
+              </button>
+            )}
             {statusFilter === "Pending" && (
               <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                 <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => approvePurchase(viewingPurchase.draft_id)}>Approve</button>

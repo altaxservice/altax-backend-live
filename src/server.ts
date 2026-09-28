@@ -9,6 +9,7 @@ import { applyPersistedJwtSecret } from "./common/jwtSecret";
 import { authRouter } from "./modules/auth/auth.routes";
 import { clientsRouter, runSwotFindingsSweep, runClientRiskFlagSweep, runClientMdSalesTaxDeadlineNotifications } from "./modules/clients/clients.routes";
 import { runComplianceDeadlineReminders } from "./common/complianceReminders";
+import { runSalesLoggingNudges } from "./common/salesLoggingNudges";
 import { ownershipTransferRouter } from "./modules/clients/ownershipTransfer.routes";
 import { noticesRouter } from "./modules/clients/notices.routes";
 import { taxReturnsRouter } from "./modules/clients/taxReturns.routes";
@@ -595,6 +596,14 @@ console.log("Client MD sales tax deadline notice scheduled for 6:27AM America/Ne
 cron.schedule("29 6 * * *", runScheduledJob("Client Compliance Deadline Reminders", () => runComplianceDeadlineReminders("System (Compliance Reminder Job)")), { timezone: "America/New_York" });
 // eslint-disable-next-line no-console
 console.log("Client compliance deadline reminders scheduled for 6:29AM America/New_York.");
+
+// "You haven't logged sales" client portal nudge — a real My Books value-add,
+// not a deadline reminder (see salesLoggingNudges.ts's own doc comment for
+// why this is a separate sweep, not an extension of the one above). Staggered
+// 6 minutes after the compliance sweep for the same "always current data" reason.
+cron.schedule("35 6 * * *", runScheduledJob("Client Sales Logging Nudge", () => runSalesLoggingNudges("System (Sales Logging Nudge Job)")), { timezone: "America/New_York" });
+// eslint-disable-next-line no-console
+console.log("Client sales logging nudges scheduled for 6:35AM America/New_York.");
 
 // EFTPS staff safety-net task — direct owner request, 2026-08-29: a real
 // lead-time reminder against EFTPS's hard "8PM ET, one calendar day before

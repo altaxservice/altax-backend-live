@@ -4,7 +4,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
-import { canAccessClient } from "../../common/assignment";
+import { canAccessClient, resolveActiveClientId } from "../../common/assignment";
 import { decryptTolerant } from "../../common/accountingHelpers";
 import { decryptClientPii, decryptValue, encryptValue } from "../../common/encryption";
 import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
@@ -501,21 +501,23 @@ async function notifyGovFormReviewDecision(filing: any, decision: "approved" | "
 // ---------------------------------------------------------------------------
 
 govFormsRouter.get("/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  if (req.user!.role !== "client" || !req.user!.clientId) return res.json({ filings: [] });
+  if (req.user!.role !== "client") return res.json({ filings: [] });
+  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+  if (!clientId) return res.json({ filings: [] });
   const rows = await query<any>(
     `SELECT filing_id, form_type, status, signed_at, submitted_via, submitted_at, created_at
        FROM altax.v3_gov_form_filings
       WHERE client_id = $1 AND status <> 'Draft'
       ORDER BY created_at DESC`,
-    [req.user!.clientId]
+    [clientId]
   );
   res.json({ filings: rows });
 }));
 
 govFormsRouter.get("/mine/:filingId/pdf", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  if (req.user!.role !== "client" || !req.user!.clientId) return res.status(404).json({ error: "Filing not found." });
+  if (req.user!.role !== "client") return res.status(404).json({ error: "Filing not found." });
   const filing = await queryOne<any>(`SELECT * FROM altax.v3_gov_form_filings WHERE filing_id = $1`, [req.params.filingId]);
-  if (!filing || filing.client_id !== req.user!.clientId || filing.status === "Draft") {
+  if (!filing || filing.status === "Draft" || !(await canAccessClient(req.user!, filing.client_id))) {
     return res.status(404).json({ error: "Filing not found." });
   }
 

@@ -318,11 +318,13 @@ export const translations: Record<string, Record<Lang, string>> = {
 
   // My Books (client-submitted daily sales / purchases, staged for review)
   "nav.myBooks": { en: "My Books", ar: "سجلاتي المالية" },
+  "nav.myBusinesses": { en: "My Businesses", ar: "منشآتي" },
   "books.title": { en: "My Books", ar: "سجلاتي المالية" },
   "books.intro": { en: "Log your daily sales and purchases here. Your accountant reviews and approves each entry before it becomes part of your official books.", ar: "سجّل مبيعاتك ومشترياتك اليومية هنا. يراجع محاسبك كل إدخال ويعتمده قبل أن يصبح جزءاً من سجلاتك الرسمية." },
   "books.tab.sales": { en: "Daily Sales", ar: "المبيعات اليومية" },
   "books.tab.purchases": { en: "Purchases & Expenses", ar: "المشتريات والمصاريف" },
   "books.tab.pl": { en: "My Income & Expenses", ar: "دخلي ومصاريفي" },
+  "books.business.switcher": { en: "Business", ar: "المنشأة" },
 
   "books.status.pending": { en: "Pending review", ar: "بانتظار المراجعة" },
   "books.status.approved": { en: "Approved", ar: "معتمد" },
@@ -349,6 +351,16 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.purchases.accountPlaceholder": { en: "Choose a category…", ar: "اختر فئة…" },
   "books.purchases.amountLabel": { en: "Amount", ar: "المبلغ" },
   "books.purchases.paidByCard": { en: "Paid by credit card (not cash or debit card)", ar: "تم الدفع ببطاقة ائتمان (وليس نقداً أو بطاقة خصم)" },
+  "books.purchases.receiptLabel": { en: "Receipt photo (optional)", ar: "صورة الإيصال (اختياري)" },
+  "books.purchases.receiptUploadFailed": { en: "Saved, but the receipt photo could not be uploaded.", ar: "تم الحفظ، لكن تعذر رفع صورة الإيصال." },
+  "books.purchases.receiptTooLarge": { en: "That photo is too large — please use one under 8MB.", ar: "هذه الصورة كبيرة جداً — يرجى استخدام صورة أصغر من 8 ميجابايت." },
+  "books.purchases.noReceipt": { en: "No receipt on file for this entry.", ar: "لا يوجد إيصال مسجل لهذا الإدخال." },
+  "books.purchases.templateLabel": { en: "Use a saved template", ar: "استخدم نموذجاً محفوظاً" },
+  "books.purchases.templatePlaceholder": { en: "Choose a template…", ar: "اختر نموذجاً…" },
+  "books.purchases.saveAsTemplate": { en: "Save as Template", ar: "حفظ كنموذج" },
+  "books.purchases.templateNamePrompt": { en: "Name this template (e.g. \"Monthly Rent\")", ar: "سمِّ هذا النموذج (مثال: \"إيجار شهري\")" },
+  "books.purchases.templateSaved": { en: "Template saved.", ar: "تم حفظ النموذج." },
+  "books.purchases.templatesTitle": { en: "Your Saved Templates", ar: "نماذجك المحفوظة" },
   "books.purchases.save": { en: "Save Purchase/Expense", ar: "حفظ المشتريات/المصروف" },
   "books.purchases.saving": { en: "Saving…", ar: "جارٍ الحفظ…" },
   "books.purchases.needAccount": { en: "Choose what this expense was for.", ar: "اختر سبب هذا المصروف." },
@@ -378,6 +390,18 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.pl.pendingNote": { en: "still pending review", ar: "ما زال بانتظار المراجعة" },
   "books.pl.fromLabel": { en: "From", ar: "من" },
   "books.pl.toLabel": { en: "To", ar: "إلى" },
+
+  "books.taxLiability.title": { en: "Sales Tax You Currently Owe", ar: "ضريبة المبيعات المستحقة حالياً" },
+  "books.taxLiability.posted": { en: "Reviewed & approved sales", ar: "المبيعات المراجعة والمعتمدة" },
+  "books.taxLiability.pending": { en: "Not yet reviewed", ar: "لم تتم مراجعتها بعد" },
+  "books.taxLiability.total": { en: "Estimated total", ar: "الإجمالي التقديري" },
+  "books.taxLiability.dueBy": { en: "due", ar: "الاستحقاق" },
+  "books.taxLiability.pendingNote": { en: "Includes entries your accountant hasn't reviewed yet — this estimate may change once they're approved.", ar: "يشمل إدخالات لم يراجعها محاسبك بعد — قد يتغير هذا التقدير بعد اعتمادها." },
+
+  "books.cross.title": { en: "My Businesses", ar: "منشآتي" },
+  "books.cross.intro": { en: "A side-by-side view of every business linked to your login. Select one to open its full books.", ar: "عرض جنباً إلى جنب لكل منشأة مرتبطة بحسابك. اختر واحدة لفتح سجلاتها الكاملة." },
+  "books.cross.viewBooks": { en: "View Books", ar: "عرض السجلات" },
+  "books.cross.netIncome": { en: "Net (this month)", ar: "الصافي (هذا الشهر)" },
 };
 
 export function translate(lang: Lang, key: string): string {

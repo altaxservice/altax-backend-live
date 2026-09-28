@@ -20,8 +20,15 @@ export interface AuthSuccess {
   email: string;
   name: string;
   userId: string;
+  /** The default/primary business for this session (from assigned_client_id) — one
+   *  of possibly several the login can access. Switching among linkedClients is a
+   *  per-request selection re-validated by canAccessClient, never re-issued as a
+   *  new token — see src/common/assignment.ts. */
   clientId: string;
   clientName: string;
+  /** Every business this client login is linked to (v3_user_clients), for the
+   *  portal's business switcher. Always contains clientId. Empty for non-client roles. */
+  linkedClients: { clientId: string; clientName: string }[];
   preferredLanguage: string;
   employeeId: string;
   employeeName: string;
@@ -185,6 +192,7 @@ export async function buildAuthSuccess(client: any, selectedUser: any, emailOver
   const role = normalizePortalRole(selectedUser.role || "staff") || "staff";
   let clientId = String(selectedUser.assigned_client_id || "").trim();
   let clientName = "";
+  let linkedClients: { clientId: string; clientName: string }[] = [];
   let preferredLanguage = "";
   let employeeId = String(selectedUser.assigned_employee_id || "").trim();
   let employeeName = "";
@@ -195,6 +203,7 @@ export async function buildAuthSuccess(client: any, selectedUser: any, emailOver
     if (!isActive(c.status)) return { error: "Assigned client company is inactive." };
     clientName = c.client_name || clientId;
     preferredLanguage = String(c.preferred_language || "Both").trim() || "Both";
+    linkedClients = await findLinkedClients(client, String(selectedUser.user_id || "").trim(), clientId, clientName);
   }
 
   if (role === "employee") {
@@ -216,6 +225,7 @@ export async function buildAuthSuccess(client: any, selectedUser: any, emailOver
     userId: String(selectedUser.user_id || "").trim(),
     clientId,
     clientName,
+    linkedClients,
     preferredLanguage,
     employeeId,
     employeeName,
@@ -230,6 +240,32 @@ async function findClientById(client: any, clientId: string) {
   if (!clientId) return null;
   const { rows } = await client.query(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   return rows[0] || null;
+}
+
+/**
+ * Every active business this login is linked to (sql/164_client_multi_business_links.sql),
+ * for the client portal's business switcher. Always includes the default business
+ * (defaultClientId/defaultClientName) even if, unexpectedly, it has no v3_user_clients
+ * row yet — a login must never end up unable to see its own default business.
+ */
+async function findLinkedClients(
+  client: any,
+  userId: string,
+  defaultClientId: string,
+  defaultClientName: string
+): Promise<{ clientId: string; clientName: string }[]> {
+  const { rows } = await client.query(
+    `SELECT uc.client_id, c.client_name FROM altax.v3_user_clients uc
+       JOIN altax.v3_clients c ON c.client_id = uc.client_id
+      WHERE uc.user_id = $1 AND (c.status IS NULL OR lower(c.status) NOT IN ('inactive', 'archived'))
+      ORDER BY c.client_name ASC`,
+    [userId]
+  );
+  const linked = rows.map((r: any) => ({ clientId: String(r.client_id), clientName: String(r.client_name || r.client_id) }));
+  if (defaultClientId && !linked.some((l: { clientId: string }) => l.clientId === defaultClientId)) {
+    linked.unshift({ clientId: defaultClientId, clientName: defaultClientName || defaultClientId });
+  }
+  return linked;
 }
 
 async function findEmployeeById(client: any, employeeId: string) {

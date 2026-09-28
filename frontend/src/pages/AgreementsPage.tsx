@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, viewFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
@@ -38,7 +39,8 @@ function fmtMoney(v: unknown): string {
 export function AgreementsPage() {
   const { user } = useAuth();
   const toast = useToast();
-  const clientId = user?.clientId || "";
+  const { clientId: businessId } = useSelectedBusiness();
+  const clientId = businessId || user?.clientId || "";
   const [contracts, setContracts] = useState<PortalContract[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

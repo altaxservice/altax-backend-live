@@ -4,7 +4,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
-import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
+import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText, resolveActiveClientId } from "../../common/assignment";
 import { sendChannel, bodyToDirectionalHtml, type SendAttachment } from "../../common/sendChannel";
 import { parseEmailList } from "../../common/notifications";
 import { getFirmProfile } from "../../common/firmProfile";
@@ -324,7 +324,9 @@ communicationsRouter.get("/", requireAuth, asyncHandler(async (req: AuthedReques
   }
 
   if (role === "client") {
-    const rows = await query<any>(`SELECT * FROM altax.v3_communications WHERE client_id = $1 ORDER BY sent_at DESC NULLS LAST`, [req.user!.clientId]);
+    const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+    if (!clientId) return res.json({ communications: [] });
+    const rows = await query<any>(`SELECT * FROM altax.v3_communications WHERE client_id = $1 ORDER BY sent_at DESC NULLS LAST`, [clientId]);
     return res.json({ communications: rows.filter((r) => isClientVisibleCommunication(r, req.user!.email)) });
   }
 

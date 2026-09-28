@@ -83,6 +83,7 @@ export const NAV_ITEMS: { to: string; label: string; navKey?: string; roles?: st
   { to: "/tax-payments", label: "Client Tax Payments", roles: ["admin", "staff"], group: "Money", icon: HandCoins, keywords: ["sales tax", "filings", "tax due"] },
   { to: "/my-business", label: "My Business", navKey: "nav.myBusiness", roles: ["client"], icon: Building2 },
   { to: "/my-books", label: "My Books", navKey: "nav.myBooks", roles: ["client"], icon: NotebookPen, keywords: ["sales", "purchases", "expenses", "p&l", "income"] },
+  { to: "/my-businesses", label: "My Businesses", navKey: "nav.myBusinesses", roles: ["client"], icon: Building2, keywords: ["switch business", "multiple businesses", "cross business", "all my businesses"] },
   { to: "/agreements", label: "Agreements", navKey: "nav.agreements", roles: ["client"], icon: FileSignature, keywords: ["contracts"] },
   { to: "/gov-filings", label: "Government Filings", navKey: "nav.govFilings", roles: ["client"], icon: Landmark, keywords: ["gov forms"] },
   { to: "/accounting", label: "Accounting", roles: ["admin", "staff"], group: "Money", icon: BookOpen, keywords: ["books", "bookkeeping", "gl", "journal entries", "sales input"] },
@@ -152,6 +153,7 @@ const TITLES: Record<string, string> = {
   "/guide": "Guide",
   "/my-business": "My Business",
   "/my-books": "My Books",
+  "/my-businesses": "My Businesses",
   "/agreements": "Agreements",
   "/gov-filings": "Government Filings",
 };
@@ -167,6 +169,7 @@ const TITLE_KEYS: Record<string, string> = {
   "/my-tax-forms": "nav.myTaxForms",
   "/my-business": "nav.myBusiness",
   "/my-books": "nav.myBooks",
+  "/my-businesses": "nav.myBusinesses",
   "/agreements": "nav.agreements",
   "/gov-filings": "nav.govFilings",
 };
@@ -222,7 +225,13 @@ export function Layout() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
   const sidebarRailActive = sidebarCollapsed && isDesktopWidth;
-  const visibleNav = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  // My Businesses only makes sense once a login actually has more than one
+  // linked business (sql/164_client_multi_business_links.sql) — hidden for
+  // every single-business client, which is still the vast majority of them.
+  const visibleNav = NAV_ITEMS.filter((item) =>
+    (!item.roles || (user && item.roles.includes(user.role))) &&
+    (item.to !== "/my-businesses" || (user?.linkedClients?.length || 0) > 1)
+  );
   // Per-group collapse — Firm alone runs 11 items, so letting an admin fold
   // away groups they don't touch daily shortens the list without removing
   // anything. A group the current page belongs to is force-expanded below

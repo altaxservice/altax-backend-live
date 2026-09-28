@@ -4,7 +4,7 @@ import { query, queryOne, withTransaction, type DbClient } from "../../config/db
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler, ValidationError } from "../../common/asyncHandler";
-import { canAccessClient, getUserAliases } from "../../common/assignment";
+import { canAccessClient, getUserAliases, resolveActiveClientId } from "../../common/assignment";
 import { resolvePaymentMethod, postInvoiceTotalGl, postInvoicePaymentGl } from "../../common/accountingHelpers";
 import { composeAddress } from "../../common/address";
 import { lookupSalesTaxRate } from "../../common/taxRates";
@@ -383,7 +383,9 @@ billingRouter.get("/invoices", requireAuth, asyncHandler(async (req: AuthedReque
     return res.json({ invoices: rows });
   }
   if (role === "client") {
-    const rows = await query(`SELECT * FROM altax.v3_invoices WHERE client_id = $1 ORDER BY invoice_date DESC NULLS LAST`, [req.user!.clientId]);
+    const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+    if (!clientId) return res.json({ invoices: [] });
+    const rows = await query(`SELECT * FROM altax.v3_invoices WHERE client_id = $1 ORDER BY invoice_date DESC NULLS LAST`, [clientId]);
     return res.json({ invoices: rows });
   }
   if (role === "employee") {
@@ -406,7 +408,7 @@ billingRouter.get("/invoices/:invoiceId", requireAuth, asyncHandler(async (req: 
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
 
   const role = req.user!.role;
-  const allowed = role === "client" ? invoice.client_id === req.user!.clientId : await canMutateInvoice(req.user!, invoice);
+  const allowed = role === "client" ? await canAccessClient(req.user!, invoice.client_id) : await canMutateInvoice(req.user!, invoice);
   if (!allowed) return res.status(403).json({ error: "You do not have access to this invoice." });
 
   const lineItems = await query(`SELECT * FROM altax.v3_invoice_line_items WHERE invoice_id = $1 ORDER BY line_no ASC`, [req.params.invoiceId]);
@@ -419,7 +421,7 @@ billingRouter.get("/invoices/:invoiceId/payments", requireAuth, asyncHandler(asy
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
 
   const role = req.user!.role;
-  const allowed = role === "client" ? invoice.client_id === req.user!.clientId : await canMutateInvoice(req.user!, invoice);
+  const allowed = role === "client" ? await canAccessClient(req.user!, invoice.client_id) : await canMutateInvoice(req.user!, invoice);
   if (!allowed) return res.status(403).json({ error: "You do not have access to this invoice." });
 
   const rows = await query<any>(`SELECT * FROM altax.v3_payments WHERE invoice_id = $1 ORDER BY payment_date DESC NULLS LAST`, [req.params.invoiceId]);
@@ -475,7 +477,7 @@ billingRouter.get("/invoices/:invoiceId/print", requireAuth, asyncHandler(async 
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
 
   const role = req.user!.role;
-  const allowed = role === "client" ? invoice.client_id === req.user!.clientId : await canMutateInvoice(req.user!, invoice);
+  const allowed = role === "client" ? await canAccessClient(req.user!, invoice.client_id) : await canMutateInvoice(req.user!, invoice);
   if (!allowed) return res.status(403).json({ error: "You do not have access to this invoice." });
 
   const built = await buildInvoicePdf(req.params.invoiceId);
@@ -845,8 +847,7 @@ billingRouter.get("/clients/:clientId/statement", requireAuth, asyncHandler(asyn
   // clientId match, which would otherwise hand an employee their employer's
   // full Statement of Account. Deny explicitly rather than falling through.
   if (role === "employee") return res.status(403).json({ error: "You do not have access to this client." });
-  const allowed = role === "client" ? clientId === req.user!.clientId : await canAccessClient(req.user!, clientId);
-  if (!allowed) return res.status(403).json({ error: "You do not have access to this client." });
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
 
   const client = await queryOne<any>(`SELECT * FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
   if (!client) return res.status(404).json({ error: "Client not found." });
@@ -1902,13 +1903,15 @@ billingRouter.get("/client-tax-payments", requireAuth, asyncHandler(async (req: 
   if (role === "employee") return res.json({ rows: [] });
 
   if (role === "client") {
+    const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+    if (!clientId) return res.json({ rows: [] });
     const rows = await query(
       `SELECT t.task_id, t.task_name, t.client_id, t.client_name, t.agency_due_date, t.paid_date,
               t.payment_amount, t.confirmation_number, t.status
          FROM altax.v3_tasks t
         WHERE t.payment_required = true AND t.client_id = $1
         ORDER BY t.agency_due_date ASC NULLS LAST`,
-      [req.user!.clientId]
+      [clientId]
     );
     return res.json({ rows });
   }

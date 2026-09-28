@@ -5,7 +5,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
-import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText } from "../../common/assignment";
+import { canAccessClient, getUserAliases, isAssignedToUser, normalizeText, resolveActiveClientId } from "../../common/assignment";
 import { writeUploadBlob, readUploadBlob } from "../../common/uploadBlobStorage";
 import { rateLimit } from "../../common/rateLimit";
 import { scanFileForMalware } from "../../common/malwareScan";
@@ -361,7 +361,9 @@ documentsRouter.get("/requests", requireAuth, asyncHandler(async (req: AuthedReq
   }
 
   if (role === "client") {
-    const rows = await query(`SELECT r.*, ${REQUEST_FILE_COLUMNS} FROM altax.v3_document_requests r WHERE r.client_id = $1 ORDER BY r.request_date DESC NULLS LAST`, [req.user!.clientId]);
+    const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+    if (!clientId) return res.json({ requests: [] });
+    const rows = await query(`SELECT r.*, ${REQUEST_FILE_COLUMNS} FROM altax.v3_document_requests r WHERE r.client_id = $1 ORDER BY r.request_date DESC NULLS LAST`, [clientId]);
     return res.json({ requests: rows.filter(isClientVisibleRequest) });
   }
 
@@ -593,9 +595,12 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
   const notifyBcc = parseEmailList(body.bcc);
   const requestId = String(body.requestId || "").trim();
   const taskId = String(body.taskId || "").trim();
-  const directEmployeeId = !requestId && !taskId ? String(body.employeeId || "").trim() : "";
-  const directClientId = !requestId && !taskId && !directEmployeeId ? String(body.clientId || "").trim() : "";
-  if (!requestId && !taskId && !directClientId && !directEmployeeId) return res.status(400).json({ error: "requestId, taskId, clientId, or employeeId is required." });
+  const purchaseDraftId = !requestId && !taskId ? String(body.purchaseDraftId || "").trim() : "";
+  const directEmployeeId = !requestId && !taskId && !purchaseDraftId ? String(body.employeeId || "").trim() : "";
+  const directClientId = !requestId && !taskId && !purchaseDraftId && !directEmployeeId ? String(body.clientId || "").trim() : "";
+  if (!requestId && !taskId && !purchaseDraftId && !directClientId && !directEmployeeId) {
+    return res.status(400).json({ error: "requestId, taskId, purchaseDraftId, clientId, or employeeId is required." });
+  }
 
   const resolved = resolveUploadFile(body);
   if ("error" in resolved) return res.status(400).json({ error: resolved.error });
@@ -714,6 +719,28 @@ documentsRouter.post("/uploads", requireAuth, asyncHandler(async (req: AuthedReq
         recipientPhone: employee.phone || null, smsAllowed: Boolean(employee.sms_allowed),
       });
     }
+  } else if (purchaseDraftId) {
+    // Receipt photo attached to a client-portal purchase/expense entry
+    // (v3_client_purchase_drafts) — the one upload target a client themselves
+    // can use directly (every other branch above is staff-only), since it's
+    // their own submission. canAccessClient covers a multi-business login
+    // uploading against any of its linked businesses, not just the default one.
+    const draft = await queryOne<any>(`SELECT draft_id, client_id, client_name FROM altax.v3_client_purchase_drafts WHERE draft_id = $1`, [purchaseDraftId]);
+    if (!draft) return res.status(404).json({ error: `Purchase entry not found: ${purchaseDraftId}` });
+    if (!(await canAccessClient(req.user!, draft.client_id))) {
+      return res.status(403).json({ error: "You do not have access to this purchase entry." });
+    }
+
+    await query(
+      `INSERT INTO altax.v3_document_uploads
+         (upload_id, request_id, task_id, purchase_draft_id, client_id, client_name, file_name, file_url, file_data, mime_type, file_size,
+          uploaded_by, uploaded_at, direction, status, notes, hidden_from_client, source_system, source_record_id, download_token, blob_backend)
+       VALUES ($1,NULL,NULL,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'Client to Firm','Uploaded',$11,false,'Node Web App',$1,$12,$13)`,
+      [
+        uploadId, purchaseDraftId, draft.client_id, draft.client_name, fileName, fileUrl, fileData, mimeType, fileSize,
+        req.user!.email, String(body.notes || "").trim() || null, downloadToken, blobBackend,
+      ]
+    );
   } else {
     // Direct client upload — no request or task behind it (e.g. the Clients page's
     // "Upload Document" row action, which just needs to drop a file into a client's
@@ -818,7 +845,7 @@ documentsRouter.get("/uploads/:uploadId/download", downloadLimiter, asyncHandler
     if (!owns && authedUser.role === "employee") {
       owns = Boolean(authedUser.employeeId) && row.employee_id === authedUser.employeeId;
     } else if (!owns && authedUser.role === "client") {
-      owns = !row.employee_id && row.client_id === authedUser.clientId;
+      owns = !row.employee_id && !!row.client_id && (await canAccessClient(authedUser as any, row.client_id));
     } else if (!owns && row.client_id) {
       owns = await canAccessClient(authedUser as any, row.client_id);
     }
@@ -890,7 +917,7 @@ const UPLOAD_EMPLOYEE_NAME_JOIN = `LEFT JOIN altax.v3_employees emp ON emp.emplo
 // the file's entire base64 body — into every single row on every page load, for every
 // document ever uploaded. Downloads re-select file_data on their own, by upload_id
 // (see GET /uploads/:uploadId/download), so list views never need it.
-const UPLOAD_LIST_COLUMNS = `upload_id, request_id, task_id, client_id, client_name, file_name, file_url,
+const UPLOAD_LIST_COLUMNS = `upload_id, request_id, task_id, purchase_draft_id, client_id, client_name, file_name, file_url,
   mime_type, file_size, uploaded_by, uploaded_at, direction, status, notes, hidden_from_client,
   hidden_from_staff, employee_id, download_token, source_system, source_record_id, created_at, updated_at`;
 const UPLOAD_LIST_COLUMNS_ALIASED = UPLOAD_LIST_COLUMNS.split(",").map((c) => `u.${c.trim()}`).join(", ");
@@ -904,7 +931,10 @@ const UPLOAD_LIST_COLUMNS_ALIASED = UPLOAD_LIST_COLUMNS.split(",").map((c) => `u
 documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const role = req.user!.role;
   const requestIdFilter = String(req.query.requestId || "").trim();
-  const scoped = (rows: any[]) => (requestIdFilter ? rows.filter((u) => u.request_id === requestIdFilter) : rows);
+  const purchaseDraftIdFilter = String(req.query.purchaseDraftId || "").trim();
+  const scoped = (rows: any[]) => rows
+    .filter((u) => !requestIdFilter || u.request_id === requestIdFilter)
+    .filter((u) => !purchaseDraftIdFilter || u.purchase_draft_id === purchaseDraftIdFilter);
 
   if (role === "admin") {
     const rows = await query(`SELECT ${UPLOAD_LIST_COLUMNS_ALIASED}, emp.employee_name AS employee_name FROM altax.v3_document_uploads u ${UPLOAD_EMPLOYEE_NAME_JOIN} ORDER BY u.uploaded_at DESC NULLS LAST`);
@@ -912,9 +942,11 @@ documentsRouter.get("/uploads", requireAuth, asyncHandler(async (req: AuthedRequ
   }
 
   if (role === "client") {
-    const requests = await query<any>(`SELECT request_id, status, direction, request_type, source_system FROM altax.v3_document_requests WHERE client_id = $1`, [req.user!.clientId]);
+    const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+    if (!clientId) return res.json({ uploads: [] });
+    const requests = await query<any>(`SELECT request_id, status, direction, request_type, source_system FROM altax.v3_document_requests WHERE client_id = $1`, [clientId]);
     const allowedRequestIds = new Set(requests.filter(isClientVisibleRequest).map((r) => String(r.request_id)));
-    const rows = await query<any>(`SELECT ${UPLOAD_LIST_COLUMNS} FROM altax.v3_document_uploads WHERE client_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [req.user!.clientId]);
+    const rows = await query<any>(`SELECT ${UPLOAD_LIST_COLUMNS} FROM altax.v3_document_uploads WHERE client_id = $1 ORDER BY uploaded_at DESC NULLS LAST`, [clientId]);
     return res.json({ uploads: scoped(rows.filter((u) => isClientVisibleUpload(u, allowedRequestIds))) });
   }
 
@@ -965,7 +997,7 @@ documentsRouter.post("/uploads/:uploadId/remove", requireAuth, asyncHandler(asyn
       return res.status(403).json({ error: "You do not have access to this file." });
     }
   } else if (role === "client") {
-    if (old.client_id !== req.user!.clientId || old.employee_id) return res.status(403).json({ error: "You do not have access to this file." });
+    if (old.employee_id || !(await canAccessClient(req.user!, old.client_id))) return res.status(403).json({ error: "You do not have access to this file." });
     if (!isOwnUpload) {
       await query(`UPDATE altax.v3_document_uploads SET hidden_from_client = true, updated_at = now() WHERE upload_id = $1`, [uploadId]);
       await logAudit("Documents", "CLIENT_HIDE_FILE", uploadId, "HiddenFromClient", "", "Yes", "Client removed a firm-shared file from their portal view.", req.user!.email);
@@ -1059,7 +1091,7 @@ documentsRouter.post("/uploads/hide", requireAuth, requireRole("client"), asyncH
 
   let hidden = 0;
   for (const row of rows) {
-    if (row.client_id !== req.user!.clientId) continue;
+    if (!(await canAccessClient(req.user!, row.client_id))) continue;
     if (["removed", "deleted", "archived"].includes(normalizeText(row.status))) continue;
     await query(`UPDATE altax.v3_document_uploads SET hidden_from_client = true, updated_at = now() WHERE upload_id = $1`, [row.upload_id]);
     await logAudit("Documents", "CLIENT_HIDE_FILE", row.upload_id, "HiddenFromClient", "", "Yes",

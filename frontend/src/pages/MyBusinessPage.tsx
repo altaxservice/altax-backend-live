@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 
 interface BusinessIntake {
   typicalCustomer: string; serviceArea: string;
@@ -55,7 +56,8 @@ const INTAKE_CATEGORIES: { title: string; questions: { key: keyof BusinessIntake
 export function MyBusinessPage() {
   const { user } = useAuth();
   const toast = useToast();
-  const clientId = user?.clientId || "";
+  const { clientId: businessId } = useSelectedBusiness();
+  const clientId = businessId || user?.clientId || "";
   const [intake, setIntake] = useState<BusinessIntake | null>(null);
   const [form, setForm] = useState<BusinessIntake>(EMPTY_INTAKE);
   const [error, setError] = useState<string | null>(null);

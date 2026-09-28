@@ -12,7 +12,7 @@ import { provisionEmployeePortalUser } from "../../common/portalUserProvisioning
 import { composeAddress } from "../../common/address";
 import { monthEndRouter } from "./monthEndChecklist";
 import { fixedAssetsRouter } from "./fixedAssets.routes";
-import { generateClientBooksPlPdf } from "./reportsPdf";
+import { generateClientBooksPlPdf, type ReportClientInfo } from "./reportsPdf";
 
 /**
  * Accounting module — Phase 7. Tax Rates and Chart of Accounts are pure reference
@@ -2389,7 +2389,9 @@ accountingRouter.get("/client-books/purchase-drafts", requireAuth, asyncHandler(
   const client = await requireClientBooksAccess(req, res, clientId);
   if (!client) return;
   const rows = await query<any>(
-    `SELECT * FROM altax.v3_client_purchase_drafts WHERE client_id = $1 ORDER BY purchase_date DESC, submitted_at DESC LIMIT 200`,
+    `SELECT d.*,
+       (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.purchase_draft_id = d.draft_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS receipt_count
+     FROM altax.v3_client_purchase_drafts d WHERE d.client_id = $1 ORDER BY d.purchase_date DESC, d.submitted_at DESC LIMIT 200`,
     [clientId]
   );
   res.json({ drafts: rows });
@@ -2430,6 +2432,54 @@ accountingRouter.post("/client-books/purchase-drafts/:draftId/delete", requireAu
   if (draft.status !== "Pending") return res.status(400).json({ error: "Only a pending submission can be deleted." });
   const deleted = await query(`DELETE FROM altax.v3_client_purchase_drafts WHERE draft_id = $1 AND status='Pending' RETURNING draft_id`, [draftId]);
   if (deleted.length === 0) return res.status(409).json({ error: "This submission was just reviewed and can no longer be deleted." });
+  res.json({ ok: true });
+}));
+
+/**
+ * Recurring purchase templates — a client saves a purchase they enter every
+ * month (rent, insurance, a loan payment) as a reusable template instead of
+ * retyping it. Client-triggered only, no cron: "apply" just returns the
+ * saved fields for the frontend to pre-fill the real purchase-draft form,
+ * which the client still reviews/edits and submits through the existing,
+ * unchanged POST /client-books/purchase-drafts.
+ */
+accountingRouter.post("/client-books/purchase-templates", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const name = String(body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Give this template a name." });
+  const account = String(body.account || "").trim();
+  if (!account) return res.status(400).json({ error: "Choose what this expense is for." });
+  if (!(await isValidPurchaseAccount(account))) return res.status(400).json({ error: "Choose a category from the list." });
+  const defaultAmount = body.defaultAmount !== undefined && body.defaultAmount !== "" ? money(body.defaultAmount) : null;
+
+  const templateId = `CPT-${idSuffix()}`;
+  await query(
+    `INSERT INTO altax.v3_client_purchase_templates (template_id, client_id, name, account, vendor_name, default_amount, paid_by_card, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [templateId, clientId, name, account, String(body.vendorName || "").trim() || null, defaultAmount,
+      Boolean(body.paidByCard), String(body.notes || "").trim() || null, req.user!.email]
+  );
+  res.status(201).json({ ok: true, templateId });
+}));
+
+accountingRouter.get("/client-books/purchase-templates", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  const rows = await query<any>(`SELECT * FROM altax.v3_client_purchase_templates WHERE client_id = $1 ORDER BY name ASC`, [clientId]);
+  res.json({ templates: rows });
+}));
+
+accountingRouter.post("/client-books/purchase-templates/:templateId/delete", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { templateId } = req.params;
+  const template = await queryOne<any>(`SELECT * FROM altax.v3_client_purchase_templates WHERE template_id = $1`, [templateId]);
+  if (!template) return res.status(404).json({ error: "Not found." });
+  const client = await requireClientBooksAccess(req, res, template.client_id);
+  if (!client) return;
+  await query(`DELETE FROM altax.v3_client_purchase_templates WHERE template_id = $1`, [templateId]);
   res.json({ ok: true });
 }));
 
@@ -2502,6 +2552,103 @@ accountingRouter.get("/client-books/pl-pdf", requireAuth, asyncHandler(async (re
 }));
 
 /**
+ * "What do I currently owe in sales tax?" — a live estimate for the client
+ * portal, composed from two sources rather than one new computation: the
+ * already-approved total for the current filing period (computeMdFilingForReport,
+ * reading real posted v3_sales_input, the exact same math the firm's own MD
+ * filing tools use) plus the client's still-pending v3_client_sales_drafts for
+ * that same period (summed via the same computeCategoryLinesTax rate lookup
+ * previewSalesDraftTax already uses for the live entry-form preview). The
+ * pending half is clearly flagged as an estimate — staff hasn't reviewed it
+ * yet, so it could still change on approval. MD-only for now, matching every
+ * other MD-specific tool in this app; this firm has no other state's sales tax
+ * obligation to track today.
+ */
+accountingRouter.get("/client-books/sales-tax-liability", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const clientId = String(req.query.clientId || "").trim();
+  const client = await requireClientBooksAccess(req, res, clientId);
+  if (!client) return;
+  if (client.state !== "MD") return res.json({ available: false });
+
+  const fullClient = decryptClientPii(await queryOne<any>(
+    `SELECT client_id, client_name, ein, address, state, sales_tax_frequency FROM altax.v3_clients WHERE client_id = $1`, [clientId]
+  ));
+  const reportClient: ReportClientInfo = {
+    clientId: fullClient.client_id, clientName: fullClient.client_name, ein: fullClient.ein,
+    address: fullClient.address, state: fullClient.state, salesTaxFrequency: fullClient.sales_tax_frequency,
+  };
+
+  const { computeMdFilingForReport, defaultFirmSummaryRange } = await import("../reports/reports.routes");
+  const { from, to } = defaultFirmSummaryRange();
+  const mdFiling = await computeMdFilingForReport(reportClient, from, to);
+  const current = mdFiling && mdFiling.periods.length > 0 ? mdFiling.periods[mdFiling.periods.length - 1] : null;
+  if (!current) return res.json({ available: false });
+
+  const pendingRows = await query<any>(
+    `SELECT category_lines FROM altax.v3_client_sales_drafts
+      WHERE client_id = $1 AND status = 'Pending' AND sale_date >= $2::date AND sale_date <= $3::date`,
+    [clientId, current.start, current.end]
+  );
+  const pendingPreviews = await Promise.all(pendingRows.map((r) => previewSalesDraftTax(clientId, client.state, r.category_lines || [])));
+  const pendingTax = money(pendingPreviews.reduce((s, p) => s + p.totalTax, 0));
+  const postedTax = money(current.taxDue);
+
+  res.json({
+    available: true,
+    periodStart: current.start, periodEnd: current.end, dueDate: current.dueDate,
+    postedTax, pendingTax, totalEstimated: money(postedTax + pendingTax),
+    pendingIsEstimate: pendingTax > 0,
+  });
+}));
+
+/**
+ * Cross-business dashboard — for a client login linked to more than one
+ * business (sql/164_client_multi_business_links.sql), a side-by-side P&L
+ * summary across all of them. No new computation: loops the same
+ * computeClientBooksPl() each business's own My Books view already uses, so
+ * the numbers here can never drift from what's shown after switching into
+ * any one business. Client-role only — this is a client-portal feature, not
+ * something staff view this way (they already have per-client Accounting).
+ */
+accountingRouter.get("/client-books/cross-business-pl", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const from = String(req.query.from || "").trim();
+  const to = String(req.query.to || "").trim();
+  const linked = await query<{ client_id: string; client_name: string }>(
+    `SELECT uc.client_id, c.client_name FROM altax.v3_user_clients uc
+       JOIN altax.v3_clients c ON c.client_id = uc.client_id
+      WHERE uc.user_id = $1 AND (c.status IS NULL OR lower(c.status) NOT IN ('inactive', 'archived'))
+      ORDER BY c.client_name ASC`,
+    [req.user!.sub]
+  );
+
+  // Trailing 6 calendar months' income/expense, for the cash-flow trend line
+  // on each business's card — same computeClientBooksPl(), just called once
+  // per month instead of once for the whole range, no new aggregation logic.
+  const now = new Date();
+  const months: { label: string; from: string; to: string }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    months.push({
+      label: start.toLocaleDateString("en-US", { month: "short" }),
+      from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10),
+    });
+  }
+
+  const businesses = await Promise.all(linked.map(async (l) => {
+    const [headline, trend] = await Promise.all([
+      computeClientBooksPl(l.client_id, from, to),
+      Promise.all(months.map(async (m) => {
+        const pl = await computeClientBooksPl(l.client_id, m.from, m.to);
+        return { label: m.label, income: pl.totalIncome, expenses: pl.totalExpenses };
+      })),
+    ]);
+    return { clientId: l.client_id, clientName: l.client_name, ...headline, trend };
+  }));
+  res.json({ businesses });
+}));
+
+/**
  * Staff review queue — everything a client submitted for one client,
  * defaulting to Pending. `anomaly` flags a sales draft whose gross_sales is
  * more than 2x or under 40% of the plain average of this client's own
@@ -2524,7 +2671,9 @@ accountingRouter.get("/client-books/:clientId/submissions", requireAuth, require
     [clientId, status]
   );
   const purchaseDrafts = await query<any>(
-    `SELECT * FROM altax.v3_client_purchase_drafts WHERE client_id = $1 AND status = $2 ORDER BY purchase_date DESC`,
+    `SELECT d.*,
+       (SELECT COUNT(*) FROM altax.v3_document_uploads u WHERE u.purchase_draft_id = d.draft_id AND lower(u.status) NOT IN ('removed','replaced'))::int AS receipt_count
+     FROM altax.v3_client_purchase_drafts d WHERE d.client_id = $1 AND d.status = $2 ORDER BY d.purchase_date DESC`,
     [clientId, status]
   );
 

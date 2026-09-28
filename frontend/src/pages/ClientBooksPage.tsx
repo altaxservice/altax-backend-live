@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, viewFile, downloadFile, printFile } from "../api/client";
 import type { CoaAccount } from "../api/types2";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { useLanguage, Num } from "../context/LanguageContext";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
-import { useConfirm } from "../components/ConfirmProvider";
+import { useConfirm, usePrompt } from "../components/ConfirmProvider";
+import { fileToBase64, MAX_UPLOAD_BYTES } from "../utils/file";
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -34,6 +36,11 @@ interface SalesDraft {
 interface PurchaseDraft {
   draft_id: string; purchase_date: string; vendor_name: string | null; description: string | null;
   account: string; amount: number | string; paid_by_card: boolean; notes: string | null; status: DraftStatus;
+  receipt_count?: number;
+}
+interface PurchaseTemplate {
+  template_id: string; name: string; account: string; vendor_name: string | null;
+  default_amount: number | string | null; paid_by_card: boolean; notes: string | null;
 }
 
 const TABS = ["sales", "purchases", "pl"] as const;
@@ -51,7 +58,8 @@ function StatusPill({ status, t }: { status: DraftStatus; t: (k: string) => stri
 export function ClientBooksPage() {
   const { user } = useAuth();
   const { t, dir } = useLanguage();
-  const clientId = user?.clientId || "";
+  const { clientId: businessId, linkedClients, setSelectedBusiness } = useSelectedBusiness();
+  const clientId = businessId || user?.clientId || "";
   const [tab, setTab] = useState<Tab>("sales");
   const [categories, setCategories] = useState<SalesCategory[]>([]);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
@@ -75,6 +83,23 @@ export function ClientBooksPage() {
   return (
     <div dir={dir}>
       <p className="muted" style={{ margin: "0 0 20px", maxWidth: 760 }}>{t("books.intro")}</p>
+      {linkedClients.length > 1 && (
+        <div className="field" style={{ maxWidth: 320, marginBottom: 20 }}>
+          <label htmlFor="cb-business-switcher">{t("books.business.switcher")}</label>
+          <select
+            id="cb-business-switcher"
+            value={clientId}
+            onChange={(e) => {
+              const next = linkedClients.find((l) => l.clientId === e.target.value);
+              setSelectedBusiness(e.target.value, next?.clientName || null);
+            }}
+          >
+            {linkedClients.map((l) => (
+              <option key={l.clientId} value={l.clientId}>{l.clientName}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--line)", marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((tb) => (
           <button
@@ -288,6 +313,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
   const { t } = useLanguage();
   const toast = useToast();
   const confirmDialog = useConfirm();
+  const promptFor = usePrompt();
   const [purchaseDate, setPurchaseDate] = useState(todayStr());
   const [vendorName, setVendorName] = useState("");
   const [description, setDescription] = useState("");
@@ -295,12 +321,15 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
   const [amount, setAmount] = useState("");
   const [paidByCard, setPaidByCard] = useState(false);
   const [notes, setNotes] = useState("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<PurchaseDraft[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftsLoading, setDraftsLoading] = useState(true);
   const [draftsError, setDraftsError] = useState(false);
+  const [templates, setTemplates] = useState<PurchaseTemplate[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   function loadDrafts() {
     if (!clientId) return;
@@ -313,6 +342,53 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
   }
   useEffect(loadDrafts, [clientId]);
 
+  function loadTemplates() {
+    if (!clientId) return;
+    api.get<{ templates: PurchaseTemplate[] }>(`/accounting/client-books/purchase-templates?clientId=${clientId}`)
+      .then((r) => setTemplates(r.templates))
+      .catch(() => {});
+  }
+  useEffect(loadTemplates, [clientId]);
+
+  function applyTemplate(templateId: string) {
+    const tpl = templates.find((t) => t.template_id === templateId);
+    if (!tpl) return;
+    setAccount(tpl.account);
+    setVendorName(tpl.vendor_name || "");
+    setAmount(tpl.default_amount != null ? String(tpl.default_amount) : "");
+    setPaidByCard(tpl.paid_by_card);
+    setNotes(tpl.notes || "");
+  }
+
+  async function handleSaveTemplate() {
+    if (!account) { toast(t("books.purchases.needAccount")); return; }
+    const name = await promptFor({ message: t("books.purchases.templateNamePrompt"), defaultValue: vendorName || account });
+    if (!name || !name.trim()) return;
+    setSavingTemplate(true);
+    try {
+      await api.post("/accounting/client-books/purchase-templates", {
+        clientId, name: name.trim(), account, vendorName, defaultAmount: amount ? Number(amount) : undefined, paidByCard, notes,
+      });
+      toast(t("books.purchases.templateSaved"));
+      loadTemplates();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not save this template.");
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    const ok = await confirmDialog({ message: t("books.common.deleteConfirm"), danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/accounting/client-books/purchase-templates/${templateId}/delete`, {});
+      loadTemplates();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not delete this template.");
+    }
+  }
+
   function resetForm() {
     setPurchaseDate(todayStr());
     setVendorName("");
@@ -321,6 +397,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
     setAmount("");
     setPaidByCard(false);
     setNotes("");
+    setReceiptFile(null);
     setEditingId(null);
   }
 
@@ -343,8 +420,20 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
     setError(null);
     try {
       const payload = { clientId, purchaseDate, vendorName, description, account, amount: Number(amount), paidByCard, notes };
+      let draftId = editingId;
       if (editingId) await api.patch(`/accounting/client-books/purchase-drafts/${editingId}`, payload);
-      else await api.post("/accounting/client-books/purchase-drafts", payload);
+      else {
+        const created = await api.post<{ ok: boolean; draftId: string }>("/accounting/client-books/purchase-drafts", payload);
+        draftId = created.draftId;
+      }
+      if (receiptFile && draftId) {
+        try {
+          const fileData = await fileToBase64(receiptFile);
+          await api.post("/documents/uploads", { purchaseDraftId: draftId, fileData, fileName: receiptFile.name, mimeType: receiptFile.type });
+        } catch (err) {
+          toast(err instanceof ApiError ? err.message : t("books.purchases.receiptUploadFailed"));
+        }
+      }
       toast(t("books.common.saved"));
       resetForm();
       loadDrafts();
@@ -367,6 +456,17 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
     }
   }
 
+  async function viewReceipt(draftId: string) {
+    try {
+      const res = await api.get<{ uploads: { upload_id: string }[] }>(`/documents/uploads?purchaseDraftId=${draftId}`);
+      const latest = res.uploads[0];
+      if (!latest) { toast(t("books.purchases.noReceipt")); return; }
+      await viewFile(`/documents/uploads/${latest.upload_id}/download`);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Could not open the receipt.");
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
       <div className="command-panel">
@@ -376,6 +476,17 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
           <datalist id="cb-vendor-list">
             {vendors.map((v) => <option key={v} value={v} />)}
           </datalist>
+          {templates.length > 0 && (
+            <div className="field" style={{ maxWidth: 340, marginBottom: 14 }}>
+              <label htmlFor="cb-p-template">{t("books.purchases.templateLabel")}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <select id="cb-p-template" defaultValue="" onChange={(e) => { if (e.target.value) { applyTemplate(e.target.value); e.target.value = ""; } }}>
+                  <option value="">{t("books.purchases.templatePlaceholder")}</option>
+                  {templates.map((tpl) => <option key={tpl.template_id} value={tpl.template_id}>{tpl.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
           <div className="form-grid" style={{ marginBottom: 12 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="cb-p-date">{t("books.purchases.dateLabel")}</label>
@@ -405,14 +516,50 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
             <input type="checkbox" checked={paidByCard} onChange={(e) => setPaidByCard(e.target.checked)} />
             {t("books.purchases.paidByCard")}
           </label>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="field" style={{ marginBottom: 14 }}>
+            <label htmlFor="cb-p-receipt">{t("books.purchases.receiptLabel")}</label>
+            <input
+              id="cb-p-receipt"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                if (file && file.size > MAX_UPLOAD_BYTES) {
+                  toast(t("books.purchases.receiptTooLarge"));
+                  e.target.value = "";
+                  return;
+                }
+                setReceiptFile(file);
+              }}
+            />
+            {receiptFile && <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>{receiptFile.name}</p>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" className="btn btn-primary" disabled={saving} onClick={handleSave}>
               {saving ? t("books.purchases.saving") : t("books.purchases.save")}
+            </button>
+            <button type="button" className="btn" disabled={savingTemplate} onClick={handleSaveTemplate}>
+              {t("books.purchases.saveAsTemplate")}
             </button>
             {editingId && <button type="button" className="btn" onClick={resetForm}>{t("books.common.cancel")}</button>}
           </div>
         </div>
       </div>
+
+      {templates.length > 0 && (
+        <div className="command-panel">
+          <div className="command-panel-header"><h2 className="command-panel-title">{t("books.purchases.templatesTitle")}</h2></div>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            {templates.map((tpl) => (
+              <div key={tpl.template_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                <span>{tpl.name} <span className="muted">— {tpl.account}{tpl.default_amount != null ? ` · ${fmtMoney(tpl.default_amount)}` : ""}</span></span>
+                <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDeleteTemplate(tpl.template_id)}>{t("books.common.delete")}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="command-panel">
         <div className="command-panel-header"><h2 className="command-panel-title">{t("books.purchases.recentTitle")}</h2></div>
@@ -434,6 +581,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
                   <th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th>
                   <th scope="col"></th>
                   <th scope="col"></th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -444,6 +592,11 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
                     <td data-label={t("books.purchases.accountLabel")} className="muted">{d.account}</td>
                     <td data-label={t("books.purchases.amountLabel")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
                     <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} /></td>
+                    <td>
+                      {!!d.receipt_count && (
+                        <button type="button" className="btn btn-sm" onClick={() => viewReceipt(d.draft_id)}>📎 {d.receipt_count}</button>
+                      )}
+                    </td>
                     <td>
                       {d.status === "Pending" && (
                         <div style={{ display: "flex", gap: 6 }}>
@@ -476,6 +629,10 @@ function MyPLTab({ clientId }: { clientId: string }) {
   } | null>(null);
   const [plLoading, setPlLoading] = useState(true);
   const [plError, setPlError] = useState(false);
+  const [taxLiability, setTaxLiability] = useState<{
+    available: boolean; periodEnd?: string; dueDate?: string;
+    postedTax?: number; pendingTax?: number; totalEstimated?: number; pendingIsEstimate?: boolean;
+  } | null>(null);
 
   function loadPl() {
     if (!clientId) return;
@@ -487,6 +644,13 @@ function MyPLTab({ clientId }: { clientId: string }) {
       .finally(() => setPlLoading(false));
   }
   useEffect(loadPl, [clientId, from, to]);
+
+  useEffect(() => {
+    if (!clientId) return;
+    api.get<typeof taxLiability>(`/accounting/client-books/sales-tax-liability?clientId=${clientId}`)
+      .then(setTaxLiability)
+      .catch(() => setTaxLiability(null));
+  }, [clientId]);
 
   const pdfPath = `/accounting/client-books/pl-pdf?clientId=${clientId}&from=${from}&to=${to}`;
   async function handleViewPdf() {
@@ -500,6 +664,31 @@ function MyPLTab({ clientId }: { clientId: string }) {
   }
 
   return (
+    <div style={{ display: "grid", gap: 20 }}>
+      {taxLiability?.available && (
+        <div className="command-panel">
+          <div className="command-panel-header"><h2 className="command-panel-title">{t("books.taxLiability.title")}</h2></div>
+          <div style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+              <span>{t("books.taxLiability.posted")}</span>
+              <strong><Num>{fmtMoney(taxLiability.postedTax)}</Num></strong>
+            </div>
+            {!!taxLiability.pendingTax && taxLiability.pendingTax > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                <span>{t("books.taxLiability.pending")}</span>
+                <strong><Num>{fmtMoney(taxLiability.pendingTax)}</Num></strong>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--line)", fontWeight: 800, color: "var(--teal)" }}>
+              <span>{t("books.taxLiability.total")} {taxLiability.dueDate ? `(${t("books.taxLiability.dueBy")} ${taxLiability.dueDate})` : ""}</span>
+              <strong><Num>{fmtMoney(taxLiability.totalEstimated)}</Num></strong>
+            </div>
+            {taxLiability.pendingIsEstimate && (
+              <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>{t("books.taxLiability.pendingNote")}</p>
+            )}
+          </div>
+        </div>
+      )}
     <div className="command-panel">
       <div className="command-panel-header">
         <h2 className="command-panel-title">{t("books.pl.title")}</h2>
@@ -557,6 +746,7 @@ function MyPLTab({ clientId }: { clientId: string }) {
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }

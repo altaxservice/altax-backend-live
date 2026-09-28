@@ -12,6 +12,7 @@ import { US_STATES } from "../utils/clientOptions";
 const EMPTY_FORM = {
   userId: "", email: "", name: "", role: "Staff", phone: "", active: true,
   assignedClientId: "", assignedEmployeeId: "", reminderPreference: "Email", bookablePublicly: true, hourlyRate: "",
+  linkedClientIds: [] as string[],
 };
 
 const ROLE_FILTER_OPTIONS = ["Admin", "Staff", "Client", "Employee"];
@@ -107,6 +108,7 @@ export function UsersPage() {
       assignedClientId: u.assigned_client_id || "", assignedEmployeeId: u.assigned_employee_id || "",
       reminderPreference: u.reminder_preference || "Email", bookablePublicly: u.bookable_publicly,
       hourlyRate: u.hourly_rate != null ? String(u.hourly_rate) : "",
+      linkedClientIds: u.linked_client_ids && u.linked_client_ids.length ? u.linked_client_ids : (u.assigned_client_id ? [u.assigned_client_id] : []),
     });
     setShowForm(true);
     setCreateCategory("edit");
@@ -498,11 +500,51 @@ export function UsersPage() {
           </div>
           {form.role === "Client" && (
             <div className="field">
-              <label htmlFor="u-client">Assigned Client</label>
-              <select id="u-client" required value={form.assignedClientId} onChange={(e) => setForm((f) => ({ ...f, assignedClientId: e.target.value }))}>
-                <option value="">Choose a client…</option>
+              <label htmlFor="u-client">Default Business</label>
+              <select
+                id="u-client"
+                required
+                value={form.assignedClientId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setForm((f) => ({
+                    ...f,
+                    assignedClientId: id,
+                    linkedClientIds: id && !f.linkedClientIds.includes(id) ? [...f.linkedClientIds, id] : f.linkedClientIds,
+                  }));
+                }}
+              >
+                <option value="">Choose a business…</option>
                 {(options?.clients || []).map((c) => <option key={c.clientId} value={c.clientId}>{c.clientName} ({c.clientId})</option>)}
               </select>
+              <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Shown right after this login signs in. Always included among the linked businesses below.</p>
+            </div>
+          )}
+          {form.role === "Client" && (
+            <div className="field">
+              <label>Other Linked Businesses</label>
+              <p className="muted" style={{ fontSize: 12, margin: "0 0 6px" }}>
+                Lets this one login switch between several businesses in the client portal (up to 10-15), the same way staff switch between clients.
+              </p>
+              <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px" }}>
+                {(options?.clients || [])
+                  .filter((c) => c.clientId !== form.assignedClientId)
+                  .map((c) => (
+                    <label key={c.clientId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 13, fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={form.linkedClientIds.includes(c.clientId)}
+                        onChange={(e) => setForm((f) => ({
+                          ...f,
+                          linkedClientIds: e.target.checked
+                            ? [...f.linkedClientIds, c.clientId]
+                            : f.linkedClientIds.filter((id) => id !== c.clientId),
+                        }))}
+                      />
+                      {c.clientName} ({c.clientId})
+                    </label>
+                  ))}
+              </div>
             </div>
           )}
           {form.role === "Employee" && (

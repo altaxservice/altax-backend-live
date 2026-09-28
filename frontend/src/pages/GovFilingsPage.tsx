@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, viewFile } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useSelectedBusiness } from "../context/SelectedBusinessContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useToast } from "../components/Toast";
@@ -29,13 +30,14 @@ interface PortalGovFiling {
 export function GovFilingsPage() {
   const { user } = useAuth();
   const toast = useToast();
-  const clientId = user?.clientId || "";
+  const { clientId: businessId } = useSelectedBusiness();
+  const clientId = businessId || user?.clientId || "";
   const [filings, setFilings] = useState<PortalGovFiling[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
-    api.get<{ filings: PortalGovFiling[] }>("/gov-forms/mine")
+    api.get<{ filings: PortalGovFiling[] }>(`/gov-forms/mine?clientId=${encodeURIComponent(clientId)}`)
       .then((res) => setFilings(res.filings))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your filings."));
   }, [clientId]);

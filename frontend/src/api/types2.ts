@@ -50,6 +50,8 @@ export interface PortalUser {
   assignment_label?: string;
   open_count?: number;
   overdue_count?: number;
+  /** Every business this client-role login is linked to (v3_user_clients); empty for non-client roles. */
+  linked_client_ids?: string[];
   [key: string]: unknown;
 }
 

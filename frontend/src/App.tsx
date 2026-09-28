@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { SelectedClientProvider } from "./context/SelectedClientContext";
+import { SelectedBusinessProvider } from "./context/SelectedBusinessContext";
 import { SelectedTaskProvider } from "./context/SelectedTaskContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { ToastProvider } from "./components/Toast";
@@ -63,6 +64,7 @@ import { PublicMessagePage } from "./pages/PublicMessagePage";
 import { MyTaxFormsPage } from "./pages/MyTaxFormsPage";
 import { MyBusinessPage } from "./pages/MyBusinessPage";
 import { ClientBooksPage } from "./pages/ClientBooksPage";
+import { CrossBusinessDashboardPage } from "./pages/CrossBusinessDashboardPage";
 import { AgreementsPage } from "./pages/AgreementsPage";
 import { GovFilingsPage } from "./pages/GovFilingsPage";
 import { PublicEftpsDepositPage } from "./pages/PublicEftpsDepositPage";
@@ -79,6 +81,7 @@ function App() {
       <AuthProvider>
         <LanguageProvider>
         <SelectedClientProvider>
+        <SelectedBusinessProvider>
         <SelectedTaskProvider>
         <ToastProvider>
         <ConfirmProvider>
@@ -114,6 +117,7 @@ function App() {
               <Route element={<ProtectedRoute roles={["client"]} />}>
                 <Route path="/my-business" element={<MyBusinessPage />} />
                 <Route path="/my-books" element={<ClientBooksPage />} />
+                <Route path="/my-businesses" element={<CrossBusinessDashboardPage />} />
                 <Route path="/agreements" element={<AgreementsPage />} />
                 <Route path="/gov-filings" element={<GovFilingsPage />} />
               </Route>
@@ -183,6 +187,7 @@ function App() {
         </ConfirmProvider>
         </ToastProvider>
         </SelectedTaskProvider>
+        </SelectedBusinessProvider>
         </SelectedClientProvider>
         </LanguageProvider>
       </AuthProvider>

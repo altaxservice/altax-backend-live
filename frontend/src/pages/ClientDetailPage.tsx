@@ -134,6 +134,11 @@ const EDIT_SECTIONS: { title: string; fields: FieldConfig[]; nestedIn?: string }
       // via the "Send to Client" buttons regardless of this switch. Defaults
       // on for every client (sql/107_auto_compliance_reminders_flag.sql).
       { key: "auto_compliance_reminders_enabled", apiKey: "autoComplianceRemindersEnabled", label: "Auto Reminder", kind: "checkbox", hidden: (f) => !hasContact(f) },
+      // Gates the "you haven't logged sales in a while" My Books nudge
+      // (salesLoggingNudges.ts) — separate from the deadline reminder above,
+      // since this fires on activity gaps, not a due date. Defaults on
+      // (sql/167_sales_logging_nudge_flag.sql).
+      { key: "sales_logging_nudges_enabled", apiKey: "salesLoggingNudgesEnabled", label: "My Books Reminder", kind: "checkbox", hidden: (f) => !hasContact(f) },
       { key: "referral_source", apiKey: "referralSource", label: "Referral Source", kind: "text", suggestions: REFERRAL_SOURCES },
     ],
   },
@@ -1163,6 +1168,7 @@ export function ClientDetailPage() {
                   <DetailField label="SMS Enabled" value={client.sms_allowed ? "Yes" : "No"} />
                   <DetailField label="Email Enabled" value={client.email_allowed ? "Yes" : "No"} />
                   <DetailField label="Auto Reminder" value={client.auto_compliance_reminders_enabled === false ? "Off" : "On"} />
+                  <DetailField label="My Books Reminder" value={client.sales_logging_nudges_enabled === false ? "Off" : "On"} />
                   <DetailField label="Portal Enabled" value={client.portal_enabled ? "Yes" : "No"} />
                   <DetailField label="Referral Source" value={client.referral_source as string | null} />
                   {isBusinessClient && <DetailField label="Trader's License" value={client.traders_license_number as string | null} />}

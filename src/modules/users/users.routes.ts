@@ -84,7 +84,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
       ORDER BY name ASC`
   );
 
-  const [clients, employees, openTasks] = await Promise.all([
+  const [clients, employees, openTasks, userClientLinks] = await Promise.all([
     query<{ client_id: string; client_name: string }>(`SELECT client_id, client_name FROM altax.v3_clients`),
     query<{ employee_id: string; employee_name: string; client_id: string; client_name: string }>(
       `SELECT employee_id, employee_name, client_id, client_name FROM altax.v3_employees`
@@ -92,9 +92,16 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
     query<{ client_id: string | null; assigned_to: string | null; agency_due_date: string | null }>(
       `SELECT client_id, assigned_to, agency_due_date FROM altax.v3_tasks WHERE lower(status) NOT IN ('completed','void','closed','archived') AND is_parked = false`
     ),
+    query<{ user_id: string; client_id: string }>(`SELECT user_id, client_id FROM altax.v3_user_clients`),
   ]);
   const clientNameById = new Map(clients.map((c) => [c.client_id, c.client_name]));
   const employeeById = new Map(employees.map((e) => [e.employee_id, e]));
+  const linkedClientIdsByUser = new Map<string, string[]>();
+  for (const row of userClientLinks) {
+    const list = linkedClientIdsByUser.get(row.user_id) || [];
+    list.push(row.client_id);
+    linkedClientIdsByUser.set(row.user_id, list);
+  }
 
   // Mirrors getUserAliases(email) but built once from the already-fetched user list, avoiding N+1 lookups.
   const aliasesByEmail = new Map<string, Set<string>>();
@@ -113,9 +120,12 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
   const enriched = rows.map((u) => {
     const roleKey = normalizeText(u.role);
     let assignmentLabel = "Firm-wide";
+    const linkedClientIds = roleKey === "client" ? (linkedClientIdsByUser.get(u.user_id) || []) : [];
     if (roleKey === "client" && u.assigned_client_id) {
       const name = clientNameById.get(u.assigned_client_id);
-      assignmentLabel = name ? `${name} (${u.assigned_client_id})` : u.assigned_client_id;
+      const base = name ? `${name} (${u.assigned_client_id})` : u.assigned_client_id;
+      const extra = linkedClientIds.filter((id: string) => id !== u.assigned_client_id).length;
+      assignmentLabel = extra > 0 ? `${base} +${extra} more` : base;
     } else if (roleKey === "employee" && u.assigned_employee_id) {
       const emp = employeeById.get(u.assigned_employee_id);
       assignmentLabel = emp ? `${emp.employee_name} (${emp.employee_id}) - ${emp.client_name}` : u.assigned_employee_id;
@@ -138,7 +148,7 @@ usersRouter.get("/", requireAuth, requireRole("admin"), asyncHandler(async (req:
       }
     }
 
-    return { ...u, assignment_label: assignmentLabel, open_count: open, overdue_count: overdue };
+    return { ...u, assignment_label: assignmentLabel, open_count: open, overdue_count: overdue, linked_client_ids: linkedClientIds };
   });
 
   res.json({ users: enriched });
@@ -169,6 +179,23 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
   let userId = String(body.userId || "").trim();
   if (!userId && roleKey === "client" && assignedClientId) userId = `usr_${assignedClientId}`;
   if (!userId && roleKey === "employee" && assignedEmployeeId) userId = `emp_${assignedEmployeeId}`;
+
+  // Multi-business client login (sql/164_client_multi_business_links.sql) — a
+  // client role can be linked to several v3_clients businesses, switched in the
+  // portal like staff switch clients. assignedClientId stays the default/primary
+  // business shown right after login, so it must always be one of the linked
+  // set — otherwise a login could succeed (buildAuthSuccess still resolves the
+  // default directly) but then fail canAccessClient on every following request.
+  let linkedClientIds: string[] = [];
+  if (roleKey === "client") {
+    linkedClientIds = Array.isArray(body.linkedClientIds)
+      ? Array.from(new Set(body.linkedClientIds.map((v: any) => String(v).trim()).filter(Boolean)))
+      : [];
+    if (assignedClientId && !linkedClientIds.includes(assignedClientId)) linkedClientIds.push(assignedClientId);
+    if (!assignedClientId && linkedClientIds.length) {
+      return res.status(400).json({ error: "Choose a default business among the linked businesses." });
+    }
+  }
 
   const duplicate = await queryOne<any>(
     `SELECT user_id, name, email FROM altax.v3_users WHERE lower(email) = $1 AND lower(role) = $2 AND user_id <> $3`,
@@ -271,6 +298,24 @@ usersRouter.post("/", requireAuth, requireRole("admin"), asyncHandler(async (req
       `Staff user created by ${req.user!.email}.`, req.user!.email);
     if (roleKey === "staff") {
       await ensureStaffOnboardingTasks({ user_id: finalUserId, email, name }, req.user!.email);
+    }
+  }
+
+  if (roleKey === "client") {
+    if (linkedClientIds.length) {
+      await query(
+        `DELETE FROM altax.v3_user_clients WHERE user_id = $1 AND client_id != ALL($2::text[])`,
+        [finalUserId, linkedClientIds]
+      );
+      for (const cid of linkedClientIds) {
+        await query(
+          `INSERT INTO altax.v3_user_clients (user_id, client_id, linked_by) VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, client_id) DO NOTHING`,
+          [finalUserId, cid, req.user!.email]
+        );
+      }
+    } else {
+      await query(`DELETE FROM altax.v3_user_clients WHERE user_id = $1`, [finalUserId]);
     }
   }
 

@@ -13,7 +13,7 @@ import { escapeHtml } from "../../common/html";
 import { alertAdmins } from "../../common/adminAlerts";
 import { buildGoogleCalendarUrl, buildIcsAttachment, buildAddToCalendarButtonHtml } from "../../common/calendarLinks";
 import { sendPushToUsers } from "../../common/webPush";
-import { canAccessClient, getUserAliases, isAssignedToUser } from "../../common/assignment";
+import { canAccessClient, getUserAliases, isAssignedToUser, resolveActiveClientId } from "../../common/assignment";
 
 /**
  * Appointment scheduling on the Calendar page — a standalone, self-contained
@@ -1022,11 +1022,14 @@ export async function runAppointmentAutoComplete(actorEmail: string, req?: Reque
  * losing that message meant calling the office to even know their own
  * appointment time. Read-only: the manage link (same one every confirmation/
  * reminder already includes) covers cancel/reschedule, so this doesn't need
- * its own separate write path. Scoped strictly to req.user.clientId — never
- * accepts a clientId from the client, so one client can't fetch another's.
+ * its own separate write path. A client login can now be linked to more than
+ * one business (v3_user_clients), so this accepts an optional clientId for
+ * the caller's currently-selected business — resolveActiveClientId still
+ * verifies it's actually one of theirs via canAccessClient before using it,
+ * so one client still can't fetch another's by guessing an id.
  */
 appointmentsRouter.get("/mine", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const clientId = req.user!.clientId;
+  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
   if (!clientId) return res.json({ appointments: [] });
   const rows = await query<any>(
     `SELECT appointment_id, title, start_time, end_time, location, status, manage_token, appointment_type_name

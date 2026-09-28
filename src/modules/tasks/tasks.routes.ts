@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit } from "../../common/audit";
-import { canAccessClient, getUserAliases, isAssignedToUser } from "../../common/assignment";
+import { canAccessClient, getUserAliases, isAssignedToUser, resolveActiveClientId } from "../../common/assignment";
 import { asyncHandler } from "../../common/asyncHandler";
 import { sendFilingConfirmation } from "../../common/filingConfirmationEmail";
 import { schedulePaymentReminder, cancelPaymentReminder } from "../../common/paymentReminders";
@@ -418,7 +418,7 @@ function clientFriendlyStatus(status: unknown): { label: string; tone: "open" | 
 }
 
 tasksRouter.get("/mine", requireAuth, requireRole("client"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const clientId = req.user!.clientId;
+  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
   if (!clientId) return res.json({ active: [], recentlyCompleted: [] });
 
   const activeRows = await query<any>(

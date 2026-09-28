@@ -36,19 +36,31 @@ export function isAssignedToUser(assignedTo: unknown, aliases: Set<string>): boo
 
 /**
  * Mirrors alTaxV3PortalClientAllowed_: does this user have access to this client?
- * admin = every client. client/employee = only their own assigned client (matches
- * legacy's explicit branches for those two roles). staff/general = only clients they
- * have at least one task assigned to them for — legacy derives this by running the
- * full per-role portal data filter and checking membership in the resulting client
- * list; querying task assignments directly is a narrower, safe subset of that same
- * rule (the same simplification already used for task-list scoping).
+ * admin = every client. employee = only their own assigned client (single-client,
+ * unaffected by multi-business). client = any business linked via v3_user_clients
+ * (sql/164_client_multi_business_links.sql) — a login can be linked to several
+ * businesses and switch between them; assigned_client_id/clientId is only the
+ * default business selected at login, not the full access boundary. staff/general
+ * = only clients they have at least one task assigned to them for — legacy derives
+ * this by running the full per-role portal data filter and checking membership in
+ * the resulting client list; querying task assignments directly is a narrower, safe
+ * subset of that same rule (the same simplification already used for task-list
+ * scoping).
  */
 export async function canAccessClient(
-  user: { role: string; clientId?: string; email: string },
+  user: { role: string; clientId?: string; email: string; sub?: string },
   clientId: string
 ): Promise<boolean> {
   if (user.role === "admin") return true;
-  if (user.role === "client" || user.role === "employee") return user.clientId === clientId;
+  if (user.role === "employee") return user.clientId === clientId;
+  if (user.role === "client") {
+    if (!user.sub) return false;
+    const rows = await query(
+      `SELECT 1 FROM altax.v3_user_clients WHERE user_id = $1 AND client_id = $2 LIMIT 1`,
+      [user.sub, clientId]
+    );
+    return rows.length > 0;
+  }
 
   const aliases = await getUserAliases(user.email);
   const rows = await query(
@@ -56,4 +68,24 @@ export async function canAccessClient(
     [Array.from(aliases), clientId]
   );
   return rows.length > 0;
+}
+
+/**
+ * Resolves which business a request is scoped to now that a client login can be
+ * linked to several (v3_user_clients). Prefers an explicitly requested clientId
+ * (the frontend's active-business selection, sent per-request the same way staff
+ * already sends their selected client — never trusted from the JWT), falling back
+ * to the login's default business (user.clientId) when the caller didn't specify
+ * one, so an older cached frontend build that never sends clientId keeps working
+ * unchanged. Returns null when there's no usable clientId at all, or when the
+ * resolved one fails canAccessClient — callers treat null exactly like "no access."
+ */
+export async function resolveActiveClientId(
+  user: { role: string; clientId?: string; email: string; sub?: string },
+  requestedClientId?: unknown
+): Promise<string | null> {
+  const requested = String(requestedClientId ?? "").trim();
+  const clientId = requested || user.clientId || "";
+  if (!clientId) return null;
+  return (await canAccessClient(user, clientId)) ? clientId : null;
 }

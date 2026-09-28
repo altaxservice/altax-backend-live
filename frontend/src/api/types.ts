@@ -5,8 +5,11 @@ export interface AuthUser {
   email: string;
   name: string;
   userId: string;
+  /** The default business for this session; switch among linkedClients via SelectedBusinessContext. */
   clientId: string;
   clientName: string;
+  /** Every business this client login can access (client role only, else empty). */
+  linkedClients: { clientId: string; clientName: string }[];
   employeeId: string;
   employeeName: string;
   mustResetPassword: boolean;

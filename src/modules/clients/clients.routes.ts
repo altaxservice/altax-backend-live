@@ -4,7 +4,7 @@ import { query, queryOne } from "../../config/db";
 import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAuth";
 import { logAudit, logClientActivity } from "../../common/audit";
 import { asyncHandler } from "../../common/asyncHandler";
-import { canAccessClient, getUserAliases } from "../../common/assignment";
+import { canAccessClient, getUserAliases, resolveActiveClientId } from "../../common/assignment";
 import { encryptValue, decryptTolerant, decryptClientPii } from "../../common/encryption";
 import { composeAddress } from "../../common/address";
 import { generateContractForService } from "../contracts/contracts.routes";
@@ -1508,8 +1508,10 @@ async function buildClientFlagsNotification(clientId: string, selectedKeys?: str
  * bilingual-labeled for the client's own view.
  */
 clientsRouter.get("/notices/mine", requireAuth, asyncHandler(async (req: AuthedRequest, res: Response) => {
-  if (req.user!.role !== "client" || !req.user!.clientId) return res.json({ notices: [] });
-  const flags = (await computeClientFlags(req.user!.clientId)).flags.filter((f) => f.shareWithClient);
+  if (req.user!.role !== "client") return res.json({ notices: [] });
+  const clientId = await resolveActiveClientId(req.user!, req.query.clientId);
+  if (!clientId) return res.json({ notices: [] });
+  const flags = (await computeClientFlags(clientId)).flags.filter((f) => f.shareWithClient);
   const notices = flags.map((f) => {
     const labelEn = f.category || FLAG_TYPE_LABELS_EN[f.flagType] || f.flagType;
     const labelAr = f.category
@@ -2622,6 +2624,7 @@ const UPDATABLE_FIELDS: Record<string, { column: string; boolean?: boolean; date
   smsAllowed: { column: "sms_allowed", boolean: true },
   emailAllowed: { column: "email_allowed", boolean: true },
   autoComplianceRemindersEnabled: { column: "auto_compliance_reminders_enabled", boolean: true },
+  salesLoggingNudgesEnabled: { column: "sales_logging_nudges_enabled", boolean: true },
   portalEnabled: { column: "portal_enabled", boolean: true },
   address: { column: "address" },
   streetAddress: { column: "street_address" },
