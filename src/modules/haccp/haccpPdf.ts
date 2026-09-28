@@ -58,7 +58,7 @@ export interface HaccpPdfData {
   email?: string | null;
   contactPerson?: string | null;
   licenseNumber?: string | null;
-  riskPriority: "High" | "Moderate";
+  riskPriority: "High" | "Moderate" | "Low";
   renderedBody: string | null;
   menuGroups: HaccpMenuGroup[];
   equipment: HaccpEquipmentLine[];

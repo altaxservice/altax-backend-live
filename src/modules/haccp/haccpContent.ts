@@ -21,8 +21,16 @@
 export interface HaccpBusinessType {
   key: string;
   label: string;
-  /** Maryland's licensing risk tier — drives whether a HACCP plan is required at all (High/Moderate always are). */
-  riskPriority: "High" | "Moderate";
+  /**
+   * The fee/priority tier printed on Baltimore City's own Food Facility
+   * License Application (REQUIRED FEES BASED ON FACILITY TYPE/PRIORITY table:
+   * High $520, Moderate $285, Low $65 — read directly off the real form).
+   * "No cooking step on site" facilities (prepackaged/cold-hold only) are
+   * genuinely Low Priority, not Moderate — a real filing mistake caught live,
+   * 2026-09-28: Convenience Store/Grocery (No-Cook) was wrongly landing on
+   * the $285 Moderate row instead of the $65 Low row.
+   */
+  riskPriority: "High" | "Moderate" | "Low";
   /** Whether this type's CCP table includes a cook step (cooking temps, no-hot-hold discard rule). */
   hasCookStep: boolean;
   /** Whether this type's CCP table includes hot-holding (steam table/warmer) in addition to cooking. */
@@ -42,7 +50,7 @@ export const HACCP_BUSINESS_TYPES: HaccpBusinessType[] = [
   {
     key: "convenience_grocery",
     label: "Convenience Store / Grocery (No-Cook)",
-    riskPriority: "Moderate",
+    riskPriority: "Low",
     hasCookStep: false,
     hasHotHolding: false,
     description: "Prepackaged and cold-hold items only — no cooking step on site.",

@@ -98,7 +98,7 @@ export interface LicensePdfInput {
   planId: string;
   businessName: string;
   businessTypeLabel: string;
-  riskPriority: "High" | "Moderate";
+  riskPriority: "High" | "Moderate" | "Low";
   streetAddress?: string | null;
   city?: string | null;
   state?: string | null;
@@ -151,7 +151,16 @@ export async function generateFoodLicenseApplicationPdf(data: LicensePdfInput): 
   c1.text(135, 409, data.email || "", { size: 10 });
 
   // Highlight (annotate, don't redraw) the fee-table row matching riskPriority.
-  const feeRowY = data.riskPriority === "High" ? 463 : 486;
+  // Real bug caught live, 2026-09-28: this only ever branched High vs
+  // everything-else, so every Moderate AND Low facility landed on the same
+  // $285 Moderate row — a genuine no-cook facility (Low Priority, $65 per
+  // the form's own REQUIRED FEES table) was shown as Moderate. Row
+  // y-coordinates read directly off the real PDF's text layer (PyMuPDF word
+  // extraction against baltimore_city_food_license_application.pdf), same
+  // calibration method as every other coordinate in this file: HIGH PRIORITY
+  // FACILITY at y0=466.3, MODERATE PRIORITY FACILITY at y0=489.4, LOW
+  // PRIORITY FACIITY at y0=512.0.
+  const feeRowY = data.riskPriority === "High" ? 463 : data.riskPriority === "Low" ? 509 : 486;
   c1.rect(36, feeRowY, 264, 16, TEAL, true);
 
   const c2 = new Cursor(p2, font, bold, PAGE_H);

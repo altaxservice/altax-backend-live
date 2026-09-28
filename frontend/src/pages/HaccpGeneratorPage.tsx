@@ -8,7 +8,7 @@ import { AddressFields } from "../components/AddressFields";
 import type { Client } from "../api/types";
 import { ErrorBanner } from "../components/ErrorBanner";
 
-interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate"; hasCookStep: boolean; hasHotHolding: boolean; description: string }
+interface BusinessType { key: string; label: string; riskPriority: "High" | "Moderate" | "Low"; hasCookStep: boolean; hasHotHolding: boolean; description: string }
 interface ChecklistItem { key: string; label: string }
 interface ChecklistCategory { category: string; items: ChecklistItem[] }
 interface HaccpOptions { businessTypes: BusinessType[]; menuCategories: ChecklistCategory[]; equipmentItems: ChecklistItem[]; customMenuItems: string[] }
