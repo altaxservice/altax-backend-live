@@ -10,6 +10,7 @@ import { ErrorBanner } from "../components/ErrorBanner";
 import { SummaryTable, type SummaryTableSection } from "../components/SummaryTable";
 import type { MdFilingResult } from "../api/calculators";
 import { fmtDateOnly as fmtDate } from "../utils/date";
+import { TAX_FORMS, classifyDeduction, defaultTaxFormFor } from "../utils/taxFormLines";
 
 // AR Aging and MD Annual Report moved out entirely (direct owner request,
 // 2026-08-26) — both are firm-wide, all-clients reports, and living here
@@ -136,8 +137,16 @@ export function ReportsPage() {
   // whatever tab happened to be clicked last.
   // Which P&L/Period-Snapshot account row is drilled into, if any — cleared
   // whenever the tab or period changes so a stale breakdown doesn't linger
-  // under a now-unrelated statement.
-  const [drillAccount, setDrillAccount] = useState<string | null>(null);
+  // under a now-unrelated statement. `accounts` is a list, not a single name,
+  // so a tax-form line that aggregates several accounts (e.g. "Other
+  // deductions") can drill into all of them at once, not just one.
+  const [drillLine, setDrillLine] = useState<{ title: string; accounts: string[] } | null>(null);
+  // Which client's P&L to show — the generic Income/COGS/Expenses statement,
+  // or grouped into one of these tax forms' own numbered lines. Reset to the
+  // client's own entity-type default whenever the client changes (below),
+  // never overridden again for that same client once set — see the effect
+  // near `client`.
+  const [plForm, setPlForm] = useState<string>("Standard");
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get("tab");
     return (TABS as readonly string[]).includes(t || "") ? (t as Tab) : "Financial Overview";
@@ -301,16 +310,22 @@ export function ReportsPage() {
     });
   }, [entries, from, to]);
 
-  useEffect(() => { setDrillAccount(null); }, [tab, clientId, from, to]);
+  useEffect(() => { setDrillLine(null); }, [tab, clientId, from, to]);
 
   const drillRows = useMemo(() => {
-    if (!drillAccount) return [];
+    if (!drillLine) return [];
     return filtered
-      .filter((e) => (e.account || "Unclassified") === drillAccount)
+      .filter((e) => drillLine.accounts.includes(e.account || "Unclassified"))
       .sort((a, b) => String(b.entry_date || "").localeCompare(String(a.entry_date || "")));
-  }, [drillAccount, filtered]);
+  }, [drillLine, filtered]);
 
   const client = clients.find((c) => c.client_id === clientId);
+
+  // Fires once entity_type actually resolves for this client (undefined →
+  // a value), then stays put — an LLC (or any client whose entity_type maps
+  // to "Standard") keeps whatever the preparer picks in the dropdown instead
+  // of being reset on some unrelated re-render.
+  useEffect(() => { setPlForm(defaultTaxFormFor(client?.entity_type)); }, [clientId, client?.entity_type]);
 
   function bucketFor(account: string): Bucket {
     const a = String(account || "").toLowerCase();
@@ -811,23 +826,54 @@ export function ReportsPage() {
 
               {loading && <div className="spinner-wrap">Loading…</div>}
 
-              {!loading && tab === "P&L" && (
+              {!loading && tab === "P&L" && (() => {
+                const activeForm = plForm !== "Standard" ? TAX_FORMS[plForm] : null;
+                return (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
               <div className="command-panel">
                 <div className="command-panel-header"><h2 className="command-panel-title">Profit and Loss</h2><div className="command-panel-note">{from} – {to}</div></div>
+                <div style={{ padding: "16px 16px 0" }}>
+                  <div className="field" style={{ margin: 0, maxWidth: 280 }}>
+                    <label htmlFor="pl-view-as">View as</label>
+                    <select id="pl-view-as" value={plForm} onChange={(e) => setPlForm(e.target.value)}>
+                      <option value="Standard">Standard (Income / COGS / Expenses)</option>
+                      {Object.values(TAX_FORMS).map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
+                    </select>
+                  </div>
+                  {activeForm && (
+                    <p className="muted" style={{ fontSize: 11, margin: "8px 0 0" }}>
+                      Preview only — accounts are grouped to mirror {activeForm.label}'s own line structure; it does not replace the actual computed return.
+                      {activeForm.disclaimer ? ` ${activeForm.disclaimer}` : ""}
+                    </p>
+                  )}
+                </div>
                 <div style={{ padding: 16 }}>
                   <SectionLabel>Income</SectionLabel>
-                  {income.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.credit - v.debit)} onClick={() => setDrillAccount(acct)} />)}
-                  <Row label="Total Income" value={fmtMoney(totalIncome)} bold />
+                  {income.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.credit - v.debit)} onClick={() => setDrillLine({ title: acct, accounts: [acct] })} />)}
+                  <Row label={activeForm ? activeForm.incomeLine : "Total Income"} value={fmtMoney(totalIncome)} bold />
                   <SectionLabel>Cost of Goods Sold</SectionLabel>
                   {cogs.length === 0 && <p className="muted" style={{ fontSize: 12, margin: "4px 0" }}>No activity in this section for the selected period.</p>}
-                  {cogs.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillAccount(acct)} />)}
-                  <Row label="Total Cost of Goods Sold" value={fmtMoney(totalCogs)} bold />
-                  <Row label="Gross Profit" value={fmtMoney(grossProfit)} bold />
-                  <SectionLabel>Expenses</SectionLabel>
-                  {expenses.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillAccount(acct)} />)}
-                  <Row label="Total Expenses" value={fmtMoney(totalExpenses)} bold />
-                  <Row label="Net Income" value={fmtMoney(netIncome)} bold accent />
+                  {cogs.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillLine({ title: acct, accounts: [acct] })} />)}
+                  <Row label={activeForm ? activeForm.cogsLine : "Total Cost of Goods Sold"} value={fmtMoney(totalCogs)} bold />
+                  <Row label={activeForm ? activeForm.grossProfitLine : "Gross Profit"} value={fmtMoney(grossProfit)} bold />
+                  <SectionLabel>{activeForm ? "Deductions" : "Expenses"}</SectionLabel>
+                  {activeForm
+                    ? activeForm.deductionLines.map((line) => {
+                        const matching = expenses.filter(([acct]) => line.categories.includes(classifyDeduction(acct)));
+                        if (matching.length === 0) return null;
+                        const total = matching.reduce((s, [, v]) => s + (v.debit - v.credit), 0);
+                        return (
+                          <Row
+                            key={line.lineNo}
+                            label={`Line ${line.lineNo} — ${line.label}`}
+                            value={fmtMoney(total)}
+                            onClick={() => setDrillLine({ title: `Line ${line.lineNo} — ${line.label}`, accounts: matching.map(([acct]) => acct) })}
+                          />
+                        );
+                      })
+                    : expenses.map(([acct, v]) => <Row key={acct} label={acct} value={fmtMoney(v.debit - v.credit)} onClick={() => setDrillLine({ title: acct, accounts: [acct] })} />)}
+                  <Row label={activeForm ? activeForm.totalDeductionsLine : "Total Expenses"} value={fmtMoney(totalExpenses)} bold />
+                  <Row label={activeForm ? activeForm.netIncomeLine : "Net Income"} value={fmtMoney(netIncome)} bold accent />
                 </div>
               </div>
               <div className="command-panel">
@@ -843,7 +889,7 @@ export function ReportsPage() {
                   <thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead>
                   <tbody>
                     {Array.from(byAccount.entries()).map(([acct, v]) => (
-                      <tr key={acct} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setDrillAccount(acct)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrillAccount(acct); } }}>
+                      <tr key={acct} style={{ cursor: "pointer" }} tabIndex={0} onClick={() => setDrillLine({ title: acct, accounts: [acct] })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrillLine({ title: acct, accounts: [acct] }); } }}>
                         <td>{acct}</td><td>{fmtMoney(v.debit)}</td><td>{fmtMoney(v.credit)}</td>
                       </tr>
                     ))}
@@ -851,9 +897,10 @@ export function ReportsPage() {
                 </table>
                 </div>
               </div>
-              {drillAccount && <AccountDrillDown account={drillAccount} rows={drillRows} clientId={clientId} onClose={() => setDrillAccount(null)} />}
+              {drillLine && <AccountDrillDown title={drillLine.title} rows={drillRows} clientId={clientId} singleAccount={drillLine.accounts.length === 1 ? drillLine.accounts[0] : undefined} onClose={() => setDrillLine(null)} />}
             </div>
-          )}
+                );
+              })()}
 
           {!loading && tab === "Balance Sheet" && (
             <div className="command-panel">
@@ -1283,7 +1330,7 @@ const SOURCE_TAB: Record<string, string> = {
  * Payroll, Billing, …) don't have a per-record deep link yet, so they link to
  * the owning tab instead — still faster than hunting for it unaided.
  */
-function AccountDrillDown({ account, rows, clientId, onClose }: { account: string; rows: any[]; clientId: string; onClose: () => void }) {
+function AccountDrillDown({ title, rows, clientId, singleAccount, onClose }: { title: string; rows: any[]; clientId: string; singleAccount?: string; onClose: () => void }) {
   const navigate = useNavigate();
   const totalDebit = rows.reduce((s, r) => s + (Number(r.debit) || 0), 0);
   const totalCredit = rows.reduce((s, r) => s + (Number(r.credit) || 0), 0);
@@ -1291,14 +1338,24 @@ function AccountDrillDown({ account, rows, clientId, onClose }: { account: strin
     <div className="command-panel" style={{ gridColumn: "1 / -1" }}>
       <div className="command-panel-header">
         <div>
-          <h2 className="command-panel-title">{account}</h2>
+          <h2 className="command-panel-title">{title}</h2>
           <div className="command-panel-note">{rows.length} GL entr{rows.length === 1 ? "y" : "ies"} · Debits {fmtMoney(totalDebit)} · Credits {fmtMoney(totalCredit)}</div>
         </div>
         <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
       </div>
       <div className="table-scroll">
         <table>
-          <thead><tr><th scope="col">Date</th><th scope="col">Source</th><th scope="col" style={{ textAlign: "right" }}>Debit</th><th scope="col" style={{ textAlign: "right" }}>Credit</th><th scope="col">Notes</th><th scope="col"></th></tr></thead>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              {!singleAccount && <th scope="col">Account</th>}
+              <th scope="col">Source</th>
+              <th scope="col" style={{ textAlign: "right" }}>Debit</th>
+              <th scope="col" style={{ textAlign: "right" }}>Credit</th>
+              <th scope="col">Notes</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
           <tbody>
             {rows.map((r) => {
               const isManualJe = r.source === "Manual JE";
@@ -1306,6 +1363,7 @@ function AccountDrillDown({ account, rows, clientId, onClose }: { account: strin
               return (
                 <tr key={r.gl_entry_id}>
                   <td>{fmtDate(r.entry_date)}</td>
+                  {!singleAccount && <td style={{ fontSize: 12 }}>{r.account}</td>}
                   <td className="muted" style={{ fontSize: 12 }}>{r.source || "—"}</td>
                   <td style={{ textAlign: "right" }}>{Number(r.debit) ? fmtMoney(r.debit) : "—"}</td>
                   <td style={{ textAlign: "right" }}>{Number(r.credit) ? fmtMoney(r.credit) : "—"}</td>
@@ -1328,19 +1386,21 @@ function AccountDrillDown({ account, rows, clientId, onClose }: { account: strin
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={6} className="muted" style={{ textAlign: "center", padding: 16 }}>No GL entries found for this account in the selected period.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={singleAccount ? 6 : 7} className="muted" style={{ textAlign: "center", padding: 16 }}>No GL entries found for this line in the selected period.</td></tr>}
           </tbody>
         </table>
       </div>
-      <div style={{ padding: "0 16px 16px" }}>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent("Manual JE")}&newLineAccount=${encodeURIComponent(account)}`)}
-        >
-          + Add Entry for This Account
-        </button>
-      </div>
+      {singleAccount && (
+        <div style={{ padding: "0 16px 16px" }}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => navigate(`/accounting?client=${encodeURIComponent(clientId)}&tab=${encodeURIComponent("Manual JE")}&newLineAccount=${encodeURIComponent(singleAccount)}`)}
+          >
+            + Add Entry for This Account
+          </button>
+        </div>
+      )}
     </div>
   );
 }
