@@ -1926,46 +1926,54 @@ accountingRouter.patch("/contractor-payments/:contractorPaymentId", requireAuth,
  * double-entry validation: at least two lines, debits must equal credits (to the
  * cent). No money is computed, only checked for balance.
  */
-accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
-  const body = req.body || {};
-  const clientId = String(body.clientId || "").trim();
-  if (!clientId) return res.status(400).json({ error: "Client is required." });
-  if (!(await canAccessClient(req.user!, clientId))) {
-    return res.status(403).json({ error: "You do not have access to this client." });
-  }
-  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
-  if (!client) return res.status(404).json({ error: "Client not found." });
+export interface CreateJeLineInput { account: string; debit: number | string; credit: number | string; memo?: string }
+export interface CreateJeParams {
+  entryDate?: string; ref?: string; description?: string; notes?: string; lines: CreateJeLineInput[];
+}
 
-  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+/**
+ * Inserts one manual journal entry (header lines + GL postings) and audit-logs it.
+ * Extracted from POST /journal-entries so both a staff member's own entry and a
+ * client-submitted purchase/expense approved into a real JE (see
+ * POST /client-books/purchase-drafts/:id/approve) go through the exact same
+ * validation and posting logic — same reasoning as createSalesInputRecord above.
+ */
+export async function createManualJournalEntry(
+  client: { client_id: string; client_name: string },
+  params: CreateJeParams,
+  createdByEmail: string,
+  sourceSystem: string = "Node Web App",
+  idempotencyKey: string | null = null
+) {
+  const rawLines = Array.isArray(params.lines) ? params.lines : [];
   const lines = rawLines
-    .map((line: any) => ({
+    .map((line) => ({
       account: String(line.account || "").trim(), debit: money(line.debit), credit: money(line.credit),
       memo: String(line.memo || "").trim(),
     }))
-    .filter((line: any) => line.account && (line.debit || line.credit));
+    .filter((line) => line.account && (line.debit || line.credit));
 
-  if (lines.length < 2) return res.status(400).json({ error: "A journal entry needs at least two lines." });
+  if (lines.length < 2) throw new ValidationError("A journal entry needs at least two lines.");
   // A negative debit/credit pair can still net to a balanced-looking entry (debits
   // == credits to the cent) while silently decrementing both a debited and a
   // credited account instead of incrementing them — the balance check alone can't
   // catch this, only rejecting negative values outright can.
-  if (lines.some((l: any) => l.debit < 0 || l.credit < 0)) {
-    return res.status(400).json({ error: "Journal entry lines cannot have a negative debit or credit amount." });
+  if (lines.some((l) => l.debit < 0 || l.credit < 0)) {
+    throw new ValidationError("Journal entry lines cannot have a negative debit or credit amount.");
   }
 
-  const totalDebit = money(lines.reduce((sum: number, l: any) => sum + l.debit, 0));
-  const totalCredit = money(lines.reduce((sum: number, l: any) => sum + l.credit, 0));
-  if (!totalDebit || !totalCredit) return res.status(400).json({ error: "Journal entry must include debit and credit lines." });
+  const totalDebit = money(lines.reduce((sum, l) => sum + l.debit, 0));
+  const totalCredit = money(lines.reduce((sum, l) => sum + l.credit, 0));
+  if (!totalDebit || !totalCredit) throw new ValidationError("Journal entry must include debit and credit lines.");
   if (Math.abs(totalDebit - totalCredit) > 0.009) {
-    return res.status(400).json({ error: `Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, credits: ${totalCredit.toFixed(2)}.` });
+    throw new ValidationError(`Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, credits: ${totalCredit.toFixed(2)}.`);
   }
 
   const jeId = `JE-${idSuffix()}`;
-  const entryDate = String(body.entryDate || "").trim() || null;
-  const ref = String(body.ref || jeId).trim();
-  const description = String(body.description || "").trim() || null;
-  const notes = String(body.notes || "").trim() || null;
-  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  const entryDate = String(params.entryDate || "").trim() || null;
+  const ref = String(params.ref || jeId).trim();
+  const description = String(params.description || "").trim() || null;
+  const notes = String(params.notes || "").trim() || null;
 
   let isDuplicate = false;
   let duplicateResponse: any = null;
@@ -1985,9 +1993,9 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
         `INSERT INTO altax.v3_manual_je
            (jeid, client_id, client_name, entry_date, ref, description, account, debit, credit, notes,
             source_system, source_record_id, journal_entry_id, line_no)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Node Web App',$11,$11,$12)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$13,$11,$11,$12)`,
         [lineId, client.client_id, client.client_name, entryDate, ref, description, line.account, line.debit,
-          line.credit, line.memo || notes || description, jeId, i + 1]
+          line.credit, line.memo || notes || description, jeId, i + 1, sourceSystem]
       );
       // GL linkage always uses the system-generated jeId, never the user's free-text
       // Reference — Reference is only stored on v3_manual_je for display. Editing an
@@ -2010,13 +2018,34 @@ accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "sta
   // fails honestly instead of fabricating success when reserved=false has
   // no saved response yet.
   if (isDuplicate) {
-    if (duplicateResponse) return res.status(200).json(duplicateResponse);
-    return res.status(409).json({ error: "This journal entry submission is already being processed. Wait a moment, then check Recent Manual Entries before retrying." });
+    if (duplicateResponse) return { ...duplicateResponse, isDuplicate: true };
+    throw new ValidationError("This journal entry submission is already being processed. Wait a moment, then check Recent Manual Entries before retrying.");
   }
 
-  await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", "Manual journal entry created from web app.", req.user!.email);
+  await logAudit("Accounting", "CREATE_JE", jeId, "", "", "", `Manual journal entry created by ${createdByEmail}.`, createdByEmail);
 
-  res.status(201).json({ ok: true, jeId, lines: lines.length, totalDebit, totalCredit });
+  return { ok: true, jeId, lines: lines.length, totalDebit, totalCredit };
+}
+
+accountingRouter.post("/journal-entries", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!clientId) return res.status(400).json({ error: "Client is required." });
+  if (!(await canAccessClient(req.user!, clientId))) {
+    return res.status(403).json({ error: "You do not have access to this client." });
+  }
+  const client = await queryOne<any>(`SELECT client_id, client_name FROM altax.v3_clients WHERE client_id = $1`, [clientId]);
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const idempotencyKey = String(body.idempotencyKey || "").trim() || null;
+  let result: Awaited<ReturnType<typeof createManualJournalEntry>>;
+  try {
+    result = await createManualJournalEntry(client, body, req.user!.email, "Node Web App", idempotencyKey);
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(err.message.includes("already being processed") ? 409 : 400).json({ error: err.message });
+    throw err;
+  }
+  res.status(result.isDuplicate ? 200 : 201).json(result);
 }));
 
 /**
