@@ -363,6 +363,10 @@ export const translations: Record<string, Record<Lang, string>> = {
   "books.common.deleteConfirm": { en: "Delete this entry? This cannot be undone.", ar: "هل تريد حذف هذا الإدخال؟ لا يمكن التراجع عن ذلك." },
   "books.common.onlyPendingEditable": { en: "Only entries still pending review can be edited or deleted.", ar: "لا يمكن تعديل أو حذف سوى الإدخالات التي ما زالت بانتظار المراجعة." },
   "books.common.print": { en: "Print Report", ar: "طباعة التقرير" },
+  "books.common.loading": { en: "Loading…", ar: "جارٍ التحميل…" },
+  "books.common.loadError": { en: "Could not load this. Check your connection and try again.", ar: "تعذّر تحميل هذا. تحقق من اتصالك وحاول مرة أخرى." },
+  "books.common.retry": { en: "Retry", ar: "إعادة المحاولة" },
+  "books.common.saved": { en: "Saved.", ar: "تم الحفظ." },
   "books.common.viewPdf": { en: "View PDF", ar: "عرض PDF" },
   "books.common.downloadPdf": { en: "Download PDF", ar: "تنزيل PDF" },
 

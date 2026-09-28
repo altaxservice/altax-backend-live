@@ -11,8 +11,13 @@ function fmtMoney(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
 }
+// toISOString() is UTC — from ~8pm EDT / 7pm EST onward it's already
+// tomorrow in UTC, so a client logging end-of-day sales in the evening
+// would have silently defaulted to the wrong date. Local date components
+// instead, matching monthStartStr() below.
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function monthStartStr(): string {
   const d = new Date();
@@ -52,16 +57,20 @@ export function ClientBooksPage() {
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [vendors, setVendors] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   function loadOptions() {
     if (!clientId) return;
+    setError(null);
     api.get<{ categories: SalesCategory[]; accounts: CoaAccount[]; vendors: string[] }>(`/accounting/client-books/options?clientId=${clientId}`)
       .then((r) => { setCategories(r.categories); setAccounts(r.accounts); setVendors(r.vendors); })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your books."));
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load your books."))
+      .finally(() => setLoaded(true));
   }
   useEffect(loadOptions, [clientId]);
 
   if (error) return <ErrorBanner error={error} />;
+  if (!loaded) return <div className="spinner-wrap">{t("books.common.loading")}</div>;
 
   return (
     <div dir={dir}>
@@ -103,10 +112,17 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<SalesDraft[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftsLoading, setDraftsLoading] = useState(true);
+  const [draftsError, setDraftsError] = useState(false);
 
   function loadDrafts() {
     if (!clientId) return;
-    api.get<{ drafts: SalesDraft[] }>(`/accounting/client-books/sales-drafts?clientId=${clientId}`).then((r) => setDrafts(r.drafts)).catch(() => {});
+    setDraftsLoading(true);
+    setDraftsError(false);
+    api.get<{ drafts: SalesDraft[] }>(`/accounting/client-books/sales-drafts?clientId=${clientId}`)
+      .then((r) => setDrafts(r.drafts))
+      .catch(() => setDraftsError(true))
+      .finally(() => setDraftsLoading(false));
   }
   useEffect(loadDrafts, [clientId]);
 
@@ -152,7 +168,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
       const payload = { clientId, saleDate, categoryLines, notes, confirmDuplicate };
       if (editingId) await api.patch(`/accounting/client-books/sales-drafts/${editingId}`, payload);
       else await api.post("/accounting/client-books/sales-drafts", payload);
-      toast(t("books.common.save"));
+      toast(t("books.common.saved"));
       resetForm();
       loadDrafts();
     } catch (err) {
@@ -199,6 +215,7 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
                     <td>
                       <input
                         type="number" step="0.01" min="0" inputMode="decimal" placeholder="0.00"
+                        aria-label={`${c.category_name} — ${t("books.sales.amountCol")}`}
                         value={amounts[c.category_id] || ""}
                         onChange={(e) => setAmounts((a) => ({ ...a, [c.category_id]: e.target.value }))}
                         style={{ textAlign: "right", maxWidth: 140 }}
@@ -230,29 +247,38 @@ function DailySalesTab({ clientId, categories }: { clientId: string; categories:
 
       <div className="command-panel">
         <div className="command-panel-header"><h2 className="command-panel-title">{t("books.sales.recentTitle")}</h2></div>
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.grossTotal")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
-            <tbody>
-              {drafts.map((d) => (
-                <tr key={d.draft_id}>
-                  <td><Num>{d.sale_date.slice(0, 10)}</Num></td>
-                  <td style={{ textAlign: "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
-                  <td><StatusPill status={d.status} t={t} /></td>
-                  <td>
-                    {d.status === "Pending" && (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className="btn btn-sm" onClick={() => startEdit(d)}>{t("books.common.edit")}</button>
-                        <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(d)}>{t("books.common.delete")}</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {drafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("books.sales.noEntries")}</p>}
+        {draftsLoading && <div className="spinner-wrap">{t("books.common.loading")}</div>}
+        {!draftsLoading && draftsError && (
+          <div style={{ padding: 16, textAlign: "center" }}>
+            <p className="muted" style={{ marginBottom: 8 }}>{t("books.common.loadError")}</p>
+            <button type="button" className="btn btn-sm" onClick={loadDrafts}>{t("books.common.retry")}</button>
+          </div>
+        )}
+        {!draftsLoading && !draftsError && (
+          <div className="table-scroll card-table">
+            <table>
+              <thead><tr><th scope="col">{t("books.sales.dateLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.sales.grossTotal")}</th><th scope="col"></th><th scope="col"></th></tr></thead>
+              <tbody>
+                {drafts.map((d) => (
+                  <tr key={d.draft_id}>
+                    <td data-label={t("books.sales.dateLabel")}><Num>{d.sale_date.slice(0, 10)}</Num></td>
+                    <td data-label={t("books.sales.grossTotal")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.gross_sales)}</Num></td>
+                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} /></td>
+                    <td>
+                      {d.status === "Pending" && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button type="button" className="btn btn-sm" onClick={() => startEdit(d)}>{t("books.common.edit")}</button>
+                          <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(d)}>{t("books.common.delete")}</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!draftsLoading && !draftsError && drafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("books.sales.noEntries")}</p>}
       </div>
     </div>
   );
@@ -273,10 +299,17 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<PurchaseDraft[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftsLoading, setDraftsLoading] = useState(true);
+  const [draftsError, setDraftsError] = useState(false);
 
   function loadDrafts() {
     if (!clientId) return;
-    api.get<{ drafts: PurchaseDraft[] }>(`/accounting/client-books/purchase-drafts?clientId=${clientId}`).then((r) => setDrafts(r.drafts)).catch(() => {});
+    setDraftsLoading(true);
+    setDraftsError(false);
+    api.get<{ drafts: PurchaseDraft[] }>(`/accounting/client-books/purchase-drafts?clientId=${clientId}`)
+      .then((r) => setDrafts(r.drafts))
+      .catch(() => setDraftsError(true))
+      .finally(() => setDraftsLoading(false));
   }
   useEffect(loadDrafts, [clientId]);
 
@@ -312,7 +345,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
       const payload = { clientId, purchaseDate, vendorName, description, account, amount: Number(amount), paidByCard, notes };
       if (editingId) await api.patch(`/accounting/client-books/purchase-drafts/${editingId}`, payload);
       else await api.post("/accounting/client-books/purchase-drafts", payload);
-      toast(t("books.common.save"));
+      toast(t("books.common.saved"));
       resetForm();
       loadDrafts();
       onVendorAdded();
@@ -343,7 +376,7 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
           <datalist id="cb-vendor-list">
             {vendors.map((v) => <option key={v} value={v} />)}
           </datalist>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div className="form-grid" style={{ marginBottom: 12 }}>
             <div className="field" style={{ margin: 0 }}>
               <label htmlFor="cb-p-date">{t("books.purchases.dateLabel")}</label>
               <input id="cb-p-date" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} />
@@ -383,40 +416,49 @@ function PurchasesTab({ clientId, accounts, vendors, onVendorAdded }: { clientId
 
       <div className="command-panel">
         <div className="command-panel-header"><h2 className="command-panel-title">{t("books.purchases.recentTitle")}</h2></div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">{t("books.purchases.dateLabel")}</th>
-                <th scope="col">{t("books.purchases.vendorLabel")}</th>
-                <th scope="col">{t("books.purchases.accountLabel")}</th>
-                <th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th>
-                <th scope="col"></th>
-                <th scope="col"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {drafts.map((d) => (
-                <tr key={d.draft_id}>
-                  <td><Num>{d.purchase_date.slice(0, 10)}</Num></td>
-                  <td>{d.vendor_name || "—"}</td>
-                  <td className="muted">{d.account}</td>
-                  <td style={{ textAlign: "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
-                  <td><StatusPill status={d.status} t={t} /></td>
-                  <td>
-                    {d.status === "Pending" && (
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className="btn btn-sm" onClick={() => startEdit(d)}>{t("books.common.edit")}</button>
-                        <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(d)}>{t("books.common.delete")}</button>
-                      </div>
-                    )}
-                  </td>
+        {draftsLoading && <div className="spinner-wrap">{t("books.common.loading")}</div>}
+        {!draftsLoading && draftsError && (
+          <div style={{ padding: 16, textAlign: "center" }}>
+            <p className="muted" style={{ marginBottom: 8 }}>{t("books.common.loadError")}</p>
+            <button type="button" className="btn btn-sm" onClick={loadDrafts}>{t("books.common.retry")}</button>
+          </div>
+        )}
+        {!draftsLoading && !draftsError && (
+          <div className="table-scroll card-table">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{t("books.purchases.dateLabel")}</th>
+                  <th scope="col">{t("books.purchases.vendorLabel")}</th>
+                  <th scope="col">{t("books.purchases.accountLabel")}</th>
+                  <th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th>
+                  <th scope="col"></th>
+                  <th scope="col"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {drafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("books.purchases.noEntries")}</p>}
+              </thead>
+              <tbody>
+                {drafts.map((d) => (
+                  <tr key={d.draft_id}>
+                    <td data-label={t("books.purchases.dateLabel")}><Num>{d.purchase_date.slice(0, 10)}</Num></td>
+                    <td data-label={t("books.purchases.vendorLabel")}>{d.vendor_name || "—"}</td>
+                    <td data-label={t("books.purchases.accountLabel")} className="muted">{d.account}</td>
+                    <td data-label={t("books.purchases.amountLabel")} style={{ textAlign: "right" }}><Num>{fmtMoney(d.amount)}</Num></td>
+                    <td data-label={t("books.status.pending")}><StatusPill status={d.status} t={t} /></td>
+                    <td>
+                      {d.status === "Pending" && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button type="button" className="btn btn-sm" onClick={() => startEdit(d)}>{t("books.common.edit")}</button>
+                          <button type="button" className="btn btn-sm btn-danger" onClick={() => handleDelete(d)}>{t("books.common.delete")}</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!draftsLoading && !draftsError && drafts.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>{t("books.purchases.noEntries")}</p>}
       </div>
     </div>
   );
@@ -432,11 +474,19 @@ function MyPLTab({ clientId }: { clientId: string }) {
     expensesByAccount: { account: string; amount: number }[];
     pendingSalesCount: number; pendingPurchasesCount: number;
   } | null>(null);
+  const [plLoading, setPlLoading] = useState(true);
+  const [plError, setPlError] = useState(false);
 
-  useEffect(() => {
+  function loadPl() {
     if (!clientId) return;
-    api.get<typeof data>(`/accounting/client-books/pl-preview?clientId=${clientId}&from=${from}&to=${to}`).then(setData).catch(() => {});
-  }, [clientId, from, to]);
+    setPlLoading(true);
+    setPlError(false);
+    api.get<typeof data>(`/accounting/client-books/pl-preview?clientId=${clientId}&from=${from}&to=${to}`)
+      .then(setData)
+      .catch(() => setPlError(true))
+      .finally(() => setPlLoading(false));
+  }
+  useEffect(loadPl, [clientId, from, to]);
 
   const pdfPath = `/accounting/client-books/pl-pdf?clientId=${clientId}&from=${from}&to=${to}`;
   async function handleViewPdf() {
@@ -471,7 +521,14 @@ function MyPLTab({ clientId }: { clientId: string }) {
             <input id="cb-pl-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
         </div>
-        {data && (
+        {plLoading && <div className="spinner-wrap">{t("books.common.loading")}</div>}
+        {!plLoading && plError && (
+          <div style={{ padding: 16, textAlign: "center" }}>
+            <p className="muted" style={{ marginBottom: 8 }}>{t("books.common.loadError")}</p>
+            <button type="button" className="btn btn-sm" onClick={loadPl}>{t("books.common.retry")}</button>
+          </div>
+        )}
+        {!plLoading && !plError && data && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--line)" }}>
               <span>{t("books.pl.income")}{data.pendingSalesCount > 0 ? ` (${data.pendingSalesCount} ${t("books.pl.pendingNote")})` : ""}</span>
@@ -486,12 +543,12 @@ function MyPLTab({ clientId }: { clientId: string }) {
               <strong><Num>{fmtMoney(data.netIncome)}</Num></strong>
             </div>
             {data.expensesByAccount.length > 0 && (
-              <div className="table-scroll" style={{ marginTop: 16 }}>
+              <div className="table-scroll card-table" style={{ marginTop: 16 }}>
                 <table>
                   <thead><tr><th scope="col">{t("books.purchases.accountLabel")}</th><th scope="col" style={{ textAlign: "right" }}>{t("books.purchases.amountLabel")}</th></tr></thead>
                   <tbody>
                     {data.expensesByAccount.map((r) => (
-                      <tr key={r.account}><td>{r.account}</td><td style={{ textAlign: "right" }}><Num>{fmtMoney(r.amount)}</Num></td></tr>
+                      <tr key={r.account}><td data-label={t("books.purchases.accountLabel")}>{r.account}</td><td data-label={t("books.purchases.amountLabel")} style={{ textAlign: "right" }}><Num>{fmtMoney(r.amount)}</Num></td></tr>
                     ))}
                   </tbody>
                 </table>
