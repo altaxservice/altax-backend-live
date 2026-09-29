@@ -2031,22 +2031,34 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
           )}
           {items.map((r) => (
             <div key={r.progress_id}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: togglingId === r.progress_id ? "default" : "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
-                <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => doToggle(r)} />
-                <span style={{ textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>{r.document_name}</span>
+              {/* A plain <div>, not a <label> — a label wrapping the whole
+                  row would make clicking ANYWHERE in it (the document name,
+                  the badge, empty space) toggle the checkbox, which turned
+                  into a real problem once checking became a single
+                  unconfirmed click (real owner feedback, 2026-09-29: "clicking
+                  anywhere on the card effect the lines"). Only the checkbox
+                  itself, and the explicit "Link a file" button, are click
+                  targets now. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
+                <input
+                  type="checkbox"
+                  id={`cl-item-${r.progress_id}`}
+                  checked={r.checked}
+                  disabled={togglingId === r.progress_id}
+                  onChange={() => doToggle(r)}
+                  style={{ cursor: togglingId === r.progress_id ? "default" : "pointer" }}
+                />
+                <label htmlFor={`cl-item-${r.progress_id}`} style={{ cursor: togglingId === r.progress_id ? "default" : "pointer", textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>
+                  {r.document_name}
+                </label>
                 {r.checked && r.checked_by && <span className="muted" style={{ fontSize: 11 }}>— {r.checked_by}</span>}
                 {r.checked && r.linked_file_name && <span className="badge" style={{ fontSize: 10 }}>{r.linked_file_name}</span>}
                 {r.checked && (
-                  <button
-                    type="button"
-                    className="link-button"
-                    style={{ fontSize: 11 }}
-                    onClick={(e) => { e.preventDefault(); openLinkPicker(r); }}
-                  >
+                  <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => openLinkPicker(r)}>
                     {r.linked_file_name ? "Change file" : "🔗 Link a file"}
                   </button>
                 )}
-              </label>
+              </div>
               {linkingRow?.progress_id === r.progress_id && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0 8px 26px", flexWrap: "wrap" }}>
                   <select className="field" style={{ maxWidth: 260 }} value={pickedUploadId} onChange={(e) => setPickedUploadId(e.target.value)} disabled={!availableUploads}>
