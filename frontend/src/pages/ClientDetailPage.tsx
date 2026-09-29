@@ -1861,15 +1861,12 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
     }
   }
 
-  async function doToggle(row: ChecklistProgressRow, linkedUploadId?: string) {
+  async function doToggle(row: ChecklistProgressRow) {
     setTogglingId(row.progress_id);
     try {
-      const res = await api.post<{ checked: boolean; linkedUploadId: string | null }>(
-        `/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`,
-        linkedUploadId ? { linkedUploadId } : {}
-      );
+      const res = await api.post<{ checked: boolean; linkedUploadId: string | null }>(`/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`, {});
       setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id
-        ? { ...r, checked: res.checked, linked_upload_id: res.linkedUploadId, linked_file_name: availableUploads?.find((u) => u.upload_id === res.linkedUploadId)?.file_name ?? (res.linkedUploadId ? r.linked_file_name : null) }
+        ? { ...r, checked: res.checked, linked_upload_id: res.linkedUploadId, linked_file_name: res.linkedUploadId ? r.linked_file_name : null }
         : r)));
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not update this item.");
@@ -1878,14 +1875,15 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
     }
   }
 
-  async function handleCheckboxChange(row: ChecklistProgressRow) {
-    if (row.checked) {
-      // Unchecking never needs a picker.
-      await doToggle(row);
-      return;
-    }
+  // Optional, secondary action — checking an item off is now an instant
+  // checkbox toggle (doToggle, called directly); this only opens when staff
+  // explicitly wants to attach real evidence via "🔗 Link a file"/"Change
+  // file," instead of blocking every checkbox click behind a picker+confirm
+  // step. Direct owner feedback, 2026-09-29: the old flow's "step process"
+  // didn't feel right for the common case of just checking something off.
+  async function openLinkPicker(row: ChecklistProgressRow) {
     setLinkingRow(row);
-    setPickedUploadId("");
+    setPickedUploadId(row.linked_upload_id || "");
     setAvailableUploads(null);
     try {
       const res = await api.get<{ uploads: ChecklistAvailableUpload[] }>(`/checklists/clients/${clientId}/available-uploads`);
@@ -1897,8 +1895,16 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
 
   async function confirmLink() {
     if (!linkingRow) return;
-    await doToggle(linkingRow, pickedUploadId || undefined);
-    setLinkingRow(null);
+    const row = linkingRow;
+    try {
+      const res = await api.post<{ linkedUploadId: string | null }>(`/checklists/clients/${clientId}/checklist/${row.progress_id}/link`, pickedUploadId ? { linkedUploadId: pickedUploadId } : {});
+      setRows((prev) => (prev || []).map((r) => (r.progress_id === row.progress_id
+        ? { ...r, linked_upload_id: res.linkedUploadId, linked_file_name: availableUploads?.find((u) => u.upload_id === res.linkedUploadId)?.file_name ?? null }
+        : r)));
+      setLinkingRow(null);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not link this file.");
+    }
   }
 
   // "Check All" / "Mark All Collected" — direct owner request, 2026-09-29:
@@ -2025,21 +2031,31 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
           )}
           {items.map((r) => (
             <div key={r.progress_id}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
-                <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => handleCheckboxChange(r)} />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: togglingId === r.progress_id ? "default" : "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
+                <input type="checkbox" checked={r.checked} disabled={togglingId === r.progress_id} onChange={() => doToggle(r)} />
                 <span style={{ textDecoration: r.checked ? "line-through" : "none", color: r.checked ? "var(--muted)" : "var(--ink)" }}>{r.document_name}</span>
                 {r.checked && r.checked_by && <span className="muted" style={{ fontSize: 11 }}>— {r.checked_by}</span>}
                 {r.checked && r.linked_file_name && <span className="badge" style={{ fontSize: 10 }}>{r.linked_file_name}</span>}
+                {r.checked && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    style={{ fontSize: 11 }}
+                    onClick={(e) => { e.preventDefault(); openLinkPicker(r); }}
+                  >
+                    {r.linked_file_name ? "Change file" : "🔗 Link a file"}
+                  </button>
+                )}
               </label>
               {linkingRow?.progress_id === r.progress_id && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0 8px 26px", flexWrap: "wrap" }}>
                   <select className="field" style={{ maxWidth: 260 }} value={pickedUploadId} onChange={(e) => setPickedUploadId(e.target.value)} disabled={!availableUploads}>
-                    <option value="">{availableUploads ? "No document — mark by other means" : "Loading uploads…"}</option>
+                    <option value="">{availableUploads ? "No file — leave unlinked" : "Loading uploads…"}</option>
                     {(availableUploads || []).map((u) => (
                       <option key={u.upload_id} value={u.upload_id}>{u.file_name}</option>
                     ))}
                   </select>
-                  <button type="button" className="btn btn-sm btn-primary" onClick={confirmLink} disabled={!availableUploads}>Mark Collected</button>
+                  <button type="button" className="btn btn-sm btn-primary" onClick={confirmLink} disabled={!availableUploads}>Save Link</button>
                   <button type="button" className="btn btn-sm" onClick={() => setLinkingRow(null)}>Cancel</button>
                 </div>
               )}

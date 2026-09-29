@@ -196,6 +196,32 @@ checklistsRouter.post("/clients/:clientId/checklist/:progressId/toggle", require
 }));
 
 /**
+ * Attaches (or clears) a real uploaded file as evidence WITHOUT touching
+ * checked state — a separate action from /toggle, added 2026-09-29 once
+ * checking an item off became an instant checkbox click (no picker in the
+ * way). Only reachable from the frontend for an already-checked item
+ * ("🔗 Link a file" / "Change file"), but not restricted to that here —
+ * reusing /toggle for this would have incorrectly flipped checked back off.
+ */
+checklistsRouter.post("/clients/:clientId/checklist/:progressId/link", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, progressId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "Not authorized for this client." });
+  const row = await queryOne<any>(`SELECT * FROM altax.v3_client_checklist_progress WHERE progress_id = $1 AND client_id = $2`, [progressId, clientId]);
+  if (!row) return res.status(404).json({ error: "Checklist item not found for this client." });
+
+  let linkedUploadId: string | null = null;
+  const requested = String(req.body?.linkedUploadId || "").trim();
+  if (requested) {
+    const upload = await queryOne<any>(`SELECT upload_id FROM altax.v3_document_uploads WHERE upload_id = $1 AND client_id = $2`, [requested, clientId]);
+    if (!upload) return res.status(400).json({ error: "That document isn't on file for this client." });
+    linkedUploadId = requested;
+  }
+
+  await query(`UPDATE altax.v3_client_checklist_progress SET linked_upload_id = $2 WHERE progress_id = $1`, [progressId, linkedUploadId]);
+  res.json({ ok: true, linkedUploadId });
+}));
+
+/**
  * Printable cover sheet for one checklist template's items on this client —
  * direct owner request, 2026-09-29 (see checklistCoverLetterPdf.ts's own
  * doc comment). Reuses syncAndLoadProgress so the PDF can never drift from
