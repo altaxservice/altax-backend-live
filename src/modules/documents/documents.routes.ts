@@ -1101,3 +1101,88 @@ documentsRouter.post("/uploads/hide", requireAuth, requireRole("client"), asyncH
 
   res.json({ ok: true, hidden });
 }));
+
+/* ------------------------------------------------------------------ */
+/* Client Document Register — manually-logged documents NOT in this app */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Direct owner request, 2026-09-29: a single list per client of every
+ * document the firm has on file — received/uploaded date, who received or
+ * uploaded it, and where it physically or digitally is — even when that
+ * document was never uploaded into this app (a physical original in a
+ * filing cabinet, something mailed to an agency, a copy the client keeps).
+ * Real v3_document_uploads rows already answer this for in-app files; this
+ * table covers everything else. The frontend merges both into one "Files on
+ * File" list (ClientDetailPage.tsx's ClientDocumentsSection) rather than a
+ * separate screen — real uploads show a location of "In Portal" with a
+ * working Open/Download link, register entries show their logged location
+ * instead and are edited/removed here.
+ */
+documentsRouter.get("/register/:clientId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const rows = await query<any>(
+    `SELECT * FROM altax.v3_client_document_register WHERE client_id = $1 ORDER BY received_date DESC NULLS LAST, created_at DESC`,
+    [clientId]
+  );
+  res.json({ entries: rows });
+}));
+
+documentsRouter.post("/register", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const body = req.body || {};
+  const clientId = String(body.clientId || "").trim();
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "You do not have access to this client." });
+  const documentName = String(body.documentName || "").trim();
+  if (!documentName) return res.status(400).json({ error: "Document name is required." });
+  const location = String(body.location || "").trim();
+  if (!location) return res.status(400).json({ error: "Where this document is kept is required." });
+
+  const registerId = `CDR-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+  await query(
+    `INSERT INTO altax.v3_client_document_register
+       (register_id, client_id, document_name, received_date, received_by, location, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      registerId, clientId, documentName, String(body.receivedDate || "").trim() || null,
+      String(body.receivedBy || "").trim() || req.user!.email, location, String(body.notes || "").trim() || null, req.user!.email,
+    ]
+  );
+  await logAudit("Documents", "REGISTER_DOCUMENT", registerId, "", "", documentName,
+    `Logged "${documentName}" on file (${location}) by ${req.user!.email}.`, req.user!.email);
+  res.status(201).json({ ok: true, registerId });
+}));
+
+documentsRouter.patch("/register/:registerId", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { registerId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_client_document_register WHERE register_id = $1`, [registerId]);
+  if (!existing) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, existing.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  const body = req.body || {};
+  const documentName = String(body.documentName ?? existing.document_name).trim();
+  if (!documentName) return res.status(400).json({ error: "Document name is required." });
+  const location = String(body.location ?? existing.location).trim();
+  if (!location) return res.status(400).json({ error: "Where this document is kept is required." });
+
+  await query(
+    `UPDATE altax.v3_client_document_register
+       SET document_name = $2, received_date = $3, received_by = $4, location = $5, notes = $6, updated_at = now()
+     WHERE register_id = $1`,
+    [
+      registerId, documentName, String(body.receivedDate ?? existing.received_date ?? "").trim() || null,
+      String(body.receivedBy ?? existing.received_by ?? "").trim() || null, location, String(body.notes ?? existing.notes ?? "").trim() || null,
+    ]
+  );
+  res.json({ ok: true });
+}));
+
+documentsRouter.post("/register/:registerId/delete", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { registerId } = req.params;
+  const existing = await queryOne<any>(`SELECT * FROM altax.v3_client_document_register WHERE register_id = $1`, [registerId]);
+  if (!existing) return res.status(404).json({ error: "Not found." });
+  if (!(await canAccessClient(req.user!, existing.client_id))) return res.status(403).json({ error: "You do not have access to this client." });
+  await query(`DELETE FROM altax.v3_client_document_register WHERE register_id = $1`, [registerId]);
+  await logAudit("Documents", "REGISTER_DOCUMENT_DELETE", registerId, "", existing.document_name, "",
+    `Removed logged document "${existing.document_name}" by ${req.user!.email}.`, req.user!.email);
+  res.json({ ok: true });
+}));

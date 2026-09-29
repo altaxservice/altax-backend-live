@@ -1481,18 +1481,30 @@ const CONTRACT_STATUS_COLOR: Record<string, string> = {
  * Firm to Client" confusion spotted live. Task attachments live on that task's own
  * page instead.
  */
+interface RegisterEntry {
+  register_id: string; client_id: string; document_name: string;
+  received_date: string | null; received_by: string | null; location: string; notes: string | null;
+}
+const EMPTY_REGISTER_FORM = { documentName: "", receivedDate: "", receivedBy: "", location: "", notes: "" };
+
 function ClientDocumentsSection({ clientId, clientName }: { clientId: string; clientName: string }) {
+  const { user } = useAuth();
   const toast = useToast();
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const [uploads, setUploads] = useState<DocumentUpload[] | null>(null);
   const [requests, setRequests] = useState<DocumentRequest[] | null>(null);
+  const [registerEntries, setRegisterEntries] = useState<RegisterEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
+  const [logForm, setLogForm] = useState(EMPTY_REGISTER_FORM);
+  const [editingRegisterId, setEditingRegisterId] = useState<string | null>(null);
+  const [savingLog, setSavingLog] = useState(false);
   // Archive is meant to declutter this list, but archived rows used to render
   // right alongside active ones (just dimmed + labeled "(archived)") — so
   // clicking Archive visibly did nothing. Now they're hidden by default,
@@ -1510,14 +1522,63 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
     api.get<{ requests: DocumentRequest[] }>("/documents/requests")
       .then((r) => setRequests(r.requests.filter((q) => q.client_id === clientId)))
       .catch(() => setRequests([]));
+    api.get<{ entries: RegisterEntry[] }>(`/documents/register/${clientId}`)
+      .then((r) => setRegisterEntries(r.entries))
+      .catch(() => setRegisterEntries([]));
   }
   useEffect(load, [clientId]);
+
+  function startLogNew() {
+    setEditingRegisterId(null);
+    setLogForm({ ...EMPTY_REGISTER_FORM, receivedBy: user?.name || user?.email || "" });
+    setLogOpen(true);
+  }
+  function startLogEdit(entry: RegisterEntry) {
+    setEditingRegisterId(entry.register_id);
+    setLogForm({
+      documentName: entry.document_name, receivedDate: (entry.received_date || "").slice(0, 10),
+      receivedBy: entry.received_by || "", location: entry.location, notes: entry.notes || "",
+    });
+    setLogOpen(true);
+  }
+  async function handleSaveLog() {
+    if (!logForm.documentName.trim()) { await notify("Document name is required."); return; }
+    if (!logForm.location.trim()) { await notify("Where this document is kept is required."); return; }
+    setSavingLog(true);
+    try {
+      if (editingRegisterId) await api.patch(`/documents/register/${editingRegisterId}`, logForm);
+      else await api.post("/documents/register", { ...logForm, clientId });
+      toast(editingRegisterId ? "Updated." : "Logged.");
+      setLogOpen(false);
+      setEditingRegisterId(null);
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save this entry.");
+    } finally {
+      setSavingLog(false);
+    }
+  }
+  async function handleDeleteRegisterEntry(entry: RegisterEntry) {
+    const ok = await confirmDialog({ title: "Remove this entry", message: `Remove "${entry.document_name}" from the list? This only removes the log entry, not a real file.`, confirmLabel: "Remove", danger: true });
+    if (!ok) return;
+    try {
+      await api.post(`/documents/register/${entry.register_id}/delete`, {});
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not remove this entry.");
+    }
+  }
 
   const openRequests = (requests || []).filter((r) => !["closed", "completed", "void", "archived"].includes(String(r.status || "").toLowerCase()));
   const fq = fileSearch.trim().toLowerCase();
   const searchedUploads = fq ? (uploads || []).filter((u) => [u.file_name, u.direction, (u as any).uploaded_by].some((v) => String(v || "").toLowerCase().includes(fq))) : (uploads || []);
   const activeUploads = searchedUploads.filter((u) => !u.hidden_from_staff);
   const archivedUploads = searchedUploads.filter((u) => u.hidden_from_staff);
+  const searchedRegisterEntries = fq
+    ? (registerEntries || []).filter((r) => [r.document_name, r.location, r.received_by].some((v) => String(v || "").toLowerCase().includes(fq)))
+    : (registerEntries || []);
+  const totalOnFile = (uploads?.length || 0) + (registerEntries?.length || 0);
+  const visibleOnFile = activeUploads.length + searchedRegisterEntries.length;
 
   async function handleRevoke(uploadId: string) {
     const ok = await confirmDialog({ title: "Revoke file", message: `Revoke this file? It will disappear from ${clientName}'s portal too, not just from here. If you just want to clean up this list without affecting them, use Archive instead.`, confirmLabel: "Revoke", danger: true });
@@ -1563,7 +1624,8 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
       <tr style={archived ? { opacity: 0.6 } : undefined}>
         <td data-label="File">{u.file_name}{archived && <span className="muted" style={{ fontSize: 11 }}> (archived)</span>}</td>
         <td className="muted" data-label="Direction">{u.direction || "—"}</td>
-        <td className="muted" data-label="Uploaded">{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</td>
+        <td className="muted" data-label="Location">In Portal</td>
+        <td className="muted" data-label="Date">{u.uploaded_at ? fmtDateTime(u.uploaded_at) : "—"}</td>
         <td className="muted" data-label="By">{String((u as any).uploaded_by || "—")}</td>
         <td data-label="Action" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="link-button" onClick={() => openAnyFile(u.file_url)}>Open</button>
@@ -1580,6 +1642,23 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
     );
   }
 
+  /** A document the firm has on file that was never uploaded into this app (a physical original, something mailed to an agency, a client-kept copy) — logged by hand instead of a real file, so its Action is Edit/Remove rather than Open/Download/Print. */
+  function RegisterRow({ r }: { r: RegisterEntry }) {
+    return (
+      <tr>
+        <td data-label="File">{r.document_name}</td>
+        <td className="muted" data-label="Direction">—</td>
+        <td className="muted" data-label="Location">{r.location}</td>
+        <td className="muted" data-label="Date">{r.received_date ? fmtDateOnly(r.received_date) : "—"}</td>
+        <td className="muted" data-label="By">{r.received_by || "—"}</td>
+        <td data-label="Action" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="link-button" onClick={() => startLogEdit(r)}>Edit</button>
+          <button type="button" className="link-button" style={{ color: "var(--red)" }} onClick={() => handleDeleteRegisterEntry(r)}>Remove</button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div>
       {error && <ErrorBanner error={error} />}
@@ -1589,7 +1668,7 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
           <strong style={{ fontSize: 14 }}>Files on File</strong>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <input type="text" placeholder="Search files…" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--paper)", color: "var(--ink)", width: 160 }} />
-            <span className="muted" style={{ fontSize: 12 }}>{uploads ? `${activeUploads.length} of ${uploads.length} file(s)` : "Loading…"}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{uploads && registerEntries ? `${visibleOnFile} of ${totalOnFile} document(s)` : "Loading…"}</span>
             {archivedUploads.length > 0 && (
               <button type="button" className="link-button" style={{ fontSize: 12 }} onClick={() => setShowArchived((v) => !v)}>
                 {showArchived ? "Hide" : "Show"} archived ({archivedUploads.length})
@@ -1597,20 +1676,54 @@ function ClientDocumentsSection({ clientId, clientName }: { clientId: string; cl
             )}
             <button type="button" className="btn btn-primary btn-sm" onClick={() => setUploadOpen(true)}>Send File to Client</button>
             <button type="button" className="btn btn-sm" onClick={() => setRequestOpen(true)}>Request Document</button>
+            <button type="button" className="btn btn-sm" onClick={startLogNew}>Log a Document</button>
           </div>
         </div>
+        {logOpen && (
+          <div className="card" style={{ margin: 16, padding: 16 }}>
+            <strong style={{ fontSize: 13 }}>{editingRegisterId ? "Edit logged document" : "Log a document not in this app"}</strong>
+            <p className="muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>For a physical original, something mailed to an agency, or a copy the client keeps — no file upload, just a record of what it is and where it is.</p>
+            <div className="form-grid">
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cdr-doc-name">Document Name</label>
+                <input id="cdr-doc-name" value={logForm.documentName} onChange={(e) => setLogForm((f) => ({ ...f, documentName: e.target.value }))} placeholder="e.g. Original Articles of Organization" />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cdr-location">Where It Is</label>
+                <input id="cdr-location" value={logForm.location} onChange={(e) => setLogForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Filing cabinet, Drawer 3 — or client keeps original" />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cdr-date">Date Received</label>
+                <input id="cdr-date" type="date" value={logForm.receivedDate} onChange={(e) => setLogForm((f) => ({ ...f, receivedDate: e.target.value }))} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="cdr-by">Received By</label>
+                <input id="cdr-by" value={logForm.receivedBy} onChange={(e) => setLogForm((f) => ({ ...f, receivedBy: e.target.value }))} />
+              </div>
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label htmlFor="cdr-notes">Notes</label>
+              <input id="cdr-notes" value={logForm.notes} onChange={(e) => setLogForm((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button type="button" className="btn btn-sm btn-primary" disabled={savingLog} onClick={handleSaveLog}>{savingLog ? "Saving…" : "Save"}</button>
+              <button type="button" className="btn btn-sm" onClick={() => { setLogOpen(false); setEditingRegisterId(null); }}>Cancel</button>
+            </div>
+          </div>
+        )}
         <div className="table-scroll card-table">
           <table>
-            <thead><tr><th scope="col">File</th><th scope="col">Direction</th><th scope="col">Uploaded</th><th scope="col">By</th><th scope="col">Action</th></tr></thead>
+            <thead><tr><th scope="col">File</th><th scope="col">Direction</th><th scope="col">Location</th><th scope="col">Date</th><th scope="col">By</th><th scope="col">Action</th></tr></thead>
             <tbody>
               {activeUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={false} />)}
+              {searchedRegisterEntries.map((r) => <RegisterRow key={r.register_id} r={r} />)}
               {showArchived && archivedUploads.map((u) => <FileRow key={u.upload_id} u={u} archived={true} />)}
             </tbody>
           </table>
         </div>
-        {uploads && uploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files on file for this client yet.</p>}
-        {uploads && uploads.length > 0 && searchedUploads.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No files match "{fileSearch}".</p>}
-        {searchedUploads.length > 0 && activeUploads.length === 0 && !showArchived && (
+        {uploads && registerEntries && totalOnFile === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No documents on file for this client yet.</p>}
+        {uploads && registerEntries && totalOnFile > 0 && searchedUploads.length + searchedRegisterEntries.length === 0 && <p className="muted" style={{ padding: 16, textAlign: "center" }}>No documents match "{fileSearch}".</p>}
+        {searchedUploads.length > 0 && activeUploads.length === 0 && searchedRegisterEntries.length === 0 && !showArchived && (
           <p className="muted" style={{ padding: 16, textAlign: "center" }}>
             Every matching file is archived. <button type="button" className="link-button" onClick={() => setShowArchived(true)}>Show archived</button>
           </p>
