@@ -957,6 +957,20 @@ export const MANAGED_DROPDOWN_DEFAULTS: Record<string, { label: string; values: 
     "Signature Needed (POA/W-4/W-9)", "Missing Documentation", "Legal / Dispute",
     "Ownership Change Pending", "Collections", "Other",
   ] },
+  // The checkbox source for building a service's Document Checklist
+  // (Firm -> Document Checklists) — a shared master list so "EIN Letter"
+  // means the same thing whether it's checked on the Business Formation
+  // checklist or the Health Permit one, instead of staff retyping a
+  // slightly different name into every service's list. Seeded directly from
+  // the owner's own real examples (Business Formation, Health Permit, SNAP
+  // Retailer Application), 2026-09-28.
+  checklistDocumentTypes: { label: "Document Checklist Items", values: [
+    "Government-Issued ID", "Social Security Card", "Articles of Organization",
+    "EIN Confirmation Letter (CP 575 / 147C)", "Lease Agreement", "Floor Plan / Plan Review Approval Sheet",
+    "Sales Tax Certificate", "Pest Control Contract", "Business Tax Return", "Personal Tax Return",
+    "Bill of Sale", "Use & Occupancy Permit", "Trader's License", "Tobacco License",
+    "Certificate of Good Standing", "Voided Business Check",
+  ] },
 };
 
 async function managedList(category: string): Promise<string[]> {

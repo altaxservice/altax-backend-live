@@ -21,6 +21,7 @@ export function DocumentChecklistsPage() {
   const confirmDialog = useConfirm();
   const notify = useNotify();
   const [checklists, setChecklists] = useState<Checklist[] | null>(null);
+  const [documentTypes, setDocumentTypes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -29,6 +30,13 @@ export function DocumentChecklistsPage() {
   const [serviceKey, setServiceKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [newItemName, setNewItemName] = useState<Record<string, string>>({});
+  // Which master document types are checked in the "+ Add from list" picker,
+  // per checklist (cleared once Add Selected is clicked) — the picker only
+  // offers types this checklist doesn't already have, so a checked box
+  // always means "add," never "already present."
+  const [pickerOpen, setPickerOpen] = useState<Record<string, boolean>>({});
+  const [pickerChecked, setPickerChecked] = useState<Record<string, Set<string>>>({});
+  const [addingPicked, setAddingPicked] = useState<Record<string, boolean>>({});
 
   function load() {
     api.get<{ checklists: Checklist[] }>("/checklists")
@@ -36,6 +44,41 @@ export function DocumentChecklistsPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load checklist templates."));
   }
   useEffect(load, []);
+  useEffect(() => {
+    // checklistDocumentTypes is a managed dropdown list (Firm -> List
+    // Settings), so the master list of document names is editable from
+    // there without a code change — this just reads whatever's currently
+    // active.
+    api.get<{ checklistDocumentTypes?: string[] }>("/system/options")
+      .then((res) => setDocumentTypes(res.checklistDocumentTypes || []))
+      .catch(() => {});
+  }, []);
+
+  function togglePicked(checklistId: string, docName: string) {
+    setPickerChecked((prev) => {
+      const next = new Set(prev[checklistId] || []);
+      if (next.has(docName)) next.delete(docName); else next.add(docName);
+      return { ...prev, [checklistId]: next };
+    });
+  }
+
+  async function handleAddPicked(checklistId: string) {
+    const picked = Array.from(pickerChecked[checklistId] || []);
+    if (!picked.length) return;
+    setAddingPicked((prev) => ({ ...prev, [checklistId]: true }));
+    try {
+      for (const documentName of picked) {
+        await api.post(`/checklists/${checklistId}/items`, { documentName });
+      }
+      setPickerChecked((prev) => ({ ...prev, [checklistId]: new Set() }));
+      setPickerOpen((prev) => ({ ...prev, [checklistId]: false }));
+      load();
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not add the selected documents.");
+    } finally {
+      setAddingPicked((prev) => ({ ...prev, [checklistId]: false }));
+    }
+  }
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -69,6 +112,15 @@ export function DocumentChecklistsPage() {
       await api.post(`/checklists/${checklistId}/items`, { documentName });
       setNewItemName((prev) => ({ ...prev, [checklistId]: "" }));
       load();
+      // A one-off typed name that isn't on the master list yet gets added to
+      // it too, so the next checklist that needs the same document can just
+      // check it instead of retyping it — keeps the list growing from real
+      // use instead of needing a separate trip to List Settings.
+      if (!documentTypes.includes(documentName)) {
+        api.post("/system/dropdowns/checklistDocumentTypes", { value: documentName })
+          .then(() => setDocumentTypes((prev) => [...prev, documentName]))
+          .catch(() => {});
+      }
     } catch (err) {
       await notify(err instanceof ApiError ? err.message : "Could not add this item.");
     }
@@ -155,15 +207,53 @@ export function DocumentChecklistsPage() {
                   </div>
                 ))}
                 {!c.items.length && <p className="muted" style={{ fontSize: 12, margin: "6px 0" }}>No items yet.</p>}
-                <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-                  <input
-                    style={{ flex: 1 }}
-                    placeholder="Add a required document…"
-                    value={newItemName[c.checklist_id] || ""}
-                    onChange={(e) => setNewItemName((prev) => ({ ...prev, [c.checklist_id]: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleAddItem(c.checklist_id); }}
-                  />
-                  <button className="btn btn-sm" onClick={() => handleAddItem(c.checklist_id)}>+ Add</button>
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+                  {(() => {
+                    const existing = new Set(c.items.map((i) => i.document_name));
+                    const available = documentTypes.filter((t) => !existing.has(t));
+                    const checked = pickerChecked[c.checklist_id] || new Set<string>();
+                    return (
+                      <>
+                        <button className="btn btn-sm" onClick={() => setPickerOpen((prev) => ({ ...prev, [c.checklist_id]: !prev[c.checklist_id] }))}>
+                          {pickerOpen[c.checklist_id] ? "Hide list" : "+ Add from list"}
+                        </button>
+                        {pickerOpen[c.checklist_id] && (
+                          <div style={{ marginTop: 8, padding: 10, border: "1px solid var(--line)", borderRadius: 8, maxHeight: 220, overflowY: "auto" }}>
+                            {!available.length ? (
+                              <p className="muted" style={{ fontSize: 12, margin: 0 }}>Every item on the master list is already on this checklist.</p>
+                            ) : (
+                              available.map((docName) => (
+                                <label key={docName} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0", fontSize: 13, fontWeight: 400 }}>
+                                  <input type="checkbox" checked={checked.has(docName)} onChange={() => togglePicked(c.checklist_id, docName)} />
+                                  {docName}
+                                </label>
+                              ))
+                            )}
+                            {available.length > 0 && (
+                              <button
+                                className="btn btn-sm btn-primary"
+                                style={{ marginTop: 8 }}
+                                disabled={!checked.size || addingPicked[c.checklist_id]}
+                                onClick={() => handleAddPicked(c.checklist_id)}
+                              >
+                                {addingPicked[c.checklist_id] ? "Adding…" : `Add Selected (${checked.size})`}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <input
+                      style={{ flex: 1 }}
+                      placeholder="Or type a document not on the list…"
+                      value={newItemName[c.checklist_id] || ""}
+                      onChange={(e) => setNewItemName((prev) => ({ ...prev, [c.checklist_id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddItem(c.checklist_id); }}
+                    />
+                    <button className="btn btn-sm" onClick={() => handleAddItem(c.checklist_id)}>+ Add</button>
+                  </div>
                 </div>
               </div>
             </div>
