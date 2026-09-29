@@ -84,6 +84,23 @@ function drawFirmLetterhead(page: PDFPage, c: Cursor, profile: FirmProfile, logo
   return y + 24;
 }
 
+function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const words = pdfSafeText(text).split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
 function drawFooter(c: Cursor, profile: FirmProfile) {
   const L = 48, R = PAGE_W - 48;
   c.text(L, PAGE_H - 28, `Generated ${fmtDate(new Date())} — ${profile.firmName}`, { size: 8, color: MUTED });
@@ -96,7 +113,18 @@ export interface ChecklistCoverLetterData {
   clientAddress?: string | null;
   checklistName: string;
   items: ChecklistCoverLetterItem[];
-  /** Number of blank ruled lines at the end, for enclosures not on the standard list. Owner asked for "a couple" — defaults to 3. */
+  /** Overrides the default opening sentence ("The following documents are enclosed in support of this application:") — owner request, 2026-09-29: "Make this cover sheet editable." Falls back to the default when empty. */
+  introText?: string | null;
+  /**
+   * A typed, saved note (owner request, 2026-09-29 — "Add Note, if you can
+   * make it smart and better please do") — e.g. "Re-submission — previous
+   * application denied for missing Pest Control Contract, now included" or
+   * "Please expedite — client's grand opening is 10/15." Printed as its own
+   * paragraph between the checklist and the blank lines, so anything worth
+   * repeating across reprints is typed once instead of handwritten every time.
+   */
+  note?: string | null;
+  /** Number of blank ruled lines at the end, for anything not on the standard list or not worth a saved note. Owner asked for "a couple" — defaults to 2 now that a typed note covers the main case. */
   blankLines?: number;
 }
 
@@ -125,8 +153,12 @@ export async function generateChecklistCoverLetterPdf(data: ChecklistCoverLetter
     }
   }
   y += 10;
-  c.text(L, y, "The following documents are enclosed in support of this application:", { size: 10 });
-  y += 22;
+  const introText = String(data.introText || "").trim() || "The following documents are enclosed in support of this application:";
+  for (const line of wrapText(introText, font, 10, R - L)) {
+    c.text(L, y, line, { size: 10 });
+    y += 14;
+  }
+  y += 8;
 
   const boxSize = 10;
   for (const item of data.items) {
@@ -150,7 +182,18 @@ export async function generateChecklistCoverLetterPdf(data: ChecklistCoverLetter
   }
 
   y += 10;
-  const blankLines = data.blankLines ?? 3;
+  const note = String(data.note || "").trim();
+  if (note) {
+    c.text(L, y, "Note:", { size: 9, bold: true, color: TEAL });
+    y += 13;
+    for (const line of wrapText(note, font, 10, R - L)) {
+      c.text(L, y, line, { size: 10 });
+      y += 14;
+    }
+    y += 10;
+  }
+
+  const blankLines = data.blankLines ?? 2;
   for (let i = 0; i < blankLines; i++) {
     c.line(L, y, R, y);
     y += 22;

@@ -205,14 +205,46 @@ checklistsRouter.get("/clients/:clientId/checklist/:checklistId/cover-letter-pdf
   if (rows === null) return res.status(404).json({ error: "Client not found." });
   const items = rows.filter((r: any) => r.item_checklist_id === checklistId);
   if (!items.length) return res.status(404).json({ error: "This checklist has no items, or doesn't apply to this client." });
+  const textRow = await queryOne<any>(`SELECT intro_text, note FROM altax.v3_client_checklist_notes WHERE client_id = $1 AND checklist_id = $2`, [clientId, checklistId]);
 
   const pdfBytes = await generateChecklistCoverLetterPdf({
     clientName: client.client_name,
     clientAddress: client.address,
     checklistName: items[0].checklist_name,
     items: items.map((r: any) => ({ documentName: r.document_name, checked: Boolean(r.checked) })),
+    introText: textRow?.intro_text || null,
+    note: textRow?.note || null,
   });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="${client.client_name.replace(/[^a-zA-Z0-9]+/g, "-")}-${items[0].checklist_name.replace(/[^a-zA-Z0-9]+/g, "-")}-Cover-Letter.pdf"`);
   res.send(Buffer.from(pdfBytes));
+}));
+
+/**
+ * Makes the cover letter editable per (client, checklist) instead of a fixed
+ * template — direct owner request, 2026-09-29: "Make this cover sheet
+ * editable." introText overrides the default opening sentence; note is an
+ * additional remark printed after the checklist. Both are typed once and
+ * print the same way on every reprint, instead of relying on the letter's
+ * blank handwritten lines for anything worth repeating across copies.
+ */
+checklistsRouter.get("/clients/:clientId/checklist/:checklistId/cover-letter-text", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, checklistId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "Not authorized for this client." });
+  const row = await queryOne<any>(`SELECT intro_text, note FROM altax.v3_client_checklist_notes WHERE client_id = $1 AND checklist_id = $2`, [clientId, checklistId]);
+  res.json({ introText: row?.intro_text || "", note: row?.note || "" });
+}));
+
+checklistsRouter.post("/clients/:clientId/checklist/:checklistId/cover-letter-text", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, checklistId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "Not authorized for this client." });
+  const introText = String(req.body?.introText || "").trim();
+  const note = String(req.body?.note || "").trim();
+  await query(
+    `INSERT INTO altax.v3_client_checklist_notes (client_id, checklist_id, intro_text, note, updated_by, updated_at)
+     VALUES ($1,$2,$3,$4,$5,now())
+     ON CONFLICT (client_id, checklist_id) DO UPDATE SET intro_text = $3, note = $4, updated_by = $5, updated_at = now()`,
+    [clientId, checklistId, introText || null, note || null, req.user!.email]
+  );
+  res.json({ ok: true });
 }));

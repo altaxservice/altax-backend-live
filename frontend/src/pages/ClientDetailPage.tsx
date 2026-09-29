@@ -1804,12 +1804,21 @@ interface ChecklistAvailableUpload {
  */
 function ClientChecklistSection({ clientId }: { clientId: string }) {
   const notify = useNotify();
+  const toast = useToast();
   const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [linkingRow, setLinkingRow] = useState<ChecklistProgressRow | null>(null);
   const [availableUploads, setAvailableUploads] = useState<ChecklistAvailableUpload[] | null>(null);
   const [pickedUploadId, setPickedUploadId] = useState("");
+  // The cover letter's editable text — one (introText, note) pair per
+  // (client, checklist), kept out of `rows` since it lives on a separate
+  // table (v3_client_checklist_notes, not per-item like progress) and is
+  // only fetched/edited on demand rather than up front for every checklist
+  // group on page load.
+  const [openEditorChecklistId, setOpenEditorChecklistId] = useState<string | null>(null);
+  const [textDrafts, setTextDrafts] = useState<Record<string, { introText: string; note: string }>>({});
+  const [savingTextId, setSavingTextId] = useState<string | null>(null);
 
   function load() {
     api.get<{ progress: ChecklistProgressRow[] }>(`/checklists/clients/${clientId}/checklist`)
@@ -1817,6 +1826,32 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the document checklist."));
   }
   useEffect(load, [clientId]);
+
+  async function toggleTextEditor(checklistId: string) {
+    if (openEditorChecklistId === checklistId) { setOpenEditorChecklistId(null); return; }
+    setOpenEditorChecklistId(checklistId);
+    if (textDrafts[checklistId] === undefined) {
+      try {
+        const res = await api.get<{ introText: string; note: string }>(`/checklists/clients/${clientId}/checklist/${checklistId}/cover-letter-text`);
+        setTextDrafts((prev) => ({ ...prev, [checklistId]: { introText: res.introText || "", note: res.note || "" } }));
+      } catch {
+        setTextDrafts((prev) => ({ ...prev, [checklistId]: { introText: "", note: "" } }));
+      }
+    }
+  }
+  async function saveText(checklistId: string) {
+    setSavingTextId(checklistId);
+    try {
+      const draft = textDrafts[checklistId] || { introText: "", note: "" };
+      await api.post(`/checklists/clients/${clientId}/checklist/${checklistId}/cover-letter-text`, draft);
+      toast("Saved — the cover letter will use this next time it's generated.");
+      setOpenEditorChecklistId(null);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not save these changes.");
+    } finally {
+      setSavingTextId(null);
+    }
+  }
 
   async function doToggle(row: ChecklistProgressRow, linkedUploadId?: string) {
     setTogglingId(row.progress_id);
@@ -1882,11 +1917,46 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{name}</div>
             <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => toggleTextEditor(items[0].item_checklist_id)}>
+                {openEditorChecklistId === items[0].item_checklist_id ? "Close Editor" : "Edit Cover Letter"}
+              </button>
               <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => viewFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`)}>View</button>
               <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => printFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`)}>Print</button>
               <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => downloadFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`, `${name} Cover Letter.pdf`)}>Download</button>
             </div>
           </div>
+          {openEditorChecklistId === items[0].item_checklist_id && (
+            <div className="card" style={{ margin: "0 0 10px", padding: 12, background: "var(--surface)" }}>
+              <p className="muted" style={{ fontSize: 11, margin: "0 0 8px" }}>
+                Customize this checklist's cover letter — saved here, used every time it's generated for this client.
+              </p>
+              <div className="field" style={{ margin: "0 0 8px" }}>
+                <label htmlFor={`cl-intro-${items[0].item_checklist_id}`} style={{ fontSize: 11 }}>Opening line</label>
+                <textarea
+                  id={`cl-intro-${items[0].item_checklist_id}`}
+                  rows={2}
+                  style={{ width: "100%", fontSize: 12 }}
+                  placeholder="The following documents are enclosed in support of this application:"
+                  value={textDrafts[items[0].item_checklist_id]?.introText ?? ""}
+                  onChange={(e) => setTextDrafts((prev) => ({ ...prev, [items[0].item_checklist_id]: { introText: e.target.value, note: prev[items[0].item_checklist_id]?.note ?? "" } }))}
+                />
+              </div>
+              <div className="field" style={{ margin: "0 0 8px" }}>
+                <label htmlFor={`cl-note-${items[0].item_checklist_id}`} style={{ fontSize: 11 }}>Note (prints after the checklist)</label>
+                <textarea
+                  id={`cl-note-${items[0].item_checklist_id}`}
+                  rows={2}
+                  style={{ width: "100%", fontSize: 12 }}
+                  placeholder="e.g. Re-submission — previous application denied for missing Pest Control Contract, now included."
+                  value={textDrafts[items[0].item_checklist_id]?.note ?? ""}
+                  onChange={(e) => setTextDrafts((prev) => ({ ...prev, [items[0].item_checklist_id]: { introText: prev[items[0].item_checklist_id]?.introText ?? "", note: e.target.value } }))}
+                />
+              </div>
+              <button type="button" className="btn btn-sm btn-primary" disabled={savingTextId === items[0].item_checklist_id} onClick={() => saveText(items[0].item_checklist_id)}>
+                {savingTextId === items[0].item_checklist_id ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
           {items.map((r) => (
             <div key={r.progress_id}>
               <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>
