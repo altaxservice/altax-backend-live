@@ -1348,10 +1348,7 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Documents" && canSeeStaffTabs && (
-            <>
-              <ClientChecklistSection clientId={client.client_id} />
-              <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
-            </>
+            <ClientDocumentsSection clientId={client.client_id} clientName={client.client_name} />
           )}
 
           {tab === "Activity Timeline" && canSeeStaffTabs && (
@@ -1414,7 +1411,10 @@ export function ClientDetailPage() {
           )}
 
           {tab === "Permits & Compliance" && canSeeStaffTabs && (
-            <HealthPermitsSection clientId={client.client_id} />
+            <>
+              <ClientChecklistSection clientId={client.client_id} />
+              <HealthPermitsSection clientId={client.client_id} />
+            </>
           )}
 
           {tab === "Vault & Payment Methods" && canSeeStaffTabs && (
@@ -1806,6 +1806,7 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
   const { user } = useAuth();
   const notify = useNotify();
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -1900,6 +1901,36 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
     setLinkingRow(null);
   }
 
+  // "Check All" / "Mark All Collected" — direct owner request, 2026-09-29:
+  // checking off an 11-item checklist one at a time (each with its own
+  // upload-picker round trip) was real friction. Marks every currently
+  // unchecked item in one group as collected by other means (no linked
+  // upload — staff can still link individual items afterward if a real
+  // file exists for one).
+  const [markingAllId, setMarkingAllId] = useState<string | null>(null);
+  async function handleMarkAllCollected(checklistId: string, items: ChecklistProgressRow[]) {
+    const unchecked = items.filter((r) => !r.checked);
+    if (!unchecked.length) return;
+    const ok = await confirmDialog({
+      title: "Mark all collected",
+      message: `Mark all ${unchecked.length} remaining item${unchecked.length === 1 ? "" : "s"} as collected? You can still link a real file to any of them afterward.`,
+      confirmLabel: "Mark All Collected",
+    });
+    if (!ok) return;
+    setMarkingAllId(checklistId);
+    try {
+      for (const row of unchecked) {
+        await api.post(`/checklists/clients/${clientId}/checklist/${row.progress_id}/toggle`, {});
+      }
+      setRows((prev) => (prev || []).map((r) => (unchecked.some((u) => u.progress_id === r.progress_id) ? { ...r, checked: true } : r)));
+      toast(`Marked ${unchecked.length} item${unchecked.length === 1 ? "" : "s"} collected.`);
+    } catch (err) {
+      await notify(err instanceof ApiError ? err.message : "Could not mark all items collected — some may have been updated.");
+    } finally {
+      setMarkingAllId(null);
+    }
+  }
+
   if (error) return <div className="card" style={{ marginBottom: 16 }}><ErrorBanner error={error} /></div>;
   if (!rows) return null;
   if (!rows.length && !emptyChecklistNames.length) return null; // genuinely no template applies to this client — the normal case
@@ -1941,6 +1972,17 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{name}</div>
             <div style={{ display: "flex", gap: 6 }}>
+              {items.some((r) => !r.checked) && (
+                <button
+                  type="button"
+                  className="link-button"
+                  style={{ fontSize: 11 }}
+                  disabled={markingAllId === items[0].item_checklist_id}
+                  onClick={() => handleMarkAllCollected(items[0].item_checklist_id, items)}
+                >
+                  {markingAllId === items[0].item_checklist_id ? "Marking…" : "Mark All Collected"}
+                </button>
+              )}
               <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => toggleTextEditor(items[0].item_checklist_id)}>
                 {openEditorChecklistId === items[0].item_checklist_id ? "Close Editor" : "Edit Cover Letter"}
               </button>
