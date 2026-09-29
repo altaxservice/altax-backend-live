@@ -128,15 +128,23 @@ async function syncAndLoadProgress(clientId: string) {
       ORDER BY c.name ASC, i.sort_order ASC`,
     [clientId]
   );
-  return rows;
+  // Real confusion caught live, 2026-09-29: a template that matches this
+  // client's type/services but was never given any items (checklist created,
+  // "+ Add from list" never clicked) produces zero progress rows — the
+  // section then silently vanishes with no clue why, indistinguishable from
+  // "no template applies to this client at all," which is the normal,
+  // expected case for most clients. Surfacing which matching templates are
+  // still empty lets the frontend show a hint instead of nothing.
+  const emptyChecklistNames = matching.filter((t: any) => t.items.length === 0).map((t: any) => t.name);
+  return { rows, emptyChecklistNames };
 }
 
 checklistsRouter.get("/clients/:clientId/checklist", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
   const { clientId } = req.params;
   if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "Not authorized for this client." });
-  const rows = await syncAndLoadProgress(clientId);
-  if (rows === null) return res.status(404).json({ error: "Client not found." });
-  res.json({ progress: rows });
+  const result = await syncAndLoadProgress(clientId);
+  if (result === null) return res.status(404).json({ error: "Client not found." });
+  res.json({ progress: result.rows, emptyChecklistNames: result.emptyChecklistNames });
 }));
 
 /** Feeds the "link an existing document" picker on the toggle-checked flow — kept as its own small, client-scoped query here rather than widening documents.routes.ts's shared /uploads listing. */
@@ -201,9 +209,9 @@ checklistsRouter.get("/clients/:clientId/checklist/:checklistId/cover-letter-pdf
   const client = decryptClientPii(await queryOne<any>(`SELECT client_name, address FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
   if (!client) return res.status(404).json({ error: "Client not found." });
 
-  const rows = await syncAndLoadProgress(clientId);
-  if (rows === null) return res.status(404).json({ error: "Client not found." });
-  const items = rows.filter((r: any) => r.item_checklist_id === checklistId);
+  const result = await syncAndLoadProgress(clientId);
+  if (result === null) return res.status(404).json({ error: "Client not found." });
+  const items = result.rows.filter((r: any) => r.item_checklist_id === checklistId);
   if (!items.length) return res.status(404).json({ error: "This checklist has no items, or doesn't apply to this client." });
   const textRow = await queryOne<any>(`SELECT intro_text, note FROM altax.v3_client_checklist_notes WHERE client_id = $1 AND checklist_id = $2`, [clientId, checklistId]);
 

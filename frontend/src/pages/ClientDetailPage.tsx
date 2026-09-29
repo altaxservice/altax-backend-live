@@ -1803,6 +1803,7 @@ interface ChecklistAvailableUpload {
  * totally disconnected systems.
  */
 function ClientChecklistSection({ clientId }: { clientId: string }) {
+  const { user } = useAuth();
   const notify = useNotify();
   const toast = useToast();
   const [rows, setRows] = useState<ChecklistProgressRow[] | null>(null);
@@ -1819,10 +1820,16 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
   const [openEditorChecklistId, setOpenEditorChecklistId] = useState<string | null>(null);
   const [textDrafts, setTextDrafts] = useState<Record<string, { introText: string; note: string }>>({});
   const [savingTextId, setSavingTextId] = useState<string | null>(null);
+  // Real confusion caught live, 2026-09-29: a checklist template that
+  // matches this client's type/services but was never given any items
+  // (created, "+ Add from list" never clicked) used to vanish with no clue
+  // why — indistinguishable from "no template applies to this client,"
+  // which is the normal case for most clients. This surfaces the difference.
+  const [emptyChecklistNames, setEmptyChecklistNames] = useState<string[]>([]);
 
   function load() {
-    api.get<{ progress: ChecklistProgressRow[] }>(`/checklists/clients/${clientId}/checklist`)
-      .then((res) => setRows(res.progress))
+    api.get<{ progress: ChecklistProgressRow[]; emptyChecklistNames: string[] }>(`/checklists/clients/${clientId}/checklist`)
+      .then((res) => { setRows(res.progress); setEmptyChecklistNames(res.emptyChecklistNames || []); })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load the document checklist."));
   }
   useEffect(load, [clientId]);
@@ -1895,7 +1902,24 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
 
   if (error) return <div className="card" style={{ marginBottom: 16 }}><ErrorBanner error={error} /></div>;
   if (!rows) return null;
-  if (!rows.length) return null; // no template matches this client's type/services — nothing to show
+  if (!rows.length && !emptyChecklistNames.length) return null; // genuinely no template applies to this client — the normal case
+  if (!rows.length) {
+    // At least one template matches this client but has zero items — that's
+    // a setup gap, not "nothing applies here." Say so instead of vanishing.
+    return (
+      <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+        <strong style={{ fontSize: 14 }}>Document Checklist</strong>
+        <p className="muted" style={{ fontSize: 13, margin: "8px 0 0" }}>
+          {emptyChecklistNames.join(", ")} applies to this client but has no items yet.{" "}
+          {user?.role === "admin" ? (
+            <><Link to="/document-checklists">Add some in Document Checklists</Link> to have it show up here.</>
+          ) : (
+            "Ask an admin to add some in Document Checklists to have it show up here."
+          )}
+        </p>
+      </div>
+    );
+  }
 
   const grouped = new Map<string, ChecklistProgressRow[]>();
   for (const r of rows) {
