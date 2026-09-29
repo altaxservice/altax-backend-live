@@ -1770,6 +1770,7 @@ interface ChecklistProgressRow {
   progress_id: string;
   client_id: string;
   item_id: string;
+  item_checklist_id: string;
   document_name: string;
   checklist_name: string;
   checked: boolean;
@@ -1878,7 +1879,14 @@ function ClientChecklistSection({ clientId }: { clientId: string }) {
       </div>
       {Array.from(grouped.entries()).map(([name, items]) => (
         <div key={name} style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
-          <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{name}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>{name}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => viewFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`)}>View</button>
+              <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => printFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`)}>Print</button>
+              <button type="button" className="link-button" style={{ fontSize: 11 }} onClick={() => downloadFile(`/checklists/clients/${clientId}/checklist/${items[0].item_checklist_id}/cover-letter-pdf`, `${name} Cover Letter.pdf`)}>Download</button>
+            </div>
+          </div>
           {items.map((r) => (
             <div key={r.progress_id}>
               <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer", opacity: togglingId === r.progress_id ? 0.6 : 1 }}>

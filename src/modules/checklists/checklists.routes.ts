@@ -4,6 +4,8 @@ import { AuthedRequest, requireAuth, requireRole } from "../../common/requireAut
 import { asyncHandler } from "../../common/asyncHandler";
 import { canAccessClient } from "../../common/assignment";
 import { logAudit } from "../../common/audit";
+import { decryptClientPii } from "../../common/encryption";
+import { generateChecklistCoverLetterPdf } from "./checklistCoverLetterPdf";
 
 /**
  * Document checklist templates — an internal "did we collect everything we
@@ -183,4 +185,34 @@ checklistsRouter.post("/clients/:clientId/checklist/:progressId/toggle", require
     [progressId, checked, checked ? new Date() : null, checked ? req.user!.email : null, linkedUploadId]
   );
   res.json({ ok: true, checked, linkedUploadId });
+}));
+
+/**
+ * Printable cover sheet for one checklist template's items on this client —
+ * direct owner request, 2026-09-29 (see checklistCoverLetterPdf.ts's own
+ * doc comment). Reuses syncAndLoadProgress so the PDF can never drift from
+ * what the client's own Documents tab checklist card shows — same sync, same
+ * checked/unchecked state, just filtered to the one checklist_id requested
+ * (a client can match several templates; the cover letter is per-service).
+ */
+checklistsRouter.get("/clients/:clientId/checklist/:checklistId/cover-letter-pdf", requireAuth, requireRole("admin", "staff"), asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const { clientId, checklistId } = req.params;
+  if (!(await canAccessClient(req.user!, clientId))) return res.status(403).json({ error: "Not authorized for this client." });
+  const client = decryptClientPii(await queryOne<any>(`SELECT client_name, address FROM altax.v3_clients WHERE client_id = $1`, [clientId]));
+  if (!client) return res.status(404).json({ error: "Client not found." });
+
+  const rows = await syncAndLoadProgress(clientId);
+  if (rows === null) return res.status(404).json({ error: "Client not found." });
+  const items = rows.filter((r: any) => r.item_checklist_id === checklistId);
+  if (!items.length) return res.status(404).json({ error: "This checklist has no items, or doesn't apply to this client." });
+
+  const pdfBytes = await generateChecklistCoverLetterPdf({
+    clientName: client.client_name,
+    clientAddress: client.address,
+    checklistName: items[0].checklist_name,
+    items: items.map((r: any) => ({ documentName: r.document_name, checked: Boolean(r.checked) })),
+  });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${client.client_name.replace(/[^a-zA-Z0-9]+/g, "-")}-${items[0].checklist_name.replace(/[^a-zA-Z0-9]+/g, "-")}-Cover-Letter.pdf"`);
+  res.send(Buffer.from(pdfBytes));
 }));
