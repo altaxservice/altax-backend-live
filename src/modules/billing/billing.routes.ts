@@ -10,6 +10,7 @@ import { composeAddress } from "../../common/address";
 import { lookupSalesTaxRate } from "../../common/taxRates";
 import { encryptValue } from "../../common/encryption";
 import { reserveIdempotencyKey, saveIdempotencyResponse } from "../../common/idempotency";
+import { getFirmProfile } from "../../common/firmProfile";
 
 /**
  * Billing module — Phase 5. Covers invoices, payments, and recurring billing. Ported
@@ -240,6 +241,13 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
     ? composeAddress({ street: shipToStreet, city: shipToCity, state: shipToState, zip: shipToZip })
     : (String(body.shipTo || body.billTo || client.address || "").trim() || null);
 
+  // Fall back to the firm-wide defaults (Firm Settings) when the caller didn't
+  // specify terms/payment instructions — covers direct API/import callers that
+  // never pass these fields at all, in addition to the frontend's own prefill.
+  const firmProfile = await getFirmProfile();
+  const terms = String(body.terms || "").trim() || firmProfile.defaultPaymentTerms || null;
+  const paymentInstructions = String(body.paymentInstructions || "").trim() || firmProfile.defaultPaymentInstructions || null;
+
   await withTransaction(async (db) => {
     await db.query(
       `INSERT INTO altax.v3_invoices
@@ -252,9 +260,9 @@ billingRouter.post("/invoices", requireAuth, requireRole("admin", "staff"), asyn
        VALUES ($1,$2,COALESCE($3,now()),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,'Node Web App',$1,$30,$31,$32,$33)`,
       [
         invoiceId, clientId, invoiceDate, dueDate, description, total, paid, balance, status,
-        String(body.pdfLink || "").trim() || null, String(body.terms || "").trim() || null,
+        String(body.pdfLink || "").trim() || null, terms,
         String(body.customerType || client.client_type || "").trim() || null, billTo, shipTo,
-        String(body.shipFrom || "").trim() || null, String(body.paymentInstructions || "").trim() || null,
+        String(body.shipFrom || "").trim() || null, paymentInstructions,
         String(body.clientNote || "").trim() || null, String(body.internalNote || "").trim() || null,
         subtotal, money(body.discountPercent) || null, discountAmount || null, taxableSubtotal || null,
         salesTaxRate || null, salesTaxAmount || null, money(body.shippingAmount) || null, deposit || null,

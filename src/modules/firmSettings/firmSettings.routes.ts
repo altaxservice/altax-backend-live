@@ -4,6 +4,7 @@ import { asyncHandler } from "../../common/asyncHandler";
 import { logAudit } from "../../common/audit";
 import { getFirmProfile, getFirmLogo, updateFirmProfile } from "../../common/firmProfile";
 import { scanFileForMalware } from "../../common/malwareScan";
+import { query } from "../../config/db";
 
 export const firmSettingsRouter = Router();
 
@@ -102,20 +103,47 @@ firmSettingsRouter.patch("/", requireAuth, requireRole("admin"), asyncHandler(as
     zelleQrContentType = contentType;
   }
 
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : undefined);
+
   await updateFirmProfile({
-    firmName: typeof body.firmName === "string" ? body.firmName.trim() : undefined,
-    street: typeof body.street === "string" ? body.street.trim() : undefined,
-    city: typeof body.city === "string" ? body.city.trim() : undefined,
-    state: typeof body.state === "string" ? body.state.trim() : undefined,
-    zipCode: typeof body.zipCode === "string" ? body.zipCode.trim() : undefined,
-    phone: typeof body.phone === "string" ? body.phone.trim() : undefined,
-    email: typeof body.email === "string" ? body.email.trim() : undefined,
+    firmName: str(body.firmName),
+    street: str(body.street),
+    city: str(body.city),
+    state: str(body.state),
+    zipCode: str(body.zipCode),
+    phone: str(body.phone),
+    email: str(body.email),
     logoData, logoContentType,
     zelleQrData, zelleQrContentType,
+    ein: str(body.ein),
+    efin: str(body.efin),
+    website: str(body.website),
+    defaultPaymentTerms: str(body.defaultPaymentTerms),
+    defaultPaymentInstructions: str(body.defaultPaymentInstructions),
+    invoiceFooter: str(body.invoiceFooter),
+    emailFromName: str(body.emailFromName),
+    emailReplyTo: str(body.emailReplyTo),
+    emailSignature: str(body.emailSignature),
     updatedBy: req.user!.email,
   });
 
   await logAudit("System", "UPDATE_FIRM_SETTINGS", "FIRM-1", "", "", "", "Firm profile updated.", req.user!.email);
 
   res.json(await getFirmProfile());
+}));
+
+/**
+ * Change history for the Firm Settings page — admin-only, same gate as the
+ * PATCH above. Firm settings changes are already logged to v3_audit_log
+ * (module "System", action "UPDATE_FIRM_SETTINGS", record_id "FIRM-1") on
+ * every save, so this just surfaces that existing log rather than adding any
+ * new logging.
+ */
+firmSettingsRouter.get("/history", requireAuth, requireRole("admin"), asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const rows = await query<{ logged_at: string; user_email: string; note: string | null }>(
+    `SELECT logged_at, user_email, note FROM altax.v3_audit_log
+      WHERE module = 'System' AND action = 'UPDATE_FIRM_SETTINGS' AND record_id = 'FIRM-1'
+      ORDER BY logged_at DESC LIMIT 25`
+  );
+  res.json(rows.map((r) => ({ loggedAt: r.logged_at, userEmail: r.user_email, note: r.note })));
 }));

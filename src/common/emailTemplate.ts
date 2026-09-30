@@ -51,6 +51,7 @@ export async function wrapEmailHtml(bodyHtml: string, req?: Request): Promise<st
             <tr>
               <td style="padding:28px; color:#1a1a1a; font-size:14px; line-height:1.6;">
                 ${bodyHtml}
+                ${profile.emailSignature ? `<div style="margin-top:20px; white-space:pre-line;">${escapeHtml(profile.emailSignature)}</div>` : ""}
               </td>
             </tr>
             <tr>

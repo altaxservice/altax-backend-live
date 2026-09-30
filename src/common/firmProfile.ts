@@ -35,6 +35,21 @@ export interface FirmProfile {
   logoDataUrl: string | null;
   /** A "Scan to pay" QR image from the firm's own bank/Zelle app — a static image, not a payment-processor integration, so it needs no API keys. Embedded on invoice PDFs when set. */
   zelleQrDataUrl: string | null;
+  /** Firm credentials — print on engagement letters and prefill IRS 2848/8821 + MD 548 POA generation. Not PTIN/CAF: those are per-preparer, on v3_users. */
+  ein: string;
+  efin: string;
+  website: string;
+  /** Pre-fills a new invoice's Terms/Payment Instructions fields so staff don't retype them every time; still editable per invoice. */
+  defaultPaymentTerms: string;
+  defaultPaymentInstructions: string;
+  /** Replaces the hardcoded "Thank you for your business." line at the bottom of every invoice PDF, when set. */
+  invoiceFooter: string;
+  /** Display name used on the From header of outbound email (the sending address itself stays whatever RESEND_FROM_EMAIL is verified for). */
+  emailFromName: string;
+  /** Overrides the reply-to address on outbound email — falls back to the firm's own contact email when unset. */
+  emailReplyTo: string;
+  /** A firm-wide closing line (e.g. "Warm regards, the AL Tax Service team") appended to every outbound email above the automatic contact-info footer. */
+  emailSignature: string;
   updatedBy: string | null;
   updatedAt: string | null;
 }
@@ -61,6 +76,15 @@ export async function getFirmProfile(): Promise<FirmProfile> {
     email: row?.email || DEFAULT_FIRM_PROFILE.email,
     logoDataUrl: row?.logo_data && row?.logo_content_type ? `data:${row.logo_content_type};base64,${row.logo_data}` : null,
     zelleQrDataUrl: row?.zelle_qr_data && row?.zelle_qr_content_type ? `data:${row.zelle_qr_content_type};base64,${row.zelle_qr_data}` : null,
+    ein: row?.ein || "",
+    efin: row?.efin || "",
+    website: row?.website || "",
+    defaultPaymentTerms: row?.default_payment_terms || "",
+    defaultPaymentInstructions: row?.default_payment_instructions || "",
+    invoiceFooter: row?.invoice_footer || "",
+    emailFromName: row?.email_from_name || "",
+    emailReplyTo: row?.email_reply_to || "",
+    emailSignature: row?.email_signature || "",
     updatedBy: row?.updated_by ?? null,
     updatedAt: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
   };
@@ -84,6 +108,9 @@ export async function updateFirmProfile(fields: {
   firmName?: string; street?: string; city?: string; state?: string; zipCode?: string; phone?: string; email?: string;
   logoData?: string | null; logoContentType?: string | null;
   zelleQrData?: string | null; zelleQrContentType?: string | null;
+  ein?: string; efin?: string; website?: string;
+  defaultPaymentTerms?: string; defaultPaymentInstructions?: string; invoiceFooter?: string;
+  emailFromName?: string; emailReplyTo?: string; emailSignature?: string;
   updatedBy: string;
 }): Promise<void> {
   const existing = await queryOne<any>(`SELECT * FROM altax.v3_firm_settings WHERE id = 'FIRM-1'`);
@@ -100,14 +127,30 @@ export async function updateFirmProfile(fields: {
     logo_content_type: fields.logoContentType === undefined ? existing?.logo_content_type ?? null : fields.logoContentType,
     zelle_qr_data: fields.zelleQrData === undefined ? existing?.zelle_qr_data ?? null : fields.zelleQrData,
     zelle_qr_content_type: fields.zelleQrContentType === undefined ? existing?.zelle_qr_content_type ?? null : fields.zelleQrContentType,
+    ein: fields.ein ?? existing?.ein ?? null,
+    efin: fields.efin ?? existing?.efin ?? null,
+    website: fields.website ?? existing?.website ?? null,
+    default_payment_terms: fields.defaultPaymentTerms ?? existing?.default_payment_terms ?? null,
+    default_payment_instructions: fields.defaultPaymentInstructions ?? existing?.default_payment_instructions ?? null,
+    invoice_footer: fields.invoiceFooter ?? existing?.invoice_footer ?? null,
+    email_from_name: fields.emailFromName ?? existing?.email_from_name ?? null,
+    email_reply_to: fields.emailReplyTo ?? existing?.email_reply_to ?? null,
+    email_signature: fields.emailSignature ?? existing?.email_signature ?? null,
   };
   await query(
-    `INSERT INTO altax.v3_firm_settings (id, firm_name, street_address, city, state, zip_code, phone, email, logo_data, logo_content_type, zelle_qr_data, zelle_qr_content_type, updated_at, updated_by)
-     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), $12)
+    `INSERT INTO altax.v3_firm_settings (id, firm_name, street_address, city, state, zip_code, phone, email, logo_data, logo_content_type, zelle_qr_data, zelle_qr_content_type,
+       ein, efin, website, default_payment_terms, default_payment_instructions, invoice_footer, email_from_name, email_reply_to, email_signature, updated_at, updated_by)
+     VALUES ('FIRM-1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21)
      ON CONFLICT (id) DO UPDATE SET
        firm_name = $1, street_address = $2, city = $3, state = $4, zip_code = $5, phone = $6, email = $7,
-       logo_data = $8, logo_content_type = $9, zelle_qr_data = $10, zelle_qr_content_type = $11, updated_at = now(), updated_by = $12`,
+       logo_data = $8, logo_content_type = $9, zelle_qr_data = $10, zelle_qr_content_type = $11,
+       ein = $12, efin = $13, website = $14, default_payment_terms = $15, default_payment_instructions = $16,
+       invoice_footer = $17, email_from_name = $18, email_reply_to = $19, email_signature = $20,
+       updated_at = now(), updated_by = $21`,
     [merged.firm_name, merged.street_address, merged.city, merged.state, merged.zip_code, merged.phone, merged.email,
-      merged.logo_data, merged.logo_content_type, merged.zelle_qr_data, merged.zelle_qr_content_type, fields.updatedBy]
+      merged.logo_data, merged.logo_content_type, merged.zelle_qr_data, merged.zelle_qr_content_type,
+      merged.ein, merged.efin, merged.website, merged.default_payment_terms, merged.default_payment_instructions,
+      merged.invoice_footer, merged.email_from_name, merged.email_reply_to, merged.email_signature,
+      fields.updatedBy]
   );
 }

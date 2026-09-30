@@ -89,19 +89,26 @@ export interface EmailAttachment { filename: string; content: Buffer; contentTyp
 export async function sendEmail(opts: { to: string; cc?: string[]; bcc?: string[]; subject: string; html: string; attachments?: EmailAttachment[] }): Promise<{ providerMessageId: string | null }> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new NotConfiguredError("Email is not connected yet — add RESEND_API_KEY to the backend .env to enable sending.");
-  const from = process.env.RESEND_FROM_EMAIL || "AL Tax Service <onboarding@resend.dev>";
+  const envFrom = process.env.RESEND_FROM_EMAIL || "AL Tax Service <onboarding@resend.dev>";
   const resend = new Resend(apiKey);
   // The `from` address is typically a noreply@ sending domain (Resend requires
   // a verified domain, and firms rarely want to receive at that address), but
   // every template in this app tells the client to "just reply to this email"
   // — without an explicit reply-to, that reply would silently land at noreply@
-  // and never reach anyone. Routes replies to the firm's own real, monitored
-  // address instead (Firm Settings — the same address shown in the email
-  // footer via wrapEmailHtml), so "reply to this email" is actually true.
+  // and never reach anyone. Routes replies to the firm's own monitored address
+  // instead (Firm Settings' reply-to override, falling back to its main
+  // contact email), so "reply to this email" is actually true.
   const profile = await getFirmProfile();
+  // Only the display name is firm-editable — the address itself has to stay
+  // whatever domain Resend has verified (RESEND_FROM_EMAIL), so this swaps
+  // just the name half of "Name <address>" when the firm has set one.
+  const fromAddressMatch = /<([^>]+)>/.exec(envFrom);
+  const from = profile.emailFromName && fromAddressMatch
+    ? `${profile.emailFromName} <${fromAddressMatch[1]}>`
+    : envFrom;
   const result = await resend.emails.send({
     from, to: [opts.to], subject: opts.subject, html: opts.html,
-    replyTo: profile.email || undefined,
+    replyTo: profile.emailReplyTo || profile.email || undefined,
     cc: opts.cc?.length ? opts.cc : undefined,
     bcc: opts.bcc?.length ? opts.bcc : undefined,
     attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),

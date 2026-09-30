@@ -144,11 +144,33 @@ export function InvoiceEditorModal({ clients, editing, initialClientId, initialL
   }, [clientId]);
 
   useEffect(() => {
-    if (isEdit || shipFrom) return;
-    api.get<{ firmName: string; addressLine1: string; addressLine2: string; phone: string; email: string }>("/firm-settings")
+    if (isEdit) return;
+    api.get<{ firmName: string; addressLine1: string; addressLine2: string; phone: string; email: string; defaultPaymentTerms: string; defaultPaymentInstructions: string }>("/firm-settings")
       .then((firm) => {
-        const lines = [firm.firmName, firm.addressLine1, firm.addressLine2, firm.phone].filter((l) => l && l.trim());
-        setShipFrom((prev) => (prev ? prev : lines.join("\n")));
+        if (!shipFrom) {
+          const lines = [firm.firmName, firm.addressLine1, firm.addressLine2, firm.phone].filter((l) => l && l.trim());
+          setShipFrom((prev) => (prev ? prev : lines.join("\n")));
+        }
+        // Only apply Firm Settings' default Terms/Payment Instructions while the
+        // form is still sitting at ITS OWN initial defaults — if the user already
+        // picked different terms or typed instructions in the moment before this
+        // call returned, their choice wins.
+        if (firm.defaultPaymentTerms) {
+          setTerms((prev) => {
+            if (prev !== "Due on receipt") return prev;
+            // Mirrors handleTermsChange's due-date math — applying a firm
+            // default of e.g. "Net 30" should also push the due date out,
+            // not just relabel it while leaving it due today.
+            const days = TERMS_DAYS[firm.defaultPaymentTerms] ?? 0;
+            const base = invoiceDate ? new Date(invoiceDate) : new Date();
+            base.setDate(base.getDate() + days);
+            setDueDate((prevDue) => (prevDue === invoiceDate || !prevDue ? base.toISOString().slice(0, 10) : prevDue));
+            return firm.defaultPaymentTerms;
+          });
+        }
+        if (firm.defaultPaymentInstructions) {
+          setPaymentInstructions((prev) => (prev ? prev : firm.defaultPaymentInstructions));
+        }
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps

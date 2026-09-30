@@ -344,7 +344,10 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Uint8Arr
     }
   }
 
-  c.text(L, PAGE_H - 30, "Thank you for your business.", { size: 9, color: MUTED });
+  const footerLines = wrapText(font, profile.invoiceFooter || "Thank you for your business.", 9, R - L, 2);
+  footerLines.forEach((line, i) => {
+    c.text(L, PAGE_H - 30 - (footerLines.length - 1 - i) * 12, line, { size: 9, color: MUTED });
+  });
 
   return doc.save();
 }
