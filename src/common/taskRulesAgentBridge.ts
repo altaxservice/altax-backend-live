@@ -101,6 +101,8 @@ export async function closeObligationTask(params: {
   periodLabel?: string | null;
   filedDate: string;
   paidDate?: string | null;
+  /** Skip tasks whose name contains this — e.g. "reconciliation", so filing a Q4 withholding payment never closes the annual reconciliation task that happens to share its January due date. */
+  excludeKeyword?: string;
 }): Promise<void> {
   // Archives after closing — see closeTaskRulesAgentTask's doc comment above
   // for the real incident this fixes (a task closed here stayed permanently
@@ -111,12 +113,13 @@ export async function closeObligationTask(params: {
       WHERE client_id = $1
         AND (lower(task_name) LIKE '%' || lower($2) || '%' OR lower(coalesce(service_line, '')) LIKE '%' || lower($2) || '%')
         AND lower(status) NOT IN ('completed', 'closed', 'archived', 'void')
+        AND ($7::text IS NULL OR lower(task_name) NOT LIKE '%' || lower($7) || '%')
         AND (
           agency_due_date = $3::date
           OR ($4::text IS NOT NULL AND lower(coalesce(period, '')) = lower($4))
         )
       RETURNING task_id`,
-    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.filedDate, params.paidDate ?? null]
+    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.filedDate, params.paidDate ?? null, params.excludeKeyword ?? null]
   );
   for (const r of rows) {
     await archiveTask(r.task_id, "Auto-archived after being marked Completed (obligation filed).", "system");
@@ -151,6 +154,7 @@ export async function markObligationTaskPaid(params: {
   dueDate: string;
   periodLabel?: string | null;
   paidDate: string;
+  excludeKeyword?: string;
 }): Promise<void> {
   await query(
     `UPDATE altax.v3_tasks
@@ -159,11 +163,12 @@ export async function markObligationTaskPaid(params: {
         AND (lower(task_name) LIKE '%' || lower($2) || '%' OR lower(coalesce(service_line, '')) LIKE '%' || lower($2) || '%')
         AND lower(status) NOT IN ('void')
         AND paid_date IS NULL
+        AND ($6::text IS NULL OR lower(task_name) NOT LIKE '%' || lower($6) || '%')
         AND (
           agency_due_date = $3::date
           OR ($4::text IS NOT NULL AND lower(coalesce(period, '')) = lower($4))
         )`,
-    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.paidDate]
+    [params.clientId, params.keyword, params.dueDate, params.periodLabel ?? null, params.paidDate, params.excludeKeyword ?? null]
   );
 }
 

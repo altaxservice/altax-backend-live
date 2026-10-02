@@ -178,6 +178,13 @@ async function loadRealFilingEvidence(clientId: string, obligationType: Complian
       [clientId]
     );
     for (const r of rows) evidence.set(r.period_end, r.filing_date);
+  } else if (obligationType === "MD Withholding") {
+    // Recorded on the Accounting -> Withholding tab (state-agnostic table).
+    const rows = await query<any>(
+      `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date FROM altax.v3_withholding_filings WHERE client_id = $1`,
+      [clientId]
+    );
+    for (const r of rows) evidence.set(r.period_end, r.filed_date);
   } else if (obligationType === "MD UI") {
     const rows = await query<any>(
       `SELECT period_end::date::text AS period_end, filed_date::date::text AS filed_date FROM altax.v3_md_ui_filings

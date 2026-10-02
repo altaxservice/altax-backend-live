@@ -26,10 +26,12 @@ import { EftpsDepositSection } from "../components/EftpsDepositSection";
 import { AnnualReportSection } from "../components/AnnualReportSection";
 import { MdUiSection } from "../components/MdUiSection";
 import { Form941Section } from "../components/Form941Section";
+import { WithholdingSection } from "../components/WithholdingSection";
+import { clientStateLabel } from "../utils/clientStateLabels";
 
-const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
+const TABS = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Withholding", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End", "Tax Rates", "COA"] as const;
 type Tab = (typeof TABS)[number];
-const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
+const CLIENT_SCOPED_TABS: Tab[] = ["Sales", "Payroll", "Employees", "Import", "EFTPS Deposits", "Withholding", "Annual Report", "MD UI", "Form 941", "Contractors", "Manual JE", "Client Submissions", "Fixed Assets", "GL", "Paychecks", "Month-End", "Budget", "Bank Rec", "Check Settings", "Year-End"];
 
 function fmtMoney(v: unknown): string {
   const n = Number(v);
@@ -123,7 +125,7 @@ export function AccountingPage() {
               borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
             }}
           >
-            {t}
+            {clientStateLabel(t, client?.state)}
           </button>
         ))}
       </div>
@@ -136,6 +138,7 @@ export function AccountingPage() {
       {tab === "Employees" && clientId && <EmployeesTab clientId={clientId} clientState={client?.state} />}
       {tab === "Import" && clientId && <ImportTab clientId={clientId} />}
       {tab === "EFTPS Deposits" && clientId && <EftpsDepositSection clientId={clientId} />}
+      {tab === "Withholding" && clientId && <WithholdingSection clientId={clientId} />}
       {tab === "Annual Report" && clientId && <AnnualReportSection clientId={clientId} />}
       {tab === "MD UI" && clientId && <MdUiSection clientId={clientId} />}
       {tab === "Form 941" && clientId && <Form941Section clientId={clientId} />}

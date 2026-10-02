@@ -425,7 +425,7 @@ export function computeUpcomingDeadlines(params: {
   const mdWhFrequency = isMd && params.mdWithholdingFrequency ? MD_WITHHOLDING_FREQ_TO_RULE_FREQUENCY[params.mdWithholdingFrequency] : undefined;
   if (mdWhFrequency) {
     const period = computeDuePeriod({ frequency: mdWhFrequency, due_day: "15", due_month: "1" }, asOf);
-    if (period) deadlines.push({ label: "MD Withholding Payment", date: period.dueDate, source: "MD Withholding" });
+    if (period) deadlines.push({ label: "MD Withholding Payment", date: nextBusinessDay(period.dueDate), source: "MD Withholding" });
     const reconciliation = computeDuePeriod({ frequency: "Annual", due_day: "31", due_month: "1" }, asOf);
     if (reconciliation) deadlines.push({ label: "MD Withholding Annual Reconciliation (MW508)", date: reconciliation.dueDate, source: "MD Withholding" });
   }

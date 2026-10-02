@@ -45,7 +45,7 @@ function toDateOnlyStr(v: unknown): string {
 }
 
 export interface ScheduleReminderInput {
-  sourceSystem: "MdFiling" | "DcFiling" | "ObligationCompletion" | "Task" | "AnnualReportFiling" | "MdUiFiling" | "Form941Filing";
+  sourceSystem: "MdFiling" | "DcFiling" | "WithholdingFiling" | "ObligationCompletion" | "Task" | "AnnualReportFiling" | "MdUiFiling" | "Form941Filing";
   sourceRecordId: string;
   clientId: string;
   filingType: string;
@@ -110,6 +110,11 @@ async function isStillUnpaid(sourceSystem: string, sourceRecordId: string): Prom
   if (sourceSystem === "DcFiling") {
     const [clientId, periodEnd] = sourceRecordId.split(":");
     const row = await queryOne<any>(`SELECT paid_date FROM altax.v3_dc_filing_payments WHERE client_id = $1 AND period_end = $2`, [clientId, periodEnd]);
+    return !row || !row.paid_date;
+  }
+  if (sourceSystem === "WithholdingFiling") {
+    const [clientId, periodEnd] = sourceRecordId.split(":");
+    const row = await queryOne<any>(`SELECT paid_date FROM altax.v3_withholding_filings WHERE client_id = $1 AND period_end = $2`, [clientId, periodEnd]);
     return !row || !row.paid_date;
   }
   if (sourceSystem === "ObligationCompletion") {

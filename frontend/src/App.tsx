@@ -71,6 +71,7 @@ import { PublicEftpsDepositPage } from "./pages/PublicEftpsDepositPage";
 import { PublicMdFilingPage } from "./pages/PublicMdFilingPage";
 import { PublicAnnualReportPage } from "./pages/PublicAnnualReportPage";
 import { PublicMdUiPage } from "./pages/PublicMdUiPage";
+import { PublicStateFilingPage } from "./pages/PublicStateFilingPage";
 import { PublicForm941Page } from "./pages/PublicForm941Page";
 import { KioskPage } from "./pages/KioskPage";
 import { KioskSettingsPage } from "./pages/KioskSettingsPage";
@@ -100,6 +101,8 @@ function App() {
           <Route path="/public/md-filing/:token" element={<PublicMdFilingPage />} />
           <Route path="/public/annual-report/:token" element={<PublicAnnualReportPage />} />
           <Route path="/public/md-ui/:token" element={<PublicMdUiPage />} />
+          <Route path="/public/withholding/:token" element={<PublicStateFilingPage basePath="/public/withholding" defaultTitle="Withholding Tax Filing" amountLabel="Tax Withheld" />} />
+          <Route path="/public/dc-filing/:token" element={<PublicStateFilingPage basePath="/public/dc-filing" defaultTitle="DC Sales & Use Tax Filing" amountLabel="Tax Due" />} />
           <Route path="/public/form941/:token" element={<PublicForm941Page />} />
           <Route path="/kiosk/:token" element={<KioskPage />} />
           <Route path="/kiosk" element={<KioskPage />} />

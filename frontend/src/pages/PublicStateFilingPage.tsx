@@ -1,0 +1,105 @@
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { api, ApiError } from "../api/client";
+import { ErrorBanner } from "../components/ErrorBanner";
+import { PublicPageShell } from "../components/PublicPageShell";
+
+interface PublicFiling {
+  client_name: string; filing_type?: string; period_start: string; period_end: string;
+  filed_date: string; paid_date: string | null; tax_due: number | string | null; balance_due: number | string | null;
+  on_time: boolean | null; acknowledged_at: string | null;
+}
+
+function fmtDate(v: unknown): string {
+  if (!v) return "—";
+  const d = new Date(`${String(v).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+function money(v: unknown): string {
+  const n = Number(v);
+  return v !== null && v !== undefined && Number.isFinite(n) ? `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+}
+
+/**
+ * Public, no-login filing view + acknowledge — the destination of the "View &
+ * Acknowledge" link in a filing confirmation email/SMS. One page for the state
+ * filings that share this shape (withholding, DC sales tax): `basePath` is the
+ * public API prefix the link points at and `defaultTitle` is the heading when
+ * the API doesn't name the filing itself.
+ */
+export function PublicStateFilingPage({ basePath, defaultTitle, amountLabel }: { basePath: string; defaultTitle: string; amountLabel: string }) {
+  const { token } = useParams<{ token: string }>();
+  const [filing, setFiling] = useState<PublicFiling | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [acknowledging, setAcknowledging] = useState(false);
+
+  function load() {
+    if (!token) return;
+    api.get<{ filing: PublicFiling }>(`${basePath}/${token}`)
+      .then((r) => setFiling(r.filing))
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Could not load this filing."));
+  }
+  useEffect(load, [token]);
+
+  async function handleAcknowledge() {
+    if (!token) return;
+    setAcknowledging(true);
+    try {
+      await api.post(`${basePath}/${token}/acknowledge`, {});
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record your acknowledgement.");
+    } finally {
+      setAcknowledging(false);
+    }
+  }
+
+  const pageStyle = { maxWidth: 640, margin: "40px auto", padding: "0 20px", fontFamily: "inherit" };
+  if (error) return <PublicPageShell><div style={pageStyle}><ErrorBanner error={error} /></div></PublicPageShell>;
+  if (!filing) return <PublicPageShell><div style={pageStyle}><div className="spinner-wrap">Loading…</div></div></PublicPageShell>;
+
+  const hasBalance = filing.balance_due !== null && filing.tax_due !== null && Math.round(Number(filing.balance_due) * 100) !== Math.round(Number(filing.tax_due) * 100);
+  return (
+    <PublicPageShell>
+      <div style={pageStyle}>
+        <div style={{ borderLeft: "4px solid var(--teal)", paddingLeft: 16, marginBottom: 4 }}>
+          <div style={{ fontSize: 12, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--teal)", fontWeight: 700 }}>{filing.client_name}</div>
+          <h1 style={{ fontSize: 24, margin: "4px 0 0", fontWeight: 800, letterSpacing: -0.3 }}>{filing.filing_type || defaultTitle}</h1>
+          <p className="muted" style={{ fontSize: 13.5, margin: "6px 0 0" }}>Period {fmtDate(filing.period_start)} – {fmtDate(filing.period_end)}</p>
+        </div>
+
+        <div className="card" style={{ marginTop: 20, marginBottom: 20, overflow: "hidden", padding: 0 }}>
+          <div style={{ background: "var(--surface-2, #f0f7f6)", padding: "14px 18px", borderBottom: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", color: "var(--muted)", fontWeight: 700, marginBottom: 4 }}>{amountLabel}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "var(--teal)" }}>{money(filing.tax_due)}</div>
+          </div>
+          {hasBalance && (
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+              <span className="muted">Balance Due (with late charges)</span>
+              <span style={{ textAlign: "right" }}>{money(filing.balance_due)}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Filed Date</span>
+            <span style={{ textAlign: "right" }}>{fmtDate(filing.filed_date)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 18px" }}>
+            <span className="muted">Payment Date</span>
+            <span style={{ textAlign: "right" }}>{filing.paid_date ? fmtDate(filing.paid_date) : <span className="muted">Pending</span>}</span>
+          </div>
+        </div>
+
+        {filing.acknowledged_at ? (
+          <div className="card" style={{ borderColor: "var(--teal)", background: "var(--surface-2, #f0f7f6)" }}>
+            <strong style={{ color: "var(--teal)" }}>✓ Acknowledged</strong>
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>You confirmed receipt of this filing.</div>
+          </div>
+        ) : (
+          <button className="btn btn-primary" onClick={handleAcknowledge} disabled={acknowledging}>
+            {acknowledging ? "Recording…" : "Acknowledge This Filing"}
+          </button>
+        )}
+      </div>
+    </PublicPageShell>
+  );
+}
