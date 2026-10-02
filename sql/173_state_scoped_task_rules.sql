@@ -63,3 +63,14 @@ VALUES
     ('TR-DE-REC-S', 'DE Annual Withholding Reconciliation (WTH-REC)', 'MD Withholding Frequency', 'Semiannual', 'Annual', '1', '31', false, true, 'Delaware Division of Revenue', NULL, '14,7,3', true, 'Added 2026-10-02 from DE''s own published due dates; see complianceCalendar.ts.', 'DE'),
     ('TR-DE-REC-A', 'DE Annual Withholding Reconciliation (WTH-REC)', 'MD Withholding Frequency', 'Annually', 'Annual', '1', '31', false, true, 'Delaware Division of Revenue', NULL, '14,7,3', true, 'Added 2026-10-02 from DE''s own published due dates; see complianceCalendar.ts.', 'DE')
 ON CONFLICT (rule_id) DO NOTHING;
+
+-- Belt and braces for deploy order: the new rules also carry a plain
+-- "State = XX" second condition, which the rule engine has always honored, so
+-- even if this migration runs before the code that understands state_scope is
+-- live, a DC/VA/PA/DE rule can never match a Maryland client. (Their trigger
+-- columns are the MD-named flags, which every Maryland client has.)
+UPDATE altax.v3_task_rules
+   SET trigger_column_2 = 'State', trigger_value_2 = state_scope, updated_at = now()
+ WHERE rule_id LIKE 'TR-__-%'
+   AND state_scope IN ('DC', 'VA', 'PA', 'DE')
+   AND COALESCE(btrim(trigger_column_2), '') = '';
